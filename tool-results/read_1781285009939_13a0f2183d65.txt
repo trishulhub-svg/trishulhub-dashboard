@@ -1,0 +1,725 @@
+     1→import { z } from "zod"
+     2→import { VALID_LEAVE_TYPES, type LeaveType } from "@/lib/types"
+     3→
+     4→// ━━ Task Schemas ━━
+     5→export const createTaskSchema = z.object({
+     6→  title: z.string().min(1, "Title is required").max(500),
+     7→  description: z.string().max(50000).optional(),
+     8→  projectId: z.string().min(1, "Project ID is required").optional(),
+     9→  assignedTo: z.string().optional(),
+    10→  assigneeType: z.enum(["HUMAN", "AI"]).optional(),
+    11→  status: z.enum(["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL", "DONE"]).optional(),
+    12→  priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(),
+    13→  deadline: z.string().optional(),
+    14→  category: z.enum(["GENERAL", "MEETING", "FOLLOW_UP", "UPGRADE", "CUSTOMER", "INTERNAL"]).optional(),
+    15→})
+    16→
+    17→export const updateTaskSchema = z.object({
+    18→  id: z.string().min(1, "Task ID is required"),
+    19→  title: z.string().min(1).max(500).optional(),
+    20→  description: z.string().max(50000).optional(),
+    21→  projectId: z.string().min(1).nullable().optional(),
+    22→  assignedTo: z.string().nullable().optional(),
+    23→  assigneeType: z.enum(["HUMAN", "AI"]).optional(),
+    24→  status: z.enum(["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL", "DONE"]).optional(),
+    25→  priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(),
+    26→  deadline: z.string().nullable().optional(),
+    27→  category: z.enum(["GENERAL", "MEETING", "FOLLOW_UP", "UPGRADE", "CUSTOMER", "INTERNAL"]).optional(),
+    28→})
+    29→
+    30→// ━━ Project Member Schema ━━
+    31→export const createProjectMemberSchema = z.object({
+    32→  userId: z.string().min(1, "User ID is required"),
+    33→  projectId: z.string().min(1, "Project ID is required"),
+    34→  role: z.enum(["MEMBER", "LEAD"]).default("MEMBER"),
+    35→})
+    36→
+    37→// ━━ Project Credential Schema ━━
+    38→export const createCredentialSchema = z.object({
+    39→  title: z.string().min(1, "Title is required").max(200),
+    40→  username: z.string().min(1, "Username is required").max(500),
+    41→  password: z.string().min(1, "Password is required").max(1000),
+    42→  projectId: z.string().min(1, "Project ID is required"),
+    43→})
+    44→
+    45→// ━━ Project Schemas ━━
+    46→export const createProjectSchema = z.object({
+    47→  name: z.string().min(1, "Project name is required").max(200),
+    48→  description: z.string().max(2000).optional(),
+    49→  clientId: z.string().min(1).optional().or(z.literal(null).optional()),
+    50→  status: z.enum(["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"]).optional(),
+    51→  progress: z.number().int().min(0).max(100).optional(),
+    52→  deadline: z.string().optional(),
+    53→  budget: z.number().min(0).optional(),
+    54→  websites: z.array(z.object({
+    55→    url: z.string().min(1, "URL is required").max(500),
+    56→    label: z.string().max(100).nullable().optional(),
+    57→    isPrimary: z.boolean().optional(),
+    58→  })).optional(),
+    59→})
+    60→
+    61→export const updateProjectSchema = z.object({
+    62→  id: z.string().min(1),
+    63→  name: z.string().min(1).max(200).optional(),
+    64→  description: z.string().max(2000).optional(),
+    65→  status: z.enum(["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"]).optional(),
+    66→  progress: z.number().int().min(0).max(100).optional(),
+    67→  deadline: z.string().optional(),
+    68→  budget: z.number().min(0).optional(),
+    69→})
+    70→
+    71→// ━━ Clients ━━
+    72→export const createClientSchema = z.object({
+    73→  name: z.string().min(1, "Client name is required").max(200),
+    74→  email: z.string().email("Valid email is required"),
+    75→  phone: z.string().optional(),
+    76→  company: z.string().optional(),
+    77→  website: z.string().optional(),
+    78→  status: z.enum(["ACTIVE", "INACTIVE", "ONBOARDING", "PAUSED", "COMPLETED", "CHURNED"]).optional(),
+    79→  userId: z.string().optional(),
+    80→  notes: z.string().optional(),
+    81→  projectType: z.string().max(100).optional(),
+    82→  projectMethodId: z.string().max(100).optional(),
+    83→  projectStartDate: z.string().optional().refine((val) => { if (!val) return true; return !isNaN(Date.parse(val)); }, { message: "projectStartDate must be a valid date" }),
+    84→  deliveryDate: z.string().optional().refine((val) => { if (!val) return true; return !isNaN(Date.parse(val)); }, { message: "deliveryDate must be a valid date" }),
+    85→  websites: z.array(z.object({
+    86→    url: z.string().min(1, "URL is required").max(500).refine(val => /^https?:\/\/.+\..+/.test(val), { message: "URL must start with http:// or https://" }),
+    87→    label: z.string().max(100).nullable().optional(),
+    88→    isPrimary: z.boolean().optional(),
+    89→  })).optional(),
+    90→  mediatorName: z.string().max(200).nullable().optional(),
+    91→  mediatorPhone: z.string().max(50).nullable().optional(),
+    92→  mediatorEmail: z.string().email("Valid mediator email is required").max(200).nullable().optional(),
+    93→  createdAt: z.string()
+    94→    .optional()
+    95→    .refine((val) => {
+    96→      if (!val) return true
+    97→      const parsed = Date.parse(val)
+    98→      return !isNaN(parsed)
+    99→    }, { message: "createdAt must be a valid date string" })
+   100→    .refine((val) => {
+   101→      if (!val) return true
+   102→      return Date.parse(val) <= Date.now()
+   103→    }, { message: "createdAt must not be in the future" })
+   104→    .refine((val) => {
+   105→      if (!val) return true
+   106→      return Date.parse(val) >= Date.parse('2020-01-01')
+   107→    }, { message: "createdAt must be after 2020-01-01" }),
+   108→})
+   109→
+   110→// Named helper for update schema "at least one field" validation
+   111→const hasAtLeastOneField = (data: Record<string, unknown>) => Object.values(data).some(v => v !== undefined)
+   112→
+   113→export const updateClientSchema = z.object({
+   114→  id: z.string().min(1, "Client ID is required"),
+   115→  name: z.string().min(1).max(200).optional(),
+   116→  email: z.string().email("Valid email is required").nullable().optional(),
+   117→  phone: z.string().nullable().optional(),
+   118→  company: z.string().nullable().optional(),
+   119→  website: z.string().nullable().optional(),
+   120→  status: z.enum(["ACTIVE", "INACTIVE", "ONBOARDING", "PAUSED", "COMPLETED", "CHURNED"]).nullable().optional(),
+   121→  userId: z.string().nullable().optional(),
+   122→  notes: z.string().nullable().optional(),
+   123→  projectType: z.string().max(100).nullable().optional(),
+   124→  projectMethodId: z.string().max(100).nullable().optional(),
+   125→  projectStartDate: z.string().nullable().optional().refine((val) => { if (!val) return true; return !isNaN(Date.parse(val)); }, { message: "projectStartDate must be a valid date string" }),
+   126→  deliveryDate: z.string().nullable().optional().refine((val) => { if (!val) return true; return !isNaN(Date.parse(val)); }, { message: "deliveryDate must be a valid date string" }),
+   127→  websites: z.array(z.object({
+   128→    url: z.string().min(1, "URL is required").max(500).refine(val => /^https?:\/\/.+\..+/.test(val), { message: "URL must start with http:// or https://" }),
+   129→    label: z.string().max(100).nullable().optional(),
+   130→    isPrimary: z.boolean().optional(),
+   131→  })).nullable().optional(),
+   132→  mediatorName: z.string().max(200).nullable().optional(),
+   133→  mediatorPhone: z.string().max(50).nullable().optional(),
+   134→  mediatorEmail: z.string().email("Valid mediator email is required").max(200).nullable().optional(),
+   135→}).refine(hasAtLeastOneField, { message: "At least one field must be provided" })
+   136→
+   137→// ━━ Invoices ━━
+   138→export const createInvoiceSchema = z.object({
+   139→  clientId: z.string().min(1),
+   140→  projectId: z.string().optional(),
+   141→  items: z.union([
+   142→    z.string(),
+   143→    z.array(z.object({
+   144→      description: z.string(),
+   145→      quantity: z.number().min(1),
+   146→      rate: z.number().min(0),
+   147→    }))
+   148→  ]).optional(),
+   149→  subtotal: z.number().min(0).max(99_999_999).finite().optional().describe("Subtotal before tax"),
+   150→  tax: z.number().min(0).max(99_999_999).finite().optional(),
+   151→  total: z.number().min(0).max(99_999_999).finite().optional().describe("Total including tax"),
+   152→  status: z.enum(["DRAFT", "SENT", "PAID", "OVERDUE"]).optional(),
+   153→  dueDate: z.string().optional(),
+   154→  paymentMethod: z.enum(["UPI", "CREDIT_DEBIT_CARD", "BANK_TRANSFER", "OTHER"]).nullable().optional(),
+   155→  gst: z.number().min(0).max(99_999_999).finite().optional(),
+   156→  gstPercent: z.number().min(0).max(100).optional(),
+   157→  notes: z.string().max(5000).nullable().optional(),
+   158→  paymentStatus: z.enum(["PAID", "UNPAID", "DUE"]).optional(),
+   159→  invoiceNumber: z.string().max(50).optional(),
+   160→  // Note: If not provided, backend auto-generates one. Optional is correct here.
+   161→})
+   162→.refine((data) => {
+   163→  const sub = data.subtotal ?? 0;
+   164→  const tax = data.tax ?? 0;
+   165→  const gst = data.gst ?? 0;
+   166→  if (data.total !== undefined) {
+   167→    return Math.abs(data.total - sub - tax - gst) < 0.01;
+   168→  }
+   169→  return true; // total not provided — backend will compute it
+   170→}, { message: "total must equal subtotal + tax + gst" })
+   171→
+   172→export const updateInvoiceSchema = z.object({
+   173→  id: z.string().min(1),
+   174→  invoiceNumber: z.string().max(50).optional(),
+   175→  clientId: z.string().optional(),
+   176→  projectId: z.string().nullable().optional(),
+   177→  items: z.union([z.string(), z.array(z.object({ description: z.string(), quantity: z.number().min(1), rate: z.number().min(0) }))]).optional(),
+   178→  subtotal: z.number().min(0).max(99_999_999).finite().optional().describe("Subtotal before tax"),
+   179→  tax: z.number().min(0).max(99_999_999).finite().optional(),
+   180→  total: z.number().min(0).max(99_999_999).finite().optional().describe("Total including tax"),
+   181→  status: z.enum(["DRAFT", "SENT", "PAID", "OVERDUE"]).optional(),
+   182→  dueDate: z.string().nullable().optional(),
+   183→  paidAt: z.string().nullable().optional(),
+   184→  paymentMethod: z.enum(["UPI", "CREDIT_DEBIT_CARD", "BANK_TRANSFER", "OTHER"]).nullable().optional(),
+   185→  gst: z.number().min(0).max(99_999_999).finite().optional(),
+   186→  gstPercent: z.number().min(0).max(100).optional(),
+   187→  notes: z.string().max(5000).nullable().optional(),
+   188→  paymentStatus: z.enum(["PAID", "UNPAID", "DUE"]).optional(),
+   189→  sentById: z.string().max(100).nullable().optional(),
+   190→})
+   191→.refine(hasAtLeastOneField, { message: "At least one field must be provided" })
+   192→.refine((data) => {
+   193→  const sub = data.subtotal ?? 0;
+   194→  const tax = data.tax ?? 0;
+   195→  const gst = data.gst ?? 0;
+   196→  if (data.total !== undefined) {
+   197→    return Math.abs(data.total - sub - tax - gst) < 0.01;
+   198→  }
+   199→  return true; // total not provided — backend will compute it
+   200→}, { message: "total must equal subtotal + tax + gst" })
+   201→
+   202→export const createExpenseSchema = z.object({
+   203→  category: z.enum(["HOSTING", "DOMAINS", "API_COSTS", "TOOLS", "MARKETING", "SALARY", "SOFTWARE", "OTHER"]),
+   204→  description: z.string().min(1).max(2000),
+   205→  amount: z.number().min(0).max(99_999_999).finite().describe("Amount in selected currency"),
+   206→  date: z.string().min(1), // ISO date string — validated as Date at API level
+   207→  receiptUrl: z.string().max(500).optional().nullable(),
+   208→  projectId: z.string().max(100).optional().nullable(),
+   209→  employeeId: z.string().max(100).optional().nullable(),
+   210→  paymentRef: z.string().max(200).optional().nullable(),
+   211→  notes: z.string().max(5000).optional().nullable(),
+   212→})
+   213→
+   214→export const updateExpenseSchema = z.object({
+   215→  id: z.string().min(1),
+   216→  category: z.enum(["HOSTING", "DOMAINS", "API_COSTS", "TOOLS", "MARKETING", "SALARY", "SOFTWARE", "OTHER"]).optional(),
+   217→  description: z.string().max(2000).optional(),
+   218→  amount: z.number().min(0).max(99_999_999).finite().optional(),
+   219→  date: z.string().optional(),
+   220→  receiptUrl: z.string().url().nullable().optional(),
+   221→  projectId: z.string().nullable().optional(),
+   222→  employeeId: z.string().max(100).nullable().optional(),
+   223→  paymentRef: z.string().max(200).nullable().optional(),
+   224→})
+   225→
+   226→// ━━ Leads ━━
+   227→export const createLeadSchema = z.object({
+   228→  name: z.string().min(1, "Name is required").max(200, "Name must be at most 200 characters"),
+   229→  email: z.string().email("Valid email is required").max(200, "Email must be at most 200 characters"),
+   230→  company: z.string().max(200, "Company must be at most 200 characters").optional(),
+   231→  website: z.string().max(500, "Website must be at most 500 characters").optional(),
+   232→  phone: z.string().max(50, "Phone must be at most 50 characters").optional(),
+   233→  source: z.enum(["MANUAL", "AI_FOUND", "REFERRAL", "SOCIAL_MEDIA"]).optional(),
+   234→  score: z.number().int().min(0).max(100).optional(),
+   235→  status: z.enum(["NEW", "CONTACTED", "INTERESTED", "PROPOSAL", "NEGOTIATING", "WON", "LOST"]).optional(),
+   236→  notes: z.string().max(5000, "Notes must be at most 5000 characters").optional(),
+   237→  clientId: z.string().optional(),
+   238→})
+   239→
+   240→export const updateLeadSchema = z.object({
+   241→  id: z.string().min(1, "Lead ID is required"),
+   242→  name: z.string().min(1).max(200).optional(),
+   243→  email: z.string().email("Valid email is required").max(200).optional(),
+   244→  company: z.string().max(200).optional(),
+   245→  website: z.string().max(500).optional(),
+   246→  phone: z.string().max(50).optional(),
+   247→  source: z.enum(["MANUAL", "AI_FOUND", "REFERRAL", "SOCIAL_MEDIA"]).optional(),
+   248→  score: z.number().int().min(0).max(100).optional(),
+   249→  status: z.enum(["NEW", "CONTACTED", "INTERESTED", "PROPOSAL", "NEGOTIATING", "WON", "LOST"]).optional(),
+   250→  notes: z.string().max(5000).optional(),
+   251→  clientId: z.string().optional(),
+   252→}).refine(hasAtLeastOneField, { message: "At least one field must be provided" })
+   253→
+   254→// ━━ Support Tickets ━━
+   255→export const createSupportTicketSchema = z.object({
+   256→  clientId: z.string().optional(),
+   257→  subject: z.string().min(1, "Subject is required").max(300),
+   258→  description: z.string().min(1, "Description is required").max(10000),
+   259→  priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(),
+   260→})
+   261→
+   262→export const updateSupportTicketSchema = z.object({
+   263→  id: z.string().min(1, "Ticket ID is required"),
+   264→  subject: z.string().max(300).optional(),
+   265→  description: z.string().max(10000).optional(),
+   266→  priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(),
+   267→  status: z.enum(["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"]).optional(),
+   268→  assignedTo: z.string().nullable().optional(),
+   269→  resolution: z.string().max(5000).optional(),
+   270→}).refine(hasAtLeastOneField, { message: "At least one field must be provided" })
+   271→
+   272→// Backward compatibility alias
+   273→export const supportTicketSchema = createSupportTicketSchema
+   274→
+   275→// ━━ Time Tracking ━━
+   276→export const startTimeEntrySchema = z.object({
+   277→  projectId: z.string().optional(),
+   278→  description: z.string().max(500).optional(),
+   279→})
+   280→
+   281→export const updateTimeEntrySchema = z.object({
+   282→  id: z.string().min(1),
+   283→  description: z.string().max(500).optional(),
+   284→  projectId: z.string().optional(),
+   285→  status: z.enum(["ACTIVE", "COMPLETED"]).optional(),
+   286→})
+   287→
+   288→// W32: Time format validation regex (HH:mm with proper hour/minute ranges)
+   289→const timeFormat = z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Time must be in HH:mm format (00:00–23:59)")
+   290→
+   291→export const createMeetingSchema = z.object({
+   292→  title: z.string().min(1, "Meeting title is required").max(200),
+   293→  description: z.string().max(2000).optional(),
+   294→  date: z.string().min(1, "Date is required"),
+   295→  startTime: timeFormat.min(1, "Start time is required"),
+   296→  endTime: timeFormat.optional(),
+   297→  meetingType: z.enum(["VIRTUAL", "IN_PERSON", "PHONE"]).optional(),
+   298→  meetingLink: z.string()
+   299→    .max(2048)
+   300→    .url("Must be a valid URL")
+   301→    .refine((url) => /^https?:\/\//.test(url), { message: "Must use http:// or https://" })
+   302→    .optional()
+   303→    .or(z.literal("")),
+   304→  projectId: z.string().optional(),
+   305→  attendeeIds: z.array(z.string().min(1)).max(50, "Maximum 50 attendees per meeting").optional(),
+   306→  notes: z.string().max(2000).optional(),
+   307→}).refine(
+   308→  (data) => {
+   309→    if (data.startTime && data.endTime) {
+   310→      const [startH, startM] = data.startTime.split(":").map(Number)
+   311→      const [endH, endM] = data.endTime.split(":").map(Number)
+   312→      const startMinutes = startH * 60 + startM
+   313→      const endMinutes = endH * 60 + endM
+   314→      // If end time is less than start time, it means the meeting goes past midnight (overnight)
+   315→      if (endMinutes <= startMinutes) {
+   316→        return endMinutes !== startMinutes // valid as long as not the exact same time (0 min duration)
+   317→      }
+   318→      return true
+   319→    }
+   320→    return true
+   321→  },
+   322→  { message: "End time must be after start time", path: ["endTime"] }
+   323→)
+   324→
+   325→export const updateMeetingSchema = z.object({
+   326→  id: z.string().min(1),
+   327→  title: z.string().min(1).max(200).optional(),
+   328→  description: z.string().max(2000).optional(),
+   329→  date: z.string().optional(),
+   330→  startTime: timeFormat.optional(),
+   331→  endTime: timeFormat.optional(),
+   332→  meetingType: z.enum(["VIRTUAL", "IN_PERSON", "PHONE"]).optional(),
+   333→  meetingLink: z.string()
+   334→    .max(2048)
+   335→    .url("Must be a valid URL")
+   336→    .refine((url) => /^https?:\/\//.test(url), { message: "Must use http:// or https://" })
+   337→    .optional()
+   338→    .or(z.literal("")),
+   339→  projectId: z.string().optional(),
+   340→  status: z.enum(["SCHEDULED", "IN_PROGRESS", "COMPLETED", "CANCELLED"]).optional(),
+   341→  attendeeIds: z.array(z.string().min(1)).max(50, "Maximum 50 attendees per meeting").optional(),
+   342→  notes: z.string().max(2000).optional(),
+   343→}).refine(
+   344→  (data) => {
+   345→    if (data.startTime && data.endTime) {
+   346→      const [startH, startM] = data.startTime.split(":").map(Number)
+   347→      const [endH, endM] = data.endTime.split(":").map(Number)
+   348→      const startMinutes = startH * 60 + startM
+   349→      const endMinutes = endH * 60 + endM
+   350→      // If end time is less than start time, it means the meeting goes past midnight (overnight)
+   351→      if (endMinutes <= startMinutes) {
+   352→        return endMinutes !== startMinutes // valid as long as not the exact same time (0 min duration)
+   353→      }
+   354→      return true
+   355→    }
+   356→    return true
+   357→  },
+   358→  { message: "End time must be after start time", path: ["endTime"] }
+   359→)
+   360→
+   361→// ━━ Subscriptions ━━
+   362→export const createSubscriptionSchema = z.object({
+   363→  service: z.string().min(1, "Service name is required").max(200),
+   364→  amount: z.number().min(0, "Amount must be positive").max(99_999_999).finite(),
+   365→  currency: z.enum(["INR", "GBP", "USD"]).optional(),
+   366→  exchangeRate: z.number().min(0).optional(),
+   367→  frequency: z.enum(["MONTHLY", "YEARLY", "ONE_TIME"]).optional(),
+   368→  status: z.enum(["ACTIVE", "STOPPED", "COMPLETED", "EXPIRED", "PAUSED"]).optional(),
+   369→  category: z.string().optional(),
+   370→  projectId: z.string().optional(),
+   371→  startDate: z.string().optional(),
+   372→  endDate: z.string().optional(),
+   373→  notes: z.string().max(2000).optional(),
+   374→})
+   375→
+   376→export const updateSubscriptionSchema = z.object({
+   377→  id: z.string().min(1),
+   378→  service: z.string().min(1).max(200).optional(),
+   379→  amount: z.number().min(0).max(99_999_999).finite().optional().describe("Amount in selected currency"),
+   380→  currency: z.enum(["INR", "GBP", "USD"]).optional(),
+   381→  exchangeRate: z.number().min(0).optional(),
+   382→  frequency: z.enum(["MONTHLY", "YEARLY", "ONE_TIME"]).optional(),
+   383→  status: z.enum(["ACTIVE", "STOPPED", "COMPLETED", "EXPIRED", "PAUSED"]).optional(),
+   384→  category: z.string().optional(),
+   385→  projectId: z.string().optional(),
+   386→  endDate: z.string().optional(),
+   387→  notes: z.string().max(2000).optional(),
+   388→}).refine(hasAtLeastOneField, { message: "At least one field must be provided" })
+   389→
+   390→/**
+   391→ * Validates data against a schema and returns either the validated data or an error response
+   392→ * @param schema - The Zod schema to validate against
+   393→ * @param data - The unknown data to validate
+   394→ * @returns An object with either success=true and validated data, or success=false and an error message
+   395→ */
+   396→export function validateRequest<T>(schema: z.ZodSchema<T>, data: unknown): { success: true; data: T } | { success: false; error: string } {
+   397→  const result = schema.safeParse(data)
+   398→  if (!result.success) {
+   399→    const firstError = result.error.issues?.[0]
+   400→    return { success: false, error: firstError?.message || "Invalid input" }
+   401→  }
+   402→  return { success: true, data: result.data }
+   403→}
+   404→
+   405→// ━━ Deals ━━
+   406→export const createDealSchema = z.object({
+   407→  title: z.string().min(1, "Deal title is required").max(300, "Title must be at most 300 characters"),
+   408→  value: z.number().min(0, "Value must be positive").max(99_999_999).finite().optional(),
+   409→  currency: z.enum(["USD", "GBP", "INR"]).optional(),
+   410→  stage: z.enum(["LEAD", "QUALIFIED", "PROPOSAL", "NEGOTIATION", "CLOSED_WON", "CLOSED_LOST"]).optional(),
+   411→  probability: z.number().int().min(0).max(100).optional(),
+   412→  expectedCloseDate: z.string().optional().refine((val) => {
+   413→    if (!val) return true
+   414→    return !isNaN(Date.parse(val))
+   415→  }, { message: "expectedCloseDate must be a valid date string" }),
+   416→  clientId: z.string().optional(),
+   417→  leadId: z.string().optional(),
+   418→  assignedToId: z.string().optional(),
+   419→  notes: z.string().max(5000, "Notes must be at most 5000 characters").optional(),
+   420→})
+   421→
+   422→export const updateDealSchema = z.object({
+   423→  id: z.string().min(1, "Deal ID is required"),
+   424→  title: z.string().min(1).max(300).optional(),
+   425→  value: z.number().min(0).max(99_999_999).finite().optional(),
+   426→  currency: z.enum(["USD", "GBP", "INR"]).optional(),
+   427→  stage: z.enum(["LEAD", "QUALIFIED", "PROPOSAL", "NEGOTIATION", "CLOSED_WON", "CLOSED_LOST"]).optional(),
+   428→  probability: z.number().int().min(0).max(100).optional(),
+   429→  expectedCloseDate: z.string().optional().refine((val) => { if (!val) return true; return !isNaN(Date.parse(val)); }, { message: "expectedCloseDate must be a valid date string" }),
+   430→  actualCloseDate: z.string().optional().refine((val) => { if (!val) return true; return !isNaN(Date.parse(val)); }, { message: "actualCloseDate must be a valid date string" }),
+   431→  clientId: z.string().nullable().optional(),
+   432→  leadId: z.string().nullable().optional(),
+   433→  assignedToId: z.string().nullable().optional(),
+   434→  notes: z.string().max(5000).optional(),
+   435→}).refine(hasAtLeastOneField, { message: "At least one field must be provided" })
+   436→
+   437→// ━━ Contacts ━━
+   438→export const createContactSchema = z.object({
+   439→  firstName: z.string().min(1, "First name is required").max(100, "First name must be at most 100 characters"),
+   440→  lastName: z.string().max(100).optional(),
+   441→  email: z.string().email("Valid email is required").max(200, "Email must be at most 200 characters"),
+   442→  phone: z.string().max(50).optional(),
+   443→  jobTitle: z.string().max(200).optional(),
+   444→  clientId: z.string().optional(),
+   445→  leadId: z.string().optional(),
+   446→  notes: z.string().max(5000).optional(),
+   447→  isPrimary: z.boolean().optional(),
+   448→})
+   449→
+   450→export const updateContactSchema = z.object({
+   451→  id: z.string().min(1, "Contact ID is required"),
+   452→  firstName: z.string().min(1).max(100).optional(),
+   453→  lastName: z.string().max(100).optional(),
+   454→  email: z.string().email("Valid email is required").max(200).optional(),
+   455→  phone: z.string().max(50).optional(),
+   456→  jobTitle: z.string().max(200).optional(),
+   457→  clientId: z.string().nullable().optional(),
+   458→  leadId: z.string().nullable().optional(),
+   459→  notes: z.string().max(5000).optional(),
+   460→  isPrimary: z.boolean().optional(),
+   461→}).refine(hasAtLeastOneField, { message: "At least one field must be provided" })
+   462→
+   463→// ━━ Contracts ━━
+   464→export const createContractSchema = z.object({
+   465→  clientId: z.string().min(1, "Client ID is required"),
+   466→  title: z.string().max(500).optional(),
+   467→  scopeOfWork: z.string().max(50000).optional(),
+   468→  paymentTerms: z.string().max(10000).optional(),
+   469→  totalValue: z.number().min(0).max(99_999_999).finite().optional(),
+   470→  currency: z.enum(["USD", "GBP", "INR"]).optional(),
+   471→  paymentSchedule: z.string().max(10000).optional(),
+   472→  startDate: z.string().optional(),
+   473→  endDate: z.string().optional(),
+   474→  termsAndConditions: z.string().max(50000).optional(),
+   475→  templateText: z.string().max(50000).optional(),
+   476→  templateFileName: z.string().max(500).optional(),
+   477→  useAI: z.boolean().optional(),
+   478→  // Backend auto-generates if not provided
+   479→  contractNumber: z.string().optional(),
+   480→})
+   481→
+   482→export const updateContractSchema = z.object({
+   483→  id: z.string().min(1, "Contract ID is required"),
+   484→  title: z.string().max(500).optional(),
+   485→  scopeOfWork: z.string().max(50000).optional(),
+   486→  paymentTerms: z.string().max(10000).optional(),
+   487→  totalValue: z.number().min(0).max(99_999_999).finite().optional(),
+   488→  currency: z.enum(["USD", "GBP", "INR"]).optional(),
+   489→  paymentSchedule: z.string().max(10000).optional(),
+   490→  startDate: z.string().optional(),
+   491→  endDate: z.string().optional(),
+   492→  termsAndConditions: z.string().max(50000).optional(),
+   493→  amendments: z.string().max(10000).optional(),
+   494→  specialClauses: z.string().max(10000).optional(),
+   495→  clientName: z.string().max(200).optional(),
+   496→  clientEmail: z.string().max(200).optional(),
+   497→  clientCompany: z.string().max(200).optional(),
+   498→  clientPhone: z.string().max(50).optional(),
+   499→  clientAddress: z.string().max(500).optional(),
+   500→  projectName: z.string().max(200).optional(),
+   501→  projectDescription: z.string().max(5000).optional(),
+   502→  projectType: z.string().max(100).optional(),
+   503→  projectMethod: z.string().max(100).optional(),
+   504→  status: z.enum(["DRAFT", "SENT", "SIGNED", "EXPIRED", "CANCELLED"]).optional(),
+   505→}).refine(hasAtLeastOneField, { message: "At least one field must be provided" })
+   506→
+   507→// ━━ Admin Time Entry ━━
+   508→// Admin manual entry creation (can specify userId, clockIn, clockOut)
+   509→export const adminCreateTimeEntrySchema = z.object({
+   510→  userId: z.string().min(1, "User ID is required"),
+   511→  projectId: z.string().optional(),
+   512→  description: z.string().max(1000).optional(),
+   513→  clockIn: z.string().min(1, "Clock-in time is required"), // ISO date string
+   514→  clockOut: z.string().optional(), // ISO date string - if provided, entry is COMPLETED
+   515→}).refine(data => {
+   516→  if (data.clockOut) {
+   517→    const clockIn = new Date(data.clockIn);
+   518→    const clockOut = new Date(data.clockOut);
+   519→    return clockOut > clockIn; // clockOut must be after clockIn
+   520→  }
+   521→  return true;
+   522→}, { message: "Clock-out must be after clock-in", path: ["clockOut"] })
+   523→
+   524→// Admin update entry (can edit clockIn, clockOut, description, projectId)
+   525→export const adminUpdateTimeEntrySchema = z.object({
+   526→  id: z.string().min(1),
+   527→  description: z.string().max(1000).optional(),
+   528→  projectId: z.string().nullable().optional(),
+   529→  clockIn: z.string().optional(), // ISO date string
+   530→  clockOut: z.string().nullable().optional(), // ISO date string (null to clear)
+   531→}).refine(data => {
+   532→  if (data.clockIn && data.clockOut) {
+   533→    const clockIn = new Date(data.clockIn);
+   534→    const clockOut = new Date(data.clockOut);
+   535→    return clockOut > clockIn;
+   536→  }
+   537→  return true;
+   538→}, { message: "Clock-out must be after clock-in", path: ["clockOut"] })
+   539→
+   540→// === HR Validation Schemas ===
+   541→
+   542→// Re-export from types.ts to avoid duplication (L22)
+   543→export { VALID_LEAVE_TYPES, type LeaveType } from "@/lib/types"
+   544→
+   545→export const VALID_LEAVE_STATUSES = [
+   546→  "PENDING",
+   547→  "APPROVED",
+   548→  "REJECTED",
+   549→  "CANCELLED",
+   550→] as const;
+   551→
+   552→export const VALID_ATTENDANCE_STATUSES = [
+   553→  "PRESENT",
+   554→  "ABSENT",
+   555→  "HALF_DAY",
+   556→  "LEAVE",
+   557→  "NO_SCHEDULE",
+   558→] as const;
+   559→
+   560→export const createLeaveSchema = z.object({
+   561→  userId: z.string().min(1).optional(),
+   562→  leaveType: z.enum(VALID_LEAVE_TYPES),
+   563→  startDate: z.string().min(1),
+   564→  endDate: z.string().min(1),
+   565→  reason: z.string().max(1000).optional(),
+   566→}).refine(data => {
+   567→  const start = new Date(data.startDate);
+   568→  const end = new Date(data.endDate);
+   569→  return end >= start;
+   570→}, { message: "endDate must be on or after startDate" });
+   571→
+   572→export const updateLeaveSchema = z.object({
+   573→  leaveType: z.enum(VALID_LEAVE_TYPES).optional(),
+   574→  startDate: z.string().min(1).optional(),
+   575→  endDate: z.string().min(1).optional(),
+   576→  reason: z.string().max(1000).optional(),
+   577→  status: z.enum(VALID_LEAVE_STATUSES).optional(),
+   578→  feedback: z.string().max(500).optional(),
+   579→}).refine(data => {
+   580→  if (data.startDate && data.endDate) {
+   581→    return new Date(data.endDate) >= new Date(data.startDate);
+   582→  }
+   583→  return true;
+   584→}, { message: "endDate must be on or after startDate" });
+   585→
+   586→export const createAttendanceSchema = z.object({
+   587→  userId: z.string().min(1),
+   588→  date: z.string().min(1),
+   589→  checkIn: z.string().min(1),
+   590→  checkOut: z.string().optional(),
+   591→  status: z.enum(VALID_ATTENDANCE_STATUSES),
+   592→  notes: z.string().max(500).optional(),
+   593→});
+   594→
+   595→export const updateAttendanceSchema = z.object({
+   596→  checkIn: z.string().optional(),
+   597→  checkOut: z.string().optional(),
+   598→  status: z.enum(VALID_ATTENDANCE_STATUSES).optional(),
+   599→  notes: z.string().max(500).optional(),
+   600→});
+   601→
+   602→export const createAvailabilitySchema = z.object({
+   603→  userId: z.string().min(1),
+   604→  dayOfWeek: z.number().int().min(0).max(6),
+   605→  startTime: z.string().regex(/^\d{2}:\d{2}$/, "Must be HH:mm format"),
+   606→  endTime: z.string().regex(/^\d{2}:\d{2}$/, "Must be HH:mm format"),
+   607→  isAvailable: z.boolean().default(true),
+   608→});
+   609→
+   610→export const updateAvailabilitySchema = z.object({
+   611→  dayOfWeek: z.number().int().min(0).max(6).optional(),
+   612→  startTime: z.string().regex(/^\d{2}:\d{2}$/, "Must be HH:mm format").optional(),
+   613→  endTime: z.string().regex(/^\d{2}:\d{2}$/, "Must be HH:mm format").optional(),
+   614→  isAvailable: z.boolean().optional(),
+   615→});
+   616→
+   617→export const createOverrideSchema = z.object({
+   618→  userId: z.string().min(1),
+   619→  date: z.string().min(1),
+   620→  startTime: z.string().optional(),
+   621→  endTime: z.string().optional(),
+   622→  isAvailable: z.boolean(),
+   623→  reason: z.string().max(200).optional(),
+   624→});
+   625→
+   626→export const updateOverrideSchema = z.object({
+   627→  date: z.string().min(1).optional(),
+   628→  startTime: z.string().optional(),
+   629→  endTime: z.string().optional(),
+   630→  isAvailable: z.boolean().optional(),
+   631→  reason: z.string().max(200).optional(),
+   632→});
+   633→
+   634→export const createTrainingDocSchema = z.object({
+   635→  topic: z.string().min(1).max(200),
+   636→  brief: z.string().max(2000).optional(),
+   637→  attachmentText: z.string().max(50000).optional(),
+   638→});
+   639→
+   640→export const createTrainingTestSchema = z.object({
+   641→  documentId: z.string().min(1),
+   642→  level: z.enum(["LOW", "MEDIUM", "HIGH"]).default("MEDIUM"),
+   643→});
+   644→
+   645→export const createAssignmentSchema = z.object({
+   646→  documentId: z.string().min(1),
+   647→  testId: z.string().optional(),
+   648→  assignedTo: z.string().min(1),
+   649→  testLevel: z.enum(["LOW", "MEDIUM", "HIGH"]).default("MEDIUM"),
+   650→  dueDate: z.string().min(1).optional(),
+   651→});
+   652→
+   653→export const submitTestAttemptSchema = z.object({
+   654→  assignmentId: z.string().min(1),
+   655→  answers: z.array(z.number().int().min(0)),
+   656→  timeTaken: z.number().min(0).optional(),
+   657→});
+   658→
+   659→export const VALID_RSVPS = ["PENDING", "ACCEPTED", "DECLINED"] as const;
+   660→
+   661→export const rsvpSchema = z.object({
+   662→  // TODO: Field name 'status' in schema vs 'rsvpStatus' in route — should be unified
+   663→  status: z.enum(VALID_RSVPS),
+   664→});
+   665→
+   666→// === Phase 8 Validation Schemas ===
+   667→
+   668→// Support Ticket — additional schemas (existing ones above use `subject`)
+   669→export const createTicketMessageSchema = z.object({
+   670→  message: z.string().min(1).max(50000),
+   671→})
+   672→
+   673→// Approval
+   674→export const validApprovalTypes = [
+   675→  "TASK",
+   676→  "INVOICE",
+   677→  "EMAIL",
+   678→  "QUOTATION",
+   679→  "PROJECT_PLAN",
+   680→  "CODE_REVIEW",
+   681→  "LEAD_OUTREACH",
+   682→  "CONTENT_PIECE",
+   683→  "CHAT_DELETION",
+   684→] as const
+   685→
+   686→export const createApprovalSchema = z.object({
+   687→  title: z.string().min(1).max(200),
+   688→  description: z.string().min(1).max(2000),
+   689→  type: z.enum(validApprovalTypes),
+   690→  requesterType: z.enum(["AI", "HUMAN"]).default("HUMAN"),
+   691→  data: z.record(z.string(), z.unknown()).optional(),
+   692→})
+   693→
+   694→export const patchApprovalSchema = z.object({
+   695→  id: z.string().min(1),
+   696→  status: z.enum(["APPROVED", "REJECTED", "NEEDS_IMPROVEMENT"]),
+   697→  feedback: z.string().max(2000).optional(),
+   698→})
+   699→
+   700→// API Key
+   701→export const createApiKeySchema = z.object({
+   702→  name: z.string().min(1).max(100),
+   703→  provider: z.enum(["OPENROUTER", "GOOGLE_AI", "ZAI", "ANTHROPIC", "OPENAI", "CUSTOM"]).optional(),
+   704→  keyValue: z.string().min(1).max(500),
+   705→  budgetLimit: z.number().min(0).optional(),
+   706→})
+   707→
+   708→export const updateApiKeySchema = z.object({
+   709→  name: z.string().min(1).max(100).optional(),
+   710→  provider: z.string().max(50).optional(),
+   711→  status: z.enum(["ACTIVE", "INACTIVE", "EXHAUSTED"]).optional(),
+   712→  budgetLimit: z.number().min(0).optional(),
+   713→})
+   714→
+   715→// Notification Preference
+   716→const hhMmRegex = /^([01]\d|2[0-3]):([0-5]\d)$/
+   717→
+   718→export const updateNotificationPreferenceSchema = z.object({
+   719→  emailNotifications: z.boolean().optional(),
+   720→  pushNotifications: z.boolean().optional(),
+   721→  quietHoursEnabled: z.boolean().optional(),
+   722→  quietHoursStart: z.string().regex(hhMmRegex).nullable().optional(),
+   723→  quietHoursEnd: z.string().regex(hhMmRegex).nullable().optional(),
+   724→})
+   725→

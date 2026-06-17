@@ -1,0 +1,581 @@
+     1→"use client";
+     2→
+     3→import { useEffect, useState, useCallback } from "react";
+     4→import { useRouter } from "next/navigation";
+     5→import { useSession } from "next-auth/react";
+     6→import {
+     7→  Rocket, DollarSign, FolderKanban, TrendingUp, AlertCircle,
+     8→  Clock, ArrowRight, Plus, Send, Shield,
+     9→  ClipboardList, IndianRupee, Wallet, ChevronDown,
+    10→} from "lucide-react";
+    11→import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+    12→import { Button } from "@/components/ui/button";
+    13→import { Badge } from "@/components/ui/badge";
+    14→import { Progress } from "@/components/ui/progress";
+    15→import { Skeleton } from "@/components/ui/skeleton";
+    16→import { cn, safeArray, safeJsonParse, safeText, deepSanitize, safeNumber, safeDate } from "@/lib/utils";
+    17→
+    18→const invoiceStatusColors: Record<string, string> = {
+    19→  DRAFT: "bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200",
+    20→  SENT: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+    21→  PAID: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+    22→  OVERDUE: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+    23→};
+    24→
+    25→export default function DashboardPage() {
+    26→  const router = useRouter();
+    27→  const { data: session, status } = useSession();
+    28→  const isSessionLoading = status === "loading";
+    29→  const [data, setData] = useState<Record<string, unknown> | null>(null);
+    30→  const [loading, setLoading] = useState(true);
+    31→  const [error, setError] = useState(false);
+    32→  const [earnings, setEarnings] = useState<{ totalINR: number; totalGBP: number; entries: Array<{ id: string; description: string; amount: number; date: string; paymentRef: string | null }> } | null>(null);
+    33→  const [showEarningsDetail, setShowEarningsDetail] = useState(false);
+    34→
+    35→  const userRole = session?.user?.role || "DEVELOPER";
+    36→  const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+    37→
+    38→  const fetchDashboard = useCallback(async () => {
+    39→    try {
+    40→      const res = await fetch("/api/dashboard", { credentials: 'include' });
+    41→      if (res.ok) {
+    42→        const json = await res.json();
+    43→        // ZAI FIX #310: Deep sanitize dashboard data to strip any non-serializable values
+    44→        setData(deepSanitize<Record<string, unknown>>(json));
+    45→      } else {
+    46→        setError(true);
+    47→      }
+    48→    } catch (err) {
+    49→      console.error("Dashboard fetch error:", err);
+    50→      setError(true);
+    51→    } finally {
+    52→      setLoading(false);
+    53→    }
+    54→  }, []);
+    55→
+    56→  useEffect(() => {
+    57→    fetchDashboard();
+    58→    // Fetch earnings/salary data
+    59→    fetch("/api/earnings", { credentials: 'include' })
+    60→      .then(r => r.ok ? r.json() : null)
+    61→      .then(d => { if (d) setEarnings(d); })
+    62→      .catch(() => {});
+    63→  }, [fetchDashboard]);
+    64→
+    65→  // SECURITY FIX: Removed auto-seed that could unintentionally seed the database.
+    66→  // Seeding should only happen via explicit admin action at /api/setup POST.
+    67→  // If the dashboard fails to load, show an error state instead.
+    68→
+    69→  if (isSessionLoading || loading || (!data && !error)) {
+    70→    return (
+    71→      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6">
+    72→        {/* Animated dual-ring spinner */}
+    73→        <div className="relative">
+    74→          <div className="w-20 h-20 rounded-full border-[3px] border-muted border-t-primary animate-spin" />
+    75→          <div
+    76→            className="absolute inset-2 rounded-full border-[3px] border-muted border-b-primary/50"
+    77→            style={{ animation: 'spin 1.8s linear infinite reverse' }}
+    78→          />
+    79→          <div className="absolute inset-0 flex items-center justify-center">
+    80→            <Rocket className="h-7 w-7 text-primary" />
+    81→          </div>
+    82→        </div>
+    83→        {/* Text */}
+    84→        <div className="text-center space-y-2">
+    85→          <h3 className="text-lg font-semibold">Workspace is updating</h3>
+    86→          <p className="text-sm text-muted-foreground animate-pulse">Syncing your dashboard data...</p>
+    87→        </div>
+    88→        {/* Animated dots */}
+    89→        <div className="flex gap-1.5">
+    90→          <div className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce" style={{ animationDelay: '0ms' }} />
+    91→          <div className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce" style={{ animationDelay: '150ms' }} />
+    92→          <div className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce" style={{ animationDelay: '300ms' }} />
+    93→        </div>
+    94→      </div>
+    95→    );
+    96→  }
+    97→
+    98→  if (error) {
+    99→    return (
+   100→      <div className="space-y-6 max-w-7xl">
+   101→        <Card className="border-destructive">
+   102→          <CardContent className="pt-6">
+   103→            <div className="text-center">
+   104→              <AlertCircle className="h-8 w-8 mx-auto text-destructive mb-2" />
+   105→              <p className="text-sm text-muted-foreground">Failed to load dashboard data</p>
+   106→              <Button size="sm" variant="outline" className="mt-2" onClick={() => { setError(false); setLoading(true); fetchDashboard(); }}>Retry</Button>
+   107→            </div>
+   108→          </CardContent>
+   109→        </Card>
+   110→      </div>
+   111→    );
+   112→  }
+   113→
+   114→  if (!data) return null;
+   115→
+   116→  // DASH-004: Safe default object with safeNumber — replaces unsafe `as` cast
+   117→  const rawStats = (data.stats || {}) as Record<string, unknown>;
+   118→  const stats = {
+   119→    totalRevenue: safeNumber(rawStats.totalRevenue),
+   120→    pendingAmount: safeNumber(rawStats.pendingAmount),
+   121→    overdueAmount: safeNumber(rawStats.overdueAmount),
+   122→    totalExpenses: safeNumber(rawStats.totalExpenses),
+   123→    totalApiSpend: safeNumber(rawStats.totalApiSpend),
+   124→    monthlyBudget: safeNumber(rawStats.monthlyBudget),
+   125→    newLeadsCount: safeNumber(rawStats.newLeadsCount),
+   126→    activeProjects: safeNumber(rawStats.activeProjects),
+   127→    openTickets: safeNumber(rawStats.openTickets),
+   128→    pendingTasks: safeNumber(rawStats.pendingTasks),
+   129→    totalClients: safeNumber(rawStats.totalClients),
+   130→    totalLeads: safeNumber(rawStats.totalLeads),
+   131→  };
+   132→
+   133→  const projects = safeArray<{ id: string; name: string; status: string; progress: number; deadline: string | null; client: { name: string } }>(data.projects);
+   134→  const invoices = safeArray<{ id: string; invoiceNumber: string; status: string; total: number; client: { name: string }; dueDate: string }>(data.invoices);
+   135→  const apiKeys = safeArray<{ id: string; keyName: string; currentSpend: number; monthlyBudget: number }>(data.apiKeys);
+   136→  // DASH-005: Extract tasks data for developer "My Tasks" section
+   137→  const tasks = safeArray<{ id: string; title: string; status: string; priority: string; project: { name: string } }>(data.tasks);
+   138→
+   139→  // W9: Extract frequently-used stats to local variables to avoid redundant safeNumber() calls
+   140→  const budget = stats.monthlyBudget;
+   141→  const apiSpend = stats.totalApiSpend;
+   142→  const totalRevenue = stats.totalRevenue;
+   143→  const pendingAmount = stats.pendingAmount;
+   144→  const overdueAmount = stats.overdueAmount;
+   145→  const totalExpenses = stats.totalExpenses;
+   146→  const activeProjects = stats.activeProjects;
+   147→  const totalClients = stats.totalClients;
+   148→  const newLeadsCount = stats.newLeadsCount;
+   149→  const totalLeads = stats.totalLeads;
+   150→  const openTickets = stats.openTickets;
+   151→  const pendingTasks = stats.pendingTasks;
+   152→
+   153→  const formatCurrency = (n: number) => `₹${n.toLocaleString("en-IN")}`;
+   154→
+   155→  return (
+   156→    <div className="space-y-6">
+   157→      <div className="flex items-center justify-between flex-wrap gap-2">
+   158→        <div>
+   159→          <h1 className="text-xl sm:text-2xl font-bold">Dashboard</h1>
+   160→          <p className="text-muted-foreground text-xs sm:text-sm">
+   161→            {isAdminUser 
+   162→              ? "Welcome back! Here's your overview." 
+   163→              : "Welcome back! Here's your project overview."}
+   164→          </p>
+   165→        </div>
+   166→        <div className="flex flex-wrap gap-2">
+   167→          {isAdminUser && (
+   168→            <Button size="sm" onClick={() => router.push("/dashboard/projects")}>
+   169→              <Plus className="h-4 w-4 mr-1" /> New Project
+   170→            </Button>
+   171→          )}
+   172→          <Button size="sm" variant="outline" onClick={() => router.push("/dashboard/workspace")}>
+   173→            <Rocket className="h-4 w-4 mr-1" /> Open Workspace
+   174→          </Button>
+   175→          {isAdminUser && (
+   176→            <Button size="sm" variant="outline" onClick={() => router.push("/dashboard/finance/invoices")}>
+   177→              <Send className="h-4 w-4 mr-1" /> Send Invoice
+   178→            </Button>
+   179→          )}
+   180→        </div>
+   181→      </div>
+   182→
+   183→      {/* Stats Cards - Different for developers vs admins */}
+   184→      {/* DASH-001: All stat cards are now clickable with onClick, cursor-pointer, hover effect */}
+   185→      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+   186→        <Card
+   187→          onClick={() => router.push("/dashboard/projects")}
+   188→          className="cursor-pointer hover:shadow-md transition-shadow liquid-glass-card"
+   189→        >
+   190→          <CardContent className="p-4">
+   191→            <div className="flex items-center justify-between">
+   192→              <div>
+   193→                <p className="text-sm text-muted-foreground">Active Projects</p>
+   194→                {/* DASH-003: All stats values wrapped in safeNumber() */}
+   195→                <p className="text-2xl font-bold">{activeProjects}</p>
+   196→              </div>
+   197→              <div className="h-10 w-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+   198→                <FolderKanban className="h-5 w-5 text-blue-600" />
+   199→              </div>
+   200→            </div>
+   201→            <p className="text-xs text-muted-foreground mt-2">{totalClients} clients total</p>
+   202→          </CardContent>
+   203→        </Card>
+   204→
+   205→        {isAdminUser ? (
+   206→          <>
+   207→            <Card
+   208→              onClick={() => router.push("/dashboard/crm")}
+   209→              className="cursor-pointer hover:shadow-md transition-shadow liquid-glass-card"
+   210→            >
+   211→              <CardContent className="p-4">
+   212→                <div className="flex items-center justify-between">
+   213→                  <div>
+   214→                    <p className="text-sm text-muted-foreground">New Leads</p>
+   215→                    <p className="text-2xl font-bold">{newLeadsCount}</p>
+   216→                  </div>
+   217→                  <div className="h-10 w-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+   218→                    <TrendingUp className="h-5 w-5 text-green-600" />
+   219→                  </div>
+   220→                </div>
+   221→                <p className="text-xs text-muted-foreground mt-2">{totalLeads} total leads</p>
+   222→              </CardContent>
+   223→            </Card>
+   224→
+   225→            <Card
+   226→              onClick={() => router.push("/dashboard/finance")}
+   227→              className="cursor-pointer hover:shadow-md transition-shadow liquid-glass-card"
+   228→            >
+   229→              <CardContent className="p-4">
+   230→                <div className="flex items-center justify-between">
+   231→                  <div>
+   232→                    <p className="text-sm text-muted-foreground">Revenue</p>
+   233→                    <p className="text-2xl font-bold">{formatCurrency(totalRevenue)}</p>
+   234→                  </div>
+   235→                  <div className="h-10 w-10 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+   236→                    <DollarSign className="h-5 w-5 text-emerald-600" />
+   237→                  </div>
+   238→                </div>
+   239→                <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 text-xs text-muted-foreground">
+   240→                  <span>Pending: {formatCurrency(pendingAmount)}</span>
+   241→                  {overdueAmount > 0 && <span className="text-red-500">Overdue: {formatCurrency(overdueAmount)}</span>}
+   242→                </div>
+   243→              </CardContent>
+   244→            </Card>
+   245→          </>
+   246→        ) : (
+   247→          <>
+   248→            <Card
+   249→              onClick={() => router.push("/dashboard/projects")}
+   250→              className="cursor-pointer hover:shadow-md transition-shadow liquid-glass-card"
+   251→            >
+   252→              <CardContent className="p-4">
+   253→                <div className="flex items-center justify-between">
+   254→                  <div>
+   255→                    <p className="text-sm text-muted-foreground">My Tasks</p>
+   256→                    <p className="text-2xl font-bold">{pendingTasks}</p>
+   257→                  </div>
+   258→                  <div className="h-10 w-10 rounded-full bg-yellow-100 dark:bg-yellow-900/30 flex items-center justify-center">
+   259→                    <ClipboardList className="h-5 w-5 text-yellow-600" />
+   260→                  </div>
+   261→                </div>
+   262→                <p className="text-xs text-muted-foreground mt-2">Pending tasks in your projects</p>
+   263→              </CardContent>
+   264→            </Card>
+   265→
+   266→            <Card
+   267→              onClick={() => router.push("/dashboard/projects")}
+   268→              className="cursor-pointer hover:shadow-md transition-shadow liquid-glass-card"
+   269→            >
+   270→              <CardContent className="p-4">
+   271→                <div className="flex items-center justify-between">
+   272→                  <div>
+   273→                    <p className="text-sm text-muted-foreground">Open Tickets</p>
+   274→                    <p className="text-2xl font-bold">{openTickets}</p>
+   275→                  </div>
+   276→                  <div className="h-10 w-10 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
+   277→                    <AlertCircle className="h-5 w-5 text-orange-600" />
+   278→                  </div>
+   279→                </div>
+   280→                <p className="text-xs text-muted-foreground mt-2">Support tickets in your projects</p>
+   281→              </CardContent>
+   282→            </Card>
+   283→          </>
+   284→        )}
+   285→
+   286→        <Card
+   287→          onClick={() => router.push("/dashboard/projects")}
+   288→          className="cursor-pointer hover:shadow-md transition-shadow liquid-glass-card"
+   289→        >
+   290→          <CardContent className="p-4">
+   291→            <div className="flex items-center justify-between">
+   292→              <div>
+   293→                <p className="text-sm text-muted-foreground">{isAdminUser ? "Pending Tasks" : "Team Tasks"}</p>
+   294→                <p className="text-2xl font-bold">{pendingTasks}</p>
+   295→              </div>
+   296→              <div className="h-10 w-10 rounded-full bg-yellow-100 dark:bg-yellow-900/30 flex items-center justify-center">
+   297→                <Shield className="h-5 w-5 text-yellow-600" />
+   298→              </div>
+   299→            </div>
+   300→            <p className="text-xs text-muted-foreground mt-2">{openTickets} open tickets</p>
+   301→          </CardContent>
+   302→        </Card>
+   303→      </div>
+   304→
+   305→      {/* ── Earnings / Salary Card ── */}
+   306→      {earnings && (
+   307→        <Card className="liquid-glass-card">
+   308→          <CardHeader className="pb-3">
+   309→            <div className="flex items-center justify-between">
+   310→              <CardTitle className="text-base flex items-center gap-2">
+   311→                <Wallet className="h-4 w-4 text-emerald-500" /> My Earnings
+   312→              </CardTitle>
+   313→              <Button
+   314→                variant="ghost"
+   315→                size="sm"
+   316→                onClick={() => setShowEarningsDetail(!showEarningsDetail)}
+   317→                className="h-7 text-xs gap-1"
+   318→              >
+   319→                {showEarningsDetail ? "Hide" : "Details"}
+   320→                <ChevronDown className={cn("h-3 w-3 transition-transform", showEarningsDetail && "rotate-180")} />
+   321→              </Button>
+   322→            </div>
+   323→            <CardDescription>Total salary disbursed to date</CardDescription>
+   324→          </CardHeader>
+   325→          <CardContent>
+   326→            <div className="flex items-center gap-4 mb-1">
+   327→              <div className="h-10 w-10 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+   328→                <IndianRupee className="h-5 w-5 text-emerald-600" />
+   329→              </div>
+   330→              <div>
+   331→                <p className="text-2xl font-bold">₹{earnings.totalINR.toLocaleString("en-IN")}</p>
+   332→                <p className="text-xs text-muted-foreground">≈ £{earnings.totalGBP.toLocaleString("en-GB", { minimumFractionDigits: 2 })} GBP</p>
+   333→              </div>
+   334→            </div>
+   335→            {earnings.entries.length > 0 && (
+   336→              <p className="text-[11px] text-muted-foreground mt-2">
+   337→                {earnings.entries.length} salary {earnings.entries.length === 1 ? "entry" : "entries"} recorded
+   338→              </p>
+   339→            )}
+   340→            {showEarningsDetail && earnings.entries.length > 0 && (
+   341→              <div className="mt-3 space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+   342→                {earnings.entries.map((entry) => (
+   343→                  <div key={entry.id} className="flex items-center justify-between p-2.5 rounded-lg border bg-background/50 text-sm">
+   344→                    <div className="min-w-0">
+   345→                      <p className="font-medium truncate">{safeText(entry.description, "Salary")}</p>
+   346→                      <p className="text-[11px] text-muted-foreground">
+   347→                        {safeDate(entry.date)}
+   348→                        {entry.paymentRef ? ` · Ref: ${safeText(entry.paymentRef, "")}` : ""}
+   349→                      </p>
+   350→                    </div>
+   351→                    <p className="font-semibold shrink-0 ml-3">₹{safeNumber(entry.amount).toLocaleString("en-IN")}</p>
+   352→                  </div>
+   353→                ))}
+   354→              </div>
+   355→            )}
+   356→          </CardContent>
+   357→        </Card>
+   358→      )}
+   359→
+   360→      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+   361→        {/* Active Projects */}
+   362→        <Card className="lg:col-span-3">
+   363→          <CardHeader className="pb-3">
+   364→            <div className="flex items-center justify-between">
+   365→              <CardTitle className="text-base">{isAdminUser ? "Active Projects" : "My Projects"}</CardTitle>
+   366→              <Button variant="ghost" size="sm" onClick={() => router.push("/dashboard/projects")}>
+   367→                View All <ArrowRight className="h-3 w-3 ml-1" />
+   368→              </Button>
+   369→            </div>
+   370→          </CardHeader>
+   371→          <CardContent>
+   372→            <div className="space-y-3 max-h-48 sm:max-h-64 overflow-y-auto custom-scrollbar">
+   373→              {projects.length === 0 ? (
+   374→                <p className="text-sm text-muted-foreground text-center py-8">
+   375→                  {isAdminUser ? "No active projects" : "No projects assigned yet. Contact your admin to get assigned to a project."}
+   376→                </p>
+   377→              ) : (
+   378→                projects.map((project) => {
+   379→                  const pClient = project.client as Record<string, unknown> | undefined;
+   380→                  // DASH-007: Cache safeNumber result for project progress
+   381→                  const progress = safeNumber(project.progress);
+   382→                  return (
+   383→                  <button
+   384→                    key={safeText(project.id, "")}
+   385→                    onClick={() => router.push(`/dashboard/projects/${safeText(project.id, "")}`)}
+   386→                    className="flex items-center gap-3 w-full p-2 rounded-lg hover:bg-muted transition-colors text-left"
+   387→                    type="button"
+   388→                  >
+   389→                    <FolderKanban className="h-5 w-5 text-muted-foreground shrink-0" />
+   390→                    <div className="flex-1 min-w-0">
+   391→                      <p className="text-sm font-medium truncate">{safeText(project.name, "Untitled")}</p>
+   392→                      <p className="text-xs text-muted-foreground">{pClient ? safeText(pClient.name, "Client") : "Client"}</p>
+   393→                    </div>
+   394→                    <div className="text-right shrink-0">
+   395→                      <p className="text-xs font-medium">{progress}%</p>
+   396→                      <Progress value={progress} className="h-1.5 w-16 mt-1" />
+   397→                    </div>
+   398→                  </button>
+   399→                  );
+   400→                })
+   401→              )}
+   402→            </div>
+   403→          </CardContent>
+   404→        </Card>
+   405→      </div>
+   406→
+   407→      {/* Bottom section - only show API tracker and Invoices for admins */}
+   408→      {isAdminUser && (
+   409→        <div className="grid gap-4 md:grid-cols-2">
+   410→          {/* API Usage Tracker */}
+   411→          <Card>
+   412→            {/* DASH-006: Added "View All" button to API Usage Tracker header */}
+   413→            <CardHeader className="pb-3">
+   414→              <div className="flex items-center justify-between">
+   415→                <div>
+   416→                  <CardTitle className="text-base">API Usage Tracker</CardTitle>
+   417→                  <CardDescription>Monthly budget and spending across all keys</CardDescription>
+   418→                </div>
+   419→                <Button variant="ghost" size="sm" onClick={() => router.push("/dashboard/api-keys")}>
+   420→                  View All <ArrowRight className="h-3 w-3 ml-1" />
+   421→                </Button>
+   422→              </div>
+   423→            </CardHeader>
+   424→            <CardContent>
+   425→              <div className="space-y-4">
+   426→                <div>
+   427→                  <div className="flex flex-wrap justify-between gap-1 text-xs sm:text-sm mb-1">
+   428→                    <span>Total Budget: ${budget.toFixed(2)}</span>
+   429→                    <span>Spent: ${apiSpend.toFixed(2)} ({budget > 0 ? ((apiSpend / budget) * 100).toFixed(1) : 0}%)</span>
+   430→                  </div>
+   431→                  <Progress
+   432→                    value={budget > 0 ? (apiSpend / budget) * 100 : 0}
+   433→                    className="h-3"
+   434→                  />
+   435→                </div>
+   436→                <div className="flex flex-wrap justify-between gap-1 text-xs text-muted-foreground">
+   437→                  <span>Remaining: ${(budget - apiSpend).toFixed(2)}</span>
+   438→                  <span>Expenses: {formatCurrency(totalExpenses)}</span>
+   439→                </div>
+   440→              </div>
+   441→            </CardContent>
+   442→          </Card>
+   443→
+   444→          {/* Recent Invoices */}
+   445→          <Card>
+   446→            <CardHeader className="pb-3">
+   447→              <div className="flex items-center justify-between">
+   448→                <CardTitle className="text-base">Recent Invoices</CardTitle>
+   449→                <Button variant="ghost" size="sm" onClick={() => router.push("/dashboard/finance/invoices")}>
+   450→                  View All <ArrowRight className="h-3 w-3 ml-1" />
+   451→                </Button>
+   452→              </div>
+   453→            </CardHeader>
+   454→            <CardContent>
+   455→              <div className="space-y-2 max-h-48 sm:max-h-64 overflow-y-auto custom-scrollbar">
+   456→                {invoices.length === 0 ? (
+   457→                  <p className="text-sm text-muted-foreground text-center py-8">No invoices</p>
+   458→                ) : (
+   459→                  invoices.slice(0, 5).map((inv) => (
+   460→                    // DASH-002: Changed invoice items from div to button with onClick navigation
+   461→                    <button
+   462→                      key={inv.id}
+   463→                      type="button"
+   464→                      onClick={() => router.push("/dashboard/finance/invoices")}
+   465→                      className="flex items-center justify-between w-full p-2 rounded-lg hover:bg-muted/50 cursor-pointer"
+   466→                    >
+   467→                      <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+   468→                        <DollarSign className="h-4 w-4 text-muted-foreground shrink-0" />
+   469→                        <div className="min-w-0">
+   470→                          <p className="text-sm font-medium truncate">{safeText(inv.invoiceNumber, "")}</p>
+   471→                          <p className="text-xs text-muted-foreground truncate">{inv.client ? safeText(inv.client.name, "") : ""}</p>
+   472→                        </div>
+   473→                      </div>
+   474→                      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+   475→                        <span className="text-xs sm:text-sm font-medium whitespace-nowrap">{formatCurrency(safeNumber(inv.total))}</span>
+   476→                        <Badge className={`text-[10px] shrink-0 ${invoiceStatusColors[inv.status] || ""}`}>
+   477→                          {safeText(inv.status, "")}
+   478→                        </Badge>
+   479→                      </div>
+   480→                    </button>
+   481→                  ))
+   482→                )}
+   483→              </div>
+   484→            </CardContent>
+   485→          </Card>
+   486→        </div>
+   487→      )}
+   488→
+   489→      {/* Developer-specific bottom section */}
+   490→      {!isAdminUser && (
+   491→        <div className="grid gap-4 md:grid-cols-2">
+   492→          {/* My Tasks Quick View */}
+   493→          <Card>
+   494→            <CardHeader className="pb-3">
+   495→              <div className="flex items-center justify-between">
+   496→                <CardTitle className="text-base">My Tasks</CardTitle>
+   497→                <Button variant="ghost" size="sm" onClick={() => router.push("/dashboard/projects")}>
+   498→                  View All <ArrowRight className="h-3 w-3 ml-1" />
+   499→                </Button>
+   500→              </div>
+   501→            </CardHeader>
+   502→            <CardContent>
+   503→              {/* DASH-005: Real task data from API instead of static placeholder */}
+   504→              <div className="space-y-2 max-h-48 sm:max-h-64 overflow-y-auto custom-scrollbar">
+   505→                {tasks.length === 0 ? (
+   506→                  <div className="text-center py-8 text-sm text-muted-foreground">
+   507→                    <ClipboardList className="h-10 w-10 mx-auto mb-3 text-muted-foreground/50" />
+   508→                    <p>No pending tasks</p>
+   509→                    <Button variant="outline" size="sm" className="mt-3" onClick={() => router.push("/dashboard/projects")}>
+   510→                      Go to Projects
+   511→                    </Button>
+   512→                  </div>
+   513→                ) : (
+   514→                  tasks.slice(0, 5).map((task) => (
+   515→                    <div key={safeText(task.id, "")} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50">
+   516→                      <div className={cn(
+   517→                        "h-2 w-2 rounded-full shrink-0",
+   518→                        task.status === "DONE" ? "bg-green-500" :
+   519→                        task.status === "IN_PROGRESS" ? "bg-blue-500" :
+   520→                        task.status === "REVIEW" ? "bg-yellow-500" : "bg-gray-400"
+   521→                      )} />
+   522→                      <div className="flex-1 min-w-0">
+   523→                        <p className="text-sm font-medium truncate">{safeText(task.title, "Untitled Task")}</p>
+   524→                        <p className="text-xs text-muted-foreground">{task.project ? safeText(task.project.name, "") : ""}</p>
+   525→                      </div>
+   526→                      <Badge variant="outline" className="text-[10px] shrink-0">{safeText(task.status, "")}</Badge>
+   527→                    </div>
+   528→                  ))
+   529→                )}
+   530→              </div>
+   531→            </CardContent>
+   532→          </Card>
+   533→
+   534→          {/* Quick Actions */}
+   535→          <Card>
+   536→            <CardHeader className="pb-3">
+   537→              <CardTitle className="text-base">Quick Actions</CardTitle>
+   538→              <CardDescription>Common actions for your workflow</CardDescription>
+   539→            </CardHeader>
+   540→            <CardContent className="space-y-2">
+   541→              <button 
+   542→                onClick={() => router.push("/dashboard/time-tracking")}
+   543→                className="flex items-center gap-3 w-full p-3 rounded-lg hover:bg-muted transition-colors text-left"
+   544→                type="button"
+   545→              >
+   546→                <Clock className="h-5 w-5 text-blue-500" />
+   547→                <div>
+   548→                  <p className="text-sm font-medium">Track Time</p>
+   549→                  <p className="text-xs text-muted-foreground">Log hours on your projects</p>
+   550→                </div>
+   551→              </button>
+   552→              <button 
+   553→                onClick={() => router.push("/dashboard/workspace")}
+   554→                className="flex items-center gap-3 w-full p-3 rounded-lg hover:bg-muted transition-colors text-left"
+   555→                type="button"
+   556→              >
+   557→                <Rocket className="h-5 w-5 text-purple-500" />
+   558→                <div>
+   559→                  <p className="text-sm font-medium">AI Workspace</p>
+   560→                  <p className="text-xs text-muted-foreground">Launch the AI-powered workspace</p>
+   561→                </div>
+   562→              </button>
+   563→              <button 
+   564→                onClick={() => router.push("/dashboard/leaves")}
+   565→                className="flex items-center gap-3 w-full p-3 rounded-lg hover:bg-muted transition-colors text-left"
+   566→                type="button"
+   567→              >
+   568→                <AlertCircle className="h-5 w-5 text-orange-500" />
+   569→                <div>
+   570→                  <p className="text-sm font-medium">Request Leave</p>
+   571→                  <p className="text-xs text-muted-foreground">Submit time-off requests</p>
+   572→                </div>
+   573→              </button>
+   574→            </CardContent>
+   575→          </Card>
+   576→        </div>
+   577→      )}
+   578→    </div>
+   579→  );
+   580→}
+   581→

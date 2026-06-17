@@ -1,0 +1,942 @@
+     1→"use client";
+     2→
+     3→import { usePathname, useRouter } from "next/navigation";
+     4→import { useSession, signOut } from "next-auth/react";
+     5→import {
+     6→  LayoutDashboard,
+     7→  Bot,
+     8→  Rocket,
+     9→  Users,
+    10→  FolderKanban,
+    11→  DollarSign,
+    12→  Key,
+    13→  Shield,
+    14→  Settings,
+    15→  LogOut,
+    16→  ChevronLeft,
+    17→  ChevronDown,
+    18→  Moon,
+    19→  Sun,
+    20→  Bell,
+    21→  Crosshair,
+    22→  Menu,
+    23→  Check,
+    24→  Trash2,
+    25→  Calendar,
+    26→  AlertTriangle,
+    27→  Info,
+    28→  CheckCircle2,
+    29→  X,
+    30→  XCircle,
+    31→  CalendarDays,
+    32→  Monitor,
+    33→  Eye,
+    34→  Briefcase,
+    35→  Clock,
+    36→  Video,
+    37→  GraduationCap,
+    38→  BookOpen,
+    39→  CalendarRange,
+    40→  ClipboardCheck,
+    41→  KeyRound,
+    42→  ScrollText,
+    43→  Kanban,
+    44→  Bird,
+    45→  FileText,
+    46→  ChevronRight,
+    47→} from "lucide-react";
+    48→import Image from "next/image";
+    49→import LoadingScreen from "@/components/ui/loading-screen";
+    50→import dynamic from "next/dynamic";
+    51→
+    52→const Agentation = dynamic(
+    53→  () => import("agentation").then((mod) => mod.Agentation),
+    54→  { ssr: false }
+    55→);
+    56→import { useTheme } from "next-themes";
+    57→import React, { useState, useEffect, useCallback, useMemo } from "react";
+    58→
+    59→import { cn, safeArray, safeDateStr, safeText } from "@/lib/utils";
+    60→import { Button } from "@/components/ui/button";
+    61→import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+    62→import { Badge } from "@/components/ui/badge";
+    63→import { ScrollArea } from "@/components/ui/scroll-area";
+    64→import { Separator } from "@/components/ui/separator";
+    65→import {
+    66→  DropdownMenu,
+    67→  DropdownMenuContent,
+    68→  DropdownMenuItem,
+    69→  DropdownMenuSeparator,
+    70→  DropdownMenuTrigger,
+    71→} from "@/components/ui/dropdown-menu";
+    72→import {
+    73→  Sheet,
+    74→  SheetContent,
+    75→  SheetHeader,
+    76→  SheetTitle,
+    77→  SheetTrigger,
+    78→} from "@/components/ui/sheet";
+    79→import type { UserRole } from "@/lib/types";
+    80→
+    81→interface NavItem {
+    82→  title: string;
+    83→  href: string;
+    84→  icon: React.ComponentType<{ className?: string }>;
+    85→  roles: UserRole[];
+    86→  children?: NavItem[];
+    87→}
+    88→
+    89→interface NavGroup {
+    90→  label: string;
+    91→  items: NavItem[];
+    92→}
+    93→
+    94→// Navigation organized into logical groups — industry-grade layout
+    95→const navGroups: NavGroup[] = [
+    96→  {
+    97→    label: "Overview",
+    98→    items: [
+    99→      { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+   100→      { title: "Workspace", href: "/dashboard/workspace", icon: Rocket, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+   101→    ],
+   102→  },
+   103→  {
+   104→    label: "Business",
+   105→    items: [
+   106→      { title: "CRM", href: "/dashboard/crm", icon: Crosshair, roles: ["SUPER_ADMIN", "ADMIN"] },
+   107→      { title: "Clients", href: "/dashboard/clients", icon: Briefcase, roles: ["SUPER_ADMIN", "ADMIN"] },
+   108→      { title: "Projects", href: "/dashboard/projects", icon: FolderKanban, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+   109→      { title: "Finance", href: "/dashboard/finance", icon: DollarSign, roles: ["SUPER_ADMIN", "ADMIN"] },
+   110→    ],
+   111→  },
+   112→  {
+   113→    label: "Tasks",
+   114→    items: [
+   115→      { title: "My Todos", href: "/dashboard/projects/todos", icon: ClipboardCheck, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+   116→      { title: "Task Board", href: "/dashboard/tasks", icon: Kanban, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+   117→    ],
+   118→  },
+   119→  {
+   120→    label: "Team & Work",
+   121→    items: [
+   122→      { title: "Team", href: "/dashboard/team", icon: Users, roles: ["SUPER_ADMIN", "ADMIN"] },
+   123→      { title: "Time Tracking", href: "/dashboard/time-tracking", icon: Clock, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+   124→      { title: "Time Table", href: "/dashboard/timetable", icon: CalendarRange, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+   125→      { title: "Meetings", href: "/dashboard/meetings", icon: Video, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+   126→    ],
+   127→  },
+   128→  {
+   129→    label: "HR & People",
+   130→    items: [
+   131→      { title: "Leaves", href: "/dashboard/leaves", icon: CalendarDays, roles: ["SUPER_ADMIN", "ADMIN"] },
+   132→      { title: "Availability", href: "/dashboard/availability", icon: Clock, roles: ["SUPER_ADMIN", "ADMIN"] },
+   133→      { title: "Approvals", href: "/dashboard/approvals", icon: Shield, roles: ["SUPER_ADMIN", "ADMIN"] },
+   134→    ],
+   135→  },
+   136→  {
+   137→    label: "Learning",
+   138→    items: [
+   139→      { title: "Training", href: "/dashboard/training", icon: GraduationCap, roles: ["SUPER_ADMIN", "ADMIN"] },
+   140→      { title: "My Training", href: "/dashboard/my-training", icon: BookOpen, roles: ["SUPER_ADMIN", "ADMIN"] },
+   141→    ],
+   142→  },
+   143→  {
+   144→    label: "System",
+   145→    items: [
+   146→      { title: "Audit Trail", href: "/dashboard/audit-trail", icon: ScrollText, roles: ["SUPER_ADMIN", "ADMIN"] },
+   147→      { title: "API Keys", href: "/dashboard/api-keys", icon: Key, roles: ["SUPER_ADMIN"] },
+   148→      {
+   149→        title: "Access Hub",
+   150→        href: "/dashboard/access-hub",
+   151→        icon: KeyRound,
+   152→        roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"],
+   153→        children: [
+   154→          { title: "Credentials", href: "/dashboard/access-hub?tab=credentials", icon: Shield, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+   155→          { title: "Protocol", href: "/dashboard/access-hub?tab=protocol", icon: FileText, roles: ["SUPER_ADMIN", "ADMIN"] },
+   156→          { title: "User Mapping", href: "/dashboard/access-hub?tab=lark-users", icon: Bird, roles: ["SUPER_ADMIN", "ADMIN"] },
+   157→          { title: "System Config", href: "/dashboard/access-hub?tab=system", icon: Settings, roles: ["SUPER_ADMIN", "ADMIN"] },
+   158→        ],
+   159→      },
+   160→      { title: "Settings", href: "/dashboard/settings", icon: Settings, roles: ["SUPER_ADMIN", "ADMIN"] },
+   161→    ],
+   162→  },
+   163→];
+   164→
+   165→// Flat list for header title lookup (order-independent, includes children)
+   166→const allNavItems = navGroups.flatMap((g) =>
+   167→  g.items.flatMap((item) => [item, ...(item.children || [])])
+   168→);
+   169→
+   170→interface PendingCounts {
+   171→  approvals: number;
+   172→  leaveRequests: number;
+   173→  tasksAwaitingApproval: number;
+   174→  total: number;
+   175→}
+   176→
+   177→// Nav badge response: flat map of nav-href → count
+   178→interface NavBadgeMap {
+   179→  [href: string]: number;
+   180→}
+   181→
+   182→interface NotificationItem {
+   183→  id: string;
+   184→  title: string;
+   185→  message: string;
+   186→  type: string;
+   187→  isRead: boolean;
+   188→  link: string | null;
+   189→  createdAt: string;
+   190→}
+   191→
+   192→const notifIcons: Record<string, React.ComponentType<{ className?: string }>> = {
+   193→  INFO: Info,
+   194→  WARNING: AlertTriangle,
+   195→  ERROR: XCircle,
+   196→  SUCCESS: CheckCircle2,
+   197→  TASK: Calendar,
+   198→  APPROVAL: Shield,
+   199→  AGENT: Bot,
+   200→};
+   201→
+   202→function formatRelativeTime(dateStr: string): string {
+   203→  if (!dateStr) return "unknown";
+   204→  const date = new Date(dateStr);
+   205→  if (isNaN(date.getTime())) return "unknown";
+   206→  const now = new Date();
+   207→  const diffMs = now.getTime() - date.getTime();
+   208→  const diffMin = Math.floor(diffMs / 60000);
+   209→  if (diffMin < 1) return "just now";
+   210→  if (diffMin < 60) return `${diffMin}m ago`;
+   211→  const diffHr = Math.floor(diffMin / 60);
+   212→  if (diffHr < 24) return `${diffHr}h ago`;
+   213→  const diffDay = Math.floor(diffHr / 24);
+   214→  if (diffDay < 7) return `${diffDay}d ago`;
+   215→  return safeDateStr(date);
+   216→}
+   217→
+   218→const SidebarContent = React.memo(function SidebarContent({
+   219→  collapsed,
+   220→  userRole,
+   221→  userName,
+   222→  pathname,
+   223→  onNavigate,
+   224→  badgeCounts,
+   225→}: {
+   226→  collapsed: boolean;
+   227→  userRole: UserRole;
+   228→  userName: string;
+   229→  pathname: string;
+   230→  onNavigate: (href: string) => void;
+   231→  badgeCounts: Record<string, number>;
+   232→}) {
+   233→  // Helper: check if a nav item (or any of its children) is active
+   234→  const isItemActive = (item: NavItem): boolean => {
+   235→    if (pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href + "/"))) return true;
+   236→    // Check with query params: /dashboard/access-hub?tab=credentials should match /dashboard/access-hub
+   237→    if (item.children) {
+   238→      // If pathname starts with item.href, any child tab is active
+   239→      if (pathname === item.href || pathname.startsWith(item.href)) return true;
+   240→      return item.children.some((child) => isItemActive(child));
+   241→    }
+   242→    return false;
+   243→  };
+   244→
+   245→  // Helper: check if a href is the exact active page (for child items with query params)
+   246→  const isChildActive = (child: NavItem): boolean => {
+   247→    // For child items with query params (e.g., ?tab=credentials), compare full href
+   248→    if (child.href.includes("?")) {
+   249→      if (typeof window === "undefined") return false;
+   250→      return pathname + window.location.search === child.href;
+   251→    }
+   252→    return pathname === child.href;
+   253→  };
+   254→
+   255→  // Filter groups: only show groups that have at least one visible item for this role
+   256→  // Parent items are visible if their role matches OR any child's role matches
+   257→  // Children within parent items are filtered by role
+   258→  const visibleGroups = navGroups
+   259→    .map((group) => ({
+   260→      ...group,
+   261→      items: group.items
+   262→        .map((item) => {
+   263→          if (item.children) {
+   264→            const visibleChildren = item.children.filter((c) => c.roles.includes(userRole));
+   265→            // Show parent if parent role matches or any visible child exists
+   266→            if (item.roles.includes(userRole) || visibleChildren.length > 0) {
+   267→              return { ...item, children: visibleChildren };
+   268→            }
+   269→            return null;
+   270→          }
+   271→          return item.roles.includes(userRole) ? item : null;
+   272→        })
+   273→        .filter((item): item is NavItem => item !== null),
+   274→    }))
+   275→    .filter((group) => group.items.length > 0);
+   276→
+   277→  // Collapsible section state — Overview always expanded, others only expand when active
+   278→  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() => {
+   279→    const initial: Record<string, boolean> = {};
+   280→    visibleGroups.forEach((g) => {
+   281→      if (g.label === "Overview") {
+   282→        initial[g.label] = true;
+   283→      } else {
+   284→        const isActive = g.items.some((item) => isItemActive(item));
+   285→        initial[g.label] = isActive;
+   286→      }
+   287→    });
+   288→    return initial;
+   289→  });
+   290→
+   291→  // Item-level expand/collapse state (for items with children)
+   292→  const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>(() => {
+   293→    const initial: Record<string, boolean> = {};
+   294→    navGroups.forEach((g) => {
+   295→      g.items.forEach((item) => {
+   296→        if (item.children) {
+   297→          initial[item.href] = isItemActive(item);
+   298→        }
+   299→      });
+   300→    });
+   301→    return initial;
+   302→  });
+   303→
+   304→  const toggleGroup = (label: string) => {
+   305→    setExpandedGroups((prev) => ({ ...prev, [label]: !prev[label] }));
+   306→  };
+   307→
+   308→  const toggleItem = (href: string) => {
+   309→    setExpandedItems((prev) => ({ ...prev, [href]: !prev[href] }));
+   310→  };
+   311→
+   312→  return (
+   313→    <div className="flex flex-col h-full">
+   314→      {/* Logo Section */}
+   315→      <div className={cn(
+   316→        "flex items-center gap-3 px-4 py-5 border-b border-sidebar-border",
+   317→        collapsed && "justify-center px-2"
+   318→      )}>
+   319→        <div className={cn(
+   320→          "relative shrink-0",
+   321→          collapsed ? "h-10 w-10" : "h-11 w-11"
+   322→        )}>
+   323→          <Image
+   324→            src="/200px.png"
+   325→            alt="TrishulHub"
+   326→            fill
+   327→            className="rounded-lg object-contain"
+   328→            priority
+   329→            sizes="(max-width: 768px) 44px, 44px"
+   330→          />
+   331→        </div>
+   332→        {!collapsed && (
+   333→          <div className="min-w-0">
+   334→            <h1 className="font-extrabold text-sidebar-primary text-xl leading-tight tracking-tight">TrishulHub</h1>
+   335→            <p className="text-[11px] text-muted-foreground font-medium">AI Workspace</p>
+   336→          </div>
+   337→        )}
+   338→      </div>
+   339→
+   340→      {/* Navigation with grouped sections */}
+   341→      <ScrollArea className="flex-1 py-2">
+   342→        <nav className="space-y-2 px-3">
+   343→          {visibleGroups.map((group, groupIdx) => {
+   344→            const isOverview = group.label === "Overview";
+   345→            const hasActive = group.items.some((item) => isItemActive(item));
+   346→            // When sidebar is collapsed, show all expanded. Otherwise, expand if explicitly toggled OR if group contains active page
+   347→            const isExpanded = collapsed ? true : (expandedGroups[group.label] ?? false) || hasActive;
+   348→            // Count badges for the group (for collapsed header indicator)
+   349→            const groupBadgeTotal = group.items.reduce((sum, item) => sum + (badgeCounts[item.href] || 0), 0);
+   350→
+   351→            return (
+   352→              <div key={group.label}>
+   353→                {/* Collapsible section header — clickable to toggle */}
+   354→                {!collapsed && !isOverview && (
+   355→                  <button
+   356→                    onClick={() => toggleGroup(group.label)}
+   357→                    className="flex items-center gap-2.5 w-full px-3 py-2.5 rounded-lg text-left group/section transition-all duration-200 hover:bg-sidebar-accent/50"
+   358→                    type="button"
+   359→                  >
+   360→                    <ChevronDown
+   361→                      className={cn(
+   362→                        "h-3.5 w-3.5 text-muted-foreground/60 transition-transform duration-300 ease-in-out shrink-0",
+   363→                        isExpanded && "rotate-180"
+   364→                      )}
+   365→                    />
+   366→                    <span className={cn(
+   367→                      "text-[11px] font-semibold uppercase tracking-widest select-none transition-colors",
+   368→                      isExpanded ? "text-muted-foreground" : "text-muted-foreground/40"
+   369→                    )}>
+   370→                      {group.label}
+   371→                    </span>
+   372→                    {/* Badge count on group header when collapsed */}
+   373→                    {!isExpanded && groupBadgeTotal > 0 && (
+   374→                      <span className="ml-auto h-4 min-w-[16px] px-1 flex items-center justify-center rounded-full bg-destructive text-[9px] font-bold text-destructive-foreground">
+   375→                        {groupBadgeTotal > 99 ? "99+" : groupBadgeTotal}
+   376→                      </span>
+   377→                    )}
+   378→                    {/* Active indicator dot when collapsed */}
+   379→                    {!isExpanded && hasActive && (
+   380→                      <span className="ml-auto h-1.5 w-1.5 rounded-full bg-primary" />
+   381→                    )}
+   382→                  </button>
+   383→                )}
+   384→                {/* Overview label — non-clickable, always visible */}
+   385→                {!collapsed && isOverview && (
+   386→                  <p className="px-3 mb-1 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 select-none">
+   387→                    {group.label}
+   388→                  </p>
+   389→                )}
+   390→                {/* Nav items with expand/collapse animation */}
+   391→                <div
+   392→                  className={cn(
+   393→                    "overflow-hidden transition-all duration-300 ease-in-out",
+   394→                    isExpanded ? "max-h-[600px] opacity-100" : collapsed ? "max-h-[600px] opacity-100" : "max-h-0 opacity-0"
+   395→                  )}
+   396→                >
+   397→                  <div className="space-y-0.5">
+   398→                    {group.items.map((item) => {
+   399→                      const isActive = isItemActive(item);
+   400→                      const hasChildren = !!item.children && item.children.length > 0;
+   401→                      const isItemExpanded = hasChildren ? (collapsed ? true : (expandedItems[item.href] ?? false) || isActive) : false;
+   402→
+   403→                      return (
+   404→                        <div key={item.href}>
+   405→                          <button
+   406→                            onClick={() => {
+   407→                              if (hasChildren) {
+   408→                                // Only toggle expand/collapse — don't navigate to parent
+   409→                                toggleItem(item.href);
+   410→                              } else {
+   411→                                onNavigate(item.href);
+   412→                              }
+   413→                            }}
+   414→                            role="link"
+   415→                            aria-label={item.title}
+   416→                            className={cn(
+   417→                              "relative flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-all duration-200 w-full text-left",
+   418→                              isActive
+   419→                                ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"
+   420→                                : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+   421→                            )}
+   422→                            type="button"
+   423→                          >
+   424→                            <item.icon className={cn("h-[18px] w-[18px] shrink-0", collapsed && "mx-auto")} />
+   425→                            {!collapsed && <span className="flex-1 text-left">{item.title}</span>}
+   426→                            {!collapsed && hasChildren && (
+   427→                              <ChevronRight
+   428→                                className={cn(
+   429→                                  "h-3.5 w-3.5 shrink-0 transition-transform duration-200",
+   430→                                  isItemExpanded && "rotate-90"
+   431→                                )}
+   432→                              />
+   433→                            )}
+   434→                            {!collapsed && !hasChildren && badgeCounts[item.href] > 0 && (
+   435→                              <Badge className="h-5 min-w-[20px] px-1.5 text-[10px] font-bold bg-destructive text-destructive-foreground">
+   436→                                {badgeCounts[item.href] > 99 ? "99+" : badgeCounts[item.href]}
+   437→                              </Badge>
+   438→                            )}
+   439→                            {collapsed && badgeCounts[item.href] > 0 && (
+   440→                              <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-destructive" />
+   441→                            )}
+   442→                          </button>
+   443→                          {/* Sub-items for items with children */}
+   444→                          {!collapsed && hasChildren && (
+   445→                            <div
+   446→                              className={cn(
+   447→                                "overflow-hidden transition-all duration-200 ease-in-out",
+   448→                                isItemExpanded ? "max-h-[400px] opacity-100" : "max-h-0 opacity-0"
+   449→                              )}
+   450→                            >
+   451→                              <div className="ml-4 pl-3 border-l border-sidebar-border/30 space-y-0.5 mt-0.5 mb-1">
+   452→                                {item.children!.map((child) => {
+   453→                                  const childActive = isChildActive(child);
+   454→                                  return (
+   455→                                    <button
+   456→                                      key={child.href}
+   457→                                      onClick={() => onNavigate(child.href)}
+   458→                                      role="link"
+   459→                                      aria-label={child.title}
+   460→                                      className={cn(
+   461→                                        "relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all duration-200 w-full text-left",
+   462→                                        childActive
+   463→                                          ? "bg-sidebar-primary/10 text-sidebar-primary font-semibold"
+   464→                                          : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground"
+   465→                                      )}
+   466→                                      type="button"
+   467→                                    >
+   468→                                      <child.icon className="h-3.5 w-3.5 shrink-0" />
+   469→                                      <span className="flex-1 text-left truncate">{child.title}</span>
+   470→                                    </button>
+   471→                                  );
+   472→                                })}
+   473→                              </div>
+   474→                            </div>
+   475→                          )}
+   476→                        </div>
+   477→                      );
+   478→                    })}
+   479→                  </div>
+   480→                </div>
+   481→                {/* Separator between groups (not after last group) */}
+   482→                {groupIdx < visibleGroups.length - 1 && !collapsed && (
+   483→                  <div className={cn("mt-2 mb-1 border-t border-sidebar-border/20 transition-opacity duration-300", isExpanded ? "opacity-100" : "opacity-0")} />
+   484→                )}
+   485→              </div>
+   486→            );
+   487→          })}
+   488→        </nav>
+   489→      </ScrollArea>
+   490→
+   491→      {/* User Section */}
+   492→      <div className="border-t border-sidebar-border p-4">
+   493→        <div className={cn("flex items-center gap-3", collapsed && "justify-center")}>
+   494→          <Avatar className="h-10 w-10">
+   495→            <AvatarFallback className="bg-primary text-primary-foreground text-sm font-bold">
+   496→              {userName.split(" ").filter(Boolean).map((n) => n[0]).join("").toUpperCase().slice(0, 2)}
+   497→            </AvatarFallback>
+   498→          </Avatar>
+   499→          {!collapsed && (
+   500→            <div className="flex-1 min-w-0">
+   501→              <p className="text-sm font-semibold truncate">{userName}</p>
+   502→              <p className="text-xs text-muted-foreground truncate">{userRole.replace("_", " ")}</p>
+   503→            </div>
+   504→          )}
+   505→        </div>
+   506→      </div>
+   507→    </div>
+   508→  );
+   509→});
+   510→
+   511→export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+   512→  const { data: session, status } = useSession();
+   513→  const pathname = usePathname();
+   514→  const router = useRouter();
+   515→  const { theme, setTheme } = useTheme();
+   516→  const [collapsed, setCollapsed] = useState(false);
+   517→  const [mobileOpen, setMobileOpen] = useState(false);
+   518→  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+   519→  const [notifOpen, setNotifOpen] = useState(false);
+   520→  const [pendingCounts, setPendingCounts] = useState<PendingCounts>({ approvals: 0, leaveRequests: 0, tasksAwaitingApproval: 0, total: 0 });
+   521→  const [navBadgeData, setNavBadgeData] = useState<NavBadgeMap>({});
+   522→
+   523→  const VALID_ROLES = ["SUPER_ADMIN", "ADMIN", "DEVELOPER", "VIEWER", "CLIENT"] as const;
+   524→  const rawRole = session?.user?.role;
+   525→  const userRole = rawRole && VALID_ROLES.includes(rawRole as typeof VALID_ROLES[number])
+   526→    ? rawRole
+   527→    : "DEVELOPER";
+   528→  const userName = session?.user?.name || "User";
+   529→  const userEmail = session?.user?.email || "";
+   530→  const userId = session?.user?.id || "";
+   531→
+   532→  const unreadCount = useMemo(() => notifications.filter((n) => !n.isRead).length, [notifications]);
+   533→
+   534→  // Badge count mapping: use API response directly (role-aware for all users)
+   535→
+   536→  const fetchNotifications = useCallback(async () => {
+   537→    if (!userId) return;
+   538→    try {
+   539→      const res = await fetch("/api/notifications", { credentials: "include" });
+   540→      if (res.ok) {
+   541→        const data = await res.json();
+   542→        setNotifications(safeArray<NotificationItem>(data));
+   543→      }
+   544→    } catch (err) {
+   545→      console.error("Failed to fetch notifications:", err);
+   546→    }
+   547→  }, [userId]);
+   548→
+   549→  const fetchPendingCounts = useCallback(async () => {
+   550→    try {
+   551→      const res = await fetch("/api/approvals/pending-counts", { credentials: "include" });
+   552→      if (res.ok) {
+   553→        const data = await res.json();
+   554→        // API returns a flat map of nav-href → count
+   555→        if (data && typeof data === "object" && !data.error) {
+   556→          setNavBadgeData(data as NavBadgeMap);
+   557→          // Backward compat: also populate old format for any other consumers
+   558→          setPendingCounts({
+   559→            approvals: (data["/dashboard/approvals"] || 0) as number,
+   560→            leaveRequests: (data["/dashboard/team"] || 0) as number,
+   561→            tasksAwaitingApproval: (data["/dashboard/projects"] || 0) as number,
+   562→            total: Object.values(data).reduce((sum: number, v) => sum + (v as number), 0),
+   563→          });
+   564→        }
+   565→      }
+   566→    } catch (err) {
+   567→      console.error("Failed to fetch pending counts:", err);
+   568→    }
+   569→  }, []);
+   570→
+   571→  useEffect(() => {
+   572→    if (status === "unauthenticated") {
+   573→      router.push("/login");
+   574→    }
+   575→    // SECURITY: CLIENT role users should be redirected to /portal, not /dashboard
+   576→    if (status === "authenticated" && userRole === "CLIENT") {
+   577→      router.push("/portal");
+   578→    }
+   579→  }, [status, router, userRole]);
+   580→
+   581→  // Auto-collapse sidebar when navigating to workspace landing page
+   582→  useEffect(() => {
+   583→    if (pathname === "/dashboard/workspace") {
+   584→      setCollapsed(true);
+   585→    }
+   586→  }, [pathname]);
+   587→
+   588→  // PERF: Defer notification + counts fetch by 200ms so page data loads first.
+   589→  // Notifications are non-critical UI — they should not compete with the
+   590→  // page's own API calls for network bandwidth on navigation.
+   591→  useEffect(() => {
+   592→    if (session) {
+   593→      const timer = setTimeout(() => {
+   594→        fetchNotifications();
+   595→        fetchPendingCounts();
+   596→      }, 200);
+   597→      const interval = setInterval(() => {
+   598→        fetchNotifications();
+   599→        fetchPendingCounts();
+   600→      }, 45000);
+   601→      return () => {
+   602→        clearTimeout(timer);
+   603→        clearInterval(interval);
+   604→      };
+   605→    }
+   606→  }, [session, fetchNotifications, fetchPendingCounts]);
+   607→
+   608→  const markAsRead = useCallback(async (notifId: string) => {
+   609→    try {
+   610→      await fetch("/api/notifications", {
+   611→        method: "PATCH",
+   612→        headers: { "Content-Type": "application/json" },
+   613→        credentials: "include",
+   614→        body: JSON.stringify({ id: notifId, isRead: true }),
+   615→      });
+   616→      setNotifications((prev) =>
+   617→        prev.map((n) => (n.id === notifId ? { ...n, isRead: true } : n))
+   618→      );
+   619→    } catch (err) {
+   620→      console.error("Failed to mark notification as read:", err);
+   621→    }
+   622→  }, []);
+   623→
+   624→  const markAllAsRead = useCallback(async () => {
+   625→    try {
+   626→      // PERF FIX: Single batch request instead of N parallel requests
+   627→      const res = await fetch("/api/notifications", {
+   628→        method: "PATCH",
+   629→        headers: { "Content-Type": "application/json" },
+   630→        credentials: "include",
+   631→        body: JSON.stringify({ markAllRead: true }),
+   632→      });
+   633→      if (res.ok) {
+   634→        setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+   635→      }
+   636→    } catch (err) {
+   637→      console.error("Failed to mark all notifications as read:", err);
+   638→    }
+   639→  }, []);
+   640→
+   641→  const deleteNotification = useCallback(async (notifId: string) => {
+   642→    try {
+   643→      await fetch(`/api/notifications?id=${notifId}`, {
+   644→        method: "DELETE",
+   645→        credentials: "include",
+   646→      });
+   647→      setNotifications((prev) => prev.filter((n) => n.id !== notifId));
+   648→    } catch (err) {
+   649→      console.error("Failed to delete notification:", err);
+   650→    }
+   651→  }, []);
+   652→
+   653→  // I7: Extracted notification click handler from inline async in JSX
+   654→  const handleNotificationClick = async (notif: NotificationItem) => {
+   655→    try {
+   656→      if (!notif.isRead) await markAsRead(notif.id);
+   657→    } catch {}
+   658→    if (notif.link && notif.link.startsWith("/")) {
+   659→      router.push(notif.link);
+   660→      setNotifOpen(false);
+   661→    }
+   662→  };
+   663→
+   664→  const handleNavigate = (href: string) => {
+   665→    router.push(href);
+   666→    setMobileOpen(false);
+   667→  };
+   668→
+   669→  // Safety timeout for session loading — show fallback after 15s
+   670→  const [sessionTimedOut, setSessionTimedOut] = useState(false);
+   671→  useEffect(() => {
+   672→    if (status !== "loading") return;
+   673→    const t = setTimeout(() => setSessionTimedOut(true), 15000);
+   674→    return () => clearTimeout(t);
+   675→  }, [status]);
+   676→
+   677→  if (status === "loading" && !sessionTimedOut) {
+   678→    return <LoadingScreen />;
+   679→  }
+   680→
+   681→  if (sessionTimedOut && status === "loading") {
+   682→    return (
+   683→      <div className="fixed inset-0 z-50 flex min-h-screen items-center justify-center bg-background">
+   684→        <div className="flex flex-col items-center gap-4">
+   685→          <p className="text-sm text-muted-foreground">Session is taking too long to load...</p>
+   686→          <button
+   687→            onClick={() => signOut({ callbackUrl: "/login" })}
+   688→            className="rounded-lg bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
+   689→          >
+   690→            Sign In Again
+   691→          </button>
+   692→        </div>
+   693→      </div>
+   694→    );
+   695→  }
+   696→
+   697→  if (!session) return null;
+   698→  // W3: Prevent CLIENT users from seeing any dashboard content before redirect
+   699→  if (userRole === "CLIENT") return null;
+   700→
+   701→  return (
+   702→    <div className="min-h-screen flex bg-background">
+   703→      {/* Desktop Sidebar - wider and more spacious */}
+   704→      <aside
+   705→        className={cn(
+   706→          "hidden md:flex flex-col border-r border-border bg-sidebar transition-all duration-300 relative z-40",
+   707→          collapsed ? "w-[72px]" : "w-[280px]"
+   708→        )}
+   709→      >
+   710→        <SidebarContent
+   711→          collapsed={collapsed}
+   712→          userRole={userRole}
+   713→          userName={userName}
+   714→          pathname={pathname}
+   715→          onNavigate={handleNavigate}
+   716→          badgeCounts={navBadgeData}
+   717→        />
+   718→        <Button
+   719→          variant="ghost"
+   720→          size="icon"
+   721→          className="absolute top-24 -right-3 z-10 h-7 w-7 rounded-full border bg-background shadow-sm hidden md:flex"
+   722→          onClick={() => setCollapsed(!collapsed)}
+   723→          aria-label="Toggle sidebar"
+   724→        >
+   725→          <ChevronLeft className={cn("h-3.5 w-3.5 transition-transform", collapsed && "rotate-180")} />
+   726→        </Button>
+   727→      </aside>
+   728→
+   729→      {/* Mobile Sidebar */}
+   730→      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+   731→        <SheetContent side="left" className="w-[280px] p-0 bg-sidebar">
+   732→          <div className="flex items-center justify-end p-2 pb-0">
+   733→            <Button
+   734→              variant="ghost"
+   735→              size="icon"
+   736→              className="h-8 w-8"
+   737→              onClick={() => setMobileOpen(false)}
+   738→              aria-label="Close menu"
+   739→            >
+   740→              <X className="h-4 w-4" />
+   741→            </Button>
+   742→          </div>
+   743→          <SidebarContent
+   744→            collapsed={false}
+   745→            userRole={userRole}
+   746→            userName={userName}
+   747→            pathname={pathname}
+   748→            onNavigate={handleNavigate}
+   749→            badgeCounts={navBadgeData}
+   750→          />
+   751→        </SheetContent>
+   752→      </Sheet>
+   753→
+   754→      {/* Main Content */}
+   755→      <div className="flex-1 flex flex-col min-w-0">
+   756→        {/* Header - taller and more prominent */}
+   757→        <header className="h-14 sm:h-16 border-b border-border bg-card flex items-center justify-between px-3 sm:px-5 sticky top-0 z-30">
+   758→          <div className="flex items-center gap-3">
+   759→            <Button variant="ghost" size="icon" className="md:hidden" aria-label="Open menu" onClick={() => setMobileOpen(true)}>
+   760→              <Menu className="h-5 w-5" />
+   761→            </Button>
+   762→            <h2 className="text-sm sm:text-base font-semibold text-foreground truncate">
+   763→              {allNavItems.find((i) => pathname === i.href || (i.href !== "/dashboard" && pathname.startsWith(i.href + "/")))?.title || "Dashboard"}
+   764→            </h2>
+   765→          </div>
+   766→
+   767→          <div className="flex items-center gap-1 sm:gap-2">
+   768→            {/* Theme Selector Dropdown */}
+   769→            <DropdownMenu>
+   770→              <DropdownMenuTrigger asChild>
+   771→                <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-9 sm:w-9" aria-label="Change theme">
+   772→                  {theme === "system" ? (
+   773→                    <Monitor className="h-4 w-4" />
+   774→                  ) : theme === "dark" ? (
+   775→                    <Moon className="h-4 w-4" />
+   776→                  ) : theme === "bluelight" ? (
+   777→                    <Eye className="h-4 w-4 text-amber-600" />
+   778→                  ) : (
+   779→                    <Sun className="h-4 w-4" />
+   780→                  )}
+   781→                </Button>
+   782→              </DropdownMenuTrigger>
+   783→              <DropdownMenuContent align="end" className="w-48">
+   784→                <DropdownMenuItem onClick={() => setTheme("light")} className={cn("flex items-center gap-3", theme === "light" && "bg-accent")}>
+   785→                  <Sun className="h-4 w-4" />
+   786→                  <span>Light Mode</span>
+   787→                  {theme === "light" && <Check className="h-3 w-3 ml-auto text-primary" />}
+   788→                </DropdownMenuItem>
+   789→                <DropdownMenuItem onClick={() => setTheme("dark")} className={cn("flex items-center gap-3", theme === "dark" && "bg-accent")}>
+   790→                  <Moon className="h-4 w-4" />
+   791→                  <span>Dark Mode</span>
+   792→                  {theme === "dark" && <Check className="h-3 w-3 ml-auto text-primary" />}
+   793→                </DropdownMenuItem>
+   794→                <DropdownMenuItem onClick={() => setTheme("bluelight")} className={cn("flex items-center gap-3", theme === "bluelight" && "bg-accent")}>
+   795→                  <Eye className="h-4 w-4 text-amber-600" />
+   796→                  <div className="flex flex-col">
+   797→                    <span>Blue Light</span>
+   798→                    <span className="text-[10px] text-muted-foreground">Eye protection for long use</span>
+   799→                  </div>
+   800→                  {theme === "bluelight" && <Check className="h-3 w-3 ml-auto text-primary" />}
+   801→                </DropdownMenuItem>
+   802→                <DropdownMenuSeparator />
+   803→                <DropdownMenuItem onClick={() => setTheme("system")} className={cn("flex items-center gap-3", theme === "system" && "bg-accent")}>
+   804→                  <Monitor className="h-4 w-4" />
+   805→                  <span>System Default</span>
+   806→                  {theme === "system" && <Check className="h-3 w-3 ml-auto text-primary" />}
+   807→                </DropdownMenuItem>
+   808→              </DropdownMenuContent>
+   809→            </DropdownMenu>
+   810→
+   811→            {/* Notifications Sheet — better scroll on all devices */}
+   812→            <Sheet open={notifOpen} onOpenChange={setNotifOpen}>
+   813→              <SheetTrigger asChild>
+   814→                <Button variant="ghost" size="icon" className="relative h-8 w-8 sm:h-9 sm:w-9" aria-label="Notifications">
+   815→                  <Bell className="h-4 w-4" />
+   816→                  {unreadCount > 0 && (
+   817→                    <Badge className="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center text-[10px]">
+   818→                      {unreadCount > 9 ? "9+" : unreadCount}
+   819→                    </Badge>
+   820→                  )}
+   821→                </Button>
+   822→              </SheetTrigger>
+   823→              <SheetContent className="w-full sm:max-w-md p-0 overflow-hidden flex flex-col">
+   824→                <SheetHeader className="p-4 pb-3 border-b pr-10 shrink-0">
+   825→                  <div className="flex items-center justify-between">
+   826→                    <SheetTitle className="text-sm font-semibold">Notifications</SheetTitle>
+   827→                    {unreadCount > 0 && (
+   828→                      <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={markAllAsRead}>
+   829→                        <Check className="h-3 w-3 mr-1" /> Mark all read
+   830→                      </Button>
+   831→                    )}
+   832→                  </div>
+   833→                </SheetHeader>
+   834→                <ScrollArea className="flex-1">
+   835→                  {notifications.length === 0 ? (
+   836→                    <div className="p-8 text-center text-sm text-muted-foreground">
+   837→                      <Bell className="h-8 w-8 mx-auto mb-2 opacity-20" />
+   838→                      <p>No notifications yet</p>
+   839→                    </div>
+   840→                  ) : (
+   841→                    <div>
+   842→                      {notifications.slice(0, 50).map((notif) => {
+   843→                        const NotifIcon = notifIcons[notif.type] || Info;
+   844→                        return (
+   845→                          <div
+   846→                            key={notif.id}
+   847→                            className={cn(
+   848→                              "flex items-start gap-3 p-3 hover:bg-accent/50 cursor-pointer transition-colors border-b last:border-0",
+   849→                              !notif.isRead && "bg-primary/5"
+   850→                            )}
+   851→                            onClick={() => handleNotificationClick(notif)}
+   852→                          >
+   853→                            <div className={cn(
+   854→                              "mt-0.5 h-7 w-7 rounded-full flex items-center justify-center shrink-0",
+   855→                              notif.type === "ERROR" || notif.type === "WARNING" ? "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400" :
+   856→                              notif.type === "SUCCESS" ? "bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400" :
+   857→                              notif.type === "TASK" || notif.type === "APPROVAL" ? "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400" :
+   858→                              notif.type === "AGENT" ? "bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400" :
+   859→                              "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
+   860→                            )}>
+   861→                              <NotifIcon className="h-3.5 w-3.5" />
+   862→                            </div>
+   863→                            <div className="flex-1 min-w-0">
+   864→                              <div className="flex items-center justify-between gap-2">
+   865→                                <span className={cn("text-xs font-medium", !notif.isRead && "font-semibold")}>
+   866→                                  {safeText(notif.title, "")}
+   867→                                </span>
+   868→                                <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+   869→                                  {formatRelativeTime(notif.createdAt)}
+   870→                                </span>
+   871→                              </div>
+   872→                              <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
+   873→                                {safeText(notif.message, "")}
+   874→                              </p>
+   875→                            </div>
+   876→                            <Button
+   877→                              variant="ghost"
+   878→                              size="icon"
+   879→                              className="h-5 w-5 shrink-0 opacity-40 hover:opacity-100"
+   880→                              onClick={(e) => {
+   881→                                e.stopPropagation();
+   882→                                deleteNotification(notif.id);
+   883→                              }}
+   884→                              aria-label="Dismiss notification"
+   885→                            >
+   886→                              <Trash2 className="h-3 w-3" />
+   887→                            </Button>
+   888→                          </div>
+   889→                        );
+   890→                      })}
+   891→                      {/* W8: Show indicator when notifications are capped at 50 */}
+   892→                      {notifications.length > 50 && (
+   893→                        <span className="text-xs text-center text-muted-foreground block py-2">
+   894→                          View all {notifications.length} notifications
+   895→                        </span>
+   896→                      )}
+   897→                    </div>
+   898→                  )}
+   899→                </ScrollArea>
+   900→              </SheetContent>
+   901→            </Sheet>
+   902→
+   903→            <DropdownMenu>
+   904→              <DropdownMenuTrigger asChild>
+   905→                <Button variant="ghost" className="flex items-center gap-2 h-8 sm:h-9">
+   906→                  <Avatar className="h-8 w-8">
+   907→                    <AvatarFallback className="bg-primary text-primary-foreground text-xs font-bold">
+   908→                      {userName.split(" ").filter(Boolean).map((n) => n[0]).join("").toUpperCase().slice(0, 2)}
+   909→                    </AvatarFallback>
+   910→                  </Avatar>
+   911→                  <span className="hidden sm:block text-sm font-medium">{userName}</span>
+   912→                </Button>
+   913→              </DropdownMenuTrigger>
+   914→              <DropdownMenuContent align="end" className="w-56">
+   915→                <div className="p-2">
+   916→                  <p className="text-sm font-medium">{userName}</p>
+   917→                  <p className="text-xs text-muted-foreground">{userEmail}</p>
+   918→                  <Badge variant="secondary" className="mt-1 text-xs">{userRole.replace("_", " ")}</Badge>
+   919→                </div>
+   920→                <DropdownMenuSeparator />
+   921→                <DropdownMenuItem onClick={() => router.push("/dashboard/settings")}>
+   922→                  <Settings className="mr-2 h-4 w-4" /> Settings
+   923→                </DropdownMenuItem>
+   924→                <DropdownMenuSeparator />
+   925→                <DropdownMenuItem onClick={async () => { await signOut({ redirect: false }); router.push("/login"); }}>
+   926→                  <LogOut className="mr-2 h-4 w-4" /> Sign Out
+   927→                </DropdownMenuItem>
+   928→              </DropdownMenuContent>
+   929→            </DropdownMenu>
+   930→          </div>
+   931→        </header>
+   932→
+   933→        {/* Page Content - more padding */}
+   934→        <main className="flex-1 p-3 sm:p-4 md:p-6 lg:p-8 overflow-auto">{children}</main>
+   935→      </div>
+   936→
+   937→      {/* Agentation — visual feedback tool (all users) */}
+   938→      <Agentation />
+   939→    </div>
+   940→  );
+   941→}
+   942→

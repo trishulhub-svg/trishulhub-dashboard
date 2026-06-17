@@ -1,0 +1,1604 @@
+     1→"use client";
+     2→
+     3→import { useEffect, useState, useCallback, useMemo } from "react";
+     4→import { useSession } from "next-auth/react";
+     5→import { useRouter } from "next/navigation";
+     6→import {
+     7→  Video, Plus, Calendar, Clock, Users, ExternalLink, MapPin,
+     8→  Phone, Monitor, ChevronDown, ChevronUp, X, Check,
+     9→  CalendarDays, CalendarRange, List, Grid3X3,
+    10→  StickyNote, Link2, Mail, History,
+    11→} from "lucide-react";
+    12→import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+    13→import { Button } from "@/components/ui/button";
+    14→import { Badge } from "@/components/ui/badge";
+    15→import { Input } from "@/components/ui/input";
+    16→import { Label } from "@/components/ui/label";
+    17→import { Textarea } from "@/components/ui/textarea";
+    18→import { Separator } from "@/components/ui/separator";
+    19→import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+    20→import {
+    21→  Dialog,
+    22→  DialogContent,
+    23→  DialogHeader,
+    24→  DialogTitle,
+    25→  DialogFooter,
+    26→} from "@/components/ui/dialog";
+    27→import {
+    28→  AlertDialog,
+    29→  AlertDialogAction,
+    30→  AlertDialogCancel,
+    31→  AlertDialogContent,
+    32→  AlertDialogDescription,
+    33→  AlertDialogFooter,
+    34→  AlertDialogHeader,
+    35→  AlertDialogTitle,
+    36→} from "@/components/ui/alert-dialog";
+    37→import {
+    38→  Sheet,
+    39→  SheetContent,
+    40→  SheetHeader,
+    41→  SheetTitle,
+    42→} from "@/components/ui/sheet";
+    43→import {
+    44→  Select,
+    45→  SelectContent,
+    46→  SelectItem,
+    47→  SelectTrigger,
+    48→  SelectValue,
+    49→} from "@/components/ui/select";
+    50→
+    51→import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+    52→import { toast } from "sonner";
+    53→import { cn, safeArray } from "@/lib/utils";
+    54→import { PageHeader } from "@/components/page-header";
+    55→import { Checkbox } from "@/components/ui/checkbox";
+    56→
+    57→// ━━ Meeting link URL sanitization — prevent javascript: XSS ━━
+    58→function safeMeetingLink(link: string | null): string {
+    59→  if (!link) return '#';
+    60→  try {
+    61→    const url = new URL(link);
+    62→    return url.protocol === 'https:' || url.protocol === 'http:' ? link : '#';
+    63→  } catch {
+    64→    return '#';
+    65→  }
+    66→}
+    67→
+    68→// ━━ Types ━━
+    69→interface MeetingAttendee {
+    70→  id: string;
+    71→  meetingId: string;
+    72→  userId: string;
+    73→  rsvpStatus: string;
+    74→  user: {
+    75→    id: string;
+    76→    name: string;
+    77→    email: string;
+    78→    avatar: string | null;
+    79→  };
+    80→}
+    81→
+    82→interface Meeting {
+    83→  id: string;
+    84→  title: string;
+    85→  description: string | null;
+    86→  date: string;
+    87→  startTime: string;
+    88→  endTime: string | null;
+    89→  organizerId: string;
+    90→  meetingType: string;
+    91→  meetingLink: string | null;
+    92→  projectId: string | null;
+    93→  status: string;
+    94→  notes: string | null;
+    95→  createdAt: string;
+    96→  updatedAt: string;
+    97→  organizer: {
+    98→    id: string;
+    99→    name: string;
+   100→    email: string;
+   101→    avatar: string | null;
+   102→  };
+   103→  project: { id: string; name: string } | null;
+   104→  attendees: MeetingAttendee[];
+   105→}
+   106→
+   107→interface TeamMember {
+   108→  id: string;
+   109→  name: string;
+   110→  email: string;
+   111→  avatar: string | null;
+   112→  role: string;
+   113→}
+   114→
+   115→interface Project {
+   116→  id: string;
+   117→  name: string;
+   118→}
+   119→
+   120→// ━━ Constants ━━
+   121→const meetingTypeConfig: Record<string, { label: string; icon: React.ComponentType<{ className?: string }>; color: string; bgColor: string }> = {
+   122→  VIRTUAL: { label: "Virtual", icon: Video, color: "text-blue-600 dark:text-blue-400", bgColor: "bg-blue-100 dark:bg-blue-900/30" },
+   123→  IN_PERSON: { label: "In Person", icon: MapPin, color: "text-green-600 dark:text-green-400", bgColor: "bg-green-100 dark:bg-green-900/30" },
+   124→  PHONE: { label: "Phone", icon: Phone, color: "text-orange-600 dark:text-orange-400", bgColor: "bg-orange-100 dark:bg-orange-900/30" },
+   125→};
+   126→
+   127→const statusConfig: Record<string, { label: string; color: string; bgColor: string; borderColor: string }> = {
+   128→  SCHEDULED: { label: "Scheduled", color: "text-blue-700 dark:text-blue-300", bgColor: "bg-blue-100 dark:bg-blue-900/30", borderColor: "border-l-blue-500" },
+   129→  IN_PROGRESS: { label: "In Progress", color: "text-yellow-700 dark:text-yellow-300", bgColor: "bg-yellow-100 dark:bg-yellow-900/30", borderColor: "border-l-yellow-500" },
+   130→  COMPLETED: { label: "Completed", color: "text-green-700 dark:text-green-300", bgColor: "bg-green-100 dark:bg-green-900/30", borderColor: "border-l-green-500" },
+   131→  CANCELLED: { label: "Cancelled", color: "text-red-700 dark:text-red-300", bgColor: "bg-red-100 dark:bg-red-900/30", borderColor: "border-l-red-500" },
+   132→};
+   133→
+   134→const rsvpConfig: Record<string, { label: string; color: string; bgColor: string; icon: React.ComponentType<{ className?: string }> }> = {
+   135→  PENDING: { label: "Pending", color: "text-yellow-700 dark:text-yellow-300", bgColor: "bg-yellow-100 dark:bg-yellow-900/30", icon: Clock },
+   136→  ACCEPTED: { label: "Accepted", color: "text-green-700 dark:text-green-300", bgColor: "bg-green-100 dark:bg-green-900/30", icon: Check },
+   137→  DECLINED: { label: "Declined", color: "text-red-700 dark:text-red-300", bgColor: "bg-red-100 dark:bg-red-900/30", icon: X },
+   138→};
+   139→
+   140→// ━━ Helpers ━━
+   141→function calculateMeetingDuration(start: string, end: string): string {
+   142→  const [startH, startM] = start.split(":").map(Number)
+   143→  const [endH, endM] = end.split(":").map(Number)
+   144→  let diffMinutes = (endH * 60 + endM) - (startH * 60 + startM)
+   145→  if (diffMinutes < 0) diffMinutes += 24 * 60 // overnight
+   146→  const hours = Math.floor(diffMinutes / 60)
+   147→  const mins = diffMinutes % 60
+   148→  if (hours === 0) return `${mins}m`
+   149→  if (mins === 0) return `${hours}h`
+   150→  return `${hours}h ${mins}m`
+   151→}
+   152→
+   153→function isOvernightMeeting(start: string, end: string): boolean {
+   154→  if (!start || !end) return false
+   155→  const [startH, startM] = start.split(":").map(Number)
+   156→  const [endH, endM] = end.split(":").map(Number)
+   157→  return (endH * 60 + endM) < (startH * 60 + startM) // strictly less (equal = same time = invalid, not overnight)
+   158→}
+   159→
+   160→function formatTime(time: string): string {
+   161→  if (!time) return "";
+   162→  const [h, m] = time.split(":");
+   163→  const hour = parseInt(h);
+   164→  const ampm = hour >= 12 ? "PM" : "AM";
+   165→  const displayHour = hour % 12 || 12;
+   166→  return `${displayHour}:${m} ${ampm}`;
+   167→}
+   168→
+   169→function formatDate(dateStr: string): string {
+   170→  try {
+   171→    const date = new Date(dateStr);
+   172→    if (isNaN(date.getTime())) return "Invalid date";
+   173→    return date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+   174→  } catch {
+   175→    return "Invalid date";
+   176→  }
+   177→}
+   178→
+   179→function isToday(dateStr: string): boolean {
+   180→  const date = new Date(dateStr);
+   181→  const today = new Date();
+   182→  return date.toDateString() === today.toDateString();
+   183→}
+   184→
+   185→function isTomorrow(dateStr: string): boolean {
+   186→  const date = new Date(dateStr);
+   187→  const tomorrow = new Date();
+   188→  tomorrow.setDate(tomorrow.getDate() + 1);
+   189→  return date.toDateString() === tomorrow.toDateString();
+   190→}
+   191→
+   192→function isThisWeek(dateStr: string): boolean {
+   193→  const date = new Date(dateStr);
+   194→  const now = new Date();
+   195→  const startOfWeek = new Date(now);
+   196→  startOfWeek.setDate(now.getDate() - now.getDay());
+   197→  startOfWeek.setHours(0, 0, 0, 0);
+   198→  const endOfWeek = new Date(startOfWeek);
+   199→  endOfWeek.setDate(startOfWeek.getDate() + 7);
+   200→  return date >= startOfWeek && date < endOfWeek;
+   201→}
+   202→
+   203→function getInitials(name: string): string {
+   204→  return name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
+   205→}
+   206→
+   207→function getDateLabel(dateStr: string): string {
+   208→  if (isToday(dateStr)) return "Today";
+   209→  if (isTomorrow(dateStr)) return "Tomorrow";
+   210→  if (isThisWeek(dateStr)) return "This Week";
+   211→  return "Later";
+   212→}
+   213→
+   214→// ━━ Main Component ━━
+   215→export default function MeetingsPage() {
+   216→  const router = useRouter();
+   217→  const { data: session, status } = useSession();
+   218→  const [meetings, setMeetings] = useState<Meeting[]>([]);
+   219→  const [pastMeetings, setPastMeetings] = useState<Meeting[]>([]);
+   220→  const [showPast, setShowPast] = useState(true);
+   221→  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+   222→  const [projects, setProjects] = useState<Project[]>([]);
+   223→  const [loading, setLoading] = useState(true);
+   224→  const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
+   225→  const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
+   226→  const [detailOpen, setDetailOpen] = useState(false);
+   227→  const [dialogOpen, setDialogOpen] = useState(false);
+   228→  const [editMode, setEditMode] = useState(false);
+   229→  const [submitting, setSubmitting] = useState(false);
+   230→  const [calendarDate, setCalendarDate] = useState<Date>(new Date());
+   231→  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({ Today: true, Tomorrow: true, "This Week": true, Later: true, "Past Meetings": true });
+   232→
+   233→  const [cancelMeetingId, setCancelMeetingId] = useState<string | null>(null);
+   234→
+   235→  // Form state
+   236→  const [formTitle, setFormTitle] = useState("");
+   237→  const [formDescription, setFormDescription] = useState("");
+   238→  const [formDate, setFormDate] = useState("");
+   239→  const [formStartTime, setFormStartTime] = useState("09:00");
+   240→  const [formEndTime, setFormEndTime] = useState("");
+   241→  const [formMeetingType, setFormMeetingType] = useState("VIRTUAL");
+   242→  const [formMeetingLink, setFormMeetingLink] = useState("");
+   243→  const [formProjectId, setFormProjectId] = useState("");
+   244→  const [formAttendeeIds, setFormAttendeeIds] = useState<string[]>([]);
+   245→  const [formExternalEmails, setFormExternalEmails] = useState<string[]>([]);
+   246→  const [externalEmailInput, setExternalEmailInput] = useState("");
+   247→  const [formNotes, setFormNotes] = useState("");
+   248→
+   249→  const userRole = session?.user?.role || "DEVELOPER";
+   250→  const userId = session?.user?.id || "";
+   251→  const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+   252→
+   253→  const fetchMeetings = useCallback(async (signal?: AbortSignal) => {
+   254→    try {
+   255→      const today = new Date().toISOString().split("T")[0];
+   256→      const [res, pastRes] = await Promise.all([
+   257→        fetch("/api/meetings", { credentials: "include", signal }),
+   258→        fetch(`/api/meetings?startDate=2020-01-01&endDate=${today}`, { credentials: "include", signal }),
+   259→      ]);
+   260→
+   261→      if (res.status === 401) { router.push("/login"); return; }
+   262→
+   263→      if (res.ok) {
+   264→        const data = await res.json();
+   265→        setMeetings(safeArray<Meeting>(data.data || data));
+   266→      } else {
+   267→        try {
+   268→          const errData = await res.json();
+   269→          console.error("[meetings] API error:", errData);
+   270→        } catch { /* ignore parse error */ }
+   271→      }
+   272→
+   273→      if (pastRes.ok) {
+   274→        const pastData = await pastRes.json();
+   275→        setPastMeetings(safeArray<Meeting>(pastData.data || pastData)
+   276→          .filter((m: Meeting) => m.status !== "CANCELLED")
+   277→          .sort((a: Meeting, b: Meeting) => {
+   278→            const dc = new Date(b.date).getTime() - new Date(a.date).getTime();
+   279→            if (dc !== 0) return dc;
+   280→            return b.startTime.localeCompare(a.startTime);
+   281→          })
+   282→        );
+   283→      }
+   284→    } catch (err) {
+   285→      if (err instanceof DOMException && err.name === "AbortError") return;
+   286→      console.error("[meetings] Failed to fetch meetings:", err);
+   287→      toast.error("Failed to load meetings");
+   288→    } finally {
+   289→      setLoading(false);
+   290→    }
+   291→  }, []);
+   292→
+   293→  const fetchTeamAndProjects = useCallback(async () => {
+   294→    try {
+   295→      const [teamRes, projectsRes] = await Promise.all([
+   296→        fetch("/api/team", { credentials: "include" }),
+   297→        fetch("/api/projects", { credentials: "include" }),
+   298→      ]);
+   299→      if (teamRes.ok) {
+   300→        const teamData = await teamRes.json();
+   301→        setTeamMembers(safeArray<TeamMember>(teamData).filter((u: TeamMember) => u.id !== userId));
+   302→      }
+   303→      if (projectsRes.ok) {
+   304→        const projectData = await projectsRes.json();
+   305→        setProjects(safeArray<Project>(projectData));
+   306→      }
+   307→    } catch (err) {
+   308→      console.error("Failed to fetch team and projects:", err);
+   309→    }
+   310→  }, [userId]);
+   311→
+   312→  useEffect(() => {
+   313→    const controller = new AbortController();
+   314→    const signal = controller.signal;
+   315→    fetchMeetings(signal);
+   316→    fetchTeamAndProjects();
+   317→    return () => controller.abort();
+   318→  }, [fetchMeetings, fetchTeamAndProjects]);
+   319→
+   320→  // Stats
+   321→  const stats = useMemo(() => {
+   322→    const today = new Date();
+   323→    today.setHours(0, 0, 0, 0);
+   324→    const tomorrow = new Date(today);
+   325→    tomorrow.setDate(tomorrow.getDate() + 1);
+   326→    const weekEnd = new Date(today);
+   327→    weekEnd.setDate(weekEnd.getDate() + 7);
+   328→
+   329→    const upcoming = meetings.filter((m) => m.status === "SCHEDULED" && new Date(m.date) >= today).length;
+   330→    const todayCount = meetings.filter((m) => isToday(m.date) && m.status !== "CANCELLED").length;
+   331→    const thisWeek = meetings.filter((m) => {
+   332→      const d = new Date(m.date);
+   333→      return d >= today && d < weekEnd && m.status !== "CANCELLED";
+   334→    }).length;
+   335→
+   336→    return { upcoming, todayCount, thisWeek };
+   337→  }, [meetings]);
+   338→
+   339→  // Group meetings
+   340→  const groupedMeetings = useMemo(() => {
+   341→    const groups: Record<string, Meeting[]> = { Today: [], Tomorrow: [], "This Week": [], Later: [] };
+   342→
+   343→    const sortedMeetings = [...meetings]
+   344→      .filter((m) => m.status !== "CANCELLED")
+   345→      .sort((a, b) => {
+   346→        const dateCompare = new Date(a.date).getTime() - new Date(b.date).getTime();
+   347→        if (dateCompare !== 0) return dateCompare;
+   348→        return a.startTime.localeCompare(b.startTime);
+   349→      });
+   350→
+   351→    for (const meeting of sortedMeetings) {
+   352→      const label = getDateLabel(meeting.date);
+   353→      groups[label].push(meeting);
+   354→    }
+   355→
+   356→    return groups;
+   357→  }, [meetings]);
+   358→
+   359→  const cancelledMeetings = useMemo(() => meetings.filter((m) => m.status === "CANCELLED"), [meetings]);
+   360→
+   361→  // Calendar days for the current month
+   362→  const calendarDays = useMemo(() => {
+   363→    const year = calendarDate.getFullYear();
+   364→    const month = calendarDate.getMonth();
+   365→    const firstDay = new Date(year, month, 1).getDay();
+   366→    const daysInMonth = new Date(year, month + 1, 0).getDate();
+   367→    const days: { day: number; meetings: Meeting[]; isCurrentMonth: boolean }[] = [];
+   368→
+   369→    // Previous month padding
+   370→    const prevMonthDays = new Date(year, month, 0).getDate();
+   371→    for (let i = firstDay - 1; i >= 0; i--) {
+   372→      days.push({ day: prevMonthDays - i, meetings: [], isCurrentMonth: false });
+   373→    }
+   374→
+   375→    // Current month days
+   376→    for (let d = 1; d <= daysInMonth; d++) {
+   377→      const dateStr = new Date(year, month, d).toISOString();
+   378→      const dayMeetings = meetings.filter((m) => {
+   379→        const mDate = new Date(m.date);
+   380→        return mDate.getFullYear() === year && mDate.getMonth() === month && mDate.getDate() === d && m.status !== "CANCELLED";
+   381→      });
+   382→      days.push({ day: d, meetings: dayMeetings, isCurrentMonth: true });
+   383→    }
+   384→
+   385→    // Next month padding
+   386→    const remaining = 42 - days.length;
+   387→    for (let i = 1; i <= remaining; i++) {
+   388→      days.push({ day: i, meetings: [], isCurrentMonth: false });
+   389→    }
+   390→
+   391→    return days;
+   392→  }, [calendarDate, meetings]);
+   393→
+   394→  const resetForm = () => {
+   395→    setFormTitle("");
+   396→    setFormDescription("");
+   397→    setFormDate("");
+   398→    setFormStartTime("09:00");
+   399→    setFormEndTime("");
+   400→    setFormMeetingType("VIRTUAL");
+   401→    setFormMeetingLink("");
+   402→    setFormProjectId("");
+   403→    setFormAttendeeIds([]);
+   404→    setFormExternalEmails([]);
+   405→    setExternalEmailInput("");
+   406→    setFormNotes("");
+   407→    setEditMode(false);
+   408→  };
+   409→
+   410→  const openCreateDialog = () => {
+   411→    resetForm();
+   412→    setDialogOpen(true);
+   413→  };
+   414→
+   415→  const openEditDialog = (meeting: Meeting) => {
+   416→    setFormTitle(meeting.title);
+   417→    setFormDescription(meeting.description || "");
+   418→    try {
+   419→      setFormDate(new Date(meeting.date).toISOString().split("T")[0]);
+   420→    } catch {
+   421→      setFormDate("");
+   422→    }
+   423→    setFormStartTime(meeting.startTime || "09:00");
+   424→    setFormEndTime(meeting.endTime || "");
+   425→    setFormMeetingType(meeting.meetingType);
+   426→    setFormMeetingLink(meeting.meetingLink || "");
+   427→    setFormProjectId(meeting.projectId || "");
+   428→    setFormAttendeeIds(safeArray<MeetingAttendee>(meeting.attendees).map((a) => a.userId));
+   429→    setFormNotes(meeting.notes || "");
+   430→    setEditMode(true);
+   431→    setDetailOpen(false);
+   432→    setDialogOpen(true);
+   433→  };
+   434→
+   435→  const handleSubmit = async () => {
+   436→    if (!formTitle || !formDate || !formStartTime) {
+   437→      toast.error("Please fill in all required fields");
+   438→      return;
+   439→    }
+   440→
+   441→    setSubmitting(true);
+   442→    try {
+   443→      const url = editMode ? `/api/meetings/${selectedMeeting?.id}` : "/api/meetings";
+   444→      const method = editMode ? "PATCH" : "POST";
+   445→      const body: Record<string, unknown> = {
+   446→        title: formTitle,
+   447→        description: formDescription || undefined,
+   448→        date: formDate,
+   449→        startTime: formStartTime,
+   450→        endTime: formEndTime || undefined,
+   451→        meetingType: formMeetingType,
+   452→        meetingLink: formMeetingLink || undefined,
+   453→        projectId: formProjectId === "none" ? undefined : (formProjectId || undefined),
+   454→        attendeeIds: formAttendeeIds,
+   455→        externalAttendeeEmails: formExternalEmails.length > 0 ? formExternalEmails : undefined,
+   456→        notes: formNotes || undefined,
+   457→      };
+   458→
+   459→      if (editMode) {
+   460→        body.id = selectedMeeting?.id;
+   461→      }
+   462→
+   463→      const res = await fetch(url, {
+   464→        method,
+   465→        headers: { "Content-Type": "application/json" },
+   466→        credentials: "include",
+   467→        body: JSON.stringify(body),
+   468→      });
+   469→
+   470→      if (res.ok) {
+   471→        toast.success(editMode ? "Meeting updated" : "Meeting scheduled");
+   472→        setDialogOpen(false);
+   473→        resetForm();
+   474→        fetchMeetings();
+   475→      } else {
+   476→        const err = await res.json();
+   477→        toast.error(err.error || "Failed to save meeting");
+   478→      }
+   479→    } catch {
+   480→      toast.error("Failed to save meeting");
+   481→    } finally {
+   482→      setSubmitting(false);
+   483→    }
+   484→  };
+   485→
+   486→  const handleCancel = async (meetingId: string) => {
+   487→    try {
+   488→      const res = await fetch(`/api/meetings/${meetingId}`, {
+   489→        method: "DELETE",
+   490→        credentials: "include",
+   491→      });
+   492→      if (res.ok) {
+   493→        toast.success("Meeting cancelled");
+   494→        setDetailOpen(false);
+   495→        setCancelMeetingId(null);
+   496→        fetchMeetings();
+   497→      } else {
+   498→        const err = await res.json();
+   499→        toast.error(err.error || "Failed to cancel meeting");
+   500→      }
+   501→    } catch {
+   502→      toast.error("Failed to cancel meeting");
+   503→    } finally {
+   504→      setCancelMeetingId(null);
+   505→    }
+   506→  };
+   507→
+   508→  const handleRsvp = async (meetingId: string, rsvpStatus: "ACCEPTED" | "DECLINED") => {
+   509→    try {
+   510→      const res = await fetch(`/api/meetings/${meetingId}/rsvp`, {
+   511→        method: "POST",
+   512→        headers: { "Content-Type": "application/json" },
+   513→        credentials: "include",
+   514→        body: JSON.stringify({ rsvpStatus }),
+   515→      });
+   516→      if (res.ok) {
+   517→        toast.success(rsvpStatus === "ACCEPTED" ? "Meeting accepted" : "Meeting declined");
+   518→        fetchMeetings();
+   519→        // Update detail view if open
+   520→        if (selectedMeeting?.id === meetingId) {
+   521→          setSelectedMeeting((prev) => {
+   522→            if (!prev) return prev;
+   523→            return {
+   524→              ...prev,
+   525→              attendees: prev.attendees.map((a) =>
+   526→                a.userId === userId ? { ...a, rsvpStatus } : a
+   527→              ),
+   528→            };
+   529→          });
+   530→        }
+   531→      } else {
+   532→        const err = await res.json();
+   533→        toast.error(err.error || "Failed to update RSVP");
+   534→      }
+   535→    } catch {
+   536→      toast.error("Failed to update RSVP");
+   537→    }
+   538→  };
+   539→
+   540→  const toggleAttendee = (memberId: string) => {
+   541→    setFormAttendeeIds((prev) =>
+   542→      prev.includes(memberId) ? prev.filter((id) => id !== memberId) : [...prev, memberId]
+   543→    );
+   544→  };
+   545→
+   546→  const getUserRsvp = (meeting: Meeting): string | null => {
+   547→    const attendee = meeting.attendees.find((a) => a.userId === userId);
+   548→    return attendee?.rsvpStatus || null;
+   549→  };
+   550→
+   551→  const isOrganizer = (meeting: Meeting): boolean => meeting.organizerId === userId;
+   552→
+   553→  const openDetail = (meeting: Meeting) => {
+   554→    setSelectedMeeting(meeting);
+   555→    setDetailOpen(true);
+   556→  };
+   557→
+   558→  const toggleGroup = (group: string) => {
+   559→    setExpandedGroups((prev) => ({ ...prev, [group]: !prev[group] }));
+   560→  };
+   561→
+   562→  // ━━ Session loading guard ━━
+   563→  if (status === "loading") {
+   564→    return (
+   565→      <div className="space-y-6">
+   566→        <div className="h-8 w-48 bg-muted animate-pulse rounded-lg" />
+   567→        <div className="grid gap-4 md:grid-cols-3">
+   568→          {[1, 2, 3].map((i) => (
+   569→            <div key={i} className="h-32 bg-muted animate-pulse rounded-xl" />
+   570→          ))}
+   571→        </div>
+   572→      </div>
+   573→    );
+   574→  }
+   575→
+   576→  // ━━ Loading State ━━
+   577→  if (loading) {
+   578→    return (
+   579→      <div className="space-y-6">
+   580→        <div className="flex items-center justify-between">
+   581→          <div>
+   582→            <div className="h-8 w-48 bg-muted animate-pulse rounded-lg" />
+   583→            <div className="h-4 w-72 bg-muted animate-pulse rounded mt-2" />
+   584→          </div>
+   585→          <div className="h-10 w-40 bg-muted animate-pulse rounded-lg" />
+   586→        </div>
+   587→        <div className="grid gap-4 md:grid-cols-3">
+   588→          {[1, 2, 3].map((i) => (
+   589→            <div key={i} className="h-32 bg-muted animate-pulse rounded-xl" />
+   590→          ))}
+   591→        </div>
+   592→        <div className="space-y-3">
+   593→          {[1, 2, 3, 4].map((i) => (
+   594→            <div key={i} className="h-24 bg-muted animate-pulse rounded-xl" />
+   595→          ))}
+   596→        </div>
+   597→      </div>
+   598→    );
+   599→  }
+   600→
+   601→  return (
+   602→    <div className="space-y-6">
+   603→      {/* ━━ Header ━━ */}
+   604→      <PageHeader title="Meetings" description="Schedule and manage team meetings">
+   605→        <div className="flex items-center gap-3">
+   606→          {/* View Toggle */}
+   607→          <div className="flex items-center border rounded-lg overflow-hidden">
+   608→            <Button
+   609→              variant={viewMode === "list" ? "default" : "ghost"}
+   610→              size="sm"
+   611→              className="rounded-none h-9 px-3"
+   612→              onClick={() => setViewMode("list")}
+   613→            >
+   614→              <List className="h-4 w-4 mr-1" /> List
+   615→            </Button>
+   616→            <Button
+   617→              variant={viewMode === "calendar" ? "default" : "ghost"}
+   618→              size="sm"
+   619→              className="rounded-none h-9 px-3"
+   620→              onClick={() => setViewMode("calendar")}
+   621→            >
+   622→              <Grid3X3 className="h-4 w-4 mr-1" /> Calendar
+   623→            </Button>
+   624→          </div>
+   625→          {isAdmin && (
+   626→            <Button onClick={openCreateDialog}>
+   627→              <Plus className="h-4 w-4 mr-2" /> Schedule Meeting
+   628→            </Button>
+   629→          )}
+   630→        </div>
+   631→      </PageHeader>
+   632→
+   633→      {/* ━━ Stats Cards ━━ */}
+   634→      <div className="grid gap-4 md:grid-cols-3">
+   635→        <Card className="border-l-4 border-l-blue-500">
+   636→          <CardHeader className="pb-2">
+   637→            <CardDescription className="flex items-center gap-2">
+   638→              <CalendarRange className="h-4 w-4 text-blue-500" />
+   639→              Upcoming Meetings
+   640→            </CardDescription>
+   641→          </CardHeader>
+   642→          <CardContent>
+   643→            <div className="flex items-center gap-3">
+   644→              <span className="text-3xl font-bold">{stats.upcoming}</span>
+   645→              <span className="text-xs text-muted-foreground">scheduled</span>
+   646→            </div>
+   647→          </CardContent>
+   648→        </Card>
+   649→        <Card className="border-l-4 border-l-green-500">
+   650→          <CardHeader className="pb-2">
+   651→            <CardDescription className="flex items-center gap-2">
+   652→              <CalendarDays className="h-4 w-4 text-green-500" />
+   653→              Today&apos;s Meetings
+   654→            </CardDescription>
+   655→          </CardHeader>
+   656→          <CardContent>
+   657→            <div className="flex items-center gap-3">
+   658→              <span className="text-3xl font-bold">{stats.todayCount}</span>
+   659→              <span className="text-xs text-muted-foreground">today</span>
+   660→            </div>
+   661→          </CardContent>
+   662→        </Card>
+   663→        <Card className="border-l-4 border-l-purple-500">
+   664→          <CardHeader className="pb-2">
+   665→            <CardDescription className="flex items-center gap-2">
+   666→              <Calendar className="h-4 w-4 text-purple-500" />
+   667→              This Week
+   668→            </CardDescription>
+   669→          </CardHeader>
+   670→          <CardContent>
+   671→            <div className="flex items-center gap-3">
+   672→              <span className="text-3xl font-bold">{stats.thisWeek}</span>
+   673→              <span className="text-xs text-muted-foreground">meetings</span>
+   674→            </div>
+   675→          </CardContent>
+   676→        </Card>
+   677→      </div>
+   678→
+   679→      {/* ━━ Main Content ━━ */}
+   680→      {viewMode === "list" ? (
+   681→        <div className="space-y-4">
+   682→          {meetings.filter((m) => m.status !== "CANCELLED").length === 0 ? (
+   683→            <Card>
+   684→              <CardContent className="py-16">
+   685→                <div className="text-center">
+   686→                  <Video className="h-16 w-16 mx-auto text-muted-foreground opacity-30 mb-4" />
+   687→                  <h3 className="text-lg font-semibold text-muted-foreground">No meetings scheduled</h3>
+   688→                  <p className="text-sm text-muted-foreground mt-1">Start by scheduling a new meeting</p>
+   689→                  {isAdmin && (
+   690→                    <Button className="mt-4" onClick={openCreateDialog}>
+   691→                      <Plus className="h-4 w-4 mr-2" /> Schedule Meeting
+   692→                    </Button>
+   693→                  )}
+   694→                </div>
+   695→              </CardContent>
+   696→            </Card>
+   697→          ) : (
+   698→            Object.entries(groupedMeetings).map(([group, groupMeetings]) => {
+   699→              if (groupMeetings.length === 0) return null;
+   700→              const isExpanded = expandedGroups[group] !== false;
+   701→              return (
+   702→                <div key={group}>
+   703→                  <button
+   704→                    onClick={() => toggleGroup(group)}
+   705→                    className="flex items-center gap-2 w-full text-left mb-3 group"
+   706→                    type="button"
+   707→                  >
+   708→                    {isExpanded ? (
+   709→                      <ChevronDown className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+   710→                    ) : (
+   711→                      <ChevronUp className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+   712→                    )}
+   713→                    <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+   714→                      {group}
+   715→                    </h2>
+   716→                    <Badge variant="secondary" className="text-xs">
+   717→                      {groupMeetings.length}
+   718→                    </Badge>
+   719→                  </button>
+   720→                  {isExpanded && (
+   721→                    <div className="space-y-3">
+   722→                      {groupMeetings.map((meeting) => (
+   723→                        <MeetingCard
+   724→                          key={meeting.id}
+   725→                          meeting={meeting}
+   726→                          userId={userId}
+   727→                          isAdmin={isAdmin}
+   728→                          onOpenDetail={openDetail}
+   729→                          onRsvp={handleRsvp}
+   730→                        />
+   731→                      ))}
+   732→                    </div>
+   733→                  )}
+   734→                </div>
+   735→              );
+   736→            })
+   737→          )}
+   738→
+   739→          {/* Past Meetings */}
+   740→          {pastMeetings.length > 0 && (
+   741→            <div className="mt-4">
+   742→              <Separator className="mb-4" />
+   743→              <button
+   744→                onClick={() => toggleGroup("Past Meetings")}
+   745→                className="flex items-center gap-2 w-full text-left mb-3 group"
+   746→                type="button"
+   747→              >
+   748→                {expandedGroups["Past Meetings"] !== false ? (
+   749→                  <ChevronDown className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+   750→                ) : (
+   751→                  <ChevronUp className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+   752→                )}
+   753→                <History className="h-4 w-4 text-muted-foreground" />
+   754→                <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+   755→                  Past Meetings
+   756→                </h2>
+   757→                <Badge variant="secondary" className="text-xs">
+   758→                  {pastMeetings.length}
+   759→                </Badge>
+   760→              </button>
+   761→              {expandedGroups["Past Meetings"] !== false && (
+   762→                <div className="space-y-3 opacity-70">
+   763→                  {pastMeetings.map((meeting) => (
+   764→                    <MeetingCard
+   765→                      key={meeting.id}
+   766→                      meeting={meeting}
+   767→                      userId={userId}
+   768→                      isAdmin={false}
+   769→                      onOpenDetail={openDetail}
+   770→                      onRsvp={handleRsvp}
+   771→                    />
+   772→                  ))}
+   773→                </div>
+   774→              )}
+   775→            </div>
+   776→          )}
+   777→
+   778→          {/* Cancelled meetings */}
+   779→          {cancelledMeetings.length > 0 && (
+   780→            <div>
+   781→              <button
+   782→                onClick={() => toggleGroup("Cancelled")}
+   783→                className="flex items-center gap-2 w-full text-left mb-3 group"
+   784→                type="button"
+   785→              >
+   786→                {expandedGroups["Cancelled"] !== false ? (
+   787→                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+   788→                ) : (
+   789→                  <ChevronUp className="h-4 w-4 text-muted-foreground" />
+   790→                )}
+   791→                <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+   792→                  Cancelled
+   793→                </h2>
+   794→                <Badge variant="secondary" className="text-xs">
+   795→                  {cancelledMeetings.length}
+   796→                </Badge>
+   797→              </button>
+   798→              {expandedGroups["Cancelled"] !== false && (
+   799→                <div className="space-y-3 opacity-60">
+   800→                  {cancelledMeetings.map((meeting) => (
+   801→                    <MeetingCard
+   802→                      key={meeting.id}
+   803→                      meeting={meeting}
+   804→                      userId={userId}
+   805→                      isAdmin={isAdmin}
+   806→                      onOpenDetail={openDetail}
+   807→                      onRsvp={handleRsvp}
+   808→                    />
+   809→                  ))}
+   810→                </div>
+   811→              )}
+   812→            </div>
+   813→          )}
+   814→        </div>
+   815→      ) : (
+   816→        /* ━━ Calendar View ━━ */
+   817→        <Card>
+   818→          <CardHeader className="pb-3">
+   819→            <div className="flex items-center justify-between">
+   820→              <CardTitle className="text-lg">
+   821→                {calendarDate.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+   822→              </CardTitle>
+   823→              <div className="flex items-center gap-2">
+   824→                <Button variant="outline" size="sm" onClick={() => {
+   825→                  const d = new Date(calendarDate);
+   826→                  d.setMonth(d.getMonth() - 1);
+   827→                  setCalendarDate(d);
+   828→                }}>
+   829→                  Previous
+   830→                </Button>
+   831→                <Button variant="outline" size="sm" onClick={() => setCalendarDate(new Date())}>
+   832→                  Today
+   833→                </Button>
+   834→                <Button variant="outline" size="sm" onClick={() => {
+   835→                  const d = new Date(calendarDate);
+   836→                  d.setMonth(d.getMonth() + 1);
+   837→                  setCalendarDate(d);
+   838→                }}>
+   839→                  Next
+   840→                </Button>
+   841→              </div>
+   842→            </div>
+   843→          </CardHeader>
+   844→          <CardContent>
+   845→            {/* Calendar Header */}
+   846→            <div className="grid grid-cols-7 gap-px bg-border rounded-t-lg overflow-hidden">
+   847→              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+   848→                <div key={day} className="bg-muted px-2 py-2 text-center text-xs font-semibold text-muted-foreground">
+   849→                  {day}
+   850→                </div>
+   851→              ))}
+   852→            </div>
+   853→            {/* Calendar Grid */}
+   854→            <div className="grid grid-cols-7 gap-px bg-border rounded-b-lg overflow-hidden">
+   855→              {calendarDays.map((dayInfo, idx) => {
+   856→                const isCurrentDay = dayInfo.isCurrentMonth &&
+   857→                  dayInfo.day === new Date().getDate() &&
+   858→                  calendarDate.getMonth() === new Date().getMonth() &&
+   859→                  calendarDate.getFullYear() === new Date().getFullYear();
+   860→
+   861→                return (
+   862→                  <div
+   863→                    key={idx}
+   864→                    className={cn(
+   865→                      "bg-card min-h-[100px] p-1.5 relative",
+   866→                      !dayInfo.isCurrentMonth && "bg-muted/30",
+   867→                      isCurrentDay && "bg-primary/5"
+   868→                    )}
+   869→                  >
+   870→                    <span
+   871→                      className={cn(
+   872→                        "text-xs font-medium inline-flex items-center justify-center h-6 w-6 rounded-full",
+   873→                        isCurrentDay && "bg-primary text-primary-foreground",
+   874→                        !dayInfo.isCurrentMonth && "text-muted-foreground/50"
+   875→                      )}
+   876→                    >
+   877→                      {dayInfo.day}
+   878→                    </span>
+   879→                    <div className="mt-1 space-y-0.5">
+   880→                      {dayInfo.meetings.slice(0, 3).map((m) => {
+   881→                        const typeConf = meetingTypeConfig[m.meetingType] || meetingTypeConfig.VIRTUAL;
+   882→                        return (
+   883→                          <button
+   884→                            key={m.id}
+   885→                            onClick={() => openDetail(m)}
+   886→                            className="w-full text-left"
+   887→                            type="button"
+   888→                          >
+   889→                            <div className={cn(
+   890→                              "text-[10px] px-1.5 py-0.5 rounded truncate font-medium",
+   891→                              typeConf.bgColor,
+   892→                              typeConf.color
+   893→                            )}>
+   894→                              {m.startTime} {m.title}
+   895→                            </div>
+   896→                          </button>
+   897→                        );
+   898→                      })}
+   899→                      {dayInfo.meetings.length > 3 && (
+   900→                        <div className="text-[10px] text-muted-foreground px-1.5">
+   901→                          +{dayInfo.meetings.length - 3} more
+   902→                        </div>
+   903→                      )}
+   904→                    </div>
+   905→                  </div>
+   906→                );
+   907→              })}
+   908→            </div>
+   909→          </CardContent>
+   910→        </Card>
+   911→      )}
+   912→
+   913→      {/* ━━ Schedule/Edit Meeting Dialog ━━ */}
+   914→      <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
+   915→        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+   916→          <DialogHeader>
+   917→            <DialogTitle className="flex items-center gap-2">
+   918→              <Video className="h-5 w-5 text-primary" />
+   919→              {editMode ? "Edit Meeting" : "Schedule Meeting"}
+   920→            </DialogTitle>
+   921→          </DialogHeader>
+   922→          <div className="space-y-4">
+   923→            {/* Title */}
+   924→            <div>
+   925→              <Label>Title *</Label>
+   926→              <Input
+   927→                value={formTitle}
+   928→                onChange={(e) => setFormTitle(e.target.value)}
+   929→                placeholder="Meeting title"
+   930→                className="mt-1"
+   931→              />
+   932→            </div>
+   933→
+   934→            {/* Description */}
+   935→            <div>
+   936→              <Label>Description</Label>
+   937→              <Textarea
+   938→                value={formDescription}
+   939→                onChange={(e) => setFormDescription(e.target.value)}
+   940→                placeholder="Brief meeting description..."
+   941→                rows={3}
+   942→                className="mt-1"
+   943→              />
+   944→            </div>
+   945→
+   946→            {/* Date & Time */}
+   947→            <div className="grid grid-cols-2 gap-3">
+   948→              <div>
+   949→                <Label>Date *</Label>
+   950→                <Input
+   951→                  type="date"
+   952→                  value={formDate}
+   953→                  onChange={(e) => setFormDate(e.target.value)}
+   954→                  className="mt-1"
+   955→                />
+   956→                {formDate && new Date(formDate) < new Date(new Date().toDateString()) && !editMode && (
+   957→                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+   958→                    You&apos;re scheduling a meeting in the past
+   959→                  </p>
+   960→                )}
+   961→              </div>
+   962→              <div className="grid grid-cols-2 gap-2">
+   963→                <div>
+   964→                  <Label>Start *</Label>
+   965→                  <Input
+   966→                    type="time"
+   967→                    value={formStartTime}
+   968→                    onChange={(e) => {
+   969→                      const val = e.target.value
+   970→                      setFormStartTime(val)
+   971→                      // Auto-fill end time as start + 1 hour (only when creating, not editing)
+   972→                      if (!editMode && val) {
+   973→                        const [h, m] = val.split(":").map(Number)
+   974→                        const endH = (h + 1) % 24
+   975→                        setFormEndTime(`${String(endH).padStart(2, "0")}:${String(m).padStart(2, "0")}`)
+   976→                      }
+   977→                    }}
+   978→                    className="mt-1"
+   979→                  />
+   980→                </div>
+   981→                <div>
+   982→                  <Label>End</Label>
+   983→                  <Input
+   984→                    type="time"
+   985→                    value={formEndTime}
+   986→                    onChange={(e) => setFormEndTime(e.target.value)}
+   987→                    className="mt-1"
+   988→                  />
+   989→                </div>
+   990→              </div>
+   991→            </div>
+   992→
+   993→            {/* Duration & Overnight hints */}
+   994→            {formStartTime && formEndTime && (
+   995→              <div className="flex flex-wrap gap-2">
+   996→                <p className="text-xs text-muted-foreground">
+   997→                  Duration: {calculateMeetingDuration(formStartTime, formEndTime)}
+   998→                </p>
+   999→                {isOvernightMeeting(formStartTime, formEndTime) && (
+  1000→                  <p className="text-xs text-amber-600 dark:text-amber-400">
+  1001→                    Spans overnight (ends next day)
+  1002→                  </p>
+  1003→                )}
+  1004→              </div>
+  1005→            )}
+  1006→
+  1007→            {/* Meeting Type */}
+  1008→            <div>
+  1009→              <Label>Meeting Type</Label>
+  1010→              <Select value={formMeetingType} onValueChange={setFormMeetingType}>
+  1011→                <SelectTrigger className="mt-1">
+  1012→                  <SelectValue />
+  1013→                </SelectTrigger>
+  1014→                <SelectContent>
+  1015→                  <SelectItem value="VIRTUAL">
+  1016→                    <span className="flex items-center gap-2">
+  1017→                      <Video className="h-4 w-4" /> Virtual Meeting
+  1018→                    </span>
+  1019→                  </SelectItem>
+  1020→                  <SelectItem value="IN_PERSON">
+  1021→                    <span className="flex items-center gap-2">
+  1022→                      <MapPin className="h-4 w-4" /> In Person
+  1023→                    </span>
+  1024→                  </SelectItem>
+  1025→                  <SelectItem value="PHONE">
+  1026→                    <span className="flex items-center gap-2">
+  1027→                      <Phone className="h-4 w-4" /> Phone Call
+  1028→                    </span>
+  1029→                  </SelectItem>
+  1030→                </SelectContent>
+  1031→              </Select>
+  1032→            </div>
+  1033→
+  1034→            {/* Google Meet Link */}
+  1035→            {formMeetingType === "VIRTUAL" && (
+  1036→              <div>
+  1037→                <Label className="flex items-center gap-2">
+  1038→                  <Link2 className="h-3.5 w-3.5" />
+  1039→                  Meeting Link
+  1040→                </Label>
+  1041→                <div className="flex gap-2 mt-1">
+  1042→                  <Input
+  1043→                    value={formMeetingLink}
+  1044→                    onChange={(e) => setFormMeetingLink(e.target.value)}
+  1045→                    placeholder="https://meet.google.com/xxx-xxxx-xxx"
+  1046→                    className="flex-1"
+  1047→                  />
+  1048→                  <Button
+  1049→                    variant="outline"
+  1050→                    size="sm"
+  1051→                    className="shrink-0"
+  1052→                    onClick={() => window.open("https://meet.google.com", "_blank")}
+  1053→                  >
+  1054→                    <ExternalLink className="h-3.5 w-3.5 mr-1" />
+  1055→                    Open Meet
+  1056→                  </Button>
+  1057→                </div>
+  1058→                <p className="text-[11px] text-muted-foreground mt-1">
+  1059→                  Create a Google Meet at meet.google.com and paste the link here
+  1060→                </p>
+  1061→              </div>
+  1062→            )}
+  1063→
+  1064→            {/* Project */}
+  1065→            <div>
+  1066→              <Label>Project</Label>
+  1067→              <Select value={formProjectId} onValueChange={setFormProjectId}>
+  1068→                <SelectTrigger className="mt-1">
+  1069→                  <SelectValue placeholder="Select a project (optional)" />
+  1070→                </SelectTrigger>
+  1071→                <SelectContent>
+  1072→                  <SelectItem value="none">No project</SelectItem>
+  1073→                  {projects.map((p) => (
+  1074→                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+  1075→                  ))}
+  1076→                </SelectContent>
+  1077→              </Select>
+  1078→            </div>
+  1079→
+  1080→            {/* Attendees */}
+  1081→            <div>
+  1082→              <Label className="flex items-center gap-2">
+  1083→                <Users className="h-3.5 w-3.5" />
+  1084→                Attendees
+  1085→              </Label>
+  1086→              <div className="mt-2 border rounded-lg p-3 max-h-40 overflow-y-auto space-y-2">
+  1087→                {teamMembers.length === 0 ? (
+  1088→                  <p className="text-xs text-muted-foreground text-center py-2">No team members available</p>
+  1089→                ) : (
+  1090→                  teamMembers.map((member) => (
+  1091→                    <label
+  1092→                      key={member.id}
+  1093→                      className={cn(
+  1094→                        "flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors",
+  1095→                        formAttendeeIds.includes(member.id)
+  1096→                          ? "bg-primary/10 border border-primary/20"
+  1097→                          : "hover:bg-accent"
+  1098→                      )}
+  1099→                    >
+  1100→                      <Checkbox
+  1101→                        checked={formAttendeeIds.includes(member.id)}
+  1102→                        onCheckedChange={() => toggleAttendee(member.id)}
+  1103→                      />
+  1104→                      <Avatar className="h-7 w-7">
+  1105→                        <AvatarFallback className="text-xs bg-primary/10 text-primary">
+  1106→                          {getInitials(member.name)}
+  1107→                        </AvatarFallback>
+  1108→                      </Avatar>
+  1109→                      <div className="flex-1 min-w-0">
+  1110→                        <p className="text-sm font-medium truncate">{member.name}</p>
+  1111→                        <p className="text-[10px] text-muted-foreground">{member.role}</p>
+  1112→                      </div>
+  1113→                    </label>
+  1114→                  ))
+  1115→                )}
+  1116→              </div>
+  1117→              {formAttendeeIds.length > 0 && (
+  1118→                <p className="text-xs text-muted-foreground mt-1">
+  1119→                  {formAttendeeIds.length} attendee{formAttendeeIds.length > 1 ? "s" : ""} selected
+  1120→                </p>
+  1121→              )}
+  1122→            </div>
+  1123→
+  1124→            {/* External Attendees */}
+  1125→            <div>
+  1126→              <Label className="flex items-center gap-2">
+  1127→                <Mail className="h-3.5 w-3.5" />
+  1128→                External Attendees
+  1129→              </Label>
+  1130→              <p className="text-[10px] text-muted-foreground mt-0.5 mb-2">Add people outside the organization by email</p>
+  1131→              <div className="flex gap-2 mt-1">
+  1132→                <Input
+  1133→                  type="email"
+  1134→                  value={externalEmailInput}
+  1135→                  onChange={(e) => setExternalEmailInput(e.target.value)}
+  1136→                  placeholder="colleague@company.com"
+  1137→                  className="flex-1 h-8 text-sm"
+  1138→                  onKeyDown={(e) => {
+  1139→                    if (e.key === "Enter") {
+  1140→                      e.preventDefault();
+  1141→                      const email = externalEmailInput.trim().toLowerCase();
+  1142→                      if (!email) return;
+  1143→                      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  1144→                        toast.error("Invalid email address");
+  1145→                        return;
+  1146→                      }
+  1147→                      if (formExternalEmails.includes(email)) {
+  1148→                        toast.error("Email already added");
+  1149→                        return;
+  1150→                      }
+  1151→                      if (formExternalEmails.length >= 20) {
+  1152→                        toast.error("Maximum 20 external attendees");
+  1153→                        return;
+  1154→                      }
+  1155→                      setFormExternalEmails((prev) => [...prev, email]);
+  1156→                      setExternalEmailInput("");
+  1157→                    }
+  1158→                  }}
+  1159→                />
+  1160→                <Button
+  1161→                  type="button"
+  1162→                  variant="outline"
+  1163→                  size="sm"
+  1164→                  className="h-8 px-3"
+  1165→                  onClick={() => {
+  1166→                    const email = externalEmailInput.trim().toLowerCase();
+  1167→                    if (!email) return;
+  1168→                    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  1169→                      toast.error("Invalid email address");
+  1170→                      return;
+  1171→                    }
+  1172→                    if (formExternalEmails.includes(email)) {
+  1173→                      toast.error("Email already added");
+  1174→                      return;
+  1175→                    }
+  1176→                    if (formExternalEmails.length >= 20) {
+  1177→                      toast.error("Maximum 20 external attendees");
+  1178→                      return;
+  1179→                    }
+  1180→                    setFormExternalEmails((prev) => [...prev, email]);
+  1181→                    setExternalEmailInput("");
+  1182→                  }}
+  1183→                >
+  1184→                  Add
+  1185→                </Button>
+  1186→              </div>
+  1187→              {formExternalEmails.length > 0 && (
+  1188→                <div className="flex flex-wrap gap-1.5 mt-2">
+  1189→                  {formExternalEmails.map((email) => (
+  1190→                    <Badge
+  1191→                      key={email}
+  1192→                      variant="secondary"
+  1193→                      className="flex items-center gap-1 text-xs pl-2 pr-1 py-0.5"
+  1194→                    >
+  1195→                      <span className="max-w-[180px] truncate">{email}</span>
+  1196→                      <button
+  1197→                        type="button"
+  1198→                        onClick={() => setFormExternalEmails((prev) => prev.filter((e) => e !== email))}
+  1199→                        className="ml-0.5 rounded-full hover:bg-muted-foreground/20 p-0.5"
+  1200→                      >
+  1201→                        <X className="h-3 w-3" />
+  1202→                      </button>
+  1203→                    </Badge>
+  1204→                  ))}
+  1205→                </div>
+  1206→              )}
+  1207→            </div>
+  1208→
+  1209→            {/* Notes */}
+  1210→            <div>
+  1211→              <Label>Notes</Label>
+  1212→              <Textarea
+  1213→                value={formNotes}
+  1214→                onChange={(e) => setFormNotes(e.target.value)}
+  1215→                placeholder="Additional notes for this meeting..."
+  1216→                rows={2}
+  1217→                className="mt-1"
+  1218→              />
+  1219→            </div>
+  1220→          </div>
+  1221→          <DialogFooter>
+  1222→            <Button variant="outline" onClick={() => { setDialogOpen(false); resetForm(); }}>
+  1223→              Cancel
+  1224→            </Button>
+  1225→            <Button onClick={handleSubmit} disabled={submitting}>
+  1226→              {submitting ? "Saving..." : editMode ? "Update Meeting" : "Schedule Meeting"}
+  1227→            </Button>
+  1228→          </DialogFooter>
+  1229→        </DialogContent>
+  1230→      </Dialog>
+  1231→
+  1232→      {/* ━━ Meeting Detail Sheet ━━ */}
+  1233→      <Sheet open={detailOpen} onOpenChange={setDetailOpen}>
+  1234→        <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
+  1235→          {selectedMeeting && (
+  1236→            <div className="space-y-6">
+  1237→              <SheetHeader>
+  1238→                <SheetTitle className="text-xl pr-6">{selectedMeeting.title}</SheetTitle>
+  1239→              </SheetHeader>
+  1240→
+  1241→              {/* Status & Type Badges */}
+  1242→              <div className="flex flex-wrap gap-2">
+  1243→                <Badge className={cn("text-xs", statusConfig[selectedMeeting.status]?.bgColor, statusConfig[selectedMeeting.status]?.color)}>
+  1244→                  {statusConfig[selectedMeeting.status]?.label}
+  1245→                </Badge>
+  1246→                <Badge variant="outline" className={cn("text-xs", meetingTypeConfig[selectedMeeting.meetingType]?.color)}>
+  1247→                  {(() => {
+  1248→                    const Icon = meetingTypeConfig[selectedMeeting.meetingType]?.icon || Video;
+  1249→                    return <Icon className="h-3 w-3 mr-1" />;
+  1250→                  })()}
+  1251→                  {meetingTypeConfig[selectedMeeting.meetingType]?.label}
+  1252→                </Badge>
+  1253→              </div>
+  1254→
+  1255→              {/* Join Meeting Button */}
+  1256→              {selectedMeeting.meetingType === "VIRTUAL" && selectedMeeting.meetingLink && (
+  1257→                <a
+  1258→                  href={safeMeetingLink(selectedMeeting.meetingLink)}
+  1259→                  target="_blank"
+  1260→                  rel="noopener noreferrer"
+  1261→                  className="block"
+  1262→                >
+  1263→                  <Button className="w-full" size="lg">
+  1264→                    <Video className="h-5 w-5 mr-2" />
+  1265→                    Join with Google Meet
+  1266→                    <ExternalLink className="h-4 w-4 ml-2" />
+  1267→                  </Button>
+  1268→                </a>
+  1269→              )}
+  1270→
+  1271→              <Separator />
+  1272→
+  1273→              {/* Meeting Details */}
+  1274→              <div className="space-y-3">
+  1275→                <div className="flex items-start gap-3">
+  1276→                  <Calendar className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+  1277→                  <div>
+  1278→                    <p className="text-sm font-medium">{formatDate(selectedMeeting.date)}</p>
+  1279→                    <p className="text-sm text-muted-foreground">
+  1280→                      {formatTime(selectedMeeting.startTime)}
+  1281→                      {selectedMeeting.endTime && ` — ${formatTime(selectedMeeting.endTime)}`}
+  1282→                      {selectedMeeting.endTime && (
+  1283→                        <span className="ml-1.5 text-xs text-muted-foreground">
+  1284→                          ({calculateMeetingDuration(selectedMeeting.startTime, selectedMeeting.endTime)})
+  1285→                        </span>
+  1286→                      )}
+  1287→                      {selectedMeeting.startTime && selectedMeeting.endTime && isOvernightMeeting(selectedMeeting.startTime, selectedMeeting.endTime) && (
+  1288→                        <span className="ml-1 text-xs text-amber-600 dark:text-amber-400">overnight</span>
+  1289→                      )}
+  1290→                    </p>
+  1291→                  </div>
+  1292→                </div>
+  1293→
+  1294→                <div className="flex items-start gap-3">
+  1295→                  <Users className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+  1296→                  <div>
+  1297→                    <p className="text-sm font-medium">Organizer</p>
+  1298→                    <p className="text-sm text-muted-foreground">{selectedMeeting.organizer.name}</p>
+  1299→                  </div>
+  1300→                </div>
+  1301→
+  1302→                {selectedMeeting.project && (
+  1303→                  <div className="flex items-start gap-3">
+  1304→                    <Monitor className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+  1305→                    <div>
+  1306→                      <p className="text-sm font-medium">Project</p>
+  1307→                      <p className="text-sm text-muted-foreground">{selectedMeeting.project.name}</p>
+  1308→                    </div>
+  1309→                  </div>
+  1310→                )}
+  1311→
+  1312→                {selectedMeeting.meetingLink && (
+  1313→                  <div className="flex items-start gap-3">
+  1314→                    <Link2 className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+  1315→                    <div>
+  1316→                      <p className="text-sm font-medium">Meeting Link</p>
+  1317→                      <a
+  1318→                        href={safeMeetingLink(selectedMeeting.meetingLink)}
+  1319→                        target="_blank"
+  1320→                        rel="noopener noreferrer"
+  1321→                        className="text-sm text-primary hover:underline break-all"
+  1322→                      >
+  1323→                        {selectedMeeting.meetingLink}
+  1324→                      </a>
+  1325→                    </div>
+  1326→                  </div>
+  1327→                )}
+  1328→
+  1329→                {selectedMeeting.description && (
+  1330→                  <div className="flex items-start gap-3">
+  1331→                    <StickyNote className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+  1332→                    <div>
+  1333→                      <p className="text-sm font-medium">Description</p>
+  1334→                      <p className="text-sm text-muted-foreground whitespace-pre-wrap">{selectedMeeting.description}</p>
+  1335→                    </div>
+  1336→                  </div>
+  1337→                )}
+  1338→
+  1339→                {selectedMeeting.notes && (
+  1340→                  <div className="flex items-start gap-3">
+  1341→                    <StickyNote className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+  1342→                    <div>
+  1343→                      <p className="text-sm font-medium">Notes</p>
+  1344→                      <p className="text-sm text-muted-foreground whitespace-pre-wrap">{selectedMeeting.notes}</p>
+  1345→                    </div>
+  1346→                  </div>
+  1347→                )}
+  1348→              </div>
+  1349→
+  1350→              <Separator />
+  1351→
+  1352→              {/* Attendees */}
+  1353→              <div>
+  1354→                <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+  1355→                  <Users className="h-4 w-4" />
+  1356→                  Attendees ({selectedMeeting.attendees.length})
+  1357→                </h3>
+  1358→                <div className="space-y-2">
+  1359→                  {selectedMeeting.attendees.map((attendee) => {
+  1360→                    const rsvp = rsvpConfig[attendee.rsvpStatus] || rsvpConfig.PENDING;
+  1361→                    const RsvpIcon = rsvp.icon;
+  1362→                    return (
+  1363→                      <div key={attendee.id} className="flex items-center justify-between p-2 rounded-lg border bg-card">
+  1364→                        <div className="flex items-center gap-3">
+  1365→                          <Avatar className="h-8 w-8">
+  1366→                            <AvatarFallback className="text-xs bg-primary/10 text-primary">
+  1367→                              {getInitials(attendee.user.name)}
+  1368→                            </AvatarFallback>
+  1369→                          </Avatar>
+  1370→                          <div>
+  1371→                            <p className="text-sm font-medium">{attendee.user.name}</p>
+  1372→                            <p className="text-[10px] text-muted-foreground">{attendee.user.email}</p>
+  1373→                          </div>
+  1374→                        </div>
+  1375→                        <Badge className={cn("text-[10px]", rsvp.bgColor, rsvp.color)}>
+  1376→                          <RsvpIcon className="h-3 w-3 mr-1" />
+  1377→                          {rsvp.label}
+  1378→                        </Badge>
+  1379→                      </div>
+  1380→                    );
+  1381→                  })}
+  1382→                </div>
+  1383→              </div>
+  1384→
+  1385→              {/* RSVP for current user */}
+  1386→              {!isOrganizer(selectedMeeting) && getUserRsvp(selectedMeeting) && selectedMeeting.status !== "CANCELLED" && (
+  1387→                <>
+  1388→                  <Separator />
+  1389→                  <div>
+  1390→                    <h3 className="text-sm font-semibold mb-3">Your RSVP</h3>
+  1391→                    <div className="flex gap-2">
+  1392→                      <Button
+  1393→                        variant={getUserRsvp(selectedMeeting) === "ACCEPTED" ? "default" : "outline"}
+  1394→                        size="sm"
+  1395→                        className="flex-1"
+  1396→                        onClick={() => handleRsvp(selectedMeeting.id, "ACCEPTED")}
+  1397→                      >
+  1398→                        <Check className="h-4 w-4 mr-1" /> Accept
+  1399→                      </Button>
+  1400→                      <Button
+  1401→                        variant={getUserRsvp(selectedMeeting) === "DECLINED" ? "destructive" : "outline"}
+  1402→                        size="sm"
+  1403→                        className="flex-1"
+  1404→                        onClick={() => handleRsvp(selectedMeeting.id, "DECLINED")}
+  1405→                      >
+  1406→                        <X className="h-4 w-4 mr-1" /> Decline
+  1407→                      </Button>
+  1408→                    </div>
+  1409→                  </div>
+  1410→                </>
+  1411→              )}
+  1412→
+  1413→              {/* Actions */}
+  1414→              {(isOrganizer(selectedMeeting) || isAdmin) && selectedMeeting.status !== "CANCELLED" && (
+  1415→                <>
+  1416→                  <Separator />
+  1417→                  <div className="flex gap-2">
+  1418→                    <Button variant="outline" size="sm" className="flex-1" onClick={() => openEditDialog(selectedMeeting)}>
+  1419→                      Edit
+  1420→                    </Button>
+  1421→                    <Button variant="destructive" size="sm" className="flex-1" onClick={() => setCancelMeetingId(selectedMeeting.id)}>
+  1422→                      Cancel Meeting
+  1423→                    </Button>
+  1424→                  </div>
+  1425→                </>
+  1426→              )}
+  1427→            </div>
+  1428→          )}
+  1429→        </SheetContent>
+  1430→      </Sheet>
+  1431→
+  1432→      {/* Cancel Meeting Confirmation Dialog */}
+  1433→      <AlertDialog open={!!cancelMeetingId} onOpenChange={() => setCancelMeetingId(null)}>
+  1434→        <AlertDialogContent>
+  1435→          <AlertDialogHeader>
+  1436→            <AlertDialogTitle>Cancel Meeting</AlertDialogTitle>
+  1437→            <AlertDialogDescription>
+  1438→              Are you sure you want to cancel this meeting? This action cannot be undone.
+  1439→            </AlertDialogDescription>
+  1440→          </AlertDialogHeader>
+  1441→          <AlertDialogFooter>
+  1442→            <AlertDialogCancel>Keep Meeting</AlertDialogCancel>
+  1443→            <AlertDialogAction onClick={() => cancelMeetingId && handleCancel(cancelMeetingId)} className="bg-red-600 hover:bg-red-700">
+  1444→              Cancel Meeting
+  1445→            </AlertDialogAction>
+  1446→          </AlertDialogFooter>
+  1447→        </AlertDialogContent>
+  1448→      </AlertDialog>
+  1449→    </div>
+  1450→  );
+  1451→}
+  1452→
+  1453→// ━━ Meeting Card Component ━━
+  1454→function MeetingCard({
+  1455→  meeting,
+  1456→  userId,
+  1457→  isAdmin,
+  1458→  onOpenDetail,
+  1459→  onRsvp,
+  1460→}: {
+  1461→  meeting: Meeting;
+  1462→  userId: string;
+  1463→  isAdmin: boolean;
+  1464→  onOpenDetail: (m: Meeting) => void;
+  1465→  onRsvp: (meetingId: string, rsvpStatus: "ACCEPTED" | "DECLINED") => void;
+  1466→}) {
+  1467→  const typeConf = meetingTypeConfig[meeting.meetingType] || meetingTypeConfig.VIRTUAL;
+  1468→  const statusConf = statusConfig[meeting.status] || statusConfig.SCHEDULED;
+  1469→  const TypeIcon = typeConf.icon;
+  1470→  const userRsvp = meeting.attendees.find((a) => a.userId === userId)?.rsvpStatus;
+  1471→  const isOrganizer = meeting.organizerId === userId;
+  1472→
+  1473→  return (
+  1474→    <Card
+  1475→      className={cn(
+  1476→        "cursor-pointer transition-all hover:shadow-md border-l-4",
+  1477→        statusConf.borderColor,
+  1478→        meeting.status === "CANCELLED" && "opacity-60"
+  1479→      )}
+  1480→      onClick={() => onOpenDetail(meeting)}
+  1481→    >
+  1482→      <CardContent className="p-4">
+  1483→        <div className="flex flex-col sm:flex-row sm:items-start gap-3">
+  1484→          {/* Time Column */}
+  1485→          <div className="sm:w-24 shrink-0 text-center sm:text-left">
+  1486→            <p className="text-lg font-bold">{formatTime(meeting.startTime)}</p>
+  1487→            {meeting.endTime && (
+  1488→              <p className="text-xs text-muted-foreground">
+  1489→                {formatTime(meeting.endTime)}
+  1490→                <span className="ml-1">({calculateMeetingDuration(meeting.startTime, meeting.endTime)})</span>
+  1491→              </p>
+  1492→            )}
+  1493→            {meeting.startTime && meeting.endTime && isOvernightMeeting(meeting.startTime, meeting.endTime) && (
+  1494→              <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">overnight</p>
+  1495→            )}
+  1496→          </div>
+  1497→
+  1498→          {/* Main Content */}
+  1499→          <div className="flex-1 min-w-0">
+  1500→            <div className="flex flex-wrap items-center gap-2 mb-1.5">
+  1501→              <h3 className="font-semibold text-sm truncate">{meeting.title}</h3>
+  1502→              <Badge className={cn("text-[10px]", typeConf.bgColor, typeConf.color)}>
+  1503→                <TypeIcon className="h-3 w-3 mr-1" />
+  1504→                {typeConf.label}
+  1505→              </Badge>
+  1506→              {meeting.status !== "SCHEDULED" && (
+  1507→                <Badge className={cn("text-[10px]", statusConf.bgColor, statusConf.color)}>
+  1508→                  {statusConf.label}
+  1509→                </Badge>
+  1510→              )}
+  1511→            </div>
+  1512→
+  1513→            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+  1514→              <span className="flex items-center gap-1">
+  1515→                <Calendar className="h-3 w-3" />
+  1516→                {formatDate(meeting.date)}
+  1517→              </span>
+  1518→              <span className="flex items-center gap-1">
+  1519→                <Users className="h-3 w-3" />
+  1520→                {meeting.organizer.name}
+  1521→              </span>
+  1522→              {meeting.project && (
+  1523→                <span className="flex items-center gap-1">
+  1524→                  <Monitor className="h-3 w-3" />
+  1525→                  {meeting.project.name}
+  1526→                </span>
+  1527→              )}
+  1528→            </div>
+  1529→
+  1530→            {/* Attendee Avatars */}
+  1531→            {meeting.attendees.length > 0 && (
+  1532→              <div className="flex items-center gap-1 mt-2">
+  1533→                <div className="flex -space-x-2">
+  1534→                  {meeting.attendees.slice(0, 3).map((attendee) => (
+  1535→                    <TooltipProvider key={attendee.id}>
+  1536→                      <Tooltip>
+  1537→                        <TooltipTrigger asChild>
+  1538→                          <Avatar className="h-6 w-6 border-2 border-background">
+  1539→                            <AvatarFallback className="text-[9px] bg-primary/10 text-primary">
+  1540→                              {getInitials(attendee.user.name)}
+  1541→                            </AvatarFallback>
+  1542→                          </Avatar>
+  1543→                        </TooltipTrigger>
+  1544→                        <TooltipContent side="bottom" className="text-xs">
+  1545→                          {attendee.user.name}
+  1546→                        </TooltipContent>
+  1547→                      </Tooltip>
+  1548→                    </TooltipProvider>
+  1549→                  ))}
+  1550→                </div>
+  1551→                {meeting.attendees.length > 3 && (
+  1552→                  <span className="text-xs text-muted-foreground ml-1">
+  1553→                    +{meeting.attendees.length - 3} more
+  1554→                  </span>
+  1555→                )}
+  1556→              </div>
+  1557→            )}
+  1558→
+  1559→            {/* RSVP Status / Actions for current user */}
+  1560→            {userRsvp && !isOrganizer && meeting.status !== "CANCELLED" && (
+  1561→              <div className="flex items-center gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
+  1562→                {userRsvp === "PENDING" ? (
+  1563→                  <>
+  1564→                    <span className="text-xs text-muted-foreground">RSVP:</span>
+  1565→                    <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => onRsvp(meeting.id, "ACCEPTED")} aria-label={`Accept invitation for ${meeting.title}`}>
+  1566→                      <Check className="h-3 w-3 mr-1" /> Accept
+  1567→                    </Button>
+  1568→                    <Button size="sm" variant="outline" className="h-7 text-xs text-red-600" onClick={() => onRsvp(meeting.id, "DECLINED")} aria-label={`Decline invitation for ${meeting.title}`}>
+  1569→                      <X className="h-3 w-3 mr-1" /> Decline
+  1570→                    </Button>
+  1571→                  </>
+  1572→                ) : (
+  1573→                  <Badge className={cn("text-[10px]", rsvpConfig[userRsvp]?.bgColor, rsvpConfig[userRsvp]?.color)}>
+  1574→                    {(() => {
+  1575→                      const RsvpIcon = rsvpConfig[userRsvp]?.icon || Clock;
+  1576→                      return <RsvpIcon className="h-3 w-3 mr-1" />;
+  1577→                    })()}
+  1578→                    {rsvpConfig[userRsvp]?.label}
+  1579→                  </Badge>
+  1580→                )}
+  1581→              </div>
+  1582→            )}
+  1583→          </div>
+  1584→
+  1585→          {/* Google Meet Join Button */}
+  1586→          {meeting.meetingType === "VIRTUAL" && meeting.meetingLink && meeting.status !== "CANCELLED" && (
+  1587→            <div
+  1588→              className="shrink-0"
+  1589→              onClick={(e) => e.stopPropagation()}
+  1590→            >
+  1591→              <a href={safeMeetingLink(meeting.meetingLink)} target="_blank" rel="noopener noreferrer">
+  1592→                <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">
+  1593→                  <Video className="h-4 w-4 mr-1.5" />
+  1594→                  Join
+  1595→                </Button>
+  1596→              </a>
+  1597→            </div>
+  1598→          )}
+  1599→        </div>
+  1600→      </CardContent>
+  1601→    </Card>
+  1602→  );
+  1603→}
+  1604→

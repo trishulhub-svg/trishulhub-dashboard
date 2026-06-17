@@ -1,0 +1,907 @@
+     1→"use client"
+     2→
+     3→import React, { useState, useCallback, useEffect, useMemo } from "react"
+     4→import { useSession } from "next-auth/react"
+     5→import {
+     6→  Briefcase,
+     7→  FolderKanban,
+     8→  Users,
+     9→  GraduationCap,
+    10→  Settings,
+    11→  Search,
+    12→  Filter,
+    13→  Download,
+    14→  Activity,
+    15→  Clock,
+    16→  Shield,
+    17→  ChevronDown,
+    18→  ChevronRight,
+    19→  RotateCcw,
+    20→  Loader2,
+    21→  FileText,
+    22→  AlertTriangle,
+    23→  Calendar,
+    24→  Bird,
+    25→  ScrollText,
+    26→  ArrowUpRight,
+    27→  ArrowDownLeft,
+    28→  CheckCircle2,
+    29→  XCircle,
+    30→  AlertCircle,
+    31→} from "lucide-react"
+    32→import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+    33→import { Badge } from "@/components/ui/badge"
+    34→import { Button } from "@/components/ui/button"
+    35→import { Input } from "@/components/ui/input"
+    36→import {
+    37→  Select,
+    38→  SelectContent,
+    39→  SelectItem,
+    40→  SelectTrigger,
+    41→  SelectValue,
+    42→} from "@/components/ui/select"
+    43→import {
+    44→  Table,
+    45→  TableBody,
+    46→  TableCell,
+    47→  TableHead,
+    48→  TableHeader,
+    49→  TableRow,
+    50→} from "@/components/ui/table"
+    51→import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+    52→import {
+    53→  Tooltip,
+    54→  TooltipContent,
+    55→  TooltipProvider,
+    56→  TooltipTrigger,
+    57→} from "@/components/ui/tooltip"
+    58→import { Skeleton } from "@/components/ui/skeleton"
+    59→import { AUDIT_DEPARTMENTS, ACTION_COLORS, STATUS_COLORS, DEPARTMENT_ICONS, DEPARTMENT_COLORS, type AuditDepartment } from "@/lib/audit-log"
+    60→import { formatDateTime } from "@/lib/format"
+    61→import { cn } from "@/lib/utils"
+    62→
+    63→// Icons mapping
+    64→const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
+    65→  Briefcase,
+    66→  FolderKanban,
+    67→  Users,
+    68→  GraduationCap,
+    69→  Settings,
+    70→}
+    71→
+    72→interface AuditLogEntry {
+    73→  id: string
+    74→  userId: string
+    75→  userName: string | null
+    76→  userRole: string | null
+    77→  userDepartment: string | null
+    78→  department: string
+    79→  page: string
+    80→  action: string | null
+    81→  entityType: string | null
+    82→  entityId: string | null
+    83→  description: string | null
+    84→  oldValue: string | null
+    85→  newValue: string | null
+    86→  ipAddress: string | null
+    87→  userAgent: string | null
+    88→  status: string | null
+    89→  metadata: string | null
+    90→  createdAt: string
+    91→}
+    92→
+    93→interface DeptCount {
+    94→  department: string
+    95→  count: number
+    96→}
+    97→
+    98→interface StatsData {
+    99→  total: number
+   100→  todayCount: number
+   101→  departmentCounts: DeptCount[]
+   102→  actionCounts: { action: string; count: number }[]
+   103→  statusCounts: { status: string; count: number }[]
+   104→  recentActivity: { id: string; department: string; page: string; action: string; description: string; userName: string; createdAt: string }[]
+   105→}
+   106→
+   107→function formatRelativeTime(dateStr: string | null | undefined): string {
+   108→  if (!dateStr) return "N/A"
+   109→  const date = new Date(dateStr)
+   110→  if (isNaN(date.getTime())) return "N/A"
+   111→  const now = new Date()
+   112→  const diffMs = now.getTime() - date.getTime()
+   113→  const diffSec = Math.floor(diffMs / 1000)
+   114→  if (diffSec < 60) return "just now"
+   115→  const diffMin = Math.floor(diffSec / 60)
+   116→  if (diffMin < 60) return `${diffMin}m ago`
+   117→  const diffHr = Math.floor(diffMin / 60)
+   118→  if (diffHr < 24) return `${diffHr}h ago`
+   119→  const diffDay = Math.floor(diffHr / 24)
+   120→  if (diffDay < 7) return `${diffDay}d ago`
+   121→  return formatDateTime(dateStr)
+   122→}
+   123→
+   124→/** Safe helper: extract initials from a potentially null user name */
+   125→function getInitials(userName: string | null | undefined): string {
+   126→  if (!userName) return "?"
+   127→  return userName.split(" ").filter(Boolean).map(n => n[0] || "").join("").toUpperCase().slice(0, 2) || "?"
+   128→}
+   129→
+   130→/** Safe helper: format role for display */
+   131→function formatRole(role: string | null | undefined): string {
+   132→  if (!role) return "—"
+   133→  return role.replace(/_/g, " ")
+   134→}
+   135→
+   136→/**
+   137→ * Local error boundary for the Audit Trail page.
+   138→ * Catches render-time errors so they show a useful message
+   139→ * instead of the generic DashboardError boundary.
+   140→ */
+   141→class AuditTrailErrorBoundary extends React.Component<
+   142→  { children: React.ReactNode },
+   143→  { hasError: boolean; error: Error | null }
+   144→> {
+   145→  constructor(props: { children: React.ReactNode }) {
+   146→    super(props)
+   147→    this.state = { hasError: false, error: null }
+   148→  }
+   149→  static getDerivedStateFromError(error: Error) {
+   150→    return { hasError: true, error }
+   151→  }
+   152→  componentDidCatch(error: Error, info: React.ErrorInfo) {
+   153→    console.error("[AuditTrailErrorBoundary]", error.message, info.componentStack)
+   154→  }
+   155→  render() {
+   156→    if (this.state.hasError) {
+   157→      return (
+   158→        <div className="min-h-[40vh] flex items-center justify-center p-6">
+   159→          <Card className="max-w-md w-full border-red-200 dark:border-red-900/50">
+   160→            <CardContent className="p-6 space-y-4">
+   161→              <div className="flex justify-center">
+   162→                <div className="h-14 w-14 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+   163→                  <AlertTriangle className="h-7 w-7 text-red-600 dark:text-red-400" />
+   164→                </div>
+   165→              </div>
+   166→              <div className="text-center space-y-2">
+   167→                <h2 className="text-lg font-bold">Audit Trail Error</h2>
+   168→                <p className="text-sm text-muted-foreground">
+   169→                  Something went wrong loading the audit trail. This is likely a data or rendering issue.
+   170→                </p>
+   171→                <details className="text-left">
+   172→                  <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
+   173→                    Error details
+   174→                  </summary>
+   175→                  <pre className="mt-2 text-xs bg-muted p-3 rounded-md overflow-auto max-h-32 text-red-600 dark:text-red-400">
+   176→                    {this.state.error?.message || "Unknown error"}
+   177→                  </pre>
+   178→                </details>
+   179→              </div>
+   180→              <div className="flex gap-2 justify-center">
+   181→                <Button onClick={() => this.setState({ hasError: false, error: null })}>
+   182→                  <RotateCcw className="h-4 w-4 mr-2" /> Try Again
+   183→                </Button>
+   184→              </div>
+   185→            </CardContent>
+   186→          </Card>
+   187→        </div>
+   188→      )
+   189→    }
+   190→    return this.props.children
+   191→  }
+   192→}
+   193→
+   194→export default function AuditTrailPage() {
+   195→  const { data: session, status: sessionStatus } = useSession()
+   196→  const [logs, setLogs] = useState<AuditLogEntry[]>([])
+   197→  const [stats, setStats] = useState<StatsData | null>(null)
+   198→  const [selectedDept, setSelectedDept] = useState<string>("")
+   199→  const [search, setSearch] = useState("")
+   200→  const [actionFilter, setActionFilter] = useState<string>("")
+   201→  const [statusFilter, setStatusFilter] = useState<string>("ALL")
+   202→  const [nextCursor, setNextCursor] = useState<string | null>(null)
+   203→  const [loading, setLoading] = useState(true)
+   204→  const [statsLoading, setStatsLoading] = useState(true)
+   205→  const [exporting, setExporting] = useState(false)
+   206→  const [exportingPdf, setExportingPdf] = useState(false)
+   207→  const [dateRange, setDateRange] = useState<"7d" | "30d" | "90d" | "all">("30d")
+   208→  const [hasMore, setHasMore] = useState(false)
+   209→  const [total, setTotal] = useState(0)
+   210→  const [error, setError] = useState<string | null>(null)
+   211→  const userRole = session?.user?.role || "DEVELOPER"
+   212→
+   213→  const isExportVisible = ["SUPER_ADMIN", "ADMIN"].includes(userRole)
+   214→
+   215→  // ── Lark Sync Log state ──
+   216→  const [activeView, setActiveView] = useState<"audit" | "lark">("audit")
+   217→  const [larkLogs, setLarkLogs] = useState<Array<Record<string, string | null>>>([])
+   218→  const [larkTotal, setLarkTotal] = useState(0)
+   219→  const [larkLoading, setLarkLoading] = useState(false)
+   220→  const [larkStatusFilter, setLarkStatusFilter] = useState<string>("ALL")
+   221→  const [larkActionFilter, setLarkActionFilter] = useState<string>("ALL")
+   222→
+   223→  const fetchLarkLogs = useCallback(async () => {
+   224→    setLarkLoading(true)
+   225→    try {
+   226→      const params = new URLSearchParams()
+   227→      if (larkStatusFilter !== "ALL") params.set("status", larkStatusFilter)
+   228→      if (larkActionFilter !== "ALL") params.set("action", larkActionFilter)
+   229→      params.set("limit", "100")
+   230→      const res = await fetch(`/api/lark/sync-log?${params}`, { credentials: "include" })
+   231→      if (res.ok) {
+   232→        const data = await res.json()
+   233→        setLarkLogs(data.logs || [])
+   234→        setLarkTotal(data.total || 0)
+   235→      }
+   236→    } catch (err) { console.error("Failed to fetch Lark logs:", err) }
+   237→    finally { setLarkLoading(false) }
+   238→  }, [larkStatusFilter, larkActionFilter])
+   239→
+   240→  useEffect(() => {
+   241→    if (activeView === "lark") fetchLarkLogs()
+   242→  }, [activeView, fetchLarkLogs])
+   243→
+   244→  // Fetch stats
+   245→  useEffect(() => {
+   246→    if (sessionStatus === "loading") return
+   247→    if (!session) return
+   248→    const fetchStats = async () => {
+   249→      setStatsLoading(true)
+   250→      try {
+   251→        const res = await fetch("/api/audit-trail/stats", { credentials: "include" })
+   252→        if (res.ok) {
+   253→          const data = await res.json()
+   254→          setStats(data)
+   255→        } else {
+   256→          console.error("[audit-trail] Stats API returned:", res.status)
+   257→          // Stats failure is non-fatal — just log, don't block the page
+   258→        }
+   259→      } catch (err) {
+   260→        console.error("Failed to fetch audit stats:", err)
+   261→        // Stats failure is non-fatal — page still works without stats cards
+   262→      } finally {
+   263→        setStatsLoading(false)
+   264→      }
+   265→    }
+   266→    fetchStats()
+   267→    const interval = setInterval(fetchStats, 30000)
+   268→    return () => clearInterval(interval)
+   269→  }, [session, sessionStatus])
+   270→
+   271→  // Date range filter helper (used by fetchLogs and export)
+   272→  const getDateRange = useCallback(() => {
+   273→    const now = new Date()
+   274→    switch (dateRange) {
+   275→      case "7d": return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
+   276→      case "30d": return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
+   277→      case "90d": return new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString()
+   278→      default: return ""
+   279→    }
+   280→  }, [dateRange])
+   281→
+   282→  // Fetch logs
+   283→  const fetchLogs = useCallback(async (cursor?: string) => {
+   284→    setLoading(true)
+   285→    setError(null)
+   286→    try {
+   287→      const params = new URLSearchParams()
+   288→      if (selectedDept) params.set("department", selectedDept)
+   289→      if (search) params.set("search", search)
+   290→      if (actionFilter) params.set("action", actionFilter)
+   291→      if (statusFilter && statusFilter !== "ALL") params.set("status", statusFilter)
+   292→      if (cursor) params.set("cursor", cursor)
+   293→      const startDate = getDateRange()
+   294→      if (startDate) params.set("startDate", startDate)
+   295→      params.set("limit", "50")
+   296→
+   297→      const res = await fetch(`/api/audit-trail?${params.toString()}`, { credentials: "include" })
+   298→      if (res.ok) {
+   299→        const data = await res.json()
+   300→        const items: AuditLogEntry[] = Array.isArray(data?.data) ? data.data : []
+   301→        if (cursor) {
+   302→          setLogs(prev => [...prev, ...items])
+   303→        } else {
+   304→          setLogs(items)
+   305→        }
+   306→        setNextCursor(data?.nextCursor ?? null)
+   307→        setHasMore(!!data?.nextCursor)
+   308→        setTotal(typeof data?.total === "number" ? data.total : 0)
+   309→      } else {
+   310→        setError(`Failed to load logs (HTTP ${res.status})`)
+   311→      }
+   312→    } catch (err) {
+   313→      setError("Network error — check your connection and try again.")
+   314→      console.error("Failed to fetch audit logs:", err)
+   315→    } finally {
+   316→      setLoading(false)
+   317→    }
+   318→  }, [selectedDept, search, actionFilter, statusFilter, getDateRange])
+   319→
+   320→  // Initial fetch when filters change (not cursor-based)
+   321→  useEffect(() => {
+   322→    setNextCursor(null)
+   323→    setLogs([])
+   324→    fetchLogs()
+   325→  }, [selectedDept, search, actionFilter, statusFilter, dateRange, fetchLogs])
+   326→
+   327→  const loadMore = () => {
+   328→    if (nextCursor) fetchLogs(nextCursor)
+   329→  }
+   330→
+   331→  // Department counts from stats
+   332→  const deptCounts = useMemo(() => {
+   333→    const counts: Record<string, number> = {}
+   334→    if (stats?.departmentCounts) {
+   335→      stats.departmentCounts.forEach(d => { counts[d.department] = d.count })
+   336→    }
+   337→    return counts
+   338→  }, [stats])
+   339→
+   340→  // Stats cards
+   341→  const mostActiveDept = useMemo(() => {
+   342→    if (!stats?.departmentCounts?.length) return ""
+   343→    return stats.departmentCounts[0]?.department || ""
+   344→  }, [stats])
+   345→
+   346→  const mostCommonAction = useMemo(() => {
+   347→    if (!stats?.actionCounts?.length) return "—"
+   348→    return stats.actionCounts[0]?.action || "—"
+   349→  }, [stats])
+   350→
+   351→  const successRate = useMemo(() => {
+   352→    if (!stats?.statusCounts?.length) return "—"
+   353→    const success = stats.statusCounts.find(s => s.status === "SUCCESS")
+   354→    const failure = stats.statusCounts.find(s => s.status === "FAILURE")
+   355→    const total = (success?.count || 0) + (failure?.count || 0)
+   356→    if (total === 0) return "—"
+   357→    return `${Math.round(((success?.count || 0) / total) * 100)}%`
+   358→  }, [stats])
+   359→
+   360→  const exportCsv = async () => {
+   361→    setExporting(true)
+   362→    try {
+   363→      const params = new URLSearchParams()
+   364→      if (selectedDept) params.set("department", selectedDept)
+   365→      if (actionFilter) params.set("action", actionFilter)
+   366→      const startDate = getDateRange()
+   367→      if (startDate) params.set("startDate", startDate)
+   368→      params.set("endDate", new Date().toISOString())
+   369→
+   370→      const res = await fetch(`/api/audit-trail/export?${params.toString()}`, { credentials: "include" })
+   371→      if (res.ok) {
+   372→        const blob = await res.blob()
+   373→        const url = window.URL.createObjectURL(blob)
+   374→        const a = document.createElement("a")
+   375→        a.href = url
+   376→        a.download = `audit-trail-${new Date().toISOString().split("T")[0]}.csv`
+   377→        document.body.appendChild(a)
+   378→        a.click()
+   379→        document.body.removeChild(a)
+   380→        window.URL.revokeObjectURL(url)
+   381→      }
+   382→    } catch (err) {
+   383→      console.error("Export failed:", err)
+   384→    } finally {
+   385→      setExporting(false)
+   386→    }
+   387→  }
+   388→
+   389→  const exportPdf = async () => {
+   390→    setExportingPdf(true)
+   391→    try {
+   392→      const params = new URLSearchParams()
+   393→      if (selectedDept) params.set("department", selectedDept)
+   394→      if (actionFilter) params.set("action", actionFilter)
+   395→      const startDate = getDateRange()
+   396→      if (startDate) params.set("startDate", startDate)
+   397→      params.set("endDate", new Date().toISOString())
+   398→
+   399→      const res = await fetch(`/api/audit-trail/export-pdf?${params.toString()}`, { credentials: "include" })
+   400→      if (res.ok) {
+   401→        const blob = await res.blob()
+   402→        const url = window.URL.createObjectURL(blob)
+   403→        const a = document.createElement("a")
+   404→        a.href = url
+   405→        a.download = `audit-trail-${new Date().toISOString().split("T")[0]}.pdf`
+   406→        document.body.appendChild(a)
+   407→        a.click()
+   408→        document.body.removeChild(a)
+   409→        window.URL.revokeObjectURL(url)
+   410→      }
+   411→    } catch (err) {
+   412→      console.error("PDF export failed:", err)
+   413→    } finally {
+   414→      setExportingPdf(false)
+   415→    }
+   416→  }
+   417→
+   418→  if (sessionStatus === "loading") return null
+   419→
+   420→  if (!session) return null
+   421→
+   422→  return (
+   423→    <AuditTrailErrorBoundary>
+   424→    <TooltipProvider>
+   425→    <div className="space-y-6">
+   426→      {/* View Toggle: Audit Trail vs Lark Sync */}
+   427→      <div className="flex items-center gap-1 p-1 rounded-lg bg-muted/50 w-fit">
+   428→        <button
+   429→          onClick={() => setActiveView("audit")}
+   430→          className={cn(
+   431→            "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all",
+   432→            activeView === "audit" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+   433→          )}
+   434→        >
+   435→          <ScrollText className="h-4 w-4" />
+   436→          Audit Trail
+   437→        </button>
+   438→        <button
+   439→          onClick={() => setActiveView("lark")}
+   440→          className={cn(
+   441→            "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all",
+   442→            activeView === "lark" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+   443→          )}
+   444→        >
+   445→          <Bird className="h-4 w-4" />
+   446→          Lark Sync Log
+   447→        </button>
+   448→      </div>
+   449→
+   450→      {/* ── LARK SYNC LOG VIEW ── */}
+   451→      {activeView === "lark" && (
+   452→        <div className="space-y-4">
+   453→          {/* Summary cards */}
+   454→          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+   455→            {(() => {
+   456→              const success = larkLogs.filter(l => l.status === "SUCCESS").length
+   457→              const failed = larkLogs.filter(l => l.status === "FAILED").length
+   458→              const toLark = larkLogs.filter(l => l.direction === "TO_LARK").length
+   459→              const fromLark = larkLogs.filter(l => l.direction === "FROM_LARK").length
+   460→              return (
+   461→                <>
+   462→                  <Card><CardContent className="p-3"><p className="text-[10px] font-medium text-muted-foreground uppercase">Success</p><p className="text-xl font-bold text-emerald-600 dark:text-emerald-400">{success}</p></CardContent></Card>
+   463→                  <Card><CardContent className="p-3"><p className="text-[10px] font-medium text-muted-foreground uppercase">Failed</p><p className="text-xl font-bold text-red-600 dark:text-red-400">{failed}</p></CardContent></Card>
+   464→                  <Card><CardContent className="p-3"><p className="text-[10px] font-medium text-muted-foreground uppercase flex items-center gap-1"><ArrowUpRight className="h-3 w-3" /> To Lark</p><p className="text-xl font-bold">{toLark}</p></CardContent></Card>
+   465→                  <Card><CardContent className="p-3"><p className="text-[10px] font-medium text-muted-foreground uppercase flex items-center gap-1"><ArrowDownLeft className="h-3 w-3" /> From Lark</p><p className="text-xl font-bold">{fromLark}</p></CardContent></Card>
+   466→                </>
+   467→              )
+   468→            })()}
+   469→          </div>
+   470→
+   471→          {/* Filters */}
+   472→          <div className="flex flex-wrap gap-2 items-center">
+   473→            <Select value={larkStatusFilter} onValueChange={setLarkStatusFilter}>
+   474→              <SelectTrigger className="w-[140px] h-8 text-xs"><SelectValue /></SelectTrigger>
+   475→              <SelectContent>
+   476→                <SelectItem value="ALL">All Status</SelectItem>
+   477→                <SelectItem value="SUCCESS">Success</SelectItem>
+   478→                <SelectItem value="FAILED">Failed</SelectItem>
+   479→                <SelectItem value="SKIPPED">Skipped</SelectItem>
+   480→              </SelectContent>
+   481→            </Select>
+   482→            <Select value={larkActionFilter} onValueChange={setLarkActionFilter}>
+   483→              <SelectTrigger className="w-[140px] h-8 text-xs"><SelectValue /></SelectTrigger>
+   484→              <SelectContent>
+   485→                <SelectItem value="ALL">All Actions</SelectItem>
+   486→                <SelectItem value="CREATE">Create</SelectItem>
+   487→                <SelectItem value="UPDATE">Update</SelectItem>
+   488→                <SelectItem value="DELETE">Delete</SelectItem>
+   489→              </SelectContent>
+   490→            </Select>
+   491→            <Button variant="outline" size="sm" className="h-8 text-xs" onClick={fetchLarkLogs} disabled={larkLoading}>
+   492→              {larkLoading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RotateCcw className="h-3 w-3 mr-1" />}
+   493→              Refresh
+   494→            </Button>
+   495→            <span className="text-xs text-muted-foreground ml-auto">{larkTotal} total sync records</span>
+   496→          </div>
+   497→
+   498→          {/* Sync Log Table */}
+   499→          <Card>
+   500→            <CardContent className="p-0">
+   501→              {larkLoading ? (
+   502→                <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+   503→              ) : larkLogs.length === 0 ? (
+   504→                <div className="text-center py-12">
+   505→                  <Bird className="h-10 w-10 mx-auto text-muted-foreground/30 mb-3" />
+   506→                  <p className="text-sm text-muted-foreground">No Lark sync logs found</p>
+   507→                  <p className="text-xs text-muted-foreground/70 mt-1">Sync logs will appear here when tasks are created or updated</p>
+   508→                </div>
+   509→              ) : (
+   510→                <div className="overflow-x-auto">
+   511→                  <Table>
+   512→                    <TableHeader>
+   513→                      <TableRow>
+   514→                        <TableHead className="text-xs w-[40px]">Status</TableHead>
+   515→                        <TableHead className="text-xs">Direction</TableHead>
+   516→                        <TableHead className="text-xs">Action</TableHead>
+   517→                        <TableHead className="text-xs">Task ID</TableHead>
+   518→                        <TableHead className="text-xs">Lark Task ID</TableHead>
+   519→                        <TableHead className="text-xs">User</TableHead>
+   520→                        <TableHead className="text-xs">Error</TableHead>
+   521→                        <TableHead className="text-xs">Time</TableHead>
+   522→                      </TableRow>
+   523→                    </TableHeader>
+   524→                    <TableBody>
+   525→                      {larkLogs.map((log) => (
+   526→                        <TableRow key={log.id || String(Math.random())} className="text-xs">
+   527→                          <TableCell>
+   528→                            {log.status === "SUCCESS" ? (
+   529→                              <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+   530→                            ) : log.status === "FAILED" ? (
+   531→                              <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
+   532→                            ) : (
+   533→                              <AlertCircle className="h-4 w-4 text-yellow-500" />
+   534→                            )}
+   535→                          </TableCell>
+   536→                          <TableCell>
+   537→                            <Badge variant="outline" className="text-[10px] gap-1">
+   538→                              {log.direction === "TO_LARK" ? <><ArrowUpRight className="h-3 w-3" /> To Lark</> : <><ArrowDownLeft className="h-3 w-3" /> From Lark</>}
+   539→                            </Badge>
+   540→                          </TableCell>
+   541→                          <TableCell><Badge variant="secondary" className="text-[10px]">{log.action}</Badge></TableCell>
+   542→                          <TableCell className="font-mono text-[10px] max-w-[100px] truncate" title={log.taskId || ""}>{log.taskId ? log.taskId.slice(0, 12) + "..." : "—"}</TableCell>
+   543→                          <TableCell className="font-mono text-[10px] max-w-[100px] truncate" title={log.larkTaskId || ""}>{log.larkTaskId ? log.larkTaskId.slice(0, 12) + "..." : "—"}</TableCell>
+   544→                          <TableCell className="text-[11px]">{log.userName || "System"}</TableCell>
+   545→                          <TableCell className="max-w-[200px] truncate text-[10px] text-red-600 dark:text-red-400" title={log.error || ""}>{log.error || "—"}</TableCell>
+   546→                          <TableCell className="text-[10px] text-muted-foreground whitespace-nowrap">{formatRelativeTime(log.createdAt)}</TableCell>
+   547→                        </TableRow>
+   548→                      ))}
+   549→                    </TableBody>
+   550→                  </Table>
+   551→                </div>
+   552→              )}
+   553→            </CardContent>
+   554→          </Card>
+   555→        </div>
+   556→      )}
+   557→
+   558→      {/* ── AUDIT TRAIL VIEW ── */}
+   559→      {activeView === "audit" && (<>
+   560→      {/* Stats Cards */}
+   561→      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+   562→        {statsLoading ? (
+   563→          <>
+   564→            {[...Array(4)].map((_, i) => (
+   565→              <Card key={i}>
+   566→                <CardContent className="p-4">
+   567→                  <Skeleton className="h-4 w-24 mb-2" />
+   568→                  <Skeleton className="h-8 w-16" />
+   569→                </CardContent>
+   570→              </Card>
+   571→            ))}
+   572→          </>
+   573→        ) : (
+   574→          <>
+   575→            <Card>
+   576→              <CardContent className="p-4">
+   577→                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Total Entries</p>
+   578→                <p className="text-2xl font-bold tabular-nums">{(stats?.total ?? 0).toLocaleString()}</p>
+   579→              </CardContent>
+   580→            </Card>
+   581→            <Card>
+   582→              <CardContent className="p-4">
+   583→                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Today</p>
+   584→                <p className="text-2xl font-bold tabular-nums">{(stats?.todayCount ?? 0).toLocaleString()}</p>
+   585→              </CardContent>
+   586→            </Card>
+   587→            <Card>
+   588→              <CardContent className="p-4">
+   589→                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Most Active Dept</p>
+   590→                <p className="text-2xl font-bold capitalize">{mostActiveDept ? (AUDIT_DEPARTMENTS[mostActiveDept as AuditDepartment]?.label || mostActiveDept) : "—"}</p>
+   591→              </CardContent>
+   592→            </Card>
+   593→            <Card>
+   594→              <CardContent className="p-4">
+   595→                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Success Rate</p>
+   596→                <p className="text-2xl font-bold">{successRate}</p>
+   597→              </CardContent>
+   598→            </Card>
+   599→          </>
+   600→        )}
+   601→      </div>
+   602→
+   603→      {/* Main Content */}
+   604→      <div className="flex flex-col lg:flex-row gap-6">
+   605→        {/* Left Sidebar — Department Cards */}
+   606→        <div className="lg:w-64 shrink-0 space-y-3">
+   607→          <h3 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+   608→            <Shield className="h-4 w-4" />
+   609→            Departments
+   610→          </h3>
+   611→
+   612→          {/* All Departments card */}
+   613→          <Card
+   614→            className={cn(
+   615→              "cursor-pointer transition-all hover:shadow-md border-2",
+   616→              !selectedDept && "border-primary/50 bg-primary/5"
+   617→            )}
+   618→            onClick={() => setSelectedDept("")}
+   619→          >
+   620→            <CardContent className="p-4 flex items-center justify-between">
+   621→              <div className="flex items-center gap-3">
+   622→                <div className="h-9 w-9 rounded-lg bg-muted flex items-center justify-center">
+   623→                  <Activity className="h-5 w-5 text-muted-foreground" />
+   624→                </div>
+   625→                <div>
+   626→                  <p className="text-sm font-semibold">All Departments</p>
+   627→                  <p className="text-xs text-muted-foreground">{(stats?.total ?? 0).toLocaleString()} entries</p>
+   628→                </div>
+   629→              </div>
+   630→            </CardContent>
+   631→          </Card>
+   632→
+   633→          {Object.entries(AUDIT_DEPARTMENTS).map(([key, dept]) => {
+   634→            const Icon = iconMap[DEPARTMENT_ICONS[key]] || Settings
+   635→            const count = deptCounts[key] || 0
+   636→            const isSelected = selectedDept === key
+   637→            return (
+   638→              <Card
+   639→                key={key}
+   640→                className={cn(
+   641→                  "cursor-pointer transition-all hover:shadow-md border-2",
+   642→                  isSelected && "border-primary/50 bg-primary/5"
+   643→                )}
+   644→                onClick={() => setSelectedDept(isSelected ? "" : key)}
+   645→              >
+   646→                <CardContent className="p-3 flex items-center gap-3">
+   647→                  <div className={cn(
+   648→                    "h-9 w-9 rounded-lg flex items-center justify-center shrink-0",
+   649→                    isSelected ? "bg-primary text-primary-foreground" : "bg-muted"
+   650→                  )}>
+   651→                    <Icon className="h-4 w-4" />
+   652→                  </div>
+   653→                  <div className="min-w-0 flex-1">
+   654→                    <p className="text-sm font-medium truncate">{dept.label}</p>
+   655→                    <p className="text-xs text-muted-foreground">{count.toLocaleString()} entries</p>
+   656→                  </div>
+   657→                </CardContent>
+   658→              </Card>
+   659→            )
+   660→          })}
+   661→        </div>
+   662→
+   663→        {/* Main Content Area */}
+   664→        <div className="flex-1 min-w-0 space-y-4">
+   665→          {/* Top Bar */}
+   666→          <Card>
+   667→            <CardContent className="p-4">
+   668→              <div className="flex flex-col sm:flex-row gap-3">
+   669→                <div className="relative flex-1">
+   670→                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+   671→                  <Input
+   672→                    placeholder="Search audit logs..."
+   673→                    className="pl-10 h-10"
+   674→                    value={search}
+   675→                    onChange={(e) => setSearch(e.target.value)}
+   676→                  />
+   677→                </div>
+   678→                <div className="flex flex-wrap gap-2">
+   679→                  <Select value={actionFilter} onValueChange={setActionFilter}>
+   680→                    <SelectTrigger className="w-[140px] h-10">
+   681→                      <Filter className="h-4 w-4 mr-2" />
+   682→                      <SelectValue placeholder="Actions" />
+   683→                    </SelectTrigger>
+   684→                    <SelectContent>
+   685→                      <SelectItem value="CREATE">Create</SelectItem>
+   686→                      <SelectItem value="UPDATE">Update</SelectItem>
+   687→                      <SelectItem value="DELETE">Delete</SelectItem>
+   688→                      <SelectItem value="LOGIN">Login</SelectItem>
+   689→                      <SelectItem value="LOGOUT">Logout</SelectItem>
+   690→                      <SelectItem value="APPROVE">Approve</SelectItem>
+   691→                      <SelectItem value="REJECT">Reject</SelectItem>
+   692→                      <SelectItem value="EXPORT">Export</SelectItem>
+   693→                      <SelectItem value="SEND">Send</SelectItem>
+   694→                      <SelectItem value="ASSIGN">Assign</SelectItem>
+   695→                      <SelectItem value="STATUS_CHANGE">Status Change</SelectItem>
+   696→                      <SelectItem value="CONFIG_CHANGE">Config Change</SelectItem>
+   697→                      <SelectItem value="ACCESS">Access</SelectItem>
+   698→                    </SelectContent>
+   699→                  </Select>
+   700→                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+   701→                    <SelectTrigger className="w-[120px] h-10">
+   702→                      <SelectValue placeholder="Status" />
+   703→                    </SelectTrigger>
+   704→                    <SelectContent>
+   705→                      <SelectItem value="ALL">All</SelectItem>
+   706→                      <SelectItem value="SUCCESS">Success</SelectItem>
+   707→                      <SelectItem value="FAILURE">Failure</SelectItem>
+   708→                    </SelectContent>
+   709→                  </Select>
+   710→                  <Select value={dateRange} onValueChange={(v) => setDateRange(v as typeof dateRange)}>
+   711→                    <SelectTrigger className="w-[100px] h-10">
+   712→                      <Calendar className="h-4 w-4 mr-2" />
+   713→                      <SelectValue />
+   714→                    </SelectTrigger>
+   715→                    <SelectContent>
+   716→                      <SelectItem value="7d">7 days</SelectItem>
+   717→                      <SelectItem value="30d">30 days</SelectItem>
+   718→                      <SelectItem value="90d">90 days</SelectItem>
+   719→                      <SelectItem value="all">All time</SelectItem>
+   720→                    </SelectContent>
+   721→                  </Select>
+   722→                  {isExportVisible && (
+   723→                    <>
+   724→                      <Button variant="outline" size="sm" className="h-10" onClick={exportCsv} disabled={exporting}>
+   725→                        {exporting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+   726→                        CSV
+   727→                      </Button>
+   728→                      <Button variant="default" size="sm" className="h-10 bg-primary" onClick={exportPdf} disabled={exportingPdf}>
+   729→                        {exportingPdf ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <FileText className="h-4 w-4 mr-2" />}
+   730→                        PDF Report
+   731→                      </Button>
+   732→                    </>
+   733→                  )}
+   734→                </div>
+   735→              </div>
+   736→            </CardContent>
+   737→          </Card>
+   738→
+   739→          {/* Error Display */}
+   740→          {error && (
+   741→            <Card className="border-red-200 dark:border-red-900/50">
+   742→              <CardContent className="p-4 flex items-center gap-3">
+   743→                <AlertTriangle className="h-5 w-5 text-red-500 shrink-0" />
+   744→                <div className="flex-1">
+   745→                  <p className="text-sm font-medium text-red-600 dark:text-red-400">Error loading audit logs</p>
+   746→                  <p className="text-xs text-muted-foreground mt-0.5">{error}</p>
+   747→                </div>
+   748→                <Button variant="outline" size="sm" onClick={() => fetchLogs()}>
+   749→                  <RotateCcw className="h-3.5 w-3.5 mr-1.5" /> Retry
+   750→                </Button>
+   751→              </CardContent>
+   752→            </Card>
+   753→          )}
+   754→
+   755→          {/* Results Info */}
+   756→          <div className="flex items-center justify-between text-sm text-muted-foreground px-1">
+   757→            <span>
+   758→              {loading ? (
+   759→                "Loading..."
+   760→              ) : (
+   761→                <>
+   762→                  {total.toLocaleString()} entries found
+   763→                  {selectedDept && (
+   764→                    <> in <span className="font-medium text-foreground capitalize">{AUDIT_DEPARTMENTS[selectedDept as AuditDepartment]?.label || selectedDept}</span></>
+   765→                  )}
+   766→                </>
+   767→              )}
+   768→            </span>
+   769→            <span className="flex items-center gap-1">
+   770→              <Clock className="h-3.5 w-3.5" />
+   771→              Updated just now
+   772→            </span>
+   773→          </div>
+   774→
+   775→          {/* Audit Logs Table */}
+   776→          <Card>
+   777→            <CardContent className="p-0">
+   778→              <div className="overflow-x-auto">
+   779→                <Table>
+   780→                  <TableHeader>
+   781→                    <TableRow>
+   782→                      <TableHead className="w-[160px]">Timestamp</TableHead>
+   783→                      <TableHead className="w-[160px]">User</TableHead>
+   784→                      <TableHead className="w-[100px]">Action</TableHead>
+   785→                      <TableHead>Description</TableHead>
+   786→                      <TableHead className="w-[80px]">Page</TableHead>
+   787→                      <TableHead className="w-[80px]">Status</TableHead>
+   788→                    </TableRow>
+   789→                  </TableHeader>
+   790→                  <TableBody>
+   791→                    {loading && logs.length === 0 ? (
+   792→                      <>
+   793→                        {[...Array(10)].map((_, i) => (
+   794→                          <TableRow key={i}>
+   795→                            <TableCell><Skeleton className="h-4 w-[140px]" /></TableCell>
+   796→                            <TableCell><Skeleton className="h-4 w-[140px]" /></TableCell>
+   797→                            <TableCell><Skeleton className="h-6 w-[70px]" /></TableCell>
+   798→                            <TableCell><Skeleton className="h-4 w-full" /></TableCell>
+   799→                            <TableCell><Skeleton className="h-4 w-[60px]" /></TableCell>
+   800→                            <TableCell><Skeleton className="h-6 w-[60px]" /></TableCell>
+   801→                          </TableRow>
+   802→                        ))}
+   803→                      </>
+   804→                    ) : logs.length === 0 ? (
+   805→                      <TableRow>
+   806→                        <TableCell colSpan={6} className="h-32 text-center">
+   807→                          <div className="flex flex-col items-center gap-2 text-muted-foreground">
+   808→                            <Activity className="h-8 w-8 opacity-20" />
+   809→                            <p className="text-sm">No audit logs found</p>
+   810→                          </div>
+   811→                        </TableCell>
+   812→                      </TableRow>
+   813→                    ) : (
+   814→                      logs.map((log) => (
+   815→                        <TableRow key={log.id} className="hover:bg-muted/50">
+   816→                          <TableCell className="text-xs">
+   817→                            <Tooltip>
+   818→                              <TooltipTrigger asChild>
+   819→                                <span className="cursor-help">{formatRelativeTime(log.createdAt)}</span>
+   820→                              </TooltipTrigger>
+   821→                              <TooltipContent>
+   822→                                <p className="text-xs">{formatDateTime(log.createdAt)}</p>
+   823→                              </TooltipContent>
+   824→                            </Tooltip>
+   825→                          </TableCell>
+   826→                          <TableCell>
+   827→                            <div className="flex items-center gap-2">
+   828→                              <Avatar className="h-7 w-7">
+   829→                                <AvatarFallback className="text-[10px] font-bold bg-primary/10 text-primary">
+   830→                                  {getInitials(log.userName)}
+   831→                                </AvatarFallback>
+   832→                              </Avatar>
+   833→                              <div className="min-w-0">
+   834→                                <p className="text-xs font-medium truncate max-w-[120px]">{log.userName || "Unknown"}</p>
+   835→                                <p className="text-[10px] text-muted-foreground">{formatRole(log.userRole)}</p>
+   836→                              </div>
+   837→                            </div>
+   838→                          </TableCell>
+   839→                          <TableCell>
+   840→                            <Badge
+   841→                              variant="secondary"
+   842→                              className={cn("text-[10px] font-semibold", ACTION_COLORS[log.action || ""] || ACTION_COLORS.CONFIG_CHANGE)}
+   843→                            >
+   844→                              {log.action || "—"}
+   845→                            </Badge>
+   846→                          </TableCell>
+   847→                          <TableCell>
+   848→                            <p className="text-xs truncate max-w-[300px] lg:max-w-[500px]" title={log.description || undefined}>
+   849→                              {log.description || "—"}
+   850→                            </p>
+   851→                          </TableCell>
+   852→                          <TableCell>
+   853→                            <p className="text-xs text-muted-foreground truncate max-w-[70px]">{log.page || "—"}</p>
+   854→                          </TableCell>
+   855→                          <TableCell>
+   856→                            <Badge
+   857→                              variant="outline"
+   858→                              className={cn("text-[10px]", STATUS_COLORS[log.status || ""] || "")}
+   859→                            >
+   860→                              {log.status || "—"}
+   861→                            </Badge>
+   862→                          </TableCell>
+   863→                        </TableRow>
+   864→                      ))
+   865→                    )}
+   866→                  </TableBody>
+   867→                </Table>
+   868→              </div>
+   869→
+   870→              {/* Load More */}
+   871→              {hasMore && (
+   872→                <div className="flex justify-center p-4 border-t">
+   873→                  <Button
+   874→                    variant="outline"
+   875→                    size="sm"
+   876→                    onClick={loadMore}
+   877→                    disabled={loading}
+   878→                  >
+   879→                    {loading ? (
+   880→                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+   881→                    ) : (
+   882→                      <ChevronDown className="h-4 w-4 mr-2" />
+   883→                    )}
+   884→                    Load More
+   885→                  </Button>
+   886→                </div>
+   887→              )}
+   888→
+   889→              {/* No more data indicator */}
+   890→              {!hasMore && logs.length > 0 && (
+   891→                <div className="flex justify-center p-4 border-t">
+   892→                  <p className="text-xs text-muted-foreground">
+   893→                    Showing {logs.length} of {total.toLocaleString()} entries
+   894→                  </p>
+   895→                </div>
+   896→              )}
+   897→            </CardContent>
+   898→          </Card>
+   899→        </div>
+   900→      </div>
+   901→      </>)} {/* end audit view */}
+   902→    </div>
+   903→    </TooltipProvider>
+   904→    </AuditTrailErrorBoundary>
+   905→  )
+   906→}
+   907→

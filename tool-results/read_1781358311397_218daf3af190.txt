@@ -1,0 +1,793 @@
+     1→     1→import { NextRequest, NextResponse } from "next/server"
+     2→     2→import { getServerSession } from "next-auth"
+     3→     3→import { authOptions } from "@/lib/auth"
+     4→     4→import { db } from "@/lib/db"
+     5→     5→import { Prisma } from "@prisma/client"
+     6→     6→import { isAdmin, getAssignedProjectIds } from "@/lib/rbac"
+     7→     7→import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
+     8→     8→import { ensureAllTables } from "@/lib/auto-migrate"
+     9→     9→import { syncTasksToGit } from "@/lib/git-sync"
+    10→    10→import { syncTaskToLark } from "@/lib/lark/sync"
+    11→    11→import { syncTaskUpdateToLark } from "@/lib/lark/sync"
+    12→    12→import { syncTaskDeleteToLark } from "@/lib/lark/sync"
+    13→    13→import { logAudit, getIpAddress, getUserAgent, buildDescription } from "@/lib/audit-log"
+    14→    14→
+    15→    15→const VALID_TASK_STATUSES = ["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL", "DONE"]
+    16→    16→const VALID_TASK_PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"]
+    17→    17→const VALID_TASK_CATEGORIES = ["GENERAL", "MEETING", "FOLLOW_UP", "UPGRADE", "CUSTOMER", "INTERNAL"]
+    18→    18→
+    19→    19→// ── Status transition map (non-admin users must follow these transitions) ──
+    20→    20→const VALID_TRANSITIONS: Record<string, string[]> = {
+    21→    21→  "TODO": ["IN_PROGRESS"],
+    22→    22→  "IN_PROGRESS": ["REVIEW", "TODO"],
+    23→    23→  "REVIEW": ["AWAITING_APPROVAL", "IN_PROGRESS"],
+    24→    24→  "AWAITING_APPROVAL": ["DONE", "REVIEW", "IN_PROGRESS"],
+    25→    25→  "DONE": [], // terminal — only admin can reopen
+    26→    26→}
+    27→    27→
+    28→    28→// ── Helper: serialize Task dates for JSON response ──
+    29→    29→function serializeTask(t: any) {
+    30→    30→  return {
+    31→    31→    ...t,
+    32→    32→    createdAt: t.createdAt?.toISOString(),
+    33→    33→    updatedAt: t.updatedAt?.toISOString(),
+    34→    34→    deadline: t.deadline?.toISOString() ?? null,
+    35→    35→    completedAt: t.completedAt?.toISOString() ?? null,
+    36→    36→    approvedAt: t.approvedAt?.toISOString() ?? null,
+    37→    37→  }
+    38→    38→}
+    39→    39→
+    40→    40→// ── Helper: fetch Lark task IDs for a batch of tasks ──
+    41→    41→async function getLarkTaskIds(taskIds: string[]): Promise<Record<string, string>> {
+    42→    42→  if (taskIds.length === 0) return {}
+    43→    43→  try {
+    44→    44→    const rows = await db.$queryRawUnsafe<Array<{ taskId: string; larkTaskId: string }>>(
+    45→    45→      'SELECT "taskId", "larkTaskId" FROM "LarkTaskMapping" WHERE "taskId" IN (?)',
+    46→    46→      taskIds
+    47→    47→    )
+    48→    48→    const map: Record<string, string> = {}
+    49→    49→    for (const r of rows) map[r.taskId] = r.larkTaskId
+    50→    50→    return map
+    51→    51→  } catch {
+    52→    52→    return {}
+    53→    53→  }
+    54→    54→}
+    55→    55→
+    56→    56→// ── Helper: check if assignee is on approved leave during task period ──
+    57→    57→async function checkAssigneeLeave(db: any, userId: string, deadline: Date): Promise<{ name: string; leaveType: string; startDate: Date; endDate: Date } | null> {
+    58→    58→  const leave = await db.leave.findFirst({
+    59→    59→    where: { userId, status: "APPROVED", startDate: { lte: deadline }, endDate: { gte: new Date() } },
+    60→    60→    include: { user: { select: { name: true } } },
+    61→    61→  })
+    62→    62→  if (!leave) return null
+    63→    63→  return { name: leave.user.name, leaveType: leave.leaveType, startDate: leave.startDate, endDate: leave.endDate }
+    64→    64→}
+    65→    65→
+    66→    66→// ── Helper: send notification to a user ──
+    67→    67→async function sendNotification(userId: string, title: string, message: string, type: string, link: string | null) {
+    68→    68→  try {
+    69→    69→    await db.notification.create({
+    70→    70→      data: { userId, title, message, type, link, isRead: false }
+    71→    71→    })
+    72→    72→  } catch (err) {
+    73→    73→    console.error("[tasks] Failed to send notification:", err)
+    74→    74→  }
+    75→    75→}
+    76→    76→
+    77→    77→export async function GET(req: NextRequest) {
+    78→    78→  try {
+    79→    79→  // Auto-migrate: ensure all tables/columns exist before querying
+    80→    80→  await ensureAllTables()
+    81→    81→
+    82→    82→  const session = await getServerSession(authOptions)
+    83→    83→  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    84→    84→
+    85→    85→  // Rate limit
+    86→    86→  const rl = rateLimit(`tasks-get-${session.user.id}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
+    87→    87→  if (!rl.success) {
+    88→    88→    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
+    89→    89→  }
+    90→    90→
+    91→    91→  const userRole = session.user.role
+    92→    92→  const userId = session.user.id
+    93→    93→
+    94→    94→  const { searchParams } = new URL(req.url)
+    95→    95→  const projectId = searchParams.get("projectId")
+    96→    96→  const assignedToFilter = searchParams.get("assignedTo")
+    97→    97→  const createdByFilter = searchParams.get("createdBy")
+    98→    98→  const standaloneFilter = searchParams.get("standalone")
+    99→    99→  const categoryFilter = searchParams.get("category")
+   100→   100→  const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10))
+   101→   101→  const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "50", 10)))
+   102→   102→
+   103→   103→  // SUPER_ADMIN and ADMIN see all tasks with unrestricted filters; others have RBAC restrictions
+   104→   104→  if (isAdmin(userRole)) {
+   105→   105→    // Build where clause with all filters — no RBAC restriction
+   106→   106→    const where: { projectId?: string | null | { in: string[] }; assignedTo?: string; createdBy?: string; category?: string } = {}
+   107→   107→
+   108→   108→    if (projectId) {
+   109→   109→      where.projectId = projectId
+   110→   110→    } else if (standaloneFilter === "true") {
+   111→   111→      where.projectId = null
+   112→   112→    }
+   113→   113→
+   114→   114→    if (assignedToFilter && assignedToFilter !== "current") {
+   115→   115→      where.assignedTo = assignedToFilter
+   116→   116→    } else if (assignedToFilter === "current") {
+   117→   117→      where.assignedTo = userId
+   118→   118→    }
+   119→   119→
+   120→   120→    if (createdByFilter === "current") {
+   121→   121→      where.createdBy = userId
+   122→   122→    } else if (createdByFilter) {
+   123→   123→      where.createdBy = createdByFilter
+   124→   124→    }
+   125→   125→
+   126→   126→    if (categoryFilter) {
+   127→   127→      where.category = categoryFilter
+   128→   128→    }
+   129→   129→
+   130→   130→    const [tasks, total] = await Promise.all([
+   131→   131→      db.task.findMany({
+   132→   132→        where,
+   133→   133→        orderBy: { createdAt: "desc" },
+   134→   134→        take: limit,
+   135→   135→        skip: (page - 1) * limit,
+   136→   136→      }),
+   137→   137→      db.task.count({ where }),
+   138→   138→    ])
+   139→   139→
+   140→   140→    // Resolve userIds to names for assignee, approver, and creator
+   141→   141→    const userIds = new Set<string>()
+   142→   142→    for (const t of tasks) {
+   143→   143→      if (t.assignedTo) userIds.add(t.assignedTo)
+   144→   144→      if (t.approvedBy) userIds.add(t.approvedBy)
+   145→   145→      if (t.createdBy) userIds.add(t.createdBy)
+   146→   146→    }
+   147→   147→    let userMap: Record<string, string> = {}
+   148→   148→    if (userIds.size > 0) {
+   149→   149→      const users = await db.user.findMany({
+   150→   150→        where: { id: { in: Array.from(userIds) } },
+   151→   151→        select: { id: true, name: true }
+   152→   152→      })
+   153→   153→      for (const u of users) userMap[u.id] = u.name
+   154→   154→    }
+   155→   155→
+   156→   156→    // Fetch Lark task IDs for all returned tasks
+   157→   157→    const larkIds = await getLarkTaskIds(tasks.map(t => t.id))
+   158→   158→
+   159→   159→    const enriched = tasks.map(t => ({
+   160→   160→      ...serializeTask(t),
+   161→   161→      assignedToName: t.assignedTo ? (userMap[t.assignedTo] || null) : null,
+   162→   162→      approvedByName: t.approvedBy ? (userMap[t.approvedBy] || null) : null,
+   163→   163→      createdByName: t.createdBy ? (userMap[t.createdBy] || null) : null,
+   164→   164→      larkTaskId: larkIds[t.id] || null,
+   165→   165→    }))
+   166→   166→    void logAudit({
+   167→   167→      userId, userName: session.user.name || "unknown", userRole,
+   168→   168→      department: "TEAM_WORK", page: "tasks", action: "READ",
+   169→   169→      description: buildDescription("READ", "tasks"),
+   170→   170→      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+   171→   171→    })
+   172→   172→    return NextResponse.json({ tasks: enriched, total, page, totalPages: Math.ceil(total / limit) })
+   173→   173→  }
+   174→   174→
+   175→   175→  // ── Non-admin users: RBAC-filtered view ──
+   176→   176→  // C20: Visibility filter moved into Prisma where clause so total count is accurate
+   177→   177→  const assignedProjectIds = await getAssignedProjectIds(userId, userRole)
+   178→   178→
+   179→   179→  // Build filter conditions (separate from visibility)
+   180→   180→  const filterConditions: Prisma.TaskWhereInput[] = []
+   181→   181→
+   182→   182→  // If a specific projectId is requested, verify access and restrict to it
+   183→   183→  if (projectId) {
+   184→   184→    // I9: Removed unnecessary `as string[]` cast — TypeScript narrows after truthiness check
+   185→   185→    if (assignedProjectIds && !assignedProjectIds.includes(projectId)) {
+   186→   186→      return NextResponse.json({ tasks: [], total: 0, page: 1, totalPages: 0 })
+   187→   187→    }
+   188→   188→    filterConditions.push({ projectId })
+   189→   189→  } else if (standaloneFilter === "true") {
+   190→   190→    // Standalone tasks — no project filter, but RBAC still applies
+   191→   191→    filterConditions.push({ projectId: null })
+   192→   192→  }
+   193→   193→
+   194→   194→  // assignedTo filter — non-admin: only allow "current"
+   195→   195→  if (assignedToFilter === "current") {
+   196→   196→    filterConditions.push({ assignedTo: userId })
+   197→   197→  }
+   198→   198→  // else: ignore any other value for non-admin
+   199→   199→
+   200→   200→  // createdBy filter — non-admin: only allow "current"
+   201→   201→  if (createdByFilter === "current") {
+   202→   202→    filterConditions.push({ createdBy: userId })
+   203→   203→  }
+   204→   204→  // else: ignore any other value for non-admin
+   205→   205→
+   206→   206→  // category filter
+   207→   207→  if (categoryFilter) {
+   208→   208→    filterConditions.push({ category: categoryFilter })
+   209→   209→  }
+   210→   210→
+   211→   211→  // C20: Visibility filter in Prisma where clause
+   212→   212→  // Non-admin can only see tasks assigned to them or created by them
+   213→   213→  const visibilityOr: Prisma.TaskWhereInput[] = [
+   214→   214→    { assignedTo: userId },
+   215→   215→    { createdBy: userId },
+   216→   216→  ]
+   217→   217→
+   218→   218→  const where: Prisma.TaskWhereInput = {
+   219→   219→    AND: [
+   220→   220→      ...filterConditions,
+   221→   221→      { OR: visibilityOr },
+   222→   222→    ]
+   223→   223→  }
+   224→   224→
+   225→   225→  const [tasks, total] = await Promise.all([
+   226→   226→    db.task.findMany({
+   227→   227→      where,
+   228→   228→      orderBy: { createdAt: "desc" },
+   229→   229→      take: limit,
+   230→   230→      skip: (page - 1) * limit,
+   231→   231→    }),
+   232→   232→    db.task.count({ where }),
+   233→   233→  ])
+   234→   234→
+   235→   235→  // Resolve userIds to names for assignee, approver, and creator
+   236→   236→  const userIds = new Set<string>()
+   237→   237→  for (const t of tasks) {
+   238→   238→    if (t.assignedTo) userIds.add(t.assignedTo)
+   239→   239→    if (t.approvedBy) userIds.add(t.approvedBy)
+   240→   240→    if (t.createdBy) userIds.add(t.createdBy)
+   241→   241→  }
+   242→   242→  let userMap: Record<string, string> = {}
+   243→   243→  if (userIds.size > 0) {
+   244→   244→    const users = await db.user.findMany({
+   245→   245→      where: { id: { in: Array.from(userIds) } },
+   246→   246→      select: { id: true, name: true }
+   247→   247→    })
+   248→   248→    for (const u of users) userMap[u.id] = u.name
+   249→   249→  }
+   250→   250→
+   251→   251→  // Fetch Lark task IDs for all returned tasks
+   252→   252→  const larkIds = await getLarkTaskIds(tasks.map(t => t.id))
+   253→   253→
+   254→   254→  const enriched = tasks.map(t => ({
+   255→   255→    ...serializeTask(t),
+   256→   256→    assignedToName: t.assignedTo ? (userMap[t.assignedTo] || null) : null,
+   257→   257→    approvedByName: t.approvedBy ? (userMap[t.approvedBy] || null) : null,
+   258→   258→    createdByName: t.createdBy ? (userMap[t.createdBy] || null) : null,
+   259→   259→    larkTaskId: larkIds[t.id] || null,
+   260→   260→  }))
+   261→   261→  void logAudit({
+   262→   262→    userId, userName: session.user.name || "unknown", userRole,
+   263→   263→    department: "TEAM_WORK", page: "tasks", action: "READ",
+   264→   264→    description: buildDescription("READ", "tasks"),
+   265→   265→    ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+   266→   266→  })
+   267→   267→  return NextResponse.json({ tasks: enriched, total, page, totalPages: Math.ceil(total / limit) })
+   268→   268→  } catch (error: unknown) {
+   269→   269→    console.error("[tasks] GET error:", error instanceof Error ? error.message : String(error))
+   270→   270→    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+   271→   271→  }
+   272→   272→}
+   273→   273→
+   274→   274→export async function POST(req: NextRequest) {
+   275→   275→  try {
+   276→   276→  await ensureAllTables()
+   277→   277→
+   278→   278→  const session = await getServerSession(authOptions)
+   279→   279→  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+   280→   280→
+   281→   281→  // Rate limit
+   282→   282→  const rl = rateLimit(`tasks-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+   283→   283→  if (!rl.success) {
+   284→   284→    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
+   285→   285→  }
+   286→   286→
+   287→   287→  const userRole = session.user.role
+   288→   288→  const userId = session.user.id
+   289→   289→  let body: Record<string, unknown>
+   290→   290→  try { body = await req.json() } catch {
+   291→   291→    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+   292→   292→  }
+   293→   293→
+   294→   294→  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   295→   295→  // ROLE RESTRICTION: Only SUPER_ADMIN and ADMIN can create tasks
+   296→   296→  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   297→   297→  if (!isAdmin(userRole)) {
+   298→   298→    return NextResponse.json({ error: "Forbidden: Only admin and superadmin can create tasks" }, { status: 403 })
+   299→   299→  }
+   300→   300→
+   301→   301→  // Title is required
+   302→   302→  if (!body.title) {
+   303→   303→    return NextResponse.json({ error: "Task title is required" }, { status: 400 })
+   304→   304→  }
+   305→   305→
+   306→   306→  // C21: Title length limit
+   307→   307→  if (String(body.title).length > 500) {
+   308→   308→    return NextResponse.json({ error: "Title must be 500 characters or less" }, { status: 400 })
+   309→   309→  }
+   310→   310→
+   311→   311→  // C21: Description length cap
+   312→   312→  if (body.description && String(body.description).length > 50000) {
+   313→   313→    return NextResponse.json({ error: "Description must be 50000 characters or less" }, { status: 400 })
+   314→   314→  }
+   315→   315→
+   316→   316→  // C21: Deadline validation
+   317→   317→  if (body.deadline) {
+   318→   318→    const d = new Date(String(body.deadline))
+   319→   319→    if (isNaN(d.getTime())) {
+   320→   320→      return NextResponse.json({ error: "Invalid deadline date" }, { status: 400 })
+   321→   321→    }
+   322→   322→  }
+   323→   323→
+   324→   324→  // I5: Removed dead code — the isAdmin check above already returns 403 for non-admins
+   325→   325→  // If assignedTo is provided and is NOT the creator, verify the assignee exists
+   326→   326→  if (body.assignedTo && String(body.assignedTo) !== userId) {
+   327→   327→    // Verify the assignee exists and is an active user
+   328→   328→    const assigneeExists = await db.user.findFirst({
+   329→   329→      where: { id: String(body.assignedTo), isActive: true }
+   330→   330→    })
+   331→   331→    if (!assigneeExists) {
+   332→   332→      return NextResponse.json({ error: "Assigned user not found or inactive" }, { status: 400 })
+   333→   333→    }
+   334→   334→  }
+   335→   335→
+   336→   336→  // projectId is optional now — standalone tasks are allowed
+   337→   337→  // But if projectId IS provided, check project membership for non-admins
+   338→   338→  if (body.projectId) {
+   339→   339→    if (!isAdmin(userRole)) {
+   340→   340→      const membership = await db.projectMember.findFirst({
+   341→   341→        where: { userId, projectId: String(body.projectId) }
+   342→   342→      })
+   343→   343→      if (!membership) {
+   344→   344→        return NextResponse.json({ error: "Forbidden: You can only create tasks in your assigned projects" }, { status: 403 })
+   345→   345→      }
+   346→   346→    }
+   347→   347→  }
+   348→   348→
+   349→   349→  // Validate status
+   350→   350→  const taskStatus = body.status ? String(body.status) : "TODO"
+   351→   351→  if (!VALID_TASK_STATUSES.includes(taskStatus)) {
+   352→   352→    return NextResponse.json({ error: `Invalid status. Must be one of: ${VALID_TASK_STATUSES.join(", ")}` }, { status: 400 })
+   353→   353→  }
+   354→   354→
+   355→   355→  // Validate priority
+   356→   356→  const taskPriority = body.priority ? String(body.priority) : "MEDIUM"
+   357→   357→  if (!VALID_TASK_PRIORITIES.includes(taskPriority)) {
+   358→   358→    return NextResponse.json({ error: `Invalid priority. Must be one of: ${VALID_TASK_PRIORITIES.join(", ")}` }, { status: 400 })
+   359→   359→  }
+   360→   360→
+   361→   361→  // Validate category
+   362→   362→  const taskCategory = body.category ? String(body.category) : "GENERAL"
+   363→   363→  if (!VALID_TASK_CATEGORIES.includes(taskCategory)) {
+   364→   364→    return NextResponse.json({ error: `Invalid category. Must be one of: ${VALID_TASK_CATEGORIES.join(", ")}` }, { status: 400 })
+   365→   365→  }
+   366→   366→
+   367→   367→  // SECURITY: Whitelist allowed fields only (prevent mass assignment)
+   368→   368→  const data: Prisma.TaskUncheckedCreateInput = {
+   369→   369→    title: String(body.title),
+   370→   370→    description: body.description ? String(body.description) : null,
+   371→   371→    status: taskStatus,
+   372→   372→    priority: taskPriority,
+   373→   373→    category: taskCategory,
+   374→   374→    createdBy: userId,
+   375→   375→    projectId: body.projectId ? String(body.projectId) : null,
+   376→   376→    assignedTo: body.assignedTo ? String(body.assignedTo) : null,
+   377→   377→    assigneeType: body.assigneeType ? String(body.assigneeType) : "HUMAN",
+   378→   378→    deadline: body.deadline ? new Date(String(body.deadline)) : null,
+   379→   379→  }
+   380→   380→
+   381→   381→  // Check if assignee is on approved leave during the task period
+   382→   382→  if (data.assignedTo && data.deadline) {
+   383→   383→    const assigneeLeave = await checkAssigneeLeave(db, data.assignedTo as string, data.deadline as Date)
+   384→   384→    if (assigneeLeave) {
+   385→   385→      return NextResponse.json({
+   386→   386→        error: `Cannot assign task: ${assigneeLeave.name} is on ${assigneeLeave.leaveType.replace("_", " ").toLowerCase()} leave from ${new Date(assigneeLeave.startDate).toLocaleDateString()} to ${new Date(assigneeLeave.endDate).toLocaleDateString()}`,
+   387→   387→      }, { status: 400 })
+   388→   388→    }
+   389→   389→  }
+   390→   390→
+   391→   391→  const task = await db.task.create({ data })
+   392→   392→
+   393→   393→  // Send notification to assignee when a task is created with an assignee
+   394→   394→  if (data.assignedTo && (data.assignedTo as string) !== userId) {
+   395→   395→    const deadlineStr = data.deadline ? ` (Due: ${new Date(data.deadline as Date).toLocaleDateString()})` : ""
+   396→   396→    await sendNotification(
+   397→   397→      data.assignedTo as string,
+   398→   398→      "New Task Assigned",
+   399→   399→      `You have been assigned a new task: ${String(body.title)}${deadlineStr}`,
+   400→   400→      "TASK",
+   401→   401→      "/dashboard/tasks"
+   402→   402→    )
+   403→   403→  }
+   404→   404→
+   405→   405→  // Background: sync tasks to Git (fire-and-forget) — only when projectId exists
+   406→   406→  if (data.projectId) {
+   407→   407→    syncTasksToGit().catch(() => {})
+   408→   408→  }
+   409→   409→  // Background: sync new task to Lark (fire-and-forget)
+   410→   410→  syncTaskToLark(task.id, {
+   411→   411→    title: task.title,
+   412→   412→    description: task.description || undefined,
+   413→   413→    status: task.status,
+   414→   414→    priority: task.priority,
+   415→   415→    assignedTo: task.assignedTo || undefined,
+   416→   416→    projectId: task.projectId || undefined,
+   417→   417→    deadline: task.deadline || undefined,
+   418→   418→  }, userId).catch((err) => console.error("[tasks] Lark sync error:", err))
+   419→   419→  // I6: Use serializeTask for consistency instead of JSON.parse(JSON.stringify(task))
+   420→   420→  void logAudit({
+   421→   421→    userId, userName: session.user.name || "unknown", userRole,
+   422→   422→    department: "TEAM_WORK", page: "tasks", action: "CREATE",
+   423→   423→    entityType: "task", entityId: task.id,
+   424→   424→    description: buildDescription("CREATE", "task", task.title),
+   425→   425→    ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+   426→   426→  })
+   427→   427→  return NextResponse.json(serializeTask(task), { status: 201 })
+   428→   428→  } catch (error: unknown) {
+   429→   429→    console.error("[tasks] POST error:", error instanceof Error ? error.message : String(error))
+   430→   430→    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+   431→   431→  }
+   432→   432→}
+   433→   433→
+   434→   434→export async function PATCH(req: NextRequest) {
+   435→   435→  try {
+   436→   436→  await ensureAllTables()
+   437→   437→
+   438→   438→  const session = await getServerSession(authOptions)
+   439→   439→  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+   440→   440→
+   441→   441→  // Rate limit
+   442→   442→  const rl = rateLimit(`tasks-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+   443→   443→  if (!rl.success) {
+   444→   444→    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
+   445→   445→  }
+   446→   446→
+   447→   447→  const userRole = session.user.role
+   448→   448→  const userId = session.user.id
+   449→   449→  const userName = session.user.name || "User"
+   450→   450→  let body: Record<string, unknown>
+   451→   451→  try { body = await req.json() } catch {
+   452→   452→    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+   453→   453→  }
+   454→   454→  const id = body.id ? String(body.id) : ""
+   455→   455→
+   456→   456→  if (!id) return NextResponse.json({ error: "Task ID is required" }, { status: 400 })
+   457→   457→
+   458→   458→  // Fetch existing task early — needed for approval logic
+   459→   459→  const existingTask = await db.task.findUnique({ where: { id } })
+   460→   460→  if (!existingTask) return NextResponse.json({ error: "Task not found" }, { status: 404 })
+   461→   461→
+   462→   462→  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   463→   463→  // AUTHORIZATION: verify user can edit this task BEFORE processing fields
+   464→   464→  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   465→   465→  if (!isAdmin(userRole) && existingTask.projectId) {
+   466→   466→    const membership = await db.projectMember.findFirst({
+   467→   467→      where: { userId, projectId: existingTask.projectId }
+   468→   468→    })
+   469→   469→    if (!membership) {
+   470→   470→      if (existingTask.createdBy !== userId && existingTask.assignedTo !== userId) {
+   471→   471→        return NextResponse.json({ error: "Forbidden: You can only update tasks in your assigned projects or tasks assigned/created by you" }, { status: 403 })
+   472→   472→      }
+   473→   473→    }
+   474→   474→  }
+   475→   475→  if (!isAdmin(userRole) && !existingTask.projectId) {
+   476→   476→    if (existingTask.createdBy !== userId && existingTask.assignedTo !== userId) {
+   477→   477→      return NextResponse.json({ error: "Forbidden: You can only update tasks assigned or created by you" }, { status: 403 })
+   478→   478→    }
+   479→   479→  }
+   480→   480→
+   481→   481→  // SECURITY: Whitelist allowed fields only (prevent mass assignment)
+   482→   482→  const data: Prisma.TaskUncheckedUpdateInput = {}
+   483→   483→
+   484→   484→  // C21: Title validation with length limit
+   485→   485→  if (body.title !== undefined) {
+   486→   486→    if (String(body.title).length > 500) {
+   487→   487→      return NextResponse.json({ error: "Title must be 500 characters or less" }, { status: 400 })
+   488→   488→    }
+   489→   489→    data.title = String(body.title)
+   490→   490→  }
+   491→   491→
+   492→   492→  // C21: Description validation with length cap
+   493→   493→  if (body.description !== undefined) {
+   494→   494→    if (body.description && String(body.description).length > 50000) {
+   495→   495→      return NextResponse.json({ error: "Description must be 50000 characters or less" }, { status: 400 })
+   496→   496→    }
+   497→   497→    data.description = body.description ? String(body.description) : null
+   498→   498→  }
+   499→   499→
+   500→   500→  if (body.priority !== undefined) {
+   501→   501→    if (!VALID_TASK_PRIORITIES.includes(String(body.priority))) {
+   502→   502→      return NextResponse.json({ error: `Invalid priority. Must be one of: ${VALID_TASK_PRIORITIES.join(", ")}` }, { status: 400 })
+   503→   503→    }
+   504→   504→    data.priority = String(body.priority)
+   505→   505→  }
+   506→   506→  if (body.assignedTo !== undefined) {
+   507→   507→    // ROLE RESTRICTION: Only SUPER_ADMIN and ADMIN can reassign tasks
+   508→   508→    if (!isAdmin(userRole)) {
+   509→   509→      return NextResponse.json({ error: "Forbidden: Only admin and superadmin can reassign tasks" }, { status: 403 })
+   510→   510→    }
+   511→   511→    const newAssignee = body.assignedTo ? String(body.assignedTo) : null
+   512→   512→    // If assigning to a specific user, verify they exist and are active
+   513→   513→    if (newAssignee && newAssignee !== existingTask.assignedTo) {
+   514→   514→      const assigneeExists = await db.user.findFirst({
+   515→   515→        where: { id: newAssignee, isActive: true }
+   516→   516→      })
+   517→   517→      if (!assigneeExists) {
+   518→   518→        return NextResponse.json({ error: "Assigned user not found or inactive" }, { status: 400 })
+   519→   519→      }
+   520→   520→    }
+   521→   521→    data.assignedTo = newAssignee
+   522→   522→  }
+   523→   523→  if (body.assigneeType !== undefined) {
+   524→   524→    if (!["HUMAN", "AI"].includes(String(body.assigneeType))) {
+   525→   525→      return NextResponse.json({ error: "Invalid assigneeType. Must be HUMAN or AI" }, { status: 400 })
+   526→   526→    }
+   527→   527→    data.assigneeType = String(body.assigneeType)
+   528→   528→  }
+   529→   529→
+   530→   530→  // C21: Deadline validation
+   531→   531→  if (body.deadline !== undefined) {
+   532→   532→    if (body.deadline) {
+   533→   533→      const d = new Date(String(body.deadline))
+   534→   534→      if (isNaN(d.getTime())) {
+   535→   535→        return NextResponse.json({ error: "Invalid deadline date" }, { status: 400 })
+   536→   536→      }
+   537→   537→    }
+   538→   538→    data.deadline = body.deadline ? new Date(String(body.deadline)) : null
+   539→   539→  }
+   540→   540→
+   541→   541→  if (body.category !== undefined) {
+   542→   542→    if (!VALID_TASK_CATEGORIES.includes(String(body.category))) {
+   543→   543→      return NextResponse.json({ error: `Invalid category. Must be one of: ${VALID_TASK_CATEGORIES.join(", ")}` }, { status: 400 })
+   544→   544→    }
+   545→   545→    data.category = String(body.category)
+   546→   546→  }
+   547→   547→
+   548→   548→  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   549→   549→  // APPROVAL FLOW — status change logic
+   550→   550→  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   551→   551→  if (body.status !== undefined) {
+   552→   552→    if (!VALID_TASK_STATUSES.includes(String(body.status))) {
+   553→   553→      return NextResponse.json({ error: `Invalid status. Must be one of: ${VALID_TASK_STATUSES.join(", ")}` }, { status: 400 })
+   554→   554→    }
+   555→   555→
+   556→   556→    const newStatus = body.status as string
+   557→   557→    const currentStatus = existingTask.status
+   558→   558→
+   559→   559→    // W1: Status transition validation (non-admin only)
+   560→   560→    if (newStatus !== currentStatus && !isAdmin(userRole)) {
+   561→   561→      const allowed = VALID_TRANSITIONS[currentStatus] || []
+   562→   562→      if (!allowed.includes(newStatus)) {
+   563→   563→        return NextResponse.json({ error: `Invalid status transition: ${currentStatus} → ${newStatus}. Allowed: ${allowed.length > 0 ? allowed.join(", ") : "none (terminal state)"}` }, { status: 409 })
+   564→   564→      }
+   565→   565→    }
+   566→   566→
+   567→   567→    // ── CASE 1: User is trying to mark task as DONE ──
+   568→   568→    if (newStatus === "DONE") {
+   569→   569→      // If task is already AWAITING_APPROVAL, this is an approval action
+   570→   570→      if (currentStatus === "AWAITING_APPROVAL") {
+   571→   571→        // Only admin/superadmin can approve
+   572→   572→        if (!isAdmin(userRole)) {
+   573→   573→          return NextResponse.json({ error: "Forbidden: Only admin or superadmin can approve tasks" }, { status: 403 })
+   574→   574→        }
+   575→   575→
+   576→   576→        // Self-approval prevention: ADMIN cannot approve tasks assigned to themselves
+   577→   577→        if (userRole === "ADMIN" && existingTask.assignedTo === userId) {
+   578→   578→          return NextResponse.json({ error: "Forbidden: You cannot approve your own task. Only superadmin can approve your tasks." }, { status: 403 })
+   579→   579→        }
+   580→   580→
+   581→   581→        // APPROVE — set status, approvedBy, approvedAt, completedAt
+   582→   582→        data.status = "DONE"
+   583→   583→        data.approvedBy = userId
+   584→   584→        data.approvedAt = new Date()
+   585→   585→        data.completedAt = new Date()
+   586→   586→
+   587→   587→      } else {
+   588→   588→        // Task is NOT currently AWAITING_APPROVAL — user wants to "complete" it
+   589→   589→        // SUPERADMIN can directly mark as DONE (no approval needed for their own actions)
+   590→   590→        if (userRole === "SUPER_ADMIN") {
+   591→   591→          data.status = "DONE"
+   592→   592→          data.approvedBy = userId
+   593→   593→          data.approvedAt = new Date()
+   594→   594→          data.completedAt = new Date()
+   595→   595→        } else {
+   596→   596→          // All other users (DEVELOPER, ADMIN) → goes to AWAITING_APPROVAL
+   597→   597→          data.status = "AWAITING_APPROVAL"
+   598→   598→        }
+   599→   599→      }
+   600→   600→    } else {
+   601→   601→      // Regular status change (not DONE)
+   602→   602→      data.status = newStatus
+   603→   603→    }
+   604→   604→  }
+   605→   605→
+   606→   606→  // Only admins can change projectId on a task
+   607→   607→  if (body.projectId !== undefined) {
+   608→   608→    if (!isAdmin(userRole)) {
+   609→   609→      return NextResponse.json({ error: "Forbidden: Only admins can move tasks between projects" }, { status: 403 })
+   610→   610→    }
+   611→   611→    data.projectId = String(body.projectId)
+   612→   612→  }
+   613→   613→
+   614→   614→  // Check if data object is empty — nothing to update
+   615→   615→  if (Object.keys(data).length === 0) {
+   616→   616→    return NextResponse.json({ error: "No fields to update" }, { status: 400 })
+   617→   617→  }
+   618→   618→
+   619→   619→  // Check if assignee is on approved leave during the task period
+   620→   620→  const assignedUserId = typeof data.assignedTo === "string" ? data.assignedTo : null
+   621→   621→  const effectiveDeadline = data.deadline instanceof Date ? data.deadline : (existingTask?.deadline || null)
+   622→   622→
+   623→   623→  if (assignedUserId && effectiveDeadline) {
+   624→   624→    const assigneeLeave = await checkAssigneeLeave(db, assignedUserId, effectiveDeadline)
+   625→   625→    if (assigneeLeave) {
+   626→   626→      return NextResponse.json({
+   627→   627→        error: `Cannot assign task: ${assigneeLeave.name} is on ${assigneeLeave.leaveType.replace("_", " ").toLowerCase()} leave from ${new Date(assigneeLeave.startDate).toLocaleDateString()} to ${new Date(assigneeLeave.endDate).toLocaleDateString()}`,
+   628→   628→      }, { status: 400 })
+   629→   629→    }
+   630→   630→  }
+   631→   631→
+   632→   632→  // Update the task
+   633→   633→  const updatedTask = await db.task.update({ where: { id }, data })
+   634→   634→
+   635→   635→  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   636→   636→  // NOTIFICATIONS
+   637→   637→  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   638→   638→
+   639→   639→  // Reassignment notification — when assignedTo changed to a different user
+   640→   640→  if (assignedUserId && existingTask.assignedTo !== assignedUserId) {
+   641→   641→    await sendNotification(
+   642→   642→      assignedUserId,
+   643→   643→      "Task Reassigned to You",
+   644→   644→      `Task "${existingTask.title}" has been reassigned to you`,
+   645→   645→      "TASK",
+   646→   646→      "/dashboard/tasks"
+   647→   647→    )
+   648→   648→  }
+   649→   649→
+   650→   650→  const finalStatus = data.status as string | undefined
+   651→   651→
+   652→   652→  // I8: Task sent for approval → notify all admin/superadmin (batch createMany)
+   653→   653→  // Fetch admins AND assignee in a single combined query to avoid separate DB lookup
+   654→   654→  if (finalStatus === "AWAITING_APPROVAL") {
+   655→   655→    const assigneeId = existingTask.assignedTo
+   656→   656→    // Batch fetch admins AND the assignee in one query
+   657→   657→    const allUsers = await db.user.findMany({
+   658→   658→      where: {
+   659→   659→        OR: [
+   660→   660→          { role: { in: ["SUPER_ADMIN", "ADMIN"] }, isActive: true },
+   661→   661→          ...(assigneeId ? [{ id: assigneeId }] : []),
+   662→   662→        ]
+   663→   663→      },
+   664→   664→      select: { id: true, name: true, role: true }
+   665→   665→    })
+   666→   666→    // Extract assignee name from the combined result
+   667→   667→    const assigneeName = assigneeId
+   668→   668→      ? (allUsers.find(u => u.id === assigneeId)?.name || "Someone")
+   669→   669→      : "Someone"
+   670→   670→    // Filter to just admins for notifications
+   671→   671→    const adminUsers = allUsers.filter(u => u.role === "SUPER_ADMIN" || u.role === "ADMIN")
+   672→   672→
+   673→   673→    if (adminUsers.length > 0) {
+   674→   674→      await db.notification.createMany({
+   675→   675→        data: adminUsers.map(admin => ({
+   676→   676→          userId: admin.id,
+   677→   677→          title: `Task approval needed: ${existingTask.title}`,
+   678→   678→          message: `${assigneeName} submitted "${existingTask.title}" for review`,
+   679→   679→          type: "TASK",
+   680→   680→          link: `/dashboard/todos`,
+   681→   681→          isRead: false,
+   682→   682→        }))
+   683→   683→      })
+   684→   684→    }
+   685→   685→  }
+   686→   686→
+   687→   687→  // Task approved → notify the assignee
+   688→   688→  if (finalStatus === "DONE" && data.approvedBy && existingTask.assignedTo && existingTask.assignedTo !== userId) {
+   689→   689→    const taskLink = `/dashboard/projects/todos`
+   690→   690→    await sendNotification(
+   691→   691→      existingTask.assignedTo,
+   692→   692→      "Task Approved",
+   693→   693→      `Your task "${existingTask.title}" has been approved by ${userName}.`,
+   694→   694→      "SUCCESS",
+   695→   695→      taskLink
+   696→   696→    )
+   697→   697→  }
+   698→   698→
+   699→   699→  // Task rejected (sent back) → notify the assignee
+   700→   700→  if (finalStatus && finalStatus !== "AWAITING_APPROVAL" && finalStatus !== "DONE" && existingTask.status === "AWAITING_APPROVAL") {
+   701→   701→    if (existingTask.assignedTo) {
+   702→   702→      const taskLink = `/dashboard/projects/todos`
+   703→   703→      await sendNotification(
+   704→   704→        existingTask.assignedTo,
+   705→   705→        "Task Revision Needed",
+   706→   706→        `Your task "${existingTask.title}" was sent back by ${userName}. Status: ${finalStatus.replace("_", " ")}.`,
+   707→   707→        "WARNING",
+   708→   708→        taskLink
+   709→   709→      )
+   710→   710→    }
+   711→   711→  }
+   712→   712→
+   713→   713→  // Background: sync tasks to Git (fire-and-forget) — only when task has a project
+   714→   714→  if (updatedTask.projectId) {
+   715→   715→    syncTasksToGit().catch(() => {})
+   716→   716→  }
+   717→   717→  // Background: sync task update to Lark (fire-and-forget)
+   718→   718→  const larkUpdateData: { title?: string; description?: string; status?: string; priority?: string; assignedTo?: string; deadline?: string | Date | null } = {}
+   719→   719→  if (data.title) larkUpdateData.title = String(data.title)
+   720→   720→  if (data.description !== undefined) larkUpdateData.description = (data.description as string | null) ?? undefined
+   721→   721→  if (data.status) larkUpdateData.status = String(data.status)
+   722→   722→  if (data.priority) larkUpdateData.priority = String(data.priority)
+   723→   723→  if (data.assignedTo !== undefined) larkUpdateData.assignedTo = (data.assignedTo as string) || undefined
+   724→   724→  if (data.deadline !== undefined) larkUpdateData.deadline = data.deadline as Date | null | undefined
+   725→   725→  if (Object.keys(larkUpdateData).length > 0) {
+   726→   726→    syncTaskUpdateToLark(id, larkUpdateData, userId).catch((err) => console.error("[tasks] Lark update sync error:", err))
+   727→   727→  }
+   728→   728→  return NextResponse.json(serializeTask(updatedTask))
+   729→   729→  } catch (error: unknown) {
+   730→   730→    console.error("[tasks] PATCH error:", error instanceof Error ? error.message : String(error))
+   731→   731→    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+   732→   732→  }
+   733→   733→}
+   734→   734→
+   735→   735→export async function DELETE(req: NextRequest) {
+   736→   736→  try {
+   737→   737→  await ensureAllTables()
+   738→   738→
+   739→   739→  const session = await getServerSession(authOptions)
+   740→   740→  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+   741→   741→
+   742→   742→  // Rate limit
+   743→   743→  const rl = rateLimit(`tasks-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+   744→   744→  if (!rl.success) {
+   745→   745→    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
+   746→   746→  }
+   747→   747→
+   748→   748→  const userRole = session.user.role
+   749→   749→  const userId = session.user.id
+   750→   750→
+   751→   751→  // I7: TODO: Move to /api/tasks/[id]/route.ts for proper REST
+   752→   752→  // Currently using query params for task ID instead of URL path
+   753→   753→  const { searchParams } = new URL(req.url)
+   754→   754→  const id = searchParams.get("id")
+   755→   755→
+   756→   756→  if (!id) return NextResponse.json({ error: "Task ID is required" }, { status: 400 })
+   757→   757→
+   758→   758→  // Verify task exists
+   759→   759→  const existingTask = await db.task.findUnique({ where: { id } })
+   760→   760→  if (!existingTask) return NextResponse.json({ error: "Task not found" }, { status: 404 })
+   761→   761→
+   762→   762→  // Developers can only delete tasks in their assigned projects, or standalone tasks they created/are assigned to
+   763→   763→  if (!isAdmin(userRole)) {
+   764→   764→    if (existingTask.projectId) {
+   765→   765→      // Project task — check membership
+   766→   766→      const membership = await db.projectMember.findFirst({
+   767→   767→        where: { userId, projectId: existingTask.projectId }
+   768→   768→      })
+   769→   769→      if (!membership && existingTask.createdBy !== userId && existingTask.assignedTo !== userId) {
+   770→   770→        return NextResponse.json({ error: "Forbidden: You can only delete tasks in your assigned projects or tasks assigned/created by you" }, { status: 403 })
+   771→   771→      }
+   772→   772→    } else {
+   773→   773→      // Standalone task — must be creator or assignee
+   774→   774→      if (existingTask.createdBy !== userId && existingTask.assignedTo !== userId) {
+   775→   775→        return NextResponse.json({ error: "Forbidden: You can only delete tasks assigned or created by you" }, { status: 403 })
+   776→   776→      }
+   777→   777→    }
+   778→   778→  }
+   779→   779→
+   780→   780→  await db.task.delete({ where: { id } })
+   781→   781→  // Background: sync tasks to Git (fire-and-forget) — only when task had a project
+   782→   782→  if (existingTask.projectId) {
+   783→   783→    syncTasksToGit().catch(() => {})
+   784→   784→  }
+   785→   785→  // Background: sync task deletion to Lark (fire-and-forget)
+   786→   786→  syncTaskDeleteToLark(id, userId).catch((err) => console.error("[tasks] Lark delete sync error:", err))
+   787→   787→  return NextResponse.json({ success: true })
+   788→   788→  } catch (error: unknown) {
+   789→   789→    console.error("[tasks] DELETE error:", error instanceof Error ? error.message : String(error))
+   790→   790→    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+   791→   791→  }
+   792→   792→}
+   793→   793→

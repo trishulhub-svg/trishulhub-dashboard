@@ -1,0 +1,1312 @@
+     1→"use client";
+     2→
+     3→import { useState, useMemo, useRef, useCallback } from "react";
+     4→import { useParams, useRouter, usePathname } from "next/navigation";
+     5→import { useSession } from "next-auth/react";
+     6→import { useQuery, useQueryClient } from "@tanstack/react-query";
+     7→import {
+     8→  ArrowLeft, Plus, Bot, User, Clock, Trash2, Users, UserPlus, X, CalendarDays, Tag,
+     9→  CheckCircle2, ShieldCheck, DollarSign, Activity, Gauge, ListTodo, CircleDot, ClipboardCheck,
+    10→  ChevronRight, ExternalLink, Settings, Globe, Star, Pencil, Trash2 as Trash2Icon,
+    11→} from "lucide-react";
+    12→import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator, } from "@/components/ui/dropdown-menu";
+    13→import { Card, CardContent } from "@/components/ui/card";
+    14→import { Button } from "@/components/ui/button";
+    15→import { Input } from "@/components/ui/input";
+    16→import { Textarea } from "@/components/ui/textarea";
+    17→import { Badge } from "@/components/ui/badge";
+    18→import { Progress } from "@/components/ui/progress";
+    19→import { Skeleton } from "@/components/ui/skeleton";
+    20→import { Label } from "@/components/ui/label";
+    21→import {
+    22→  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger,
+    23→} from "@/components/ui/dialog";
+    24→import { ScrollArea } from "@/components/ui/scroll-area";
+    25→import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+    26→import { toast } from "sonner";
+    27→import { Switch } from "@/components/ui/switch";
+    28→import { TASK_COLUMNS } from "@/lib/types";
+    29→import { safeText, safeNumber, safeDate, deepSanitize, cn, extractStr, extractNum, extractNestedStr } from "@/lib/utils";
+    30→
+    31→// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    32→// BULLETPROOF v9: Redesigned layout — compact stats row, glassmorphism,
+    33→// removed view tabs (My Tasks link in header), horizontal member chips.
+    34→// ALL functionality preserved: handlers, RBAC, safe extractors, caching.
+    35→// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    36→
+    37→const taskStatusColors: Record<string, string> = {
+    38→  TODO: "bg-gray-100 dark:bg-gray-800/50",
+    39→  IN_PROGRESS: "bg-blue-50 dark:bg-blue-900/20",
+    40→  REVIEW: "bg-yellow-50 dark:bg-yellow-900/20",
+    41→  AWAITING_APPROVAL: "bg-orange-50 dark:bg-orange-900/20",
+    42→  DONE: "bg-green-50 dark:bg-green-900/20",
+    43→};
+    44→
+    45→const taskStatusAccentColors: Record<string, string> = {
+    46→  TODO: "bg-gray-400",
+    47→  IN_PROGRESS: "bg-blue-400",
+    48→  REVIEW: "bg-yellow-400",
+    49→  AWAITING_APPROVAL: "bg-orange-400",
+    50→  DONE: "bg-green-400",
+    51→};
+    52→
+    53→const taskStatusTextColors: Record<string, string> = {
+    54→  TODO: "text-gray-600 dark:text-gray-400",
+    55→  IN_PROGRESS: "text-blue-600 dark:text-blue-400",
+    56→  REVIEW: "text-yellow-600 dark:text-yellow-400",
+    57→  AWAITING_APPROVAL: "text-orange-600 dark:text-orange-400",
+    58→  DONE: "text-green-600 dark:text-green-400",
+    59→};
+    60→
+    61→const projectStatusColors: Record<string, string> = {
+    62→  PLANNING: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+    63→  IN_PROGRESS: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
+    64→  REVIEW: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+    65→  APPROVAL: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+    66→  DEPLOYED: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
+    67→  COMPLETED: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+    68→};
+    69→
+    70→const priorityColors: Record<string, string> = {
+    71→  LOW: "bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200",
+    72→  MEDIUM: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+    73→  HIGH: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+    74→  URGENT: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+    75→};
+    76→
+    77→const priorityBorderColors: Record<string, string> = {
+    78→  LOW: "border-l-gray-300 dark:border-l-gray-600",
+    79→  MEDIUM: "border-l-blue-400 dark:border-l-blue-500",
+    80→  HIGH: "border-l-orange-400 dark:border-l-orange-500",
+    81→  URGENT: "border-l-red-400 dark:border-l-red-500",
+    82→};
+    83→
+    84→const VALID_STATUSES = ["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"];
+    85→
+    86→function getProgressColor(progress: number) {
+    87→  if (progress < 30) return "[&>div]:bg-red-500 [&>div]:shadow-red-500/30";
+    88→  if (progress < 70) return "[&>div]:bg-amber-500 [&>div]:shadow-amber-500/30";
+    89→  return "[&>div]:bg-emerald-500 [&>div]:shadow-emerald-500/30";
+    90→}
+    91→
+    92→export default function ProjectDetailPage() {
+    93→  const params = useParams();
+    94→  const router = useRouter();
+    95→  const pathname = usePathname();
+    96→  const { data: session, status: sessionStatus } = useSession();
+    97→  const queryClient = useQueryClient();
+    98→
+    99→  // Safe projectId extraction
+   100→  const rawProjectId = params?.projectId;
+   101→  const projectId = typeof rawProjectId === "string"
+   102→    ? rawProjectId
+   103→    : Array.isArray(rawProjectId)
+   104→      ? String(rawProjectId[0] ?? "")
+   105→      : "";
+   106→
+   107→  const userRole = session?.user?.role || "DEVELOPER";
+   108→  const userId = session?.user?.id || "";
+   109→  const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+   110→
+   111→  const handle401 = useCallback((res: Response) => {
+   112→    if (res.status === 401) {
+   113→      window.location.href = "/login";
+   114→      return true;
+   115→    }
+   116→    return false;
+   117→  }, []);
+   118→
+   119→  // ── State: UI-only state (dialogs, selections) ──
+   120→  const [addOpen, setAddOpen] = useState(false);
+   121→  const [addMemberOpen, setAddMemberOpen] = useState(false);
+   122→  const [selectedTask, setSelectedTask] = useState<Record<string, unknown> | null>(null);
+   123→  const [taskDetailOpen, setTaskDetailOpen] = useState(false);
+   124→  // Audit fix: delete confirmation state for tasks
+   125→  const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null);
+   126→  // Remove member confirmation state
+   127→  const [removeMemberUserId, setRemoveMemberUserId] = useState<string | null>(null);
+   128→  // Website management dialog state
+   129→  const [websiteMgmtOpen, setWebsiteMgmtOpen] = useState(false);
+   130→  const [deleteWebsiteId, setDeleteWebsiteId] = useState<string | null>(null);
+   131→  const [newWebsiteUrl, setNewWebsiteUrl] = useState("");
+   132→  const [newWebsiteLabel, setNewWebsiteLabel] = useState("");
+   133→  const [editingWebsiteId, setEditingWebsiteId] = useState<string | null>(null);
+   134→
+   135→  // M-PRJ-6 FIX: Debounce timer ref for progress input
+   136→  const progressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+   137→
+   138→  // ── React Query: Project data with caching ──
+   139→  const { data: projectData, isLoading: projectLoading } = useQuery({
+   140→    queryKey: ["project", projectId],
+   141→    queryFn: async () => {
+   142→      if (!projectId) return null;
+   143→      const res = await fetch(`/api/projects?projectId=${projectId}`, { credentials: "include" });
+   144→      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+   145→      if (!res.ok) throw new Error("Failed to load project");
+   146→      const raw = deepSanitize(await res.json());
+   147→      if (Array.isArray(raw) && raw.length > 0) return raw[0] as Record<string, unknown>;
+   148→      if (raw && typeof raw === "object" && (raw as Record<string, unknown>).id) return raw as Record<string, unknown>;
+   149→      if (Array.isArray((raw as Record<string, unknown>)?.data) && ((raw as Record<string, unknown>).data as unknown[]).length > 0) {
+   150→        return ((raw as Record<string, unknown>).data as unknown[])[0] as Record<string, unknown>;
+   151→      }
+   152→      return null;
+   153→    },
+   154→    enabled: !!projectId,
+   155→    staleTime: 30 * 1000,
+   156→    retry: 1,
+   157→  });
+   158→
+   159→  const { data: tasksData = [], isLoading: tasksLoading } = useQuery({
+   160→    queryKey: ["project-tasks", projectId],
+   161→    queryFn: async () => {
+   162→      if (!projectId) return [];
+   163→      const res = await fetch(`/api/tasks?projectId=${projectId}`, { credentials: "include" });
+   164→      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+   165→      if (!res.ok) throw new Error("Failed to load tasks");
+   166→      const td = deepSanitize(await res.json());
+   167→      return Array.isArray((td as Record<string, unknown>)?.tasks) ? (td as Record<string, unknown>).tasks as unknown[] : Array.isArray(td) ? td : (Array.isArray((td as Record<string, unknown>)?.data) ? (td as Record<string, unknown>).data as unknown[] : []);
+   168→    },
+   169→    enabled: !!projectId,
+   170→    staleTime: 30 * 1000,
+   171→    retry: 1,
+   172→  });
+   173→
+   174→  const { data: membersData = [], isLoading: membersLoading } = useQuery({
+   175→    queryKey: ["project-members", projectId],
+   176→    queryFn: async () => {
+   177→      if (!projectId) return [];
+   178→      const res = await fetch(`/api/projects/${projectId}/members`, { credentials: "include" });
+   179→      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+   180→      if (!res.ok) throw new Error("Failed to load members");
+   181→      const md = deepSanitize(await res.json());
+   182→      return Array.isArray(md) ? md : (Array.isArray((md as Record<string, unknown>)?.data) ? (md as Record<string, unknown>).data as unknown[] : []);
+   183→    },
+   184→    enabled: !!projectId,
+   185→    staleTime: 30 * 1000,
+   186→    retry: 1,
+   187→  });
+   188→
+   189→  const { data: teamUsersData = [] } = useQuery({
+   190→    queryKey: ["team-users"],
+   191→    queryFn: async () => {
+   192→      const res = await fetch("/api/team?type=users", { credentials: "include" });
+   193→      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+   194→      if (!res.ok) throw new Error("Failed to load team users");
+   195→      const ud = deepSanitize(await res.json());
+   196→      return Array.isArray(ud) ? ud : (Array.isArray((ud as Record<string, unknown>)?.data) ? (ud as Record<string, unknown>).data as unknown[] : []);
+   197→    },
+   198→    enabled: isAdminUser,
+   199→    staleTime: 30 * 1000,
+   200→    retry: 1,
+   201→  });
+   202→
+   203→  // ── React Query: Websites with caching ──
+   204→  const { data: websitesData = [] } = useQuery({
+   205→    queryKey: ["project-websites", projectId],
+   206→    queryFn: async () => {
+   207→      if (!projectId) return [];
+   208→      const res = await fetch(`/api/projects/${projectId}/websites`, { credentials: "include" });
+   209→      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+   210→      if (!res.ok) return [];
+   211→      const raw = deepSanitize(await res.json());
+   212→      return Array.isArray(raw) ? raw as Record<string, unknown>[] : [];
+   213→    },
+   214→    enabled: !!projectId && isAdminUser,
+   215→    staleTime: 30 * 1000,
+   216→    retry: 1,
+   217→  });
+   218→
+   219→  const project = projectData;
+   220→  const tasks = tasksData;
+   221→  const members = membersData;
+   222→  const teamUsers = teamUsersData;
+   223→  const websites = websitesData;
+   224→
+   225→  const invalidateAll = () => {
+   226→    queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+   227→    queryClient.invalidateQueries({ queryKey: ["project-tasks", projectId] });
+   228→    queryClient.invalidateQueries({ queryKey: ["project-members", projectId] });
+   229→    queryClient.invalidateQueries({ queryKey: ["project-websites", projectId] });
+   230→  };
+   231→
+   232→  // ── Website CRUD handlers ──
+   233→  const handleAddWebsite = async () => {
+   234→    if (!newWebsiteUrl.trim()) { toast.error("URL is required"); return; }
+   235→    try {
+   236→      const res = await fetch(`/api/projects/${projectId}/websites`, {
+   237→        method: "POST",
+   238→        headers: { "Content-Type": "application/json" },
+   239→        credentials: "include",
+   240→        body: JSON.stringify({
+   241→          url: newWebsiteUrl.trim(),
+   242→          label: newWebsiteLabel.trim() || "Production",
+   243→          isPrimary: websites.length === 0,
+   244→        }),
+   245→      });
+   246→      if (res.ok) { toast.success("Website added"); setNewWebsiteUrl(""); setNewWebsiteLabel(""); invalidateAll(); }
+   247→      else { if (handle401(res)) return; const d = await res.json(); toast.error(d.error || "Failed to add website"); }
+   248→    } catch { toast.error("Failed to add website"); }
+   249→  };
+   250→
+   251→  const handleUpdateWebsite = async (websiteId: string, updates: Record<string, unknown>) => {
+   252→    try {
+   253→      const res = await fetch(`/api/projects/${projectId}/websites`, {
+   254→        method: "PATCH",
+   255→        headers: { "Content-Type": "application/json" },
+   256→        credentials: "include",
+   257→        body: JSON.stringify({ id: websiteId, ...updates }),
+   258→      });
+   259→      if (res.ok) { toast.success("Website updated"); invalidateAll(); }
+   260→      else { if (handle401(res)) return; const d = await res.json(); toast.error(d.error || "Failed to update website"); }
+   261→    } catch { toast.error("Failed to update website"); }
+   262→  };
+   263→
+   264→  const handleDeleteWebsite = async (websiteId: string) => {
+   265→    try {
+   266→      const res = await fetch(`/api/projects/${projectId}/websites?id=${websiteId}`, {
+   267→        method: "DELETE",
+   268→        credentials: "include",
+   269→      });
+   270→      if (res.ok) { toast.success("Website removed"); invalidateAll(); }
+   271→      else { if (handle401(res)) return; toast.error("Failed to delete website"); }
+   272→    } catch { toast.error("Failed to delete website"); }
+   273→  };
+   274→
+   275→  const handleSetPrimaryWebsite = async (websiteId: string) => {
+   276→    try {
+   277→      const res = await fetch(`/api/projects/${projectId}/websites`, {
+   278→        method: "PATCH",
+   279→        headers: { "Content-Type": "application/json" },
+   280→        credentials: "include",
+   281→        body: JSON.stringify({ id: websiteId, isPrimary: true }),
+   282→      });
+   283→      if (res.ok) { toast.success("Primary website set"); invalidateAll(); }
+   284→      else { if (handle401(res)) return; toast.error("Failed to set primary"); }
+   285→    } catch { toast.error("Failed to set primary"); }
+   286→  };
+   287→
+   288→  const handleAddTask = async (e: React.FormEvent<HTMLFormElement>) => {
+   289→    e.preventDefault();
+   290→    const form = new FormData(e.currentTarget);
+   291→    const data = {
+   292→      title: String(form.get("title") || ""),
+   293→      description: String(form.get("description") || ""),
+   294→      projectId,
+   295→      assigneeType: String(form.get("assigneeType") || "HUMAN"),
+   296→      assignedTo: String(form.get("assignedTo") || "") || null,
+   297→      priority: String(form.get("priority") || "MEDIUM"),
+   298→    };
+   299→    try {
+   300→      const res = await fetch("/api/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(data) });
+   301→      if (res.ok) { toast.success("Task created"); setAddOpen(false); invalidateAll(); }
+   302→      else { if (handle401(res)) return; const err = await res.json().catch(() => null); toast.error(err?.error || "Failed to create task"); }
+   303→    } catch { toast.error("Failed to create task"); }
+   304→  };
+   305→
+   306→  const handleMoveTask = async (taskId: string, newStatus: string) => {
+   307→    try {
+   308→      const res = await fetch("/api/tasks", { method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ id: taskId, status: newStatus }) });
+   309→      if (res.ok) {
+   310→        const updated = await res.json().catch(() => null);
+   311→        const finalStatus = updated?.status || newStatus;
+   312→        if (finalStatus === "AWAITING_APPROVAL" && newStatus === "DONE") {
+   313→          toast.success("Task submitted for approval");
+   314→        } else if (finalStatus === "DONE" && newStatus === "DONE") {
+   315→          toast.success("Task approved and marked as done");
+   316→        } else {
+   317→          toast.success(`Task moved to ${String(finalStatus).replace("_", " ")}`);
+   318→        }
+   319→        invalidateAll();
+   320→      } else {
+   321→        if (handle401(res)) return;
+   322→        const err = await res.json().catch(() => null);
+   323→        toast.error(err?.error || "Failed to move task");
+   324→      }
+   325→    } catch { toast.error("Failed to move task"); }
+   326→  };
+   327→
+   328→  const handleDeleteTask = async (taskId: string) => {
+   329→    try {
+   330→      const res = await fetch(`/api/tasks?id=${taskId}`, { method: "DELETE", credentials: "include" });
+   331→      if (res.ok) { toast.success("Task deleted"); invalidateAll(); }
+   332→      else { if (handle401(res)) return; toast.error("Failed to delete task"); }
+   333→    } catch { toast.error("Failed to delete task"); }
+   334→  };
+   335→
+   336→  const handleAddMember = async (userId: string, role: string) => {
+   337→    try {
+   338→      const res = await fetch(`/api/projects/${projectId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ userId, role }) });
+   339→      if (res.ok) { toast.success("Member added"); setAddMemberOpen(false); invalidateAll(); }
+   340→      else { if (handle401(res)) return; const d = await res.json(); toast.error(d.error || "Failed to add member"); }
+   341→    } catch { toast.error("Failed to add member"); }
+   342→  };
+   343→
+   344→  const handleUpdateProject = async (updates: Record<string, unknown>) => {
+   345→    try {
+   346→      const res = await fetch("/api/projects", { method: "PUT", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ id: projectId, ...updates }) });
+   347→      if (res.ok) { toast.success("Project updated"); invalidateAll(); }
+   348→      else { if (handle401(res)) return; const d = await res.json(); toast.error(d.error || "Failed to update project"); }
+   349→    } catch { toast.error("Failed to update project"); }
+   350→  };
+   351→
+   352→  const handleRemoveMember = async (userId: string) => {
+   353→    try {
+   354→      const res = await fetch(`/api/projects/${projectId}/members?userId=${userId}`, { method: "DELETE", credentials: "include" });
+   355→      if (res.ok) { toast.success("Member removed"); invalidateAll(); }
+   356→      else { if (handle401(res)) return; toast.error("Failed to remove member"); }
+   357→    } catch { toast.error("Failed to remove member"); }
+   358→  };
+   359→
+   360→  // ── Derived values (ALL guaranteed primitives via safe extractors) ──
+   361→  const projectName = project ? extractStr(project, "name", "Untitled") : "";
+   362→  const projectDesc = project ? extractStr(project, "description", "") : "";
+   363→  const projectStatus = project ? extractStr(project, "status", "PLANNING") : "PLANNING";
+   364→  const projectProgress = project ? extractNum(project, "progress", 0) : 0;
+   365→  const projectBudget = project ? extractNum(project, "budget", 0) : 0;
+   366→  const projectDeadline = project ? extractStr(project, "deadline", "") : "";
+   367→
+   368→  const memberUserIds = useMemo(() => members.map((m) => extractStr(m, "userId", "")), [members]);
+   369→  const availableUsers = useMemo(() => {
+   370→    const ids = memberUserIds;
+   371→    return teamUsers.filter((u) => !ids.includes(extractStr(u, "id", "")));
+   372→  }, [teamUsers, memberUserIds]);
+   373→
+   374→  // Fix: Include tasksLoading and membersLoading to prevent layout shift
+   375→  const isLoading = sessionStatus === "loading" || projectLoading || tasksLoading || membersLoading;
+   376→
+   377→  // ── Loading state ──
+   378→  if (isLoading) {
+   379→    return (
+   380→      <div className="space-y-5">
+   381→        <div className="flex items-center gap-3">
+   382→          <Skeleton className="h-8 w-8 rounded-lg" />
+   383→          <div className="space-y-1.5 flex-1">
+   384→            <Skeleton className="h-6 w-48" />
+   385→            <Skeleton className="h-3.5 w-72" />
+   386→          </div>
+   387→        </div>
+   388→        <div className="flex flex-wrap gap-2">
+   389→          {[1, 2, 3, 4, 5].map((i) => (
+   390→            <Skeleton key={i} className="h-9 w-28 rounded-full" />
+   391→          ))}
+   392→        </div>
+   393→        <Skeleton className="h-5 w-40" />
+   394→        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2">
+   395→          {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-72 rounded-xl" />)}
+   396→        </div>
+   397→      </div>
+   398→    );
+   399→  }
+   400→
+   401→  if (!projectId) {
+   402→    return (
+   403→      <div className="text-center py-16">
+   404→        <div className="h-14 w-14 mx-auto rounded-2xl bg-muted/50 flex items-center justify-center mb-4">
+   405→          <ListTodo className="h-7 w-7 text-muted-foreground/40" />
+   406→        </div>
+   407→        <p className="text-muted-foreground mb-4 font-medium">Invalid project ID</p>
+   408→        <Button variant="outline" onClick={() => router.push("/dashboard/projects")} className="gap-2">
+   409→          <ArrowLeft className="h-4 w-4" /> Back to Projects
+   410→        </Button>
+   411→      </div>
+   412→    );
+   413→  }
+   414→
+   415→  if (!project) {
+   416→    return (
+   417→      <div className="text-center py-16">
+   418→        <div className="h-14 w-14 mx-auto rounded-2xl bg-muted/50 flex items-center justify-center mb-4">
+   419→          <ListTodo className="h-7 w-7 text-muted-foreground/40" />
+   420→        </div>
+   421→        <p className="text-muted-foreground mb-4 font-medium">Project not found</p>
+   422→        <Button variant="outline" onClick={() => router.push("/dashboard/projects")} className="gap-2">
+   423→          <ArrowLeft className="h-4 w-4" /> Back to Projects
+   424→        </Button>
+   425→      </div>
+   426→    );
+   427→  }
+   428→
+   429→  const progressColorClass = projectProgress < 30 ? "text-red-600 dark:text-red-400" : projectProgress < 70 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400";
+   430→
+   431→  return (
+   432→    <div className="space-y-5" style={{ animation: "fade-in 0.35s ease-out both" }}>
+   433→      {/* ═══════ Compact Header ═══════ */}
+   434→      <div className="flex items-start gap-3" style={{ animation: "card-enter 0.4s ease-out both", animationDelay: "50ms" }}>
+   435→        <Button
+   436→          variant="ghost"
+   437→          size="icon"
+   438→          onClick={() => router.push("/dashboard/projects")}
+   439→          aria-label="Back to projects"
+   440→          className="mt-0.5 h-8 w-8 rounded-lg hover:bg-muted/80 hover:scale-105 transition-all duration-200"
+   441→        >
+   442→          <ArrowLeft className="h-4 w-4" />
+   443→        </Button>
+   444→        <div className="flex-1 min-w-0">
+   445→          <div className="flex items-center gap-2.5 flex-wrap">
+   446→            <h1 className="text-xl font-bold tracking-tight">{safeText(projectName, "Untitled")}</h1>
+   447→            {isAdminUser ? (
+   448→              <select
+   449→                className="h-6 text-[10px] border rounded-full px-2.5 bg-background/80 font-semibold focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer appearance-none pr-5"
+   450→                value={safeText(projectStatus, "PLANNING")}
+   451→                onChange={(e) => handleUpdateProject({ status: e.target.value })}
+   452→                style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E\")", backgroundRepeat: "no-repeat", backgroundPosition: "right 6px center" }}
+   453→              >
+   454→                {VALID_STATUSES.map((s) => (
+   455→                  <option key={s} value={s}>{s.replace("_", " ")}</option>
+   456→                ))}
+   457→              </select>
+   458→            ) : (
+   459→              <Badge className={`${projectStatusColors[safeText(projectStatus, "")] || ""} text-[10px] font-semibold px-2 py-0`}>
+   460→                {safeText(projectStatus, "UNKNOWN").replace("_", " ")}
+   461→              </Badge>
+   462→            )}
+   463→          </div>
+   464→          {projectDesc && (
+   465→            <p className="text-muted-foreground/70 text-sm mt-1 leading-relaxed line-clamp-2 max-w-2xl">{safeText(projectDesc)}</p>
+   466→          )}
+   467→        </div>
+   468→      </div>
+   469→
+   470→      {/* ═══════ Compact Stats Row (glassmorphism pills) ═══════ */}
+   471→      <div className="flex flex-wrap items-center gap-2">
+   472→        {/* Progress pill */}
+   473→        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-sm">
+   474→          <Gauge className={cn("h-3.5 w-3.5", progressColorClass)} />
+   475→          <Progress value={safeNumber(projectProgress)} className={cn("h-1.5 w-16 rounded-full", getProgressColor(projectProgress))} />
+   476→          {isAdminUser ? (
+   477→            <Input
+   478→              type="number"
+   479→              min={0}
+   480→              max={100}
+   481→              value={safeNumber(projectProgress)}
+   482→              onChange={(e) => {
+   483→                const val = Math.min(100, Math.max(0, parseInt(e.target.value) || 0));
+   484→                if (progressTimerRef.current) clearTimeout(progressTimerRef.current);
+   485→                progressTimerRef.current = setTimeout(() => {
+   486→                  handleUpdateProject({ progress: val });
+   487→                }, 500);
+   488→              }}
+   489→              className="h-5 w-11 text-[10px] text-center font-bold p-0 border-0 shadow-none focus-visible:ring-0"
+   490→            />
+   491→          ) : (
+   492→            <span className={cn("text-[11px] font-bold tabular-nums", progressColorClass)}>{safeNumber(projectProgress)}%</span>
+   493→          )}
+   494→        </div>
+   495→
+   496→        {/* Budget pill (admin only) */}
+   497→        {isAdminUser && (
+   498→          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-sm">
+   499→            <DollarSign className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+   500→            <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 tabular-nums">
+   501→              {String(projectBudget || 0).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}
+   502→            </span>
+   503→          </div>
+   504→        )}
+   505→
+   506→        {/* Deadline pill */}
+   507→        <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-sm">
+   508→          <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
+   509→          <span className="text-[11px] font-medium text-muted-foreground">
+   510→            {projectDeadline ? safeDate(projectDeadline, "No deadline") : "No deadline"}
+   511→          </span>
+   512→        </div>
+   513→
+   514→        {/* Team Size pill (non-admin) */}
+   515→        {!isAdminUser && (
+   516→          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-sm">
+   517→            <Users className="h-3.5 w-3.5 text-muted-foreground" />
+   518→            <span className="text-[11px] font-medium text-muted-foreground">{String(members.length)} members</span>
+   519→          </div>
+   520→        )}
+   521→
+   522→        {/* My Tasks link (replaces the tab) */}
+   523→        <button
+   524→          type="button"
+   525→          onClick={() => router.push(`/dashboard/projects/${projectId}/todos`)}
+   526→          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+   527→        >
+   528→          <ClipboardCheck className="h-3 w-3" />
+   529→          My Tasks
+   530→          <ChevronRight className="h-3 w-3" />
+   531→        </button>
+   532→
+   533→        {/* Live button / Add Live URL (admin) */}
+   534→        {(() => {
+   535→          const projectWebsites = (project?.websites as Record<string, unknown>[] | undefined) || [];
+   536→          const mergedWebsites = isAdminUser && websites.length > 0 ? websites : projectWebsites;
+   537→          if (mergedWebsites.length === 1) {
+   538→            const wUrl = extractStr(mergedWebsites[0], "url", "");
+   539→            const wLabel = extractStr(mergedWebsites[0], "label", "");
+   540→            return (
+   541→              <>
+   542→                <a
+   543→                  href={wUrl}
+   544→                  target="_blank"
+   545→                  rel="noopener noreferrer"
+   546→                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20 dark:border-emerald-500/10 shadow-sm transition-colors"
+   547→                >
+   548→                  <Globe className="h-3 w-3" />
+   549→                  {wLabel || "Live"}
+   550→                  <ExternalLink className="h-2.5 w-2.5 opacity-60" />
+   551→                </a>
+   552→                {isAdminUser && (
+   553→                  <button
+   554→                    type="button"
+   555→                    onClick={() => { setWebsiteMgmtOpen(true); setEditingWebsiteId(null); }}
+   556→                    className="inline-flex items-center justify-center h-[26px] w-[26px] rounded-full text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/60 transition-colors"
+   557→                    aria-label="Manage websites"
+   558→                  >
+   559→                    <Settings className="h-3 w-3" />
+   560→                  </button>
+   561→                )}
+   562→              </>
+   563→            );
+   564→          }
+   565→          if (mergedWebsites.length > 1) {
+   566→            const primary = mergedWebsites.find((w) => extractStr(w, "isPrimary", "") === "true" || w.isPrimary === true) || mergedWebsites[0];
+   567→            const pUrl = extractStr(primary, "url", "");
+   568→            const pLabel = extractStr(primary, "label", "");
+   569→            return (
+   570→              <>
+   571→                <DropdownMenu>
+   572→                  <DropdownMenuTrigger asChild>
+   573→                    <button
+   574→                      type="button"
+   575→                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20 dark:border-emerald-500/10 shadow-sm transition-colors"
+   576→                    >
+   577→                      <Globe className="h-3 w-3" />
+   578→                      {pLabel || "Live"}
+   579→                      <ExternalLink className="h-2.5 w-2.5 opacity-60" />
+   580→                    </button>
+   581→                  </DropdownMenuTrigger>
+   582→                  <DropdownMenuContent align="start" className="w-56">
+   583→                    {mergedWebsites.map((w, i) => {
+   584→                      const wUrl = extractStr(w, "url", "");
+   585→                      const wLabel = extractStr(w, "label", "");
+   586→                      const wIsPrimary = w.isPrimary === true || extractStr(w, "isPrimary", "") === "true";
+   587→                      return (
+   588→                        <DropdownMenuItem key={extractStr(w, "id", String(i))} asChild>
+   589→                          <a href={wUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 cursor-pointer">
+   590→                            <Globe className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+   591→                            <div className="min-w-0 flex-1">
+   592→                              <p className="text-xs font-medium truncate">{wLabel || `Site ${i + 1}`}</p>
+   593→                              <p className="text-[10px] text-muted-foreground truncate">{wUrl}</p>
+   594→                            </div>
+   595→                            {wIsPrimary && <Star className="h-3 w-3 text-amber-500 shrink-0" />}
+   596→                          </a>
+   597→                        </DropdownMenuItem>
+   598→                      );
+   599→                    })}
+   600→                  </DropdownMenuContent>
+   601→                </DropdownMenu>
+   602→                {isAdminUser && (
+   603→                  <button
+   604→                    type="button"
+   605→                    onClick={() => { setWebsiteMgmtOpen(true); setEditingWebsiteId(null); }}
+   606→                    className="inline-flex items-center justify-center h-[26px] w-[26px] rounded-full text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/60 transition-colors"
+   607→                    aria-label="Manage websites"
+   608→                  >
+   609→                    <Settings className="h-3 w-3" />
+   610→                  </button>
+   611→                )}
+   612→              </>
+   613→            );
+   614→          }
+   615→          // 0 websites
+   616→          if (isAdminUser) {
+   617→            return (
+   618→              <button
+   619→                type="button"
+   620→                onClick={() => { setWebsiteMgmtOpen(true); setEditingWebsiteId(null); }}
+   621→                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium text-muted-foreground/60 hover:text-foreground hover:bg-muted/40 border border-dashed border-muted-foreground/30 transition-colors"
+   622→              >
+   623→                <Globe className="h-3 w-3" />
+   624→                Add Live URL
+   625→              </button>
+   626→            );
+   627→          }
+   628→          return null;
+   629→        })()}
+   630→      </div>
+   631→
+   632→      {/* ═══════ Compact Team Members ═══════ */}
+   633→      {membersLoading ? (
+   634→        <div className="flex items-center gap-2" style={{ animation: "card-enter 0.4s ease-out both", animationDelay: "150ms" }}>
+   635→          {[1, 2, 3].map((i) => (
+   636→            <Skeleton key={i} className="h-8 w-28 rounded-full" />
+   637→          ))}
+   638→          <Skeleton className="h-7 w-7 rounded-full" />
+   639→        </div>
+   640→      ) : (
+   641→        <div className="flex items-center gap-2 overflow-x-auto pb-1" style={{ animation: "card-enter 0.4s ease-out both", animationDelay: "150ms" }}>
+   642→          {members.length === 0 && !isAdminUser && (
+   643→            <span className="text-xs text-muted-foreground/60 italic">No team members</span>
+   644→          )}
+   645→          {members.map((member) => {
+   646→            const mId = extractStr(member, "id", "");
+   647→            const mUserId = extractStr(member, "userId", "");
+   648→            const mRole = extractStr(member, "role", "");
+   649→            const mUserName = extractNestedStr(member, ["user", "name"], "Unknown");
+   650→            const initials = mUserName.split(" ").map((n) => n[0] || "").join("").slice(0, 2).toUpperCase();
+   651→            const avatarColor = mRole === "LEAD" ? "from-amber-400 to-orange-500" : "from-slate-500 to-slate-600 dark:from-slate-400 dark:to-slate-500";
+   652→            return (
+   653→              <div
+   654→                key={mId}
+   655→                className="inline-flex items-center gap-1.5 pl-0.5 pr-2 py-0.5 rounded-full bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-sm hover:shadow-md transition-all group/member shrink-0"
+   656→              >
+   657→                <Avatar className="h-6 w-6">
+   658→                  <AvatarFallback className={cn("text-[9px] font-bold text-white bg-gradient-to-br", avatarColor)}>{initials || "?"}</AvatarFallback>
+   659→                </Avatar>
+   660→                <span className="text-[11px] font-medium text-foreground/80 max-w-[80px] truncate">{mUserName}</span>
+   661→                {isAdminUser && mUserId !== userId && (
+   662→                  <button
+   663→                    type="button"
+   664→                    className="h-4 w-4 flex items-center justify-center rounded-full text-muted-foreground/40 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 opacity-0 group-hover/member:opacity-100 transition-all ml-0.5"
+   665→                    onClick={() => setRemoveMemberUserId(mUserId)}
+   666→                    aria-label={`Remove ${mUserName}`}
+   667→                  >
+   668→                    <X className="h-2.5 w-2.5" />
+   669→                  </button>
+   670→                )}
+   671→              </div>
+   672→            );
+   673→          })}
+   674→          {isAdminUser && (
+   675→            <Dialog open={addMemberOpen} onOpenChange={setAddMemberOpen}>
+   676→              <DialogTrigger asChild>
+   677→                <Button
+   678→                  size="icon"
+   679→                  variant="outline"
+   680→                  className="h-7 w-7 rounded-full shrink-0 shadow-sm hover:shadow-md transition-all"
+   681→                  aria-label="Add member"
+   682→                >
+   683→                  <UserPlus className="h-3.5 w-3.5" />
+   684→                </Button>
+   685→              </DialogTrigger>
+   686→              <DialogContent className="sm:max-w-md bg-white/80 dark:bg-gray-950/80 backdrop-blur-xl border-white/20 dark:border-white/10">
+   687→                <DialogHeader>
+   688→                  <DialogTitle className="text-base font-bold">Add Team Member</DialogTitle>
+   689→                  <DialogDescription className="text-xs">Assign a team member to this project.</DialogDescription>
+   690→                </DialogHeader>
+   691→                {availableUsers.length === 0 ? (
+   692→                  <p className="text-sm text-muted-foreground py-4 text-center">
+   693→                    All team members are already assigned to this project.
+   694→                  </p>
+   695→                ) : (
+   696→                  <ScrollArea className="max-h-72">
+   697→                    <div className="space-y-1.5">
+   698→                      {availableUsers.map((user) => {
+   699→                        const uName = extractStr(user, "name", "Unknown");
+   700→                        const uRole = extractStr(user, "role", "");
+   701→                        const uDept = extractStr(user, "department", "");
+   702→                        const uId = extractStr(user, "id", "");
+   703→                        const initials = uName.split(" ").map((n) => n[0] || "").join("").slice(0, 2).toUpperCase();
+   704→                        return (
+   705→                          <div key={uId} className="flex items-center justify-between p-2.5 rounded-lg border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/[0.02] hover:bg-white/60 dark:hover:bg-white/[0.05] transition-colors">
+   706→                            <div className="flex items-center gap-2.5">
+   707→                              <Avatar className="h-7 w-7 ring-1 ring-muted">
+   708→                                <AvatarFallback className="text-[10px] bg-gradient-to-br from-primary/20 to-primary/5">{initials || "?"}</AvatarFallback>
+   709→                              </Avatar>
+   710→                              <div>
+   711→                                <p className="text-xs font-medium">{uName}</p>
+   712→                                <p className="text-[10px] text-muted-foreground">
+   713→                                  {safeText(uRole)}{uDept ? ` · ${safeText(uDept)}` : ""}
+   714→                                </p>
+   715→                              </div>
+   716→                            </div>
+   717→                            <div className="flex gap-1.5">
+   718→                              <Button size="sm" variant="outline" className="h-7 text-[10px] px-2" onClick={() => handleAddMember(uId, "MEMBER")}>Member</Button>
+   719→                              <Button size="sm" className="h-7 text-[10px] px-2" onClick={() => handleAddMember(uId, "LEAD")}>Lead</Button>
+   720→                            </div>
+   721→                          </div>
+   722→                        );
+   723→                      })}
+   724→                    </div>
+   725→                  </ScrollArea>
+   726→                )}
+   727→              </DialogContent>
+   728→            </Dialog>
+   729→          )}
+   730→        </div>
+   731→      )}
+   732→
+   733→      {/* ═══════ Task Board — Header + Add Task ═══════ */}
+   734→      <div className="flex items-center justify-between" style={{ animation: "card-enter 0.4s ease-out both", animationDelay: "200ms" }}>
+   735→        <div className="flex items-center gap-2">
+   736→          <ListTodo className="h-4 w-4 text-muted-foreground" />
+   737→          <h2 className="text-sm font-bold tracking-tight">Task Board</h2>
+   738→          <Badge variant="secondary" className="text-[10px] font-semibold h-5 px-1.5">{String(tasks.length)}</Badge>
+   739→        </div>
+   740→        {(isAdminUser || members.length > 0) && (
+   741→          <Dialog open={addOpen} onOpenChange={setAddOpen}>
+   742→            <DialogTrigger asChild>
+   743→              <Button size="sm" className="gap-1 h-7 text-xs px-3 shadow-sm">
+   744→                <Plus className="h-3.5 w-3.5" /> Add Task
+   745→              </Button>
+   746→            </DialogTrigger>
+   747→            <DialogContent className="sm:max-w-md bg-white/80 dark:bg-gray-950/80 backdrop-blur-xl border-white/20 dark:border-white/10">
+   748→              <DialogHeader>
+   749→                <DialogTitle className="text-base font-bold">Add Task</DialogTitle>
+   750→                <DialogDescription className="text-xs">Create a new task for this project.</DialogDescription>
+   751→              </DialogHeader>
+   752→              <form onSubmit={handleAddTask} className="space-y-3">
+   753→                <div className="space-y-1">
+   754→                  <Label className="text-xs">Title *</Label>
+   755→                  <Input name="title" required className="h-8 text-sm" />
+   756→                </div>
+   757→                <div className="space-y-1">
+   758→                  <Label className="text-xs">Description</Label>
+   759→                  <Textarea name="description" rows={2} className="text-sm" />
+   760→                </div>
+   761→                <div className="grid grid-cols-2 gap-3">
+   762→                  <div className="space-y-1">
+   763→                    <Label className="text-xs">Priority</Label>
+   764→                    <select name="priority" defaultValue="MEDIUM" className="h-8 border rounded-md px-2.5 text-xs bg-background/80 w-full">
+   765→                      <option value="LOW">Low</option>
+   766→                      <option value="MEDIUM">Medium</option>
+   767→                      <option value="HIGH">High</option>
+   768→                      <option value="URGENT">Urgent</option>
+   769→                    </select>
+   770→                  </div>
+   771→                  <div className="space-y-1">
+   772→                    <Label className="text-xs">Assign To</Label>
+   773→                    <select name="assigneeType" defaultValue="HUMAN" className="h-8 border rounded-md px-2.5 text-xs bg-background/80 w-full">
+   774→                      <option value="HUMAN">Team Member</option>
+   775→                    </select>
+   776→                  </div>
+   777→                </div>
+   778→                <div className="space-y-1">
+   779→                  <Label className="text-xs">Assignee</Label>
+   780→                  <select name="assignedTo" className="h-8 border rounded-md px-2.5 text-xs bg-background/80 w-full">
+   781→                    <option value="">Unassigned</option>
+   782→                    {members.map((m) => {
+   783→                      const mUserId = extractStr(m, "userId", "");
+   784→                      const mUserName = extractNestedStr(m, ["user", "name"], "Unknown");
+   785→                      return <option key={mUserId} value={mUserId}>{mUserName}</option>;
+   786→                    })}
+   787→                  </select>
+   788→                </div>
+   789→                <Button type="submit" className="w-full h-8 text-xs">Create Task</Button>
+   790→              </form>
+   791→            </DialogContent>
+   792→          </Dialog>
+   793→        )}
+   794→      </div>
+   795→
+   796→      {/* ═══════ Website Management Dialog (admin only) ═══════ */}
+   797→      {isAdminUser && (
+   798→        <Dialog open={websiteMgmtOpen} onOpenChange={(open) => { setWebsiteMgmtOpen(open); if (!open) { setNewWebsiteUrl(""); setNewWebsiteLabel(""); setEditingWebsiteId(null); } }}>
+   799→          <DialogContent className="sm:max-w-md bg-white/80 dark:bg-gray-950/80 backdrop-blur-xl border-white/20 dark:border-white/10">
+   800→            <DialogHeader>
+   801→              <DialogTitle className="text-base font-bold flex items-center gap-2">
+   802→                <Globe className="h-4 w-4 text-emerald-500" /> Manage Live URLs
+   803→              </DialogTitle>
+   804→              <DialogDescription className="text-xs">Add, edit, or remove website URLs for this project.</DialogDescription>
+   805→            </DialogHeader>
+   806→
+   807→            <div className="space-y-4 mt-2">
+   808→              {/* Add new website form */}
+   809→              {editingWebsiteId ? null : (
+   810→                <div className="space-y-2 p-3 rounded-lg border border-dashed border-emerald-300/50 dark:border-emerald-700/30 bg-emerald-50/30 dark:bg-emerald-900/10">
+   811→                  <p className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 uppercase tracking-wider">Add New Website</p>
+   812→                  <div className="space-y-2">
+   813→                    <div className="grid grid-cols-[1fr_auto] gap-2">
+   814→                      <Input
+   815→                        placeholder="https://example.com"
+   816→                        value={newWebsiteUrl}
+   817→                        onChange={(e) => setNewWebsiteUrl(e.target.value)}
+   818→                        className="h-8 text-xs"
+   819→                      />
+   820→                      <Button
+   821→                        type="button"
+   822→                        size="sm"
+   823→                        className="h-8 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+   824→                        onClick={handleAddWebsite}
+   825→                      >
+   826→                        <Plus className="h-3 w-3" />
+   827→                      </Button>
+   828→                    </div>
+   829→                    <Input
+   830→                      placeholder="Label (e.g. Production, Staging)"
+   831→                      value={newWebsiteLabel}
+   832→                      onChange={(e) => setNewWebsiteLabel(e.target.value)}
+   833→                      className="h-8 text-xs"
+   834→                    />
+   835→                  </div>
+   836→                </div>
+   837→              )}
+   838→
+   839→              {/* Existing websites list */}
+   840→              <div className="space-y-1.5">
+   841→                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Websites ({websites.length})</p>
+   842→                <div className="max-h-52 overflow-y-auto space-y-1.5">
+   843→                  {websites.length === 0 && (
+   844→                    <p className="text-xs text-muted-foreground/60 italic py-3 text-center">No websites added yet.</p>
+   845→                  )}
+   846→                  {websites.map((w, i) => {
+   847→                    const wId = extractStr(w, "id", String(i));
+   848→                    const wUrl = extractStr(w, "url", "");
+   849→                    const wLabel = extractStr(w, "label", "");
+   850→                    const wIsPrimary = w.isPrimary === true || extractStr(w, "isPrimary", "") === "true";
+   851→                    return (
+   852→                      <div key={wId} className="flex items-center gap-2 p-2.5 rounded-lg border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/[0.02] group/ws">
+   853→                        <Globe className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+   854→                        <div className="flex-1 min-w-0">
+   855→                          <p className="text-xs font-medium truncate flex items-center gap-1.5">
+   856→                            {wLabel || `Site ${i + 1}`}
+   857→                            {wIsPrimary && <Star className="h-3 w-3 text-amber-500 inline" />}
+   858→                          </p>
+   859→                          <p className="text-[10px] text-muted-foreground truncate">{wUrl}</p>
+   860→                        </div>
+   861→                        <div className="flex items-center gap-0.5 shrink-0">
+   862→                          {!wIsPrimary && (
+   863→                            <button
+   864→                              type="button"
+   865→                              onClick={() => handleSetPrimaryWebsite(wId)}
+   866→                              className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground/40 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/20 opacity-0 group-hover/ws:opacity-100 transition-all"
+   867→                              title="Set as primary"
+   868→                            >
+   869→                              <Star className="h-3 w-3" />
+   870→                            </button>
+   871→                          )}
+   872→                          <a
+   873→                            href={wUrl}
+   874→                            target="_blank"
+   875→                            rel="noopener noreferrer"
+   876→                            className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground/40 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 opacity-0 group-hover/ws:opacity-100 transition-all"
+   877→                            title="Open URL"
+   878→                          >
+   879→                            <ExternalLink className="h-3 w-3" />
+   880→                          </a>
+   881→                          <button
+   882→                            type="button"
+   883→                            onClick={() => setDeleteWebsiteId(wId)}
+   884→                            className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground/40 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 opacity-0 group-hover/ws:opacity-100 transition-all"
+   885→                            title="Delete website"
+   886→                          >
+   887→                            <Trash2Icon className="h-3 w-3" />
+   888→                          </button>
+   889→                        </div>
+   890→                      </div>
+   891→                    );
+   892→                  })}
+   893→                </div>
+   894→              </div>
+   895→            </div>
+   896→          </DialogContent>
+   897→        </Dialog>
+   898→      )}
+   899→
+   900→      {/* ═══════ Task Detail Dialog (glassmorphism) ═══════ */}
+   901→      <Dialog open={taskDetailOpen} onOpenChange={setTaskDetailOpen}>
+   902→        <DialogContent className="sm:max-w-lg bg-white/80 dark:bg-gray-950/80 backdrop-blur-xl border-white/20 dark:border-white/10">
+   903→          {selectedTask && (() => {
+   904→            const dtId = extractStr(selectedTask, "id", "");
+   905→            const dtTitle = extractStr(selectedTask, "title", "Untitled");
+   906→            const dtDesc = extractStr(selectedTask, "description", "");
+   907→            const dtPriority = extractStr(selectedTask, "priority", "MEDIUM");
+   908→            const dtStatus = extractStr(selectedTask, "status", "TODO");
+   909→            const dtAssigneeType = extractStr(selectedTask, "assigneeType", "HUMAN");
+   910→            const dtAssignedTo = extractStr(selectedTask, "assignedTo", "");
+   911→            const dtDeadline = extractStr(selectedTask, "deadline", "");
+   912→            const dtCreatedAt = extractStr(selectedTask, "createdAt", "");
+   913→            const dtUpdatedAt = extractStr(selectedTask, "updatedAt", "");
+   914→            const dtCompletedAt = extractStr(selectedTask, "completedAt", "");
+   915→            const dtApprovedBy = extractStr(selectedTask, "approvedBy", "");
+   916→            const dtApprovedAt = extractStr(selectedTask, "approvedAt", "");
+   917→            const isAwaitingApproval = dtStatus === "AWAITING_APPROVAL";
+   918→            const isDone = dtStatus === "DONE";
+   919→            // Self-approval check: ADMIN cannot approve their own tasks
+   920→            const canApprove = isAdminUser && isAwaitingApproval && !(userRole === "ADMIN" && dtAssignedTo === userId);
+   921→            return (
+   922→              <>
+   923→                <DialogHeader className="pb-0">
+   924→                  <div className="flex items-start justify-between pr-6">
+   925→                    <DialogTitle className="text-base font-bold leading-snug">{safeText(dtTitle, "Untitled")}</DialogTitle>
+   926→                    <Badge className={`shrink-0 font-semibold text-[10px] ${priorityColors[dtPriority] || ""}`}>
+   927→                      {safeText(dtPriority, "MEDIUM")}
+   928→                    </Badge>
+   929→                  </div>
+   930→                  <div className="flex items-center gap-2 mt-1.5">
+   931→                    <Badge className={`${taskStatusColors[dtStatus] || ""} text-[10px] font-medium px-1.5 py-0`}>{safeText(dtStatus, "TODO").replace("_", " ")}</Badge>
+   932→                    <DialogDescription className="text-[10px] text-muted-foreground">
+   933→                      Created {dtCreatedAt ? safeDate(dtCreatedAt, "N/A") : "N/A"}
+   934→                    </DialogDescription>
+   935→                  </div>
+   936→                </DialogHeader>
+   937→
+   938→                <div className="space-y-3.5 mt-1">
+   939→                  {/* Assignee & Deadline Meta */}
+   940→                  <div className="flex flex-wrap items-center gap-2.5 px-3 py-2 rounded-lg bg-muted/30 border border-white/10">
+   941→                    {dtAssigneeType === "AI" ? (
+   942→                      <span className="flex items-center gap-1 text-[11px] text-muted-foreground"><Bot className="h-3 w-3" /> System</span>
+   943→                    ) : (
+   944→                      <span className="flex items-center gap-1 text-[11px] text-muted-foreground"><User className="h-3 w-3" /> {extractStr(selectedTask, "assignedToName", "") || safeText(dtAssignedTo) || "Unassigned"}</span>
+   945→                    )}
+   946→                    {dtDeadline && (
+   947→                      <span className="flex items-center gap-1 text-[11px] text-muted-foreground"><CalendarDays className="h-3 w-3" /> {safeDate(dtDeadline, "")}</span>
+   948→                    )}
+   949→                  </div>
+   950→
+   951→                  {/* Approval Info */}
+   952→                  {isDone && dtApprovedBy && (
+   953→                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-50 dark:bg-green-900/10 border border-green-200/80 dark:border-green-900/30">
+   954→                      <ShieldCheck className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0" />
+   955→                      <div className="text-[11px]">
+   956→                        <p className="font-semibold text-green-700 dark:text-green-300">Approved</p>
+   957→                        <p className="text-green-600/70 dark:text-green-400/70 mt-0.5">
+   958→                          by {extractStr(selectedTask, "approvedByName", "") || safeText(dtApprovedBy)} {dtApprovedAt ? `· ${safeDate(dtApprovedAt, "")}` : ""}
+   959→                        </p>
+   960→                      </div>
+   961→                    </div>
+   962→                  )}
+   963→                  {isAwaitingApproval && (
+   964→                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-orange-50 dark:bg-orange-900/10 border border-orange-200/80 dark:border-orange-900/30">
+   965→                      <Clock className="h-3.5 w-3.5 text-orange-600 dark:text-orange-400 shrink-0" />
+   966→                      <p className="text-[11px] text-orange-700 dark:text-orange-300 font-medium">
+   967→                        Pending approval from admin/superadmin
+   968→                      </p>
+   969→                    </div>
+   970→                  )}
+   971→
+   972→                  {/* Description */}
+   973→                  {dtDesc ? (
+   974→                    <div className="text-[12px] leading-relaxed whitespace-pre-wrap bg-muted/40 rounded-lg p-3 border border-white/10">
+   975→                      {safeText(dtDesc)}
+   976→                    </div>
+   977→                  ) : (
+   978→                    <p className="text-xs text-muted-foreground italic pl-1">No description provided.</p>
+   979→                  )}
+   980→
+   981→                  {/* Timestamps */}
+   982→                  <div>
+   983→                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Timeline</p>
+   984→                    <div className="grid grid-cols-2 gap-1.5">
+   985→                      <div className="rounded-md bg-muted/30 p-2 border border-white/10">
+   986→                        <p className="text-[9px] text-muted-foreground uppercase tracking-wider font-medium">Created</p>
+   987→                        <p className="text-[11px] font-medium mt-0.5">{dtCreatedAt ? safeDate(dtCreatedAt, "N/A") : "N/A"}</p>
+   988→                      </div>
+   989→                      <div className="rounded-md bg-muted/30 p-2 border border-white/10">
+   990→                        <p className="text-[9px] text-muted-foreground uppercase tracking-wider font-medium">Updated</p>
+   991→                        <p className="text-[11px] font-medium mt-0.5">{dtUpdatedAt ? safeDate(dtUpdatedAt, "N/A") : "N/A"}</p>
+   992→                      </div>
+   993→                      {dtCompletedAt && (
+   994→                        <div className="rounded-md bg-green-50/50 dark:bg-green-900/10 p-2 border border-green-200/50 dark:border-green-900/20">
+   995→                          <p className="text-[9px] text-green-600 dark:text-green-400 uppercase tracking-wider font-medium">Completed</p>
+   996→                          <p className="text-[11px] font-medium mt-0.5">{safeDate(dtCompletedAt, "N/A")}</p>
+   997→                        </div>
+   998→                      )}
+   999→                      {dtApprovedAt && (
+  1000→                        <div className="rounded-md bg-green-50/50 dark:bg-green-900/10 p-2 border border-green-200/50 dark:border-green-900/20">
+  1001→                          <p className="text-[9px] text-green-600 dark:text-green-400 uppercase tracking-wider font-medium">Approved</p>
+  1002→                          <p className="text-[11px] font-medium mt-0.5">{safeDate(dtApprovedAt, "N/A")}</p>
+  1003→                        </div>
+  1004→                      )}
+  1005→                    </div>
+  1006→                  </div>
+  1007→
+  1008→                  {/* Approve / Reject Actions (for admin/superadmin) */}
+  1009→                  {canApprove && (
+  1010→                    <div className="flex gap-2 p-2.5 rounded-lg border-2 border-green-200 dark:border-green-900/40 bg-green-50/50 dark:bg-green-900/10">
+  1011→                      <Button
+  1012→                        size="sm"
+  1013→                        className="flex-1 h-7 text-[11px] bg-green-600 hover:bg-green-700 text-white shadow-sm"
+  1014→                        onClick={() => {
+  1015→                          handleMoveTask(dtId, "DONE");
+  1016→                          setTaskDetailOpen(false);
+  1017→                        }}
+  1018→                      >
+  1019→                        <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve
+  1020→                      </Button>
+  1021→                      <Button
+  1022→                        size="sm"
+  1023→                        variant="outline"
+  1024→                        className="flex-1 h-7 text-[11px] border-orange-200 dark:border-orange-900/40 hover:bg-orange-50 dark:hover:bg-orange-900/20 text-orange-600 dark:text-orange-400"
+  1025→                        onClick={() => {
+  1026→                          handleMoveTask(dtId, "REVIEW");
+  1027→                          setTaskDetailOpen(false);
+  1028→                        }}
+  1029→                      >
+  1030→                        <X className="h-3.5 w-3.5 mr-1" /> Send Back
+  1031→                      </Button>
+  1032→                    </div>
+  1033→                  )}
+  1034→
+  1035→                  {/* Move Task (hide Done when awaiting approval — use Approve instead) */}
+  1036→                  {!isAwaitingApproval && (
+  1037→                    <div>
+  1038→                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Move to</p>
+  1039→                      <div className="flex flex-wrap gap-1.5">
+  1040→                        {TASK_COLUMNS.filter((s) => String(s) !== dtStatus).map((s) => (
+  1041→                          <Button
+  1042→                            key={String(s)}
+  1043→                            variant="outline"
+  1044→                            size="sm"
+  1045→                            className="h-6 text-[10px] px-2"
+  1046→                            onClick={() => {
+  1047→                              handleMoveTask(dtId, String(s));
+  1048→                              setTaskDetailOpen(false);
+  1049→                            }}
+  1050→                          >
+  1051→                            <Tag className="h-2.5 w-2.5 mr-0.5" />
+  1052→                            {String(s).replace("_", " ")}
+  1053→                          </Button>
+  1054→                        ))}
+  1055→                      </div>
+  1056→                    </div>
+  1057→                  )}
+  1058→
+  1059→                  {/* Delete — with confirmation (audit fix) */}
+  1060→                  <div className="flex justify-end pt-1 border-t border-white/10">
+  1061→                    <Button
+  1062→                      variant="ghost"
+  1063→                      size="sm"
+  1064→                      className="h-7 text-[11px] text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+  1065→                      onClick={() => { setDeleteTaskId(dtId); setTaskDetailOpen(false); }}
+  1066→                    >
+  1067→                      <Trash2 className="h-3 w-3 mr-1" /> Delete Task
+  1068→                    </Button>
+  1069→                  </div>
+  1070→                </div>
+  1071→              </>
+  1072→            );
+  1073→          })()}
+  1074→        </DialogContent>
+  1075→      </Dialog>
+  1076→
+  1077→      {/* ═══════ Delete Task Confirmation (audit fix) ═══════ */}
+  1078→      {deleteTaskId && (
+  1079→        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+  1080→          <div className="bg-white/90 dark:bg-gray-950/90 backdrop-blur-xl rounded-xl border border-white/20 dark:border-white/10 p-5 max-w-sm w-full mx-4 shadow-2xl space-y-3">
+  1081→            <div>
+  1082→              <h3 className="font-bold text-sm">Delete Task?</h3>
+  1083→              <p className="text-xs text-muted-foreground mt-1">This action cannot be undone. The task will be permanently deleted.</p>
+  1084→            </div>
+  1085→            <div className="flex justify-end gap-2">
+  1086→              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setDeleteTaskId(null)}>Cancel</Button>
+  1087→              <Button
+  1088→                variant="destructive"
+  1089→                size="sm"
+  1090→                className="h-7 text-xs"
+  1091→                onClick={async () => {
+  1092→                  await handleDeleteTask(deleteTaskId);
+  1093→                  setDeleteTaskId(null);
+  1094→                }}
+  1095→              >
+  1096→                Delete
+  1097→              </Button>
+  1098→            </div>
+  1099→          </div>
+  1100→        </div>
+  1101→      )}
+  1102→
+  1103→      {/* ═══════ Task Columns — Responsive Grid Layout ═══════ */}
+  1104→      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2" style={{ animation: "fade-in 0.5s ease-out both", animationDelay: "280ms" }}>
+  1105→        {TASK_COLUMNS.map((status, colIdx) => {
+  1106→          const statusStr = String(status);
+  1107→          const columnTasks = (tasks as Record<string, unknown>[]).filter(
+  1108→            (t) => extractStr(t, "status", "") === statusStr
+  1109→          );
+  1110→          const accentColor = taskStatusAccentColors[statusStr] || "bg-gray-400";
+  1111→          const textColor = taskStatusTextColors[statusStr] || "text-gray-500";
+  1112→
+  1113→          return (
+  1114→            <div key={statusStr} className="flex flex-col min-w-0" style={{ animation: "card-enter 0.45s ease-out both", animationDelay: `${300 + colIdx * 60}ms` }}>
+  1115→              {/* Column Header */}
+  1116→              <div className={cn(
+  1117→                "rounded-t-xl px-3 py-2 flex items-center gap-1.5 relative overflow-hidden",
+  1118→                taskStatusColors[statusStr] || "",
+  1119→                "border border-b-0 border-gray-200/60 dark:border-gray-700/40"
+  1120→              )}>
+  1121→                <div className={cn("absolute left-0 top-0 bottom-0 w-[3px]", accentColor)} />
+  1122→                <CircleDot className={cn("h-3 w-3", textColor)} />
+  1123→                <h3 className="font-bold text-[11px] tracking-tight flex-1 truncate">{statusStr.replace("_", " ")}</h3>
+  1124→                <span className="text-[10px] font-bold text-muted-foreground tabular-nums">{String(columnTasks.length)}</span>
+  1125→              </div>
+  1126→              {/* Column Card List — independently scrollable */}
+  1127→              <div className="flex-1 space-y-1.5 p-1.5 bg-muted/20 rounded-b-xl border border-t-0 border-gray-200/60 dark:border-gray-700/40 min-h-[140px] max-h-[calc(100vh-280px)] overflow-y-auto">
+  1128→                {columnTasks.map((task) => {
+  1129→                  const tId = extractStr(task, "id", "");
+  1130→                  const tTitle = extractStr(task, "title", "Untitled");
+  1131→                  const tDesc = extractStr(task, "description", "");
+  1132→                  const tPriority = extractStr(task, "priority", "MEDIUM");
+  1133→                  const tAssigneeType = extractStr(task, "assigneeType", "HUMAN");
+  1134→                  const tDeadline = extractStr(task, "deadline", "");
+  1135→                  const tAssignedTo = extractStr(task, "assignedTo", "");
+  1136→                  const tAssignedToName = extractStr(task, "assignedToName", "");
+  1137→                  const tAssignedName = tAssignedToName || (tAssignedTo ? tAssignedTo.slice(0, 8) + "..." : "Unassigned");
+  1138→                  const tApprovedBy = extractStr(task, "approvedBy", "");
+  1139→                  const isThisAwaiting = statusStr === "AWAITING_APPROVAL";
+  1140→                  const canApproveThis = isAdminUser && isThisAwaiting && !(userRole === "ADMIN" && tAssignedTo === userId);
+  1141→                  const borderL = priorityBorderColors[tPriority] || "border-l-gray-300 dark:border-l-gray-600";
+  1142→
+  1143→                  return (
+  1144→                    <Card
+  1145→                      key={tId}
+  1146→                      className={cn(
+  1147→                        "hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 cursor-pointer border-l-[3px] group",
+  1148→                        borderL,
+  1149→                        "bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border-white/20 dark:border-white/10"
+  1150→                      )}
+  1151→                      onClick={() => { setSelectedTask(task as Record<string, unknown>); setTaskDetailOpen(true); }}
+  1152→                    >
+  1153→                      <CardContent className="p-2.5 space-y-2">
+  1154→                        {/* Title + Priority dot */}
+  1155→                        <div className="flex items-start gap-1.5">
+  1156→                          <div className={cn("h-2 w-2 rounded-full mt-1 shrink-0", accentColor)} />
+  1157→                          <p className="text-[11px] font-semibold leading-tight line-clamp-2 flex-1">{safeText(tTitle, "Untitled")}</p>
+  1158→                        </div>
+  1159→
+  1160→                        {/* Assignee + Deadline row */}
+  1161→                        <div className="flex items-center justify-between gap-1">
+  1162→                          <div className="flex items-center gap-1 text-[10px] text-muted-foreground min-w-0">
+  1163→                            {tAssigneeType === "AI" ? (
+  1164→                              <Bot className="h-2.5 w-2.5 shrink-0" />
+  1165→                            ) : (
+  1166→                              <User className="h-2.5 w-2.5 shrink-0" />
+  1167→                            )}
+  1168→                            <span className="truncate max-w-[72px]">{safeText(tAssignedName)}</span>
+  1169→                          </div>
+  1170→                          {tDeadline && (
+  1171→                            <span className="text-[9px] text-muted-foreground/70 flex items-center gap-0.5 shrink-0">
+  1172→                              <Clock className="h-2.5 w-2.5" />
+  1173→                              {safeDate(tDeadline, "")}
+  1174→                            </span>
+  1175→                          )}
+  1176→                        </div>
+  1177→
+  1178→                        {/* Approved by badge on DONE tasks */}
+  1179→                        {statusStr === "DONE" && tApprovedBy && (
+  1180→                          <div className="flex items-center gap-1 text-[9px] text-green-600 dark:text-green-400 font-medium">
+  1181→                            <ShieldCheck className="h-2.5 w-2.5" />
+  1182→                            <span>by {extractStr(task, "approvedByName", "") || safeText(tApprovedBy)}</span>
+  1183→                          </div>
+  1184→                        )}
+  1185→
+  1186→                        {/* Action buttons — compact, shown on hover */}
+  1187→                        <div className="flex gap-0.5 flex-wrap opacity-60 group-hover:opacity-100 transition-opacity">
+  1188→                          {/* AWAITING_APPROVAL: show Approve/Reject for admins, or a waiting indicator */}
+  1189→                          {isThisAwaiting ? (
+  1190→                            canApproveThis ? (
+  1191→                              <>
+  1192→                                <Button
+  1193→                                  variant="ghost"
+  1194→                                  size="sm"
+  1195→                                  className="h-5 text-[9px] px-1.5 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20 font-semibold"
+  1196→                                  onClick={(e) => { e.stopPropagation(); handleMoveTask(tId, "DONE"); }}
+  1197→                                >
+  1198→                                  <CheckCircle2 className="h-2.5 w-2.5 mr-0.5" /> Approve
+  1199→                                </Button>
+  1200→                                <Button
+  1201→                                  variant="ghost"
+  1202→                                  size="sm"
+  1203→                                  className="h-5 text-[9px] px-1.5 text-orange-600 hover:text-orange-700 hover:bg-orange-50 dark:hover:bg-orange-900/20 font-semibold"
+  1204→                                  onClick={(e) => { e.stopPropagation(); handleMoveTask(tId, "REVIEW"); }}
+  1205→                                >
+  1206→                                  <X className="h-2.5 w-2.5 mr-0.5" /> Reject
+  1207→                                </Button>
+  1208→                              </>
+  1209→                            ) : (
+  1210→                              <span className="text-[9px] text-orange-500 flex items-center gap-0.5 px-1 font-medium">
+  1211→                                <Clock className="h-2.5 w-2.5" /> Awaiting approval
+  1212→                              </span>
+  1213→                            )
+  1214→                          ) : (
+  1215→                            /* Normal columns: show move buttons */
+  1216→                            TASK_COLUMNS.filter((s) => String(s) !== statusStr).map((s) => (
+  1217→                              <Button
+  1218→                                key={String(s)}
+  1219→                                variant="ghost"
+  1220→                                size="sm"
+  1221→                                className="h-5 text-[9px] px-1.5"
+  1222→                                onClick={(e) => { e.stopPropagation(); handleMoveTask(tId, String(s)); }}
+  1223→                              >
+  1224→                                {String(s).replace("_", " ").slice(0, 3)}
+  1225→                              </Button>
+  1226→                            ))
+  1227→                          )}
+  1228→                          <Button
+  1229→                            variant="ghost"
+  1230→                            size="sm"
+  1231→                            className="h-5 text-red-400 hover:text-red-500 px-1.5 ml-auto"
+  1232→                            onClick={(e) => { e.stopPropagation(); handleDeleteTask(tId); }}
+  1233→                          >
+  1234→                            <Trash2 className="h-2.5 w-2.5" />
+  1235→                          </Button>
+  1236→                        </div>
+  1237→                      </CardContent>
+  1238→                    </Card>
+  1239→                  );
+  1240→                })}
+  1241→              </div>
+  1242→            </div>
+  1243→          );
+  1244→        })}
+  1245→      </div>
+  1246→
+  1247→      {/* Board Summary Footer */}
+  1248→      <div className="flex items-center justify-between px-1 text-[10px] text-muted-foreground/70">
+  1249→        <span>{String(tasks.length)} tasks across {String(TASK_COLUMNS.length)} columns</span>
+  1250→        {tasks.length > 0 && (
+  1251→          <div className="flex items-center gap-2">
+  1252→            <span>{String(tasks.filter((t: unknown) => extractStr(t, "status", "") === "DONE").length)} completed</span>
+  1253→            <Progress value={Math.round((tasks.filter((t: unknown) => extractStr(t, "status", "") === "DONE").length / tasks.length) * 100)} className="h-1 w-20 [&>div]:bg-emerald-500" />
+  1254→          </div>
+  1255→        )}
+  1256→      </div>
+  1257→
+  1258→      {/* ═══════ Remove Member Confirmation ═══════ */}
+  1259→      {removeMemberUserId && (
+  1260→        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+  1261→          <div className="bg-white/90 dark:bg-gray-950/90 backdrop-blur-xl rounded-xl border border-white/20 dark:border-white/10 p-5 max-w-sm w-full mx-4 shadow-2xl space-y-3">
+  1262→            <div>
+  1263→              <h3 className="font-bold text-sm">Remove Team Member</h3>
+  1264→              <p className="text-xs text-muted-foreground mt-1">Are you sure you want to remove this member from the project? They will lose access to all project tasks and data.</p>
+  1265→            </div>
+  1266→            <div className="flex justify-end gap-2">
+  1267→              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setRemoveMemberUserId(null)}>Cancel</Button>
+  1268→              <Button
+  1269→                variant="destructive"
+  1270→                size="sm"
+  1271→                className="h-7 text-xs"
+  1272→                onClick={async () => {
+  1273→                  await handleRemoveMember(removeMemberUserId);
+  1274→                  setRemoveMemberUserId(null);
+  1275→                }}
+  1276→              >
+  1277→                Remove
+  1278→              </Button>
+  1279→            </div>
+  1280→          </div>
+  1281→        </div>
+  1282→      )}
+  1283→
+  1284→      {/* ═══════ Delete Website Confirmation ═══════ */}
+  1285→      {deleteWebsiteId && (
+  1286→        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+  1287→          <div className="bg-white/90 dark:bg-gray-950/90 backdrop-blur-xl rounded-xl border border-white/20 dark:border-white/10 p-5 max-w-sm w-full mx-4 shadow-2xl space-y-3">
+  1288→            <div>
+  1289→              <h3 className="font-bold text-sm">Delete Website</h3>
+  1290→              <p className="text-xs text-muted-foreground mt-1">Are you sure you want to delete this website URL? This action cannot be undone.</p>
+  1291→            </div>
+  1292→            <div className="flex justify-end gap-2">
+  1293→              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setDeleteWebsiteId(null)}>Cancel</Button>
+  1294→              <Button
+  1295→                variant="destructive"
+  1296→                size="sm"
+  1297→                className="h-7 text-xs"
+  1298→                onClick={async () => {
+  1299→                  await handleDeleteWebsite(deleteWebsiteId);
+  1300→                  setDeleteWebsiteId(null);
+  1301→                }}
+  1302→              >
+  1303→                Delete
+  1304→              </Button>
+  1305→            </div>
+  1306→          </div>
+  1307→        </div>
+  1308→      )}
+  1309→    </div>
+  1310→  );
+  1311→}
+  1312→

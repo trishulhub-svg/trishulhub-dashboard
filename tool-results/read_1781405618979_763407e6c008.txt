@@ -1,0 +1,2002 @@
+     1→"use client";
+     2→
+     3→import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+     4→import { useRouter } from "next/navigation";
+     5→import { useSession } from "next-auth/react";
+     6→import { useQuery, useQueryClient } from "@tanstack/react-query";
+     7→import {
+     8→  DndContext, DragEndEvent, DragOverlay, DragStartEvent, PointerSensor,
+     9→  useSensor, useSensors, closestCorners, useDroppable,
+    10→} from "@dnd-kit/core";
+    11→import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
+    12→import { CSS } from "@dnd-kit/utilities";
+    13→import {
+    14→  Plus, Search, FolderKanban, Pencil, Trash2, MoreHorizontal,
+    15→  Key, Eye, EyeOff, Copy, X, Activity, CheckCircle2,
+    16→  LayoutGrid, ClipboardCheck, List, ArrowUpDown, CircleDot, ExternalLink, Globe,
+    17→  Settings, Check, ChevronDown, ChevronUp,
+    18→} from "lucide-react";
+    19→import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+    20→import { Button } from "@/components/ui/button";
+    21→import { Input } from "@/components/ui/input";
+    22→import { Badge } from "@/components/ui/badge";
+    23→import { Progress } from "@/components/ui/progress";
+    24→import { Skeleton } from "@/components/ui/skeleton";
+    25→import { Label } from "@/components/ui/label";
+    26→import { Textarea } from "@/components/ui/textarea";
+    27→import {
+    28→  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger,
+    29→} from "@/components/ui/dialog";
+    30→import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+    31→import {
+    32→  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+    33→} from "@/components/ui/alert-dialog";
+    34→import {
+    35→  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+    36→  DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent,
+    37→} from "@/components/ui/dropdown-menu";
+    38→import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+    39→import { toast } from "sonner";
+    40→import { cn, safeText, deepSanitize, safeNumber, safeDate } from "@/lib/utils";
+    41→import { useFloatingBoards, FloatingBoardWindow } from "@/components/floating-task-board";
+    42→
+    43→// TODO: Make configurable per project/client
+    44→const CURRENCY_SYMBOL = "₹";
+    45→
+    46→// URL sanitizer: blocks javascript: and data: schemes to prevent XSS
+    47→const safeUrl = (url: string) => {
+    48→  if (!url) return '#';
+    49→  try {
+    50→    const parsed = new URL(url);
+    51→    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return url;
+    52→  } catch {}
+    53→  return '#';
+    54→};
+    55→
+    56→const statusColors: Record<string, string> = {
+    57→  PLANNING: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200",
+    58→  IN_PROGRESS: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+    59→  REVIEW: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
+    60→  APPROVAL: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+    61→  DEPLOYED: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+    62→  COMPLETED: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300",
+    63→};
+    64→
+    65→const statusDotColors: Record<string, string> = {
+    66→  PLANNING: "bg-gray-400",
+    67→  IN_PROGRESS: "bg-blue-400",
+    68→  REVIEW: "bg-yellow-400",
+    69→  APPROVAL: "bg-orange-400",
+    70→  DEPLOYED: "bg-green-400",
+    71→  COMPLETED: "bg-emerald-400",
+    72→};
+    73→
+    74→const VALID_STATUSES = ["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"];
+    75→
+    76→// ━━ Kanban column configuration ━━
+    77→const KANBAN_COLUMNS = [
+    78→  { key: "PLANNING",   label: "Planning",    dot: "bg-gray-400",    glowColor: "hover:shadow-gray-500/5 dark:hover:shadow-gray-400/10", accentBar: "bg-gray-400", accentRing: "ring-gray-400/20" },
+    79→  { key: "IN_PROGRESS", label: "In Progress",  dot: "bg-blue-400",    glowColor: "hover:shadow-blue-500/5 dark:hover:shadow-blue-400/10", accentBar: "bg-blue-400", accentRing: "ring-blue-400/20" },
+    80→  { key: "REVIEW",     label: "Review",      dot: "bg-yellow-400",  glowColor: "hover:shadow-yellow-500/5 dark:hover:shadow-yellow-400/10", accentBar: "bg-yellow-400", accentRing: "ring-yellow-400/20" },
+    81→  { key: "APPROVAL",   label: "Approval",    dot: "bg-orange-400",  glowColor: "hover:shadow-orange-500/5 dark:hover:shadow-orange-400/10", accentBar: "bg-orange-400", accentRing: "ring-orange-400/20" },
+    82→  { key: "DEPLOYED",   label: "Deployed",    dot: "bg-green-400",   glowColor: "hover:shadow-green-500/5 dark:hover:shadow-green-400/10", accentBar: "bg-green-400", accentRing: "ring-green-400/20" },
+    83→  { key: "COMPLETED",  label: "Completed",   dot: "bg-emerald-400", glowColor: "hover:shadow-emerald-500/5 dark:hover:shadow-emerald-400/10", accentBar: "bg-emerald-400", accentRing: "ring-emerald-400/20" },
+    84→] as const;
+    85→
+    86→// Column display order: IN_PROGRESS first, PLANNING middle, COMPLETED last
+    87→const COLUMN_DISPLAY_ORDER: Record<string, number> = {
+    88→  IN_PROGRESS: 0,
+    89→  REVIEW: 1,
+    90→  APPROVAL: 2,
+    91→  DEPLOYED: 3,
+    92→  PLANNING: 4,
+    93→  COMPLETED: 5,
+    94→};
+    95→
+    96→// ━━ Credential form type ━━
+    97→interface CredentialForm {
+    98→  title: string;
+    99→  username: string;
+   100→  password: string;
+   101→}
+   102→
+   103→
+   104→function getProgressColor(progress: number) {
+   105→  if (progress < 30) return "[&>div]:bg-red-500 [&>div]:shadow-red-500/30";
+   106→  if (progress < 70) return "[&>div]:bg-amber-500 [&>div]:shadow-amber-500/30";
+   107→  return "[&>div]:bg-emerald-500 [&>div]:shadow-emerald-500/30";
+   108→}
+   109→
+   110→// ━━ Kanban Project Card (visual only — used in both sortable cards and DragOverlay) ━━
+   111→function KanbanProjectCard({
+   112→  project,
+   113→  onClick,
+   114→  isAdminUser,
+   115→  onEdit,
+   116→  onDelete,
+   117→  isDragging,
+   118→  onHover,
+   119→  pendingCount,
+   120→  onPendingClick,
+   121→}: {
+   122→  project: Record<string, unknown>;
+   123→  onClick: () => void;
+   124→  isAdminUser: boolean;
+   125→  onEdit?: (project: Record<string, unknown>, e: React.MouseEvent) => void;
+   126→  onDelete?: (projectId: string, e: React.MouseEvent) => void;
+   127→  isDragging?: boolean;
+   128→  onHover?: () => void;
+   129→  pendingCount?: number;
+   130→  onPendingClick?: () => void;
+   131→}) {
+   132→  const client = project.client as Record<string, unknown> | undefined;
+   133→  const pName = safeText(project.name, "Untitled");
+   134→  const pStatus = safeText(project.status, "");
+   135→  const pClientName = client ? safeText(client.name, "Client") : "Client";
+   136→  const pProgress = safeNumber(project.progress);
+   137→  const pDeadline = project.deadline as string | null | undefined;
+   138→  const pWebsites = Array.isArray(project.websites) ? project.websites as Record<string, unknown>[] : [];
+   139→
+   140→  return (
+   141→    <div
+   142→      className={cn(
+   143→        "group/card relative rounded-lg border-l-[3px] p-3 cursor-pointer transition-all duration-200",
+   144→        "bg-white/70 dark:bg-white/[0.05] backdrop-blur-sm",
+   145→        "border border-gray-200/60 dark:border-gray-700/40 border-l-gray-300 dark:border-l-gray-600",
+   146→        "hover:border-gray-300 dark:hover:border-gray-600",
+   147→        "hover:shadow-md hover:shadow-black/[0.04] dark:hover:shadow-black/20",
+   148→        !isDragging && "hover:-translate-y-0.5",
+   149→        isDragging && "shadow-xl shadow-black/10 dark:shadow-black/40 ring-2 ring-primary/20 scale-105",
+   150→        pStatus === "IN_PROGRESS" && "border-l-blue-400 dark:border-l-blue-500",
+   151→        pStatus === "REVIEW" && "border-l-yellow-400 dark:border-l-yellow-500",
+   152→        pStatus === "APPROVAL" && "border-l-orange-400 dark:border-l-orange-500",
+   153→        pStatus === "DEPLOYED" && "border-l-green-400 dark:border-l-green-500",
+   154→        pStatus === "COMPLETED" && "border-l-emerald-400 dark:border-l-emerald-500",
+   155→        pStatus === "PLANNING" && "border-l-gray-400 dark:border-l-gray-500",
+   156→      )}
+   157→      onClick={onClick}
+   158→      onMouseEnter={onHover}
+   159→      style={isDragging ? { pointerEvents: "none" as const } : undefined}
+   160→    >
+   161→      {/* Admin: 3-dot menu — absolutely positioned to prevent overflow */}
+   162→      {isAdminUser && onEdit && onDelete && !isDragging && (
+   163→        <div
+   164→          className="absolute top-2 right-2 z-10"
+   165→          onClick={(e) => e.stopPropagation()}
+   166→        >
+   167→          <DropdownMenu>
+   168→            <DropdownMenuTrigger asChild>
+   169→              <Button
+   170→                variant="ghost"
+   171→                size="icon"
+   172→                className="h-6 w-6 opacity-0 group-hover/card:opacity-100 focus:opacity-100 transition-opacity"
+   173→              >
+   174→                <MoreHorizontal className="h-3.5 w-3.5" />
+   175→              </Button>
+   176→            </DropdownMenuTrigger>
+   177→            <DropdownMenuContent align="end" className="w-40">
+   178→              <DropdownMenuItem onClick={(e) => onEdit(project, e)} className="gap-2 cursor-pointer">
+   179→                <Pencil className="h-3.5 w-3.5" /> Edit Project
+   180→              </DropdownMenuItem>
+   181→              <DropdownMenuItem onClick={(e) => onDelete(safeText(project.id, ""), e)} className="gap-2 cursor-pointer text-red-600 focus:text-red-600">
+   182→                <Trash2 className="h-3.5 w-3.5" /> Delete Project
+   183→              </DropdownMenuItem>
+   184→            </DropdownMenuContent>
+   185→          </DropdownMenu>
+   186→        </div>
+   187→      )}
+   188→
+   189→      {/* Project Title + Status Dot */}
+   190→      <div className="flex items-start gap-2 pr-7">
+   191→        <span className={cn("h-2 w-2 rounded-full shrink-0 mt-1.5 ring-2 ring-offset-1 ring-offset-white dark:ring-offset-gray-950", statusDotColors[pStatus] || "bg-gray-400", statusDotColors[pStatus] && statusDotColors[pStatus].replace("bg-", "ring-"))} />
+   192→        <div className="flex-1 min-w-0">
+   193→          <h4
+   194→            className="text-[13px] font-semibold leading-snug line-clamp-2"
+   195→            title={pName}
+   196→          >
+   197→            {pName}
+   198→          </h4>
+   199→        </div>
+   200→      </div>
+   201→
+   202→      {/* Status Badge + Client Name */}
+   203→      <div className="mt-2 flex items-center gap-2 flex-wrap">
+   204→        <Badge className={`text-[10px] px-1.5 py-0 leading-4 font-medium ${statusColors[pStatus] || ""}`}>
+   205→          {pStatus.replace("_", " ")}
+   206→        </Badge>
+   207→        <span className="text-[11px] text-muted-foreground truncate max-w-[140px]">
+   208→          {pClientName}
+   209→        </span>
+   210→      </div>
+   211→
+   212→      {/* Method badges */}
+   213→      {Array.isArray(project.methods) && (project.methods as Array<{name: string}>).length > 0 && (
+   214→        <div className="mt-1.5 flex items-center gap-1 flex-wrap">
+   215→          {(project.methods as Array<{name: string}>).map((m, i) => (
+   216→            <Badge key={i} className="text-[9px] px-1.5 py-0 leading-3 bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
+   217→              {m.name}
+   218→            </Badge>
+   219→          ))}
+   220→        </div>
+   221→      )}
+   222→
+   223→      {/* Pending Tasks Badge — clickable */}
+   224→      {typeof pendingCount === "number" && pendingCount > 0 && !isDragging && (
+   225→        <button
+   226→          type="button"
+   227→          className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 border border-amber-500/20 dark:border-amber-500/10 shadow-sm transition-colors cursor-pointer"
+   228→          onClick={(e) => {
+   229→            e.stopPropagation();
+   230→            onPendingClick?.();
+   231→          }}
+   232→          title={`${pendingCount} pending task${pendingCount > 1 ? "s" : ""}`}
+   233→        >
+   234→          <ClipboardCheck className="h-2.5 w-2.5" />
+   235→          {pendingCount} Pending
+   236→        </button>
+   237→      )}
+   238→
+   239→      {/* Progress Bar */}
+   240→      <div className="mt-2.5 space-y-1">
+   241→        <div className="flex justify-between text-[11px]">
+   242→          <span className="text-muted-foreground">Progress</span>
+   243→          <span className={cn("font-bold tabular-nums", pProgress < 30 ? "text-red-600 dark:text-red-400" : pProgress < 70 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400")}>{pProgress}%</span>
+   244→        </div>
+   245→        <Progress value={pProgress} className={cn("h-1.5 rounded-full shadow-sm", getProgressColor(pProgress))} />
+   246→      </div>
+   247→
+   248→      {/* Deadline */}
+   249→      {pDeadline && (
+   250→        <p className="text-[11px] text-muted-foreground/70 mt-2 flex items-center gap-1">
+   251→          <span className="font-medium text-muted-foreground">Deadline:</span>
+   252→          {safeDate(pDeadline, "No date")}
+   253→        </p>
+   254→      )}
+   255→
+   256→      {/* Live button for admin when websites exist */}
+   257→      {isAdminUser && pWebsites.length > 0 && !isDragging && (
+   258→        <div
+   259→          className="absolute bottom-2 left-2 z-10"
+   260→          onClick={(e) => e.stopPropagation()}
+   261→        >
+   262→          {pWebsites.length === 1 ? (
+   263→            <a
+   264→              href={safeUrl(safeText(pWebsites[0].url, ""))}
+   265→              target="_blank"
+   266→              rel="noopener noreferrer"
+   267→              className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20 dark:border-emerald-500/10 shadow-sm transition-colors"
+   268→            >
+   269→              <Globe className="h-2.5 w-2.5" />
+   270→              Live
+   271→            </a>
+   272→          ) : (
+   273→            <DropdownMenu>
+   274→              <DropdownMenuTrigger asChild>
+   275→                <button
+   276→                  type="button"
+   277→                  className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20 dark:border-emerald-500/10 shadow-sm transition-colors"
+   278→                >
+   279→                  <Globe className="h-2.5 w-2.5" />
+   280→                  Live
+   281→                </button>
+   282→              </DropdownMenuTrigger>
+   283→              <DropdownMenuContent align="start" className="w-48">
+   284→                {pWebsites.map((w, i) => {
+   285→                  const wUrl = safeText(w.url, "");
+   286→                  const wLabel = safeText(w.label, "");
+   287→                  return (
+   288→                    <DropdownMenuItem key={safeText(w.id, String(i))} asChild>
+   289→                      <a href={safeUrl(wUrl)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 cursor-pointer">
+   290→                        <ExternalLink className="h-3 w-3 text-emerald-500 shrink-0" />
+   291→                        <div className="min-w-0 flex-1">
+   292→                          <p className="text-[11px] font-medium truncate">{wLabel || `Site ${i + 1}`}</p>
+   293→                          <p className="text-[9px] text-muted-foreground truncate">{wUrl}</p>
+   294→                        </div>
+   295→                      </a>
+   296→                    </DropdownMenuItem>
+   297→                  );
+   298→                })}
+   299→              </DropdownMenuContent>
+   300→            </DropdownMenu>
+   301→          )}
+   302→        </div>
+   303→      )}
+   304→    </div>
+   305→  );
+   306→}
+   307→
+   308→// ━━ SortableProjectCard — wraps KanbanProjectCard with useSortable ━━
+   309→function SortableProjectCard({
+   310→  project,
+   311→  onCardClick,
+   312→  isAdminUser,
+   313→  onEdit,
+   314→  onDelete,
+   315→  onHover,
+   316→  pendingCount,
+   317→  onPendingClick,
+   318→}: {
+   319→  project: Record<string, unknown>;
+   320→  onCardClick: () => void;
+   321→  isAdminUser: boolean;
+   322→  onEdit: (project: Record<string, unknown>, e: React.MouseEvent) => void;
+   323→  onDelete: (projectId: string, e: React.MouseEvent) => void;
+   324→  onHover?: () => void;
+   325→  pendingCount?: number;
+   326→  onPendingClick?: () => void;
+   327→}) {
+   328→  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+   329→    id: safeText(project.id, ""),
+   330→  });
+   331→  const style = {
+   332→    transform: CSS.Transform.toString(transform),
+   333→    transition,
+   334→    opacity: isDragging ? 0.5 : 1,
+   335→  };
+   336→
+   337→  return (
+   338→    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+   339→      <KanbanProjectCard
+   340→        project={project}
+   341→        onClick={onCardClick}
+   342→        isAdminUser={isAdminUser}
+   343→        onEdit={onEdit}
+   344→        onDelete={onDelete}
+   345→        isDragging={false}
+   346→        onHover={onHover}
+   347→        pendingCount={pendingCount}
+   348→        onPendingClick={onPendingClick}
+   349→      />
+   350→    </div>
+   351→  );
+   352→}
+   353→
+   354→// ━━ DroppableKanbanColumn — wraps column card list with useDroppable + SortableContext ━━
+   355→function DroppableKanbanColumn({
+   356→  col,
+   357→  projects,
+   358→  isAdminUser,
+   359→  onCardClick,
+   360→  onEdit,
+   361→  onDelete,
+   362→  isDimmed,
+   363→  activeId,
+   364→  onHover,
+   365→  pendingTaskCounts,
+   366→}: {
+   367→  col: typeof KANBAN_COLUMNS[number];
+   368→  projects: Record<string, unknown>[];
+   369→  isAdminUser: boolean;
+   370→  onCardClick: (project: Record<string, unknown>) => void;
+   371→  onEdit: (project: Record<string, unknown>, e: React.MouseEvent) => void;
+   372→  onDelete: (projectId: string, e: React.MouseEvent) => void;
+   373→  isDimmed: boolean;
+   374→  activeId: string | null;
+   375→  onHover?: (pid: string) => void;
+   376→  pendingTaskCounts?: Record<string, number>;
+   377→}) {
+   378→  const { setNodeRef, isOver } = useDroppable({ id: col.key });
+   379→
+   380→  return (
+   381→    <div
+   382→      className={cn(
+   383→        "flex-shrink-0 w-[260px] sm:w-[280px] rounded-xl border transition-all duration-300 snap-start relative overflow-hidden",
+   384→        "bg-gradient-to-b from-white/80 to-white/50 dark:from-gray-900/60 dark:to-gray-900/30 backdrop-blur-xl",
+   385→        "border-gray-200/80 dark:border-gray-700/50",
+   386→        "hover:border-gray-300 dark:hover:border-gray-600",
+   387→        col.glowColor,
+   388→        isDimmed && "opacity-40 pointer-events-none",
+   389→        isOver && !isDimmed && `ring-2 ${col.accentRing} border-primary/40 bg-primary/[0.04] dark:bg-primary/[0.08] shadow-lg`
+   390→      )}
+   391→      style={{ minHeight: "calc(100vh - 300px)" }}
+   392→    >
+   393→      {/* Left accent bar */}
+   394→      <div className={cn("absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl", col.accentBar, isOver && !isDimmed ? "opacity-100" : "opacity-60")} />
+   395→
+   396→      {/* Column Header */}
+   397→      <div className="px-3 py-2.5 border-b border-gray-200/50 dark:border-gray-700/40 pl-4">
+   398→        <div className="flex items-center gap-2">
+   399→          <span className={cn("h-2 w-2 rounded-full shrink-0 ring-2 ring-offset-1 ring-offset-white dark:ring-offset-gray-950", col.dot, col.dot.replace("bg-", "ring-"))} />
+   400→          <h3 className="font-bold text-[12px] tracking-tight">{col.label}</h3>
+   401→          <Badge
+   402→            variant="secondary"
+   403→            className="ml-auto h-5 min-w-[20px] px-1.5 text-[10px] font-bold justify-center bg-muted/80"
+   404→          >
+   405→            {projects.length}
+   406→          </Badge>
+   407→        </div>
+   408→      </div>
+   409→
+   410→      {/* Card List — Droppable zone */}
+   411→      <div
+   412→        ref={setNodeRef}
+   413→        className={cn(
+   414→          "p-2 space-y-2 overflow-y-auto transition-all duration-300 pl-4",
+   415→          isOver && !isDimmed && "bg-primary/[0.03] dark:bg-primary/[0.05]"
+   416→        )}
+   417→        style={{ maxHeight: "calc(100vh - 380px)" }}
+   418→      >
+   419→        {projects.length === 0 && (
+   420→          <div className="flex flex-col items-center justify-center py-8 text-center">
+   421→            <div className="h-8 w-8 rounded-full bg-muted/50 flex items-center justify-center mb-2">
+   422→              <FolderKanban className="h-4 w-4 text-muted-foreground/30" />
+   423→            </div>
+   424→            <p className="text-[11px] text-muted-foreground/50 font-medium">No projects</p>
+   425→          </div>
+   426→        )}
+   427→        <SortableContext items={projects.map((p) => safeText(p.id, ""))} strategy={verticalListSortingStrategy}>
+   428→          {projects.map((project) => {
+   429→            const pId = safeText(project.id, "");
+   430→            // Don't render the actively dragged card in the list
+   431→            if (activeId === pId) return null;
+   432→            return (
+   433→              <SortableProjectCard
+   434→                key={pId}
+   435→                project={project}
+   436→                onCardClick={() => onCardClick(project)}
+   437→                isAdminUser={isAdminUser}
+   438→                onEdit={onEdit}
+   439→                onDelete={onDelete}
+   440→                onHover={() => onHover && onHover(pId)}
+   441→                pendingCount={pendingTaskCounts?.[pId]}
+   442→                onPendingClick={() => onCardClick(project)}
+   443→              />
+   444→            );
+   445→          })}
+   446→        </SortableContext>
+   447→      </div>
+   448→    </div>
+   449→  );
+   450→}
+   451→
+   452→// ━━ List View Row ━━
+   453→function ListViewRow({
+   454→  project,
+   455→  isAdminUser,
+   456→  onView,
+   457→  onEdit,
+   458→  onDelete,
+   459→  pendingCount,
+   460→  onPendingClick,
+   461→}: {
+   462→  project: Record<string, unknown>;
+   463→  isAdminUser: boolean;
+   464→  onView: () => void;
+   465→  onEdit?: (project: Record<string, unknown>, e: React.MouseEvent) => void;
+   466→  onDelete?: (projectId: string, e: React.MouseEvent) => void;
+   467→  pendingCount?: number;
+   468→  onPendingClick?: () => void;
+   469→}) {
+   470→  const client = project.client as Record<string, unknown> | undefined;
+   471→  const pName = safeText(project.name, "Untitled");
+   472→  const pStatus = safeText(project.status, "");
+   473→  const pClientName = client ? safeText(client.name, "Client") : "Client";
+   474→  const pProgress = safeNumber(project.progress);
+   475→  const pDeadline = project.deadline as string | null | undefined;
+   476→
+   477→  return (
+   478→    <div
+   479→      className={cn(
+   480→        "group/row flex items-center gap-4 p-3 rounded-lg border transition-all duration-150",
+   481→        "bg-white/70 dark:bg-white/[0.04] backdrop-blur-sm",
+   482→        "border-gray-200/60 dark:border-gray-700/40",
+   483→        "hover:border-gray-300 dark:hover:border-gray-600",
+   484→        "hover:bg-white/90 dark:hover:bg-white/[0.07]",
+   485→        "hover:shadow-sm cursor-pointer",
+   486→      )}
+   487→      onClick={onView}
+   488→    >
+   489→      {/* Status dot + Name */}
+   490→      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+   491→        <span className={cn("h-2.5 w-2.5 rounded-full shrink-0 ring-2 ring-offset-1 ring-offset-white dark:ring-offset-gray-950", statusDotColors[pStatus] || "bg-gray-400", statusDotColors[pStatus] && statusDotColors[pStatus].replace("bg-", "ring-"))} />
+   492→        <div className="min-w-0">
+   493→          <h4 className="text-sm font-semibold truncate" title={pName}>{pName}</h4>
+   494→          <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+   495→            <span className="text-[11px] text-muted-foreground">{pClientName}</span>
+   496→            {Array.isArray(project.methods) && (project.methods as Array<{name: string}>).length > 0 && (
+   497→              <span className="flex items-center gap-0.5">
+   498→                {(project.methods as Array<{name: string}>).map((m, i) => (
+   499→                  <Badge key={i} className="text-[9px] px-1.5 py-0 leading-3 bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
+   500→                    {m.name}
+   501→                  </Badge>
+   502→                ))}
+   503→              </span>
+   504→            )}
+   505→          </div>
+   506→        </div>
+   507→      </div>
+   508→
+   509→      {/* Status Badge */}
+   510→      <div className="hidden sm:block shrink-0">
+   511→        <Badge className={`text-[10px] px-2 py-0.5 font-medium ${statusColors[pStatus] || ""}`}>
+   512→          {pStatus.replace("_", " ")}
+   513→        </Badge>
+   514→      </div>
+   515→
+   516→      {/* Pending Tasks Badge */}
+   517→      <div className="hidden sm:flex items-center shrink-0">
+   518→        {typeof pendingCount === "number" && pendingCount > 0 ? (
+   519→          <button
+   520→            type="button"
+   521→            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 border border-amber-500/20 dark:border-amber-500/10 shadow-sm transition-colors cursor-pointer"
+   522→            onClick={(e) => {
+   523→              e.stopPropagation();
+   524→              onPendingClick?.();
+   525→            }}
+   526→            title={`${pendingCount} pending task${pendingCount > 1 ? "s" : ""}`}
+   527→          >
+   528→            <ClipboardCheck className="h-2.5 w-2.5" />
+   529→            {pendingCount}
+   530→          </button>
+   531→        ) : (
+   532→          <span className="text-[11px] text-muted-foreground/40 w-6 text-center">—</span>
+   533→        )}
+   534→      </div>
+   535→
+   536→      {/* Progress */}
+   537→      <div className="hidden md:flex items-center gap-2 min-w-[140px] shrink-0">
+   538→        <Progress value={pProgress} className={cn("h-1.5 rounded-full flex-1", getProgressColor(pProgress))} />
+   539→        <span className={cn("text-[11px] font-bold tabular-nums w-8 text-right", pProgress < 30 ? "text-red-600 dark:text-red-400" : pProgress < 70 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400")}>
+   540→          {pProgress}%
+   541→        </span>
+   542→      </div>
+   543→
+   544→      {/* Deadline */}
+   545→      <div className="hidden lg:block shrink-0 min-w-[90px]">
+   546→        {pDeadline ? (
+   547→          <p className="text-[12px] text-muted-foreground">{safeDate(pDeadline, "No date")}</p>
+   548→        ) : (
+   549→          <p className="text-[12px] text-muted-foreground/50">—</p>
+   550→        )}
+   551→      </div>
+   552→
+   553→      {/* Actions */}
+   554→      <div
+   555→        className="flex items-center gap-1 shrink-0"
+   556→        onClick={(e) => e.stopPropagation()}
+   557→      >
+   558→        <Button variant="ghost" size="sm" className="h-7 w-7" onClick={onView} title="View" aria-label="View project">
+   559→          <ArrowUpDown className="h-3.5 w-3.5" />
+   560→        </Button>
+   561→        {isAdminUser && onEdit && onDelete && (
+   562→          <>
+   563→            <Button variant="ghost" size="sm" className="h-7 w-7" onClick={(e) => onEdit(project, e)} title="Edit" aria-label="Edit project">
+   564→              <Pencil className="h-3.5 w-3.5" />
+   565→            </Button>
+   566→            <Button variant="ghost" size="sm" className="h-7 w-7 text-red-500 hover:text-red-600" onClick={(e) => onDelete(safeText(project.id, ""), e)} title="Delete" aria-label="Delete project">
+   567→              <Trash2 className="h-3.5 w-3.5" />
+   568→            </Button>
+   569→          </>
+   570→        )}
+   571→      </div>
+   572→    </div>
+   573→  );
+   574→}
+   575→
+   576→// ━━ Searchable Client Select (Combobox) ━━
+   577→// Shows "No Client" option + 10 most recent clients by default.
+   578→// Typing in the search box filters the full client list.
+   579→function ClientSearchSelect({
+   580→  name,
+   581→  defaultValue,
+   582→  clients,
+   583→  required = false,
+   584→}: {
+   585→  name: string;
+   586→  defaultValue?: string;
+   587→  clients: Array<{ id: string; name: string; company?: string }>;
+   588→  required?: boolean;
+   589→}) {
+   590→  const [search, setSearch] = useState("");
+   591→  const [open, setOpen] = useState(false);
+   592→  const [selectedId, setSelectedId] = useState(defaultValue || "");
+   593→  const ref = useRef<HTMLDivElement>(null);
+   594→
+   595→  // Display name for currently selected client
+   596→  const selectedClient = selectedId
+   597→    ? clients.find((c) => c.id === selectedId)
+   598→    : null;
+   599→  const displayValue = selectedClient
+   600→    ? selectedClient.company || selectedClient.name
+   601→    : selectedId === "__none__"
+   602→      ? "No Client (Internal)"
+   603→      : "";
+   604→
+   605→  // Filter: "No Client" always shows first, then 10 recent by default, or search results
+   606→  const filtered = useMemo(() => {
+   607→    if (search.trim()) {
+   608→      const q = search.toLowerCase();
+   609→      return clients.filter(
+   610→        (c) =>
+   611→          c.name.toLowerCase().includes(q) ||
+   612→          (c.company && c.company.toLowerCase().includes(q))
+   613→      );
+   614→    }
+   615→    // Default: show 10 most recent
+   616→    return clients.slice(0, 10);
+   617→  }, [clients, search]);
+   618→
+   619→  // Close dropdown on outside click
+   620→  useEffect(() => {
+   621→    const handler = (e: MouseEvent) => {
+   622→      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+   623→    };
+   624→    document.addEventListener("mousedown", handler);
+   625→    return () => document.removeEventListener("mousedown", handler);
+   626→  }, []);
+   627→
+   628→  return (
+   629→    <div ref={ref} className="relative">
+   630→      {/* Hidden input to store the value for form submission */}
+   631→      <input type="hidden" name={name} value={selectedId} />
+   632→
+   633→      {/* Trigger button — shows selected value or placeholder */}
+   634→      <button
+   635→        type="button"
+   636→        onClick={() => setOpen(!open)}
+   637→        className={cn(
+   638→          "flex h-9 w-full items-center justify-between rounded-md border px-3 py-2 text-sm bg-background transition-colors",
+   639→          "hover:bg-accent hover:border-accent-foreground/20",
+   640→          open && "ring-2 ring-ring",
+   641→          !selectedId && "text-muted-foreground"
+   642→        )}
+   643→      >
+   644→        <span className="truncate">{displayValue || "Select client..."}</span>
+   645→        <Search className="h-3.5 w-3.5 shrink-0 ml-2 text-muted-foreground" />
+   646→      </button>
+   647→
+   648→      {/* Dropdown */}
+   649→      {open && (
+   650→        <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover shadow-lg max-h-[240px] overflow-hidden">
+   651→          {/* Search input */}
+   652→          <div className="p-1.5 border-b">
+   653→            <input
+   654→              type="text"
+   655→              placeholder="Search clients..."
+   656→              value={search}
+   657→              onChange={(e) => setSearch(e.target.value)}
+   658→              className="w-full h-8 rounded border bg-background px-2.5 text-sm outline-none focus:ring-1 focus:ring-ring"
+   659→              autoFocus
+   660→            />
+   661→          </div>
+   662→
+   663→          {/* Options */}
+   664→          <div className="overflow-y-auto max-h-[170px] p-1">
+   665→            {/* "No Client" option */}
+   666→            <button
+   667→              type="button"
+   668→              className={cn(
+   669→                "w-full text-left px-2.5 py-1.5 rounded text-sm transition-colors",
+   670→                selectedId === "__none__"
+   671→                  ? "bg-primary text-primary-foreground font-medium"
+   672→                  : "hover:bg-accent"
+   673→              )}
+   674→              onClick={() => {
+   675→                setSelectedId("__none__");
+   676→                setOpen(false);
+   677→                setSearch("");
+   678→              }}
+   679→            >
+   680→              <span className="text-muted-foreground italic">No Client (Internal)</span>
+   681→            </button>
+   682→
+   683→            {filtered.length === 0 && (
+   684→              <p className="px-2.5 py-2 text-xs text-muted-foreground text-center">
+   685→                {search ? "No clients found" : "No clients registered"}
+   686→              </p>
+   687→            )}
+   688→
+   689→            {filtered.map((c) => (
+   690→              <button
+   691→                key={c.id}
+   692→                type="button"
+   693→                className={cn(
+   694→                  "w-full text-left px-2.5 py-1.5 rounded text-sm transition-colors",
+   695→                  selectedId === c.id
+   696→                    ? "bg-primary text-primary-foreground font-medium"
+   697→                    : "hover:bg-accent"
+   698→                )}
+   699→                onClick={() => {
+   700→                  setSelectedId(c.id);
+   701→                  setOpen(false);
+   702→                  setSearch("");
+   703→                }}
+   704→              >
+   705→                <span className="font-medium">{c.company || c.name}</span>
+   706→                {c.company && c.name !== c.company && (
+   707→                  <span className="text-muted-foreground ml-1.5 text-xs">({c.name})</span>
+   708→                )}
+   709→              </button>
+   710→            ))}
+   711→
+   712→            {!search && clients.length > 10 && (
+   713→              <p className="px-2.5 py-1.5 text-[10px] text-muted-foreground text-center border-t mt-1">
+   714→                Showing 10 recent — type to search all {clients.length} clients
+   715→              </p>
+   716→            )}
+   717→          </div>
+   718→        </div>
+   719→      )}
+   720→    </div>
+   721→  );
+   722→}
+   723→
+   724→// ━━ Helper: Calculate and format period between two dates ━━
+   725→function calcProjectPeriod(startDate: string, deadline: string): string | null {
+   726→  if (!startDate || !deadline) return null;
+   727→  const start = new Date(startDate);
+   728→  const end = new Date(deadline);
+   729→  if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+   730→  const diffMs = end.getTime() - start.getTime();
+   731→  if (diffMs < 0) return "Start date is after deadline";
+   732→  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+   733→  if (days === 0) return "Same day";
+   734→  const months = Math.floor(days / 30);
+   735→  const remainDays = days % 30;
+   736→  if (months > 0 && remainDays > 0) return `${months}m ${remainDays}d (${days} days)`;
+   737→  if (months > 0) return `${months}m (${days} days)`;
+   738→  return `${days} days`;
+   739→}
+   740→
+   741→// ━━ Create Project Form with Start Date + Total Period ━━
+   742→function CreateProjectForm({ onSubmit, clients }: {
+   743→  onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
+   744→  clients: { id: string; name: string; company?: string }[];
+   745→}) {
+   746→  const [startDate, setStartDate] = useState("");
+   747→  const [deadline, setDeadline] = useState("");
+   748→  const period = useMemo(() => calcProjectPeriod(startDate, deadline), [startDate, deadline]);
+   749→
+   750→  return (
+   751→    <form onSubmit={onSubmit} className="space-y-3">
+   752→      <div className="space-y-1">
+   753→        <Label className="text-xs">Project Name *</Label>
+   754→        <Input name="name" required />
+   755→      </div>
+   756→      <div className="space-y-1">
+   757→        <Label className="text-xs">Description</Label>
+   758→        <Textarea name="description" rows={2} />
+   759→      </div>
+   760→      <div className="space-y-1">
+   761→        <Label className="text-xs">Client</Label>
+   762→        <ClientSearchSelect name="clientId" clients={clients} />
+   763→      </div>
+   764→      <div className="grid grid-cols-2 gap-3">
+   765→        <div className="space-y-1">
+   766→          <Label className="text-xs">Start Date</Label>
+   767→          <Input name="startDate" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+   768→        </div>
+   769→        <div className="space-y-1">
+   770→          <Label className="text-xs">Deadline</Label>
+   771→          <Input name="deadline" type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
+   772→        </div>
+   773→      </div>
+   774→      {period && (
+   775→        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary/5 border border-primary/10">
+   776→          <Activity className="h-3.5 w-3.5 text-primary" />
+   777→          <span className="text-xs font-medium text-primary">Total Period: {period}</span>
+   778→        </div>
+   779→      )}
+   780→      <div className="grid grid-cols-2 gap-3">
+   781→        <div className="space-y-1">
+   782→          <Label className="text-xs">Budget ({CURRENCY_SYMBOL})</Label>
+   783→          <Input name="budget" type="number" />
+   784→        </div>
+   785→        <div className="space-y-1">
+   786→          <Label className="text-xs">Live URL</Label>
+   787→          <Input name="liveUrl" type="url" placeholder="https://example.com" />
+   788→        </div>
+   789→      </div>
+   790→      <Button type="submit" className="w-full">Create Project</Button>
+   791→    </form>
+   792→  );
+   793→}
+   794→
+   795→export default function ProjectsPage() {
+   796→  const router = useRouter();
+   797→  const { data: session, status: sessionStatus } = useSession();
+   798→  const queryClient = useQueryClient();
+   799→  const [addOpen, setAddOpen] = useState(false);
+   800→  const [editOpen, setEditOpen] = useState(false);
+   801→  const [editProject, setEditProject] = useState<Record<string, unknown> | null>(null);
+   802→  const [deleteId, setDeleteId] = useState<string | null>(null);
+   803→  const [filter, setFilter] = useState("ALL");
+   804→  const [search, setSearch] = useState("");
+   805→  const [activeId, setActiveId] = useState<string | null>(null);
+   806→  const [updating, setUpdating] = useState(false);
+   807→  const [viewMode, setViewMode] = useState<"board" | "list">("board");
+   808→
+   809→  // Read saved view mode from localStorage after hydration
+   810→  useEffect(() => {
+   811→    const saved = localStorage.getItem("project-view-mode");
+   812→    if (saved === "board" || saved === "list") setViewMode(saved);
+   813→  }, []);
+   814→
+   815→  const handleViewModeChange = useCallback((mode: "board" | "list") => {
+   816→    setViewMode(mode);
+   817→    localStorage.setItem("project-view-mode", mode);
+   818→  }, []);
+   819→
+   820→  // ━━ React Query — cached fetch with stale-while-revalidate ━━
+   821→  const { data: projectsData = [], isLoading: projectsLoading } = useQuery({
+   822→    queryKey: ["projects"],
+   823→    queryFn: async () => {
+   824→      const res = await fetch("/api/projects", { credentials: "include" });
+   825→      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+   826→      if (!res.ok) throw new Error("Failed to load projects");
+   827→      const data = await res.json();
+   828→      const raw = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
+   829→      return deepSanitize(raw) as unknown[];
+   830→    },
+   831→    staleTime: 60 * 1000,
+   832→    gcTime: 5 * 60 * 1000,
+   833→    refetchOnWindowFocus: false,
+   834→    retry: 1,
+   835→  });
+   836→
+   837→  const { data: clientsData = [] } = useQuery({
+   838→    queryKey: ["clients"],
+   839→    queryFn: async () => {
+   840→      const res = await fetch("/api/clients", { credentials: "include" });
+   841→      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+   842→      if (!res.ok) throw new Error("Failed to load clients");
+   843→      const data = await res.json();
+   844→      return Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
+   845→    },
+   846→    staleTime: 60 * 1000,
+   847→    gcTime: 5 * 60 * 1000,
+   848→    refetchOnWindowFocus: false,
+   849→    retry: 1,
+   850→  });
+   851→
+   852→  // ━━ Pending task counts per project (lightweight count endpoint) ━━
+   853→  const { data: taskCountsData } = useQuery({
+   854→    queryKey: ["task-counts"],
+   855→    queryFn: async () => {
+   856→      const res = await fetch("/api/tasks/counts", { credentials: "include" });
+   857→      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+   858→      if (!res.ok) throw new Error("Failed to load task counts");
+   859→      const data = await res.json();
+   860→      return data as Record<string, number>;
+   861→    },
+   862→    staleTime: 30 * 1000,
+   863→    gcTime: 5 * 60 * 1000,
+   864→    refetchOnWindowFocus: false,
+   865→    retry: 1,
+   866→  });
+   867→
+   868→  const projects = projectsData;
+   869→  const clients = clientsData;
+   870→  const pendingTaskCounts = taskCountsData || {};
+   871→
+   872→  const isAdminUser = session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN";
+   873→
+   874→  // ━━ Floating Task Board Windows ━━
+   875→  const {
+   876→    boards: floatingBoards,
+   877→    openBoard: openFloatingBoard,
+   878→    closeBoard: closeFloatingBoard,
+   879→    closeAll: closeAllFloatingBoards,
+   880→    minimizeBoard: minimizeFloatingBoard,
+   881→    restoreBoard: restoreFloatingBoard,
+   882→    bringToFront: bringBoardToFront,
+   883→    updatePosition: updateBoardPosition,
+   884→    updateSize: updateBoardSize,
+   885→  } = useFloatingBoards();
+   886→
+   887→  // Feature 3: Credentials state
+   888→  const [credentials, setCredentials] = useState<{ id: string; title: string; username: string; password: string }[]>([]);
+   889→  const [newCred, setNewCred] = useState<CredentialForm>({ title: "", username: "", password: "" });
+   890→  const [editingCredId, setEditingCredId] = useState<string | null>(null);
+   891→  const [editingCred, setEditingCred] = useState<CredentialForm>({ title: "", username: "", password: "" });
+   892→  const [showPasswords, setShowPasswords] = useState<Record<string, boolean>>({});
+   893→  const [deleteCredId, setDeleteCredId] = useState<string | null>(null);
+   894→  const [passwordChanged, setPasswordChanged] = useState(false);
+   895→
+   896→  // Feature 4: Project Methods management state
+   897→  const [projectMethods, setProjectMethods] = useState<{ id: string; name: string }[]>([]);
+   898→  const [methodLoading, setMethodLoading] = useState(false);
+   899→  const [methodSaving, setMethodSaving] = useState(false);
+   900→  const [newMethodName, setNewMethodName] = useState("");
+   901→  const [editingMethodId, setEditingMethodId] = useState<string | null>(null);
+   902→  const [editingMethodName, setEditingMethodName] = useState("");
+   903→  const [deleteMethodTarget, setDeleteMethodTarget] = useState<{ id: string; name: string } | null>(null);
+   904→
+   905→  // Project method assignments (when editing a project)
+   906→  const [assignedMethodIds, setAssignedMethodIds] = useState<string[]>([]);
+   907→  const [methodAssignLoading, setMethodAssignLoading] = useState(false);
+   908→
+   909→  // ━━ Project Methods CRUD Handlers ━━
+   910→  const fetchProjectMethods = useCallback(async () => {
+   911→    if (!isAdminUser) return;
+   912→    setMethodLoading(true);
+   913→    try {
+   914→      const res = await fetch("/api/project-methods", { credentials: "include" });
+   915→      if (res.ok) {
+   916→        const data = await res.json();
+   917→        const methods: { id: string; name: string }[] = Array.isArray(data) ? data : [];
+   918→        setProjectMethods(methods);
+   919→        // Seed defaults if empty
+   920→        if (methods.length === 0) {
+   921→          const defaults = ["JAVA", "PHP", "HTML", "Other"];
+   922→          await Promise.all(defaults.map((name) =>
+   923→            fetch("/api/project-methods", {
+   924→              method: "POST",
+   925→              headers: { "Content-Type": "application/json" },
+   926→              credentials: "include",
+   927→              body: JSON.stringify({ name }),
+   928→            })
+   929→          ));
+   930→          const res2 = await fetch("/api/project-methods", { credentials: "include" });
+   931→          if (res2.ok) setProjectMethods(await res2.json());
+   932→        }
+   933→      }
+   934→    } catch { /* silent */ } finally { setMethodLoading(false); }
+   935→  }, [isAdminUser]);
+   936→
+   937→  const handleSaveNewMethod = useCallback(async () => {
+   938→    if (!newMethodName.trim() || methodSaving) return;
+   939→    setMethodSaving(true);
+   940→    try {
+   941→      const res = await fetch("/api/project-methods", {
+   942→        method: "POST",
+   943→        headers: { "Content-Type": "application/json" },
+   944→        credentials: "include",
+   945→        body: JSON.stringify({ name: newMethodName.trim() }),
+   946→      });
+   947→      if (res.ok) {
+   948→        setNewMethodName("");
+   949→        fetchProjectMethods();
+   950→        toast.success("Method added successfully");
+   951→      } else {
+   952→        const data = await res.json().catch(() => ({})) as Record<string, string>;
+   953→        const errMsg = data.error || "Failed to add method";
+   954→        console.error("[project-methods] Create failed:", errMsg, data.debug || "");
+   955→        toast.error(errMsg, { duration: 6000 });
+   956→      }
+   957→    } catch (err) {
+   958→      console.error("[project-methods] Network error:", err);
+   959→      toast.error("Failed to add method — network error");
+   960→    } finally { setMethodSaving(false); }
+   961→  }, [newMethodName, methodSaving, fetchProjectMethods]);
+   962→
+   963→  const handleSaveEditMethod = useCallback(async (methodId: string, name: string) => {
+   964→    if (!name.trim() || methodSaving) return;
+   965→    setMethodSaving(true);
+   966→    try {
+   967→      const res = await fetch("/api/project-methods", {
+   968→        method: "PATCH",
+   969→        headers: { "Content-Type": "application/json" },
+   970→        credentials: "include",
+   971→        body: JSON.stringify({ id: methodId, name: name.trim() }),
+   972→      });
+   973→      if (res.ok) {
+   974→        setEditingMethodId(null);
+   975→        fetchProjectMethods();
+   976→        toast.success("Method updated");
+   977→      } else {
+   978→        const data = await res.json().catch(() => ({}));
+   979→        toast.error((data as Record<string, string>).error?.slice(0, 100) || "Failed to update method");
+   980→      }
+   981→    } catch { toast.error("Failed to update method"); } finally { setMethodSaving(false); }
+   982→  }, [methodSaving, fetchProjectMethods]);
+   983→
+   984→  const handleDeleteMethod = useCallback(async () => {
+   985→    if (!deleteMethodTarget) return;
+   986→    setMethodSaving(true);
+   987→    try {
+   988→      const res = await fetch(`/api/project-methods?id=${deleteMethodTarget.id}`, {
+   989→        method: "DELETE",
+   990→        credentials: "include",
+   991→      });
+   992→      if (res.ok) {
+   993→        toast.success("Method deleted");
+   994→        fetchProjectMethods();
+   995→      } else {
+   996→        const data = await res.json().catch(() => ({}));
+   997→        toast.error((data as Record<string, string>).error?.slice(0, 100) || "Failed to delete method");
+   998→      }
+   999→    } catch { toast.error("Failed to delete method"); } finally { setMethodSaving(false); setDeleteMethodTarget(null); }
+  1000→  }, [deleteMethodTarget, fetchProjectMethods]);
+  1001→
+  1002→  // ━━ Project Method Assignment Handlers ━━
+  1003→  const fetchProjectAssignedMethods = useCallback(async (projectId: string) => {
+  1004→    try {
+  1005→      const res = await fetch(`/api/projects/${projectId}/methods`, { credentials: "include" });
+  1006→      if (res.ok) {
+  1007→        const data = await res.json();
+  1008→        setAssignedMethodIds(Array.isArray(data) ? data.map((m: { id: string }) => m.id) : []);
+  1009→      }
+  1010→    } catch { /* silent */ }
+  1011→  }, []);
+  1012→
+  1013→  const handleSaveProjectMethods = useCallback(async () => {
+  1014→    if (!editProject) return;
+  1015→    setMethodAssignLoading(true);
+  1016→    try {
+  1017→      const res = await fetch(`/api/projects/${safeText(editProject.id, "")}/methods`, {
+  1018→        method: "PUT",
+  1019→        headers: { "Content-Type": "application/json" },
+  1020→        credentials: "include",
+  1021→        body: JSON.stringify({ methodIds: assignedMethodIds }),
+  1022→      });
+  1023→      if (res.ok) {
+  1024→        toast.success("Project methods updated");
+  1025→        queryClient.invalidateQueries({ queryKey: ["projects"] });
+  1026→      } else {
+  1027→        const data = await res.json().catch(() => ({}));
+  1028→        toast.error((data as Record<string, string>).error?.slice(0, 100) || "Failed to update project methods");
+  1029→      }
+  1030→    } catch {
+  1031→      toast.error("Failed to update project methods");
+  1032→    } finally {
+  1033→      setMethodAssignLoading(false);
+  1034→    }
+  1035→  }, [editProject, assignedMethodIds, queryClient]);
+  1036→
+  1037→  const toggleProjectMethod = useCallback((methodId: string) => {
+  1038→    setAssignedMethodIds((prev) =>
+  1039→      prev.includes(methodId)
+  1040→        ? prev.filter((id) => id !== methodId)
+  1041→        : [...prev, methodId]
+  1042→    );
+  1043→  }, []);
+  1044→
+  1045→  // Fetch project methods on mount (admin only)
+  1046→  useEffect(() => {
+  1047→    if (sessionStatus === "authenticated" && isAdminUser) {
+  1048→      fetchProjectMethods();
+  1049→    }
+  1050→  }, [sessionStatus, isAdminUser, fetchProjectMethods]);
+  1051→
+  1052→  // DnD sensors
+  1053→  const sensors = useSensors(
+  1054→    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+  1055→  );
+  1056→
+  1057→  const handle401 = useCallback((res: Response) => {
+  1058→    if (res.status === 401) {
+  1059→      window.location.href = "/login";
+  1060→      return true;
+  1061→    }
+  1062→    return false;
+  1063→  }, []);
+  1064→
+  1065→  // ━━ Fetch credentials for a project ━━
+  1066→  const fetchCredentials = useCallback(async (projectId: string) => {
+  1067→    try {
+  1068→      const res = await fetch(`/api/projects/credentials?projectId=${projectId}`, { credentials: 'include' });
+  1069→      if (res.ok) {
+  1070→        const data = await res.json();
+  1071→        setCredentials(Array.isArray(data) ? data : []);
+  1072→      }
+  1073→    } catch {
+  1074→      // silently fail
+  1075→    }
+  1076→  }, []);
+  1077→
+  1078→  const handleCreateProject = async (e: React.FormEvent<HTMLFormElement>) => {
+  1079→    e.preventDefault();
+  1080→    const form = new FormData(e.currentTarget);
+  1081→    let clientId = form.get("clientId") as string;
+  1082→
+  1083→    // "No Client" means skip client requirement — the API will handle it
+  1084→    if (!clientId || clientId === "__none__") {
+  1085→      clientId = "";
+  1086→    }
+  1087→
+  1088→    const data = {
+  1089→      name: form.get("name") as string,
+  1090→      description: form.get("description") as string,
+  1091→      clientId,
+  1092→      budget: parseFloat(form.get("budget") as string) || null,
+  1093→      startDate: form.get("startDate") as string || null,
+  1094→      deadline: form.get("deadline") as string || null,
+  1095→    };
+  1096→    const liveUrl = (form.get("liveUrl") as string)?.trim();
+  1097→
+  1098→    try {
+  1099→      const res = await fetch("/api/projects", {
+  1100→        method: "POST",
+  1101→        headers: { "Content-Type": "application/json" },
+  1102→        credentials: 'include',
+  1103→        body: JSON.stringify(data),
+  1104→      });
+  1105→      if (res.ok) {
+  1106→        const newProject = await res.json().catch(() => null);
+  1107→        const newProjectId = newProject?.id;
+  1108→        // If live URL was provided, create a website entry
+  1109→        if (liveUrl && newProjectId) {
+  1110→          try {
+  1111→            await fetch(`/api/projects/${newProjectId}/websites`, {
+  1112→              method: "POST",
+  1113→              headers: { "Content-Type": "application/json" },
+  1114→              credentials: "include",
+  1115→              body: JSON.stringify({ url: liveUrl, label: "Production", isPrimary: true }),
+  1116→            });
+  1117→          } catch {
+  1118→            // silently fail — project was created
+  1119→          }
+  1120→        }
+  1121→        toast.success("Project created");
+  1122→        setAddOpen(false);
+  1123→        queryClient.invalidateQueries({ queryKey: ["projects"] });
+  1124→        queryClient.invalidateQueries({ queryKey: ["task-counts"] });
+  1125→      } else {
+  1126→        if (handle401(res)) return;
+  1127→        const errData = await res.json().catch(() => null);
+  1128→        toast.error((errData as Record<string, string>)?.error?.slice(0, 100) || "Failed to create project");
+  1129→      }
+  1130→    } catch {
+  1131→      toast.error("Failed to create project");
+  1132→    }
+  1133→  };
+  1134→
+  1135→  const handleEditProject = async (e: React.FormEvent<HTMLFormElement>) => {
+  1136→    e.preventDefault();
+  1137→    if (!editProject) return;
+  1138→
+  1139→    const form = new FormData(e.currentTarget);
+  1140→    const data: Record<string, unknown> = {
+  1141→      id: editProject.id,
+  1142→      name: form.get("name") as string,
+  1143→      description: form.get("description") as string || null,
+  1144→      status: form.get("status") as string,
+  1145→      clientId: (form.get("clientId") as string === "__none__" ? null : form.get("clientId") as string) || null,
+  1146→      budget: parseFloat(form.get("budget") as string) || null,
+  1147→      startDate: form.get("startDate") as string || null,
+  1148→      deadline: form.get("deadline") as string || null,
+  1149→      progress: parseInt(form.get("progress") as string) || 0,
+  1150→    };
+  1151→    const liveUrl = (form.get("liveUrl") as string)?.trim();
+  1152→
+  1153→    try {
+  1154→      const res = await fetch("/api/projects", {
+  1155→        method: "PUT",
+  1156→        headers: { "Content-Type": "application/json" },
+  1157→        credentials: 'include',
+  1158→        body: JSON.stringify(data),
+  1159→      });
+  1160→      if (res.ok) {
+  1161→        // Update website if live URL changed
+  1162→        const projectWebsites = (editProject.websites as Record<string, unknown>[] | undefined) || [];
+  1163→        const primaryWebsite = projectWebsites.find((w) => w.isPrimary === true || w.isPrimary === "true") || projectWebsites[0];
+  1164→        const currentUrl = primaryWebsite ? safeText(primaryWebsite.url, "") : "";
+  1165→        const primaryId = primaryWebsite ? safeText(primaryWebsite.id, "") : "";
+  1166→
+  1167→        if (liveUrl && liveUrl !== currentUrl) {
+  1168→          // Update existing primary website or create new
+  1169→          if (primaryId) {
+  1170→            try {
+  1171→              await fetch(`/api/projects/${editProject.id}/websites`, {
+  1172→                method: "PATCH",
+  1173→                headers: { "Content-Type": "application/json" },
+  1174→                credentials: "include",
+  1175→                body: JSON.stringify({ id: primaryId, url: liveUrl, isPrimary: true }),
+  1176→              });
+  1177→            } catch { /* silent */ }
+  1178→          } else {
+  1179→            try {
+  1180→              await fetch(`/api/projects/${editProject.id}/websites`, {
+  1181→                method: "POST",
+  1182→                headers: { "Content-Type": "application/json" },
+  1183→                credentials: "include",
+  1184→                body: JSON.stringify({ url: liveUrl, label: "Production", isPrimary: true }),
+  1185→              });
+  1186→            } catch { /* silent */ }
+  1187→          }
+  1188→        } else if (!liveUrl && currentUrl && primaryId) {
+  1189→          // URL was cleared — remove the website
+  1190→          try {
+  1191→            await fetch(`/api/projects/${editProject.id}/websites?id=${primaryId}`, {
+  1192→              method: "DELETE",
+  1193→              credentials: "include",
+  1194→            });
+  1195→          } catch { /* silent */ }
+  1196→        }
+  1197→
+  1198→        toast.success("Project updated");
+  1199→        setEditOpen(false);
+  1200→        setEditProject(null);
+  1201→        queryClient.invalidateQueries({ queryKey: ["projects"] });
+  1202→        queryClient.invalidateQueries({ queryKey: ["task-counts"] });
+  1203→      } else {
+  1204→        if (handle401(res)) return;
+  1205→        const errData = await res.json().catch(() => null);
+  1206→        toast.error((errData as Record<string, string>)?.error?.slice(0, 100) || "Failed to update project");
+  1207→      }
+  1208→    } catch {
+  1209→      toast.error("Failed to update project");
+  1210→    }
+  1211→  };
+  1212→
+  1213→  const handleDeleteProject = async () => {
+  1214→    if (!deleteId) return;
+  1215→    try {
+  1216→      const res = await fetch(`/api/projects?id=${deleteId}`, {
+  1217→        method: "DELETE",
+  1218→        credentials: 'include',
+  1219→      });
+  1220→      if (res.ok) {
+  1221→        toast.success("Project deleted successfully");
+  1222→        queryClient.setQueryData(["projects"], (old: unknown[]) =>
+  1223→          (old || []).filter((p: any) => p.id !== deleteId)
+  1224→        );
+  1225→      } else {
+  1226→        if (handle401(res)) return;
+  1227→        const errData = await res.json().catch(() => null);
+  1228→        toast.error((errData as Record<string, string>)?.error?.slice(0, 100) || "Failed to delete project");
+  1229→      }
+  1230→    } catch {
+  1231→      toast.error("Failed to delete project");
+  1232→    } finally {
+  1233→      setDeleteId(null);
+  1234→    }
+  1235→  };
+  1236→
+  1237→  const openEditDialog = (project: Record<string, unknown>, e: React.MouseEvent) => {
+  1238→    e.stopPropagation();
+  1239→    setEditProject(project);
+  1240→    setEditOpen(true);
+  1241→    fetchCredentials(safeText(project.id, ""));
+  1242→    fetchProjectAssignedMethods(safeText(project.id, ""));
+  1243→    setShowPasswords({});
+  1244→    setNewCred({ title: "", username: "", password: "" });
+  1245→    setEditingCredId(null);
+  1246→  };
+  1247→
+  1248→  const openDeleteDialog = (projectId: string, e: React.MouseEvent) => {
+  1249→    e.stopPropagation();
+  1250→    setDeleteId(projectId);
+  1251→  };
+  1252→
+  1253→  // ━━ Prefetch project detail data on hover (Task 2: fast navigation) ━━
+  1254→  const handlePrefetchProject = useCallback((pid: string) => {
+  1255→    if (!pid) return;
+  1256→    queryClient.prefetchQuery({
+  1257→      queryKey: ["project", pid],
+  1258→      queryFn: async () => {
+  1259→        const res = await fetch(`/api/projects?projectId=${pid}`, { credentials: "include" });
+  1260→        if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+  1261→        if (!res.ok) throw new Error("Failed to load project");
+  1262→        const raw = await res.json();
+  1263→        if (Array.isArray(raw) && raw.length > 0) return raw[0];
+  1264→        if (raw && typeof raw === "object" && raw.id) return raw;
+  1265→        return null;
+  1266→      },
+  1267→      staleTime: 30 * 1000,
+  1268→    });
+  1269→    queryClient.prefetchQuery({
+  1270→      queryKey: ["project-tasks", pid],
+  1271→      queryFn: async () => {
+  1272→        const res = await fetch(`/api/tasks?projectId=${pid}`, { credentials: "include" });
+  1273→        if (!res.ok) throw new Error("Failed to load tasks");
+  1274→        const td = await res.json();
+  1275→        return Array.isArray((td as Record<string, unknown>)?.tasks) ? (td as Record<string, unknown>).tasks as unknown[] : Array.isArray(td) ? td : (Array.isArray((td as Record<string, unknown>)?.data) ? (td as Record<string, unknown>).data as unknown[] : []);
+  1276→      },
+  1277→      staleTime: 30 * 1000,
+  1278→    });
+  1279→    queryClient.prefetchQuery({
+  1280→      queryKey: ["project-members", pid],
+  1281→      queryFn: async () => {
+  1282→        const res = await fetch(`/api/projects/${pid}/members`, { credentials: "include" });
+  1283→        if (!res.ok) throw new Error("Failed to load members");
+  1284→        const md = await res.json();
+  1285→        return Array.isArray(md) ? md : (Array.isArray(md?.data) ? md.data : []);
+  1286→      },
+  1287→      staleTime: 30 * 1000,
+  1288→    });
+  1289→  }, [queryClient]);
+  1290→
+  1291→  // ━━ Credential handlers ━━
+  1292→  const handleAddCredential = async () => {
+  1293→    if (!editProject || !newCred.title.trim() || !newCred.username.trim() || !newCred.password.trim()) {
+  1294→      toast.error("All credential fields are required");
+  1295→      return;
+  1296→    }
+  1297→    try {
+  1298→      const res = await fetch("/api/projects/credentials", {
+  1299→        method: "POST",
+  1300→        headers: { "Content-Type": "application/json" },
+  1301→        credentials: "include",
+  1302→        body: JSON.stringify({ projectId: editProject.id, ...newCred }),
+  1303→      });
+  1304→      if (res.ok) {
+  1305→        toast.success("Credential added");
+  1306→        setNewCred({ title: "", username: "", password: "" });
+  1307→        fetchCredentials(safeText(editProject.id, ""));
+  1308→      } else {
+  1309→        const data = await res.json().catch(() => ({}));
+  1310→        toast.error((data as Record<string, string>).error?.slice(0, 100) || "Failed to add credential");
+  1311→      }
+  1312→    } catch {
+  1313→      toast.error("Failed to add credential");
+  1314→    }
+  1315→  };
+  1316→
+  1317→  const handleUpdateCredential = async () => {
+  1318→    if (!editingCredId || !editingCred.title.trim() || !editingCred.username.trim()) {
+  1319→      toast.error("Title and username are required");
+  1320→      return;
+  1321→    }
+  1322→    try {
+  1323→      // Only send password if the user explicitly changed it
+  1324→      const payload: Record<string, unknown> = { id: editingCredId, title: editingCred.title, username: editingCred.username };
+  1325→      if (passwordChanged && editingCred.password) {
+  1326→        payload.password = editingCred.password;
+  1327→      }
+  1328→      const res = await fetch("/api/projects/credentials", {
+  1329→        method: "PATCH",
+  1330→        headers: { "Content-Type": "application/json" },
+  1331→        credentials: "include",
+  1332→        body: JSON.stringify(payload),
+  1333→      });
+  1334→      if (res.ok) {
+  1335→        toast.success("Credential updated");
+  1336→        setEditingCredId(null);
+  1337→        if (editProject) fetchCredentials(safeText(editProject.id, ""));
+  1338→      } else {
+  1339→        const data = await res.json().catch(() => ({}));
+  1340→        toast.error((data as Record<string, string>).error?.slice(0, 100) || "Failed to update credential");
+  1341→      }
+  1342→    } catch {
+  1343→      toast.error("Failed to update credential");
+  1344→    }
+  1345→  };
+  1346→
+  1347→  const handleDeleteCredential = async () => {
+  1348→    if (!deleteCredId) return;
+  1349→    try {
+  1350→      const res = await fetch(`/api/projects/credentials?id=${deleteCredId}`, {
+  1351→        method: "DELETE",
+  1352→        credentials: "include",
+  1353→      });
+  1354→      if (res.ok) {
+  1355→        toast.success("Credential removed");
+  1356→        if (editProject) fetchCredentials(safeText(editProject.id, ""));
+  1357→      }
+  1358→    } catch {
+  1359→      toast.error("Failed to delete credential");
+  1360→    } finally {
+  1361→      setDeleteCredId(null);
+  1362→    }
+  1363→  };
+  1364→
+  1365→  // ━━ DnD handlers ━━
+  1366→  const handleDragStart = (event: DragStartEvent) => {
+  1367→    if (updating) return;
+  1368→    setActiveId(event.active.id as string);
+  1369→  };
+  1370→
+  1371→  const handleDragEnd = async (event: DragEndEvent) => {
+  1372→    setActiveId(null);
+  1373→    const { active, over } = event;
+  1374→    if (!over) return;
+  1375→
+  1376→    const projectId = active.id as string;
+  1377→    const newStatus = over.id as string;
+  1378→
+  1379→    if (!VALID_STATUSES.includes(newStatus)) return;
+  1380→
+  1381→    const project = (projects as Record<string, unknown>[]).find((p) => safeText(p.id, "") === projectId);
+  1382→    if (!project) return;
+  1383→
+  1384→    const currentStatus = safeText(project.status, "");
+  1385→    if (currentStatus === newStatus) return;
+  1386→
+  1387→    const prevProjects = projects;
+  1388→
+  1389→    setUpdating(true);
+  1390→    queryClient.setQueryData(["projects"], (old: unknown[]) =>
+  1391→      (old || []).map((p) =>
+  1392→        safeText((p as Record<string, unknown>).id, "") === projectId
+  1393→          ? { ...(p as Record<string, unknown>), status: newStatus }
+  1394→          : p
+  1395→      )
+  1396→    );
+  1397→
+  1398→    try {
+  1399→      const res = await fetch("/api/projects", {
+  1400→        method: "PUT",
+  1401→        headers: { "Content-Type": "application/json" },
+  1402→        credentials: "include",
+  1403→        body: JSON.stringify({ id: projectId, status: newStatus }),
+  1404→      });
+  1405→      if (handle401(res)) {
+  1406→        queryClient.setQueryData(["projects"], prevProjects);
+  1407→        return;
+  1408→      }
+  1409→      if (!res.ok) {
+  1410→        queryClient.setQueryData(["projects"], prevProjects);
+  1411→        const data = await res.json().catch(() => ({}));
+  1412→        toast.error((data as Record<string, string>).error?.slice(0, 100) || "Failed to move project");
+  1413→      } else {
+  1414→        toast.success(`Project moved to ${newStatus.replace("_", " ")}`);
+  1415→      }
+  1416→    } catch {
+  1417→      queryClient.setQueryData(["projects"], prevProjects);
+  1418→      toast.error("Failed to move project");
+  1419→    } finally {
+  1420→      setUpdating(false);
+  1421→    }
+  1422→  };
+  1423→
+  1424→  const filtered = (projects as Record<string, unknown>[]).filter((p) => {
+  1425→    const pName = safeText(p.name, "");
+  1426→    const pStatus = safeText(p.status, "");
+  1427→    const pClient = p.client as Record<string, unknown> | undefined;
+  1428→    const pClientName = pClient ? safeText(pClient.name, "") : "";
+  1429→    const matchesFilter = filter === "ALL" || pStatus === filter;
+  1430→    const searchLower = search.toLowerCase();
+  1431→    const matchesSearch = !search || pName.toLowerCase().includes(searchLower) || pClientName.toLowerCase().includes(searchLower) || pStatus.toLowerCase().includes(searchLower);
+  1432→    return matchesFilter && matchesSearch;
+  1433→  });
+  1434→
+  1435→  // ━━ Group filtered projects into Kanban columns (reorder: IN_PROGRESS first, COMPLETED last) ━━
+  1436→  const kanbanColumns = useMemo(() => {
+  1437→    if (filter !== "ALL") {
+  1438→      // When a specific status is selected, show only that column
+  1439→      return KANBAN_COLUMNS.filter((col) => col.key === filter).map((col) => ({
+  1440→        ...col,
+  1441→        projects: (filtered as Record<string, unknown>[]).filter(
+  1442→          (p) => safeText(p.status, "") === col.key
+  1443→        ),
+  1444→      }));
+  1445→    }
+  1446→    // ALL: reorder columns — IN_PROGRESS first, PLANNING middle, COMPLETED last
+  1447→    return [...KANBAN_COLUMNS]
+  1448→      .sort((a, b) => (COLUMN_DISPLAY_ORDER[a.key] ?? 99) - (COLUMN_DISPLAY_ORDER[b.key] ?? 99))
+  1449→      .map((col) => ({
+  1450→        ...col,
+  1451→        projects: (filtered as Record<string, unknown>[]).filter(
+  1452→          (p) => safeText(p.status, "") === col.key
+  1453→        ),
+  1454→      }));
+  1455→  }, [filtered, filter]);
+  1456→
+  1457→  // ━━ Stats computation ━━
+  1458→  const totalProjects = projects.length;
+  1459→  const inProgressCount = (projects as Record<string, unknown>[]).filter(p => safeText(p.status, "") === "IN_PROGRESS").length;
+  1460→  const reviewCount = (projects as Record<string, unknown>[]).filter(p => safeText(p.status, "") === "REVIEW").length;
+  1461→  const completedCount = (projects as Record<string, unknown>[]).filter(p => safeText(p.status, "") === "COMPLETED").length;
+  1462→
+  1463→  // ━━ Loading skeleton ━━
+  1464→  if (sessionStatus === "loading" || projectsLoading) {
+  1465→    return (
+  1466→      <div className="space-y-4">
+  1467→        <div className="flex items-center justify-between flex-wrap gap-3">
+  1468→          <div className="flex items-center gap-2">
+  1469→            <Skeleton className="h-8 w-8 rounded-lg" />
+  1470→            <Skeleton className="h-7 w-32" />
+  1471→          </div>
+  1472→          <div className="flex items-center gap-2">
+  1473→            <Skeleton className="h-8 w-52" />
+  1474→            <Skeleton className="h-8 w-20" />
+  1475→          </div>
+  1476→        </div>
+  1477→        {/* Stats bar skeleton */}
+  1478→        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
+  1479→          {[1, 2, 3, 4].map((i) => (
+  1480→            <div key={i} className="rounded-xl p-2.5 sm:p-3 bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
+  1481→              <Skeleton className="h-3 w-12 mb-2" />
+  1482→              <Skeleton className="h-5 w-8" />
+  1483→            </div>
+  1484→          ))}
+  1485→        </div>
+  1486→        {/* Filter skeleton */}
+  1487→        <div className="flex gap-2">
+  1488→          {[1, 2, 3, 4, 5].map((i) => (
+  1489→            <Skeleton key={i} className="h-7 w-20 rounded-full" />
+  1490→          ))}
+  1491→        </div>
+  1492→        <div className="flex gap-4 overflow-hidden">
+  1493→          {KANBAN_COLUMNS.slice(0, 4).map((col) => (
+  1494→            <div key={col.key} className="flex-shrink-0 w-[280px] space-y-3">
+  1495→              <Skeleton className="h-10 w-full rounded-xl" />
+  1496→              <Skeleton className="h-44 w-full rounded-lg animate-pulse" />
+  1497→              <Skeleton className="h-36 w-full rounded-lg animate-pulse" />
+  1498→            </div>
+  1499→          ))}
+  1500→        </div>
+  1501→      </div>
+  1502→    );
+  1503→  }
+  1504→
+  1505→  return (
+  1506→    <div className="space-y-3 sm:space-y-4">
+  1507→      {/* ━━━━ Header ━━━━ */}
+  1508→      <div className="flex items-center justify-between flex-wrap gap-2 sm:gap-3">
+  1509→        <div className="flex items-center gap-2 sm:gap-3">
+  1510→          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
+  1511→            <LayoutGrid className="h-4.5 w-4.5 text-primary" />
+  1512→          </div>
+  1513→          <h1 className="text-lg sm:text-xl font-bold tracking-tight">Projects</h1>
+  1514→        </div>
+  1515→        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+  1516→          {/* Inline Search */}
+  1517→          <div className="relative">
+  1518→            <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground/50" />
+  1519→            <Input
+  1520→              placeholder="Search..."
+  1521→              value={search}
+  1522→              onChange={(e) => setSearch(e.target.value)}
+  1523→              className="pl-8 w-full sm:w-48 h-8 text-sm bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50 focus:bg-white dark:focus:bg-white/[0.06] transition-all"
+  1524→              aria-label="Search projects"
+  1525→            />
+  1526→            {search && (
+  1527→              <button
+  1528→                onClick={() => setSearch("")}
+  1529→                className="absolute right-2 top-2 h-4 w-4 text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+  1530→                aria-label="Clear search"
+  1531→              >
+  1532→                <X className="h-3 w-3" />
+  1533→              </button>
+  1534→            )}
+  1535→          </div>
+  1536→          {/* View Toggle */}
+  1537→          <ToggleGroup
+  1538→            type="single"
+  1539→            value={viewMode}
+  1540→            onValueChange={(val) => { if (val) handleViewModeChange(val as "board" | "list"); }}
+  1541→            className="bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border border-gray-200/80 dark:border-gray-700/50"
+  1542→          >
+  1543→            <ToggleGroupItem value="board" className="h-8 gap-1.5 text-xs px-3 data-[state=on]:bg-primary/10 data-[state=on]:text-primary" aria-label="Board view">
+  1544→              <LayoutGrid className="h-3.5 w-3.5" />
+  1545→              <span className="hidden sm:inline">Board</span>
+  1546→            </ToggleGroupItem>
+  1547→            <ToggleGroupItem value="list" className="h-8 gap-1.5 text-xs px-3 data-[state=on]:bg-primary/10 data-[state=on]:text-primary" aria-label="List view">
+  1548→              <List className="h-3.5 w-3.5" />
+  1549→              <span className="hidden sm:inline">List</span>
+  1550→            </ToggleGroupItem>
+  1551→          </ToggleGroup>
+  1552→          {/* My Todos — ghost variant */}
+  1553→          <Button
+  1554→            variant="ghost"
+  1555→            size="sm"
+  1556→            className="h-8 gap-1.5 text-xs text-muted-foreground hidden sm:inline-flex"
+  1557→            onClick={() => router.push("/dashboard/projects/todos")}
+  1558→          >
+  1559→            <ClipboardCheck className="h-3.5 w-3.5" /> <span className="hidden md:inline">My Todos</span>
+  1560→          </Button>
+  1561→          {/* New Project */}
+  1562→          {isAdminUser && (
+  1563→          <Dialog open={addOpen} onOpenChange={setAddOpen}>
+  1564→            <DialogTrigger asChild>
+  1565→              <Button size="sm" className="h-8 gap-1.5 text-xs bg-primary shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 transition-all duration-300 hover:scale-[1.02]">
+  1566→                <Plus className="h-3.5 w-3.5" /> New Project
+  1567→              </Button>
+  1568→            </DialogTrigger>
+  1569→            <DialogContent className="sm:max-w-[480px]">
+  1570→              <DialogHeader><DialogTitle>Create Project</DialogTitle><DialogDescription>Create a new web development project for your client.</DialogDescription></DialogHeader>
+  1571→              <CreateProjectForm onSubmit={handleCreateProject} clients={clients as { id: string; name: string; company?: string }[]} />
+  1572→            </DialogContent>
+  1573→          </Dialog>
+  1574→          )}
+  1575→        </div>
+  1576→      </div>
+  1577→
+  1578→      {/* ━━━━ Stats Bar — Glassmorphism, 4 stats ━━━━ */}
+  1579→      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
+  1580→        <div className="rounded-xl p-2.5 sm:p-3 transition-all bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 hover:shadow-md">
+  1581→          <div className="flex items-center gap-1.5 mb-1">
+  1582→            <FolderKanban className="h-3.5 w-3.5 text-muted-foreground" />
+  1583→            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Total</span>
+  1584→          </div>
+  1585→          <p className="text-xl font-bold tracking-tight">{totalProjects}</p>
+  1586→        </div>
+  1587→        <div className="rounded-xl p-2.5 sm:p-3 transition-all bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-blue-200/40 dark:border-blue-500/20 hover:shadow-md">
+  1588→          <div className="flex items-center gap-1.5 mb-1">
+  1589→            <Activity className="h-3.5 w-3.5 text-blue-500" />
+  1590→            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">In Progress</span>
+  1591→          </div>
+  1592→          <p className="text-xl font-bold tracking-tight text-blue-600 dark:text-blue-400">{inProgressCount}</p>
+  1593→        </div>
+  1594→        <div className="rounded-xl p-2.5 sm:p-3 transition-all bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-yellow-200/40 dark:border-yellow-500/20 hover:shadow-md">
+  1595→          <div className="flex items-center gap-1.5 mb-1">
+  1596→            <CircleDot className="h-3.5 w-3.5 text-yellow-500" />
+  1597→            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Review</span>
+  1598→          </div>
+  1599→          <p className="text-xl font-bold tracking-tight text-yellow-600 dark:text-yellow-400">{reviewCount}</p>
+  1600→        </div>
+  1601→        <div className="rounded-xl p-2.5 sm:p-3 transition-all bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-emerald-200/40 dark:border-emerald-500/20 hover:shadow-md">
+  1602→          <div className="flex items-center gap-1.5 mb-1">
+  1603→            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+  1604→            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Completed</span>
+  1605→          </div>
+  1606→          <p className="text-xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400">{completedCount}</p>
+  1607→        </div>
+  1608→      </div>
+  1609→
+  1610→      {/* ━━━━ Filter Bar — Horizontal scrollable pills ━━━━ */}
+  1611→      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+  1612→        {["ALL", "PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"].map((s) => {
+  1613→          const isActive = filter === s;
+  1614→          const dotColor = s === "ALL" ? "bg-gray-400" : statusDotColors[s] || "bg-gray-400";
+  1615→          return (
+  1616→            <button
+  1617→              key={s}
+  1618→              onClick={() => setFilter(s)}
+  1619→              className={cn(
+  1620→                "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium whitespace-nowrap transition-all duration-200 shrink-0",
+  1621→                isActive
+  1622→                  ? "bg-primary text-primary-foreground shadow-sm"
+  1623→                  : "bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border border-gray-200/80 dark:border-gray-700/50 text-muted-foreground hover:bg-white dark:hover:bg-white/[0.07] hover:text-foreground"
+  1624→              )}
+  1625→            >
+  1626→              <span className={cn("h-1.5 w-1.5 rounded-full", isActive ? "bg-primary-foreground/80" : dotColor)} />
+  1627→              {s === "ALL" ? "All" : s.replace("_", " ")}
+  1628→            </button>
+  1629→          );
+  1630→        })}
+  1631→      </div>
+  1632→
+  1633→      {/* ━━━━ Main Content Area ━━━━ */}
+  1634→      {filtered.length === 0 ? (
+  1635→        <div className="text-center py-24">
+  1636→          <div className="h-16 w-16 mx-auto rounded-2xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center mb-4">
+  1637→            <FolderKanban className="h-8 w-8 text-primary/40" />
+  1638→          </div>
+  1639→          <p className="text-lg font-bold text-foreground/80">
+  1640→            {projects.length === 0 ? "No projects yet" : "No projects match your search"}
+  1641→          </p>
+  1642→          <p className="text-sm text-muted-foreground/60 mt-1.5 max-w-sm mx-auto">
+  1643→            {projects.length === 0 ? "Get started by creating your first project" : "Try adjusting your search or filter criteria"}
+  1644→          </p>
+  1645→          {projects.length === 0 && isAdminUser && (
+  1646→            <Button variant="outline" className="mt-5 gap-2 shadow-sm" onClick={() => setAddOpen(true)}>
+  1647→              <Plus className="h-4 w-4" /> Create your first project
+  1648→            </Button>
+  1649→          )}
+  1650→        </div>
+  1651→      ) : viewMode === "board" ? (
+  1652→        /* ━━ Kanban Board View ━━ */
+  1653→        <DndContext
+  1654→          sensors={sensors}
+  1655→          collisionDetection={closestCorners}
+  1656→          onDragStart={handleDragStart}
+  1657→          onDragEnd={handleDragEnd}
+  1658→        >
+  1659→          <div className="flex gap-3 overflow-x-auto pb-4 -mx-1 px-1 snap-x snap-mandatory">
+  1660→            {kanbanColumns.map((col) => {
+  1661→              const isDimmed = filter !== "ALL" && filter !== col.key;
+  1662→              return (
+  1663→                <DroppableKanbanColumn
+  1664→                  key={col.key}
+  1665→                  col={col}
+  1666→                  projects={col.projects}
+  1667→                  isAdminUser={isAdminUser}
+  1668→                  onCardClick={(project) => {
+  1669→                    if (isAdminUser) {
+  1670→                      openFloatingBoard(safeText(project.id, ""), safeText(project.name, "Project"));
+  1671→                    } else {
+  1672→                      const pId = safeText(project.id, "");
+  1673→                      router.push(`/dashboard/projects/${pId}`);
+  1674→                    }
+  1675→                  }}
+  1676→                  onEdit={openEditDialog}
+  1677→                  onDelete={openDeleteDialog}
+  1678→                  isDimmed={isDimmed}
+  1679→                  activeId={activeId}
+  1680→                  onHover={handlePrefetchProject}
+  1681→                  pendingTaskCounts={pendingTaskCounts}
+  1682→                />
+  1683→              );
+  1684→            })}
+  1685→          </div>
+  1686→          {/* DragOverlay — visual floating card during drag */}
+  1687→          <DragOverlay dropAnimation={null}>
+  1688→            {activeId ? (() => {
+  1689→              const project = (filtered as Record<string, unknown>[]).find(
+  1690→                (p) => safeText(p.id, "") === activeId
+  1691→              );
+  1692→              return project ? (
+  1693→                <KanbanProjectCard
+  1694→                  project={project}
+  1695→                  onClick={() => {}}
+  1696→                  isAdminUser={false}
+  1697→                  isDragging={true}
+  1698→                  pendingCount={pendingTaskCounts[safeText(project.id, "")]}
+  1699→                />
+  1700→              ) : null;
+  1701→            })() : null}
+  1702→          </DragOverlay>
+  1703→        </DndContext>
+  1704→      ) : (
+  1705→        /* ━━ List View ━━ */
+  1706→        <div className="space-y-2 max-h-[calc(100vh-300px)] overflow-y-auto pr-1">
+  1707→          {[...(filtered as Record<string, unknown>[])].sort((a, b) => {
+  1708→            const orderA = COLUMN_DISPLAY_ORDER[safeText(a.status, "")] ?? 99;
+  1709→            const orderB = COLUMN_DISPLAY_ORDER[safeText(b.status, "")] ?? 99;
+  1710→            return orderA - orderB;
+  1711→          }).map((project) => {
+  1712→            const pId = safeText(project.id, "");
+  1713→            return (
+  1714→              <ListViewRow
+  1715→                key={pId}
+  1716→                project={project}
+  1717→                isAdminUser={isAdminUser}
+  1718→                onView={() => {
+  1719→                  if (isAdminUser) {
+  1720→                    openFloatingBoard(pId, safeText(project.name, "Project"));
+  1721→                  } else {
+  1722→                    handlePrefetchProject(pId);
+  1723→                    router.push(`/dashboard/projects/${pId}`);
+  1724→                  }
+  1725→                }}
+  1726→                onEdit={isAdminUser ? openEditDialog : undefined}
+  1727→                onDelete={isAdminUser ? openDeleteDialog : undefined}
+  1728→                pendingCount={pendingTaskCounts[pId]}
+  1729→                onPendingClick={() => {
+  1730→                  if (isAdminUser) {
+  1731→                    openFloatingBoard(pId, safeText(project.name, "Project"));
+  1732→                  } else {
+  1733→                    handlePrefetchProject(pId);
+  1734→                    router.push(`/dashboard/projects/${pId}`);
+  1735→                  }
+  1736→                }}
+  1737→              />
+  1738→            );
+  1739→          })}
+  1740→        </div>
+  1741→      )}
+  1742→
+  1743→      {/* ━━━━ Floating Task Board Windows (Admin/SuperAdmin only) ━━━━ */}
+  1744→      {isAdminUser && floatingBoards.length > 0 && (
+  1745→        <>
+  1746→          {floatingBoards.some(b => !b.minimized) && (
+  1747→            <button
+  1748→              onClick={closeAllFloatingBoards}
+  1749→              className="fixed top-4 right-4 z-[10001] flex items-center gap-1.5 px-3.5 py-1.5 rounded-full
+  1750→                bg-red-500/80 hover:bg-red-500 text-white text-[11px] font-medium
+  1751→                backdrop-blur-2xl saturate-[1.8]
+  1752→                border border-white/20
+  1753→                shadow-[0_2px_12px_rgba(239,68,68,0.25),inset_0_0.5px_0_rgba(255,255,255,0.3)]
+  1754→                hover:shadow-[0_4px_20px_rgba(239,68,68,0.35),inset_0_0.5px_0_rgba(255,255,255,0.4)]
+  1755→                transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+  1756→              title="Close all floating task boards"
+  1757→            >
+  1758→              <X className="h-3 w-3" />
+  1759→              Close All
+  1760→            </button>
+  1761→          )}
+  1762→          {floatingBoards.map((board) => (
+  1763→            <FloatingBoardWindow
+  1764→              key={board.projectId}
+  1765→              board={board}
+  1766→              onClose={() => closeFloatingBoard(board.projectId)}
+  1767→              onMinimize={() => minimizeFloatingBoard(board.projectId)}
+  1768→              onBringToFront={() => bringBoardToFront(board.projectId)}
+  1769→              onPositionChange={(pos) => updateBoardPosition(board.projectId, pos)}
+  1770→              onSizeChange={(size) => updateBoardSize(board.projectId, size)}
+  1771→            />
+  1772→          ))}
+  1773→        </>
+  1774→      )}
+  1775→
+  1776→      {/* ━━━━ Edit Project Dialog with Tabs ━━━━ */}
+  1777→      <Dialog open={editOpen} onOpenChange={(open) => { setEditOpen(open); if (!open) setEditProject(null); }}>
+  1778→        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+  1779→          <DialogHeader><DialogTitle>Edit Project</DialogTitle><DialogDescription>Update project details, credentials, and methods.</DialogDescription></DialogHeader>
+  1780→          {editProject && (
+  1781→            <Tabs defaultValue="details">
+  1782→              <TabsList className="grid w-full grid-cols-3 bg-muted/50 p-1">
+  1783→                <TabsTrigger value="details" className="gap-1.5 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-md transition-all text-xs">
+  1784→                  <Pencil className="h-3 w-3" /> Details
+  1785→                </TabsTrigger>
+  1786→                <TabsTrigger value="credentials" className="gap-1.5 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-md transition-all text-xs">
+  1787→                  <Key className="h-3 w-3" /> Credentials
+  1788→                </TabsTrigger>
+  1789→                {isAdminUser && (
+  1790→                <TabsTrigger value="methods" className="gap-1.5 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-md transition-all text-xs">
+  1791→                  <Settings className="h-3 w-3" /> Methods
+  1792→                </TabsTrigger>
+  1793→                )}
+  1794→              </TabsList>
+  1795→
+  1796→              {/* Details Tab */}
+  1797→              <TabsContent value="details">
+  1798→                <div className="rounded-lg bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 p-4 mt-4 space-y-3">
+  1799→                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+  1800→                    <Pencil className="h-3.5 w-3.5" /> Project Information
+  1801→                  </h3>
+  1802→                  <form onSubmit={handleEditProject} className="space-y-3">
+  1803→                    <div className="space-y-1">
+  1804→                      <Label className="text-xs">Project Name *</Label>
+  1805→                      <Input name="name" defaultValue={typeof editProject.name === 'string' ? editProject.name : ''} required />
+  1806→                    </div>
+  1807→                    <div className="space-y-1">
+  1808→                      <Label className="text-xs">Description</Label>
+  1809→                      <Textarea name="description" rows={2} defaultValue={typeof editProject.description === 'string' ? editProject.description : ''} />
+  1810→                    </div>
+  1811→                    <div className="space-y-1">
+  1812→                      <Label className="text-xs">Client</Label>
+  1813→                      <ClientSearchSelect
+  1814→                        name="clientId"
+  1815→                        defaultValue={typeof editProject.clientId === 'string' ? editProject.clientId : ''}
+  1816→                        clients={(clients as { id: string; name: string; company?: string }[])}
+  1817→                      />
+  1818→                    </div>
+  1819→                    <div className="grid grid-cols-2 gap-3">
+  1820→                      <div className="space-y-1">
+  1821→                        <Label className="text-xs">Status</Label>
+  1822→                        <select name="status" defaultValue={typeof editProject.status === 'string' ? editProject.status : 'PLANNING'} className="border rounded px-3 py-2 text-sm bg-background w-full">
+  1823→                          {VALID_STATUSES.map((s) => (
+  1824→                            <option key={s} value={s}>{s.replace("_", " ")}</option>
+  1825→                          ))}
+  1826→                        </select>
+  1827→                      </div>
+  1828→                      <div className="space-y-1">
+  1829→                        <Label className="text-xs">Progress (%)</Label>
+  1830→                        <Input name="progress" type="number" min={0} max={100} defaultValue={typeof editProject.progress === 'number' ? editProject.progress : 0} />
+  1831→                      </div>
+  1832→                    </div>
+  1833→                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+  1834→                      <div className="space-y-1">
+  1835→                        <Label className="text-xs">Budget ({CURRENCY_SYMBOL}) <span className="text-muted-foreground/60 font-normal">(optional)</span></Label>
+  1836→                        <Input name="budget" type="number" step="any" min="0" placeholder="0.00" defaultValue={editProject.budget != null ? Number(editProject.budget) : ''} />
+  1837→                      </div>
+  1838→                      <div className="space-y-1">
+  1839→                        <Label className="text-xs">Live URL <span className="text-muted-foreground/60 font-normal">(optional)</span></Label>
+  1840→                        <Input
+  1841→                          name="liveUrl"
+  1842→                          type="url"
+  1843→                          placeholder="https://example.com"
+  1844→                          defaultValue={(() => {
+  1845→                            const ws = (editProject.websites as Record<string, unknown>[] | undefined) || [];
+  1846→                            const primary = ws.find((w) => w.isPrimary === true || w.isPrimary === "true") || ws[0];
+  1847→                            return primary ? safeText(primary.url, "") : "";
+  1848→                          })()}
+  1849→                        />
+  1850→                      </div>
+  1851→                    </div>
+  1852→                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+  1853→                      <div className="space-y-1">
+  1854→                        <Label className="text-xs">Start Date <span className="text-muted-foreground/60 font-normal">(optional)</span></Label>
+  1855→                        <Input name="startDate" type="date" defaultValue={editProject.startDate ? String(editProject.startDate).slice(0, 10) : ''} id="edit-start-date" onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+  1856→                          const deadlineInput = document.getElementById("edit-deadline") as HTMLInputElement | null;
+  1857→                          const sd = e.target.value;
+  1858→                          const dl = deadlineInput?.value || "";
+  1859→                          const period = calcProjectPeriod(sd, dl);
+  1860→                          const el = document.getElementById("edit-period-display");
+  1861→                          if (el) el.style.display = period ? "" : "none";
+  1862→                          if (el) el.textContent = period ? `Total Period: ${period}` : "";
+  1863→                        }} />
+  1864→                      </div>
+  1865→                      <div className="space-y-1">
+  1866→                        <Label className="text-xs">Deadline <span className="text-muted-foreground/60 font-normal">(optional)</span></Label>
+  1867→                        <Input name="deadline" type="date" defaultValue={editProject.deadline ? String(editProject.deadline).slice(0, 10) : ''} id="edit-deadline" onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+  1868→                          const startInput = document.getElementById("edit-start-date") as HTMLInputElement | null;
+  1869→                          const sd = startInput?.value || "";
+  1870→                          const dl = e.target.value;
+  1871→                          const period = calcProjectPeriod(sd, dl);
+  1872→                          const el = document.getElementById("edit-period-display");
+  1873→                          if (el) el.style.display = period ? "" : "none";
+  1874→                          if (el) el.textContent = period ? `Total Period: ${period}` : "";
+  1875→                        }} />
+  1876→                      </div>
+  1877→                    </div>
+  1878→                    <div id="edit-period-display" className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary/5 border border-primary/10" style={{ display: (() => {
+  1879→                      const sd = editProject.startDate ? String(editProject.startDate).slice(0, 10) : '';
+  1880→                      const dl = editProject.deadline ? String(editProject.deadline).slice(0, 10) : '';
+  1881→                      return calcProjectPeriod(sd, dl) ? "" : "none";
+  1882→                    })() }}>
+  1883→                      <Activity className="h-3.5 w-3.5 text-primary" />
+  1884→                      <span className="text-xs font-medium text-primary">{(() => {
+  1885→                        const sd = editProject.startDate ? String(editProject.startDate).slice(0, 10) : '';
+  1886→                        const dl = editProject.deadline ? String(editProject.deadline).slice(0, 10) : '';
+  1887→                        const p = calcProjectPeriod(sd, dl);
+  1888→                        return p ? `Total Period: ${p}` : "";
+  1889→                      })()}</span>
+  1890→                    </div>
+  1891→                    <div className="flex gap-2 pt-2">
+  1892→                      <Button type="button" variant="outline" className="flex-1" onClick={() => { setEditOpen(false); setEditProject(null); }}>Cancel</Button>
+  1893→                      <Button type="submit" className="flex-1">Save Changes</Button>
+  1894→                    </div>
+  1895→                  </form>
+  1896→                </div>
+  1897→              </TabsContent>
+  1898→
+  1899→              {/* Credentials Tab */}
+  1900→              <TabsContent value="credentials">
+  1901→                <div className="rounded-lg bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 p-4 mt-4 space-y-4">
+  1902→                  {/* Add new credential */}
+  1903→                  <div className="space-y-2">
+  1904→                    <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+  1905→                      <Key className="h-3.5 w-3.5" /> Add New Credential
+  1906→                    </h3>
+  1907→                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+  1908→                      <Input placeholder="Title (e.g., Hosting Login)" value={newCred.title} onChange={(e) => setNewCred({ ...newCred, title: e.target.value })} className="h-8 text-sm" />
+  1909→                      <Input placeholder="Username / Email" value={newCred.username} onChange={(e) => setNewCred({ ...newCred, username: e.target.value })} className="h-8 text-sm" />
+  1910→                      <Input placeholder="Password" type="password" value={newCred.password} onChange={(e) => setNewCred({ ...newCred, password: e.target.value })} className="h-8 text-sm" />
+  1911→                    </div>
+  1912→                    <Button type="button" size="sm" onClick={handleAddCredential} disabled={!newCred.title.trim() || !newCred.username.trim() || !newCred.password.trim()} className="h-8">
+  1913→                      <Plus className="h-3 w-3 mr-1" /> Add Credential
+  1914→                    </Button>
+  1915→                  </div>
+  1916→
+  1917→                  {/* Existing credentials */}
+  1918→                  <div className="space-y-2">
+  1919→                    <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+  1920→                      <Key className="h-3.5 w-3.5" /> Stored Credentials
+  1921→                    </h3>
+  1922→                  </div>
+  1923→                  <div className="max-h-64 overflow-y-auto space-y-2">
+  1924→                    {credentials.length === 0 && (
+  1925→                      <p className="text-sm text-muted-foreground text-center py-6">No credentials stored</p>
+  1926→                    )}
+  1927→                    {credentials.map((cred) => (
+  1928→                      <div key={cred.id} className="border rounded-lg p-3 space-y-2 bg-white/40 dark:bg-white/[0.02]">
+  1929→                        {editingCredId === cred.id ? (
+  1930→                          <>
+  1931→                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+  1932→                              <Input value={editingCred.title} onChange={(e) => setEditingCred({ ...editingCred, title: e.target.value })} className="h-8 text-sm" />
+  1933→                              <Input value={editingCred.username} onChange={(e) => setEditingCred({ ...editingCred, username: e.target.value })} className="h-8 text-sm" />
+  1934→                              <Input value={editingCred.password} onChange={(e) => { setEditingCred({ ...editingCred, password: e.target.value }); setPasswordChanged(true); }} className="h-8 text-sm" placeholder="Enter new password (leave blank to keep)" />
+  1935→                            </div>
+  1936→                            <div className="flex gap-2">
+  1937→                              <Button type="button" size="sm" className="h-7" onClick={handleUpdateCredential}>Save</Button>
+  1938→                              <Button type="button" size="sm" variant="ghost" className="h-7" onClick={() => setEditingCredId(null)}>Cancel</Button>
+  1939→                            </div>
+  1940→                          </>
+  1941→                        ) : (
+  1942→                          <>
+  1943→                            <div className="flex items-center justify-between">
+  1944→                              <div className="flex items-center gap-2">
+  1945→                                <Key className="h-3.5 w-3.5 text-muted-foreground" />
+  1946→                                <span className="text-sm font-medium">{cred.title}</span>
+  1947→                              </div>
+  1948→                              <div className="flex gap-1">
+  1949→                                <Button type="button" variant="ghost" size="sm" className="h-7 w-7" onClick={() => { setEditingCredId(cred.id); setEditingCred({ title: cred.title, username: cred.username, password: "" }); setPasswordChanged(false); }} title="Edit">
+  1950→                                  <Pencil className="h-3 w-3" />
+  1951→                                </Button>
+  1952→                                <Button type="button" variant="ghost" size="sm" className="h-7 w-7 text-red-500" onClick={() => setDeleteCredId(cred.id)} title="Delete">
+  1953→                                  <Trash2 className="h-3 w-3" />
+  1954→                                </Button>
+  1955→                              </div>
+  1956→                            </div>
+  1957→                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+  1958→                              <span>Username: <span className="font-mono text-foreground">{cred.username}</span></span>
+  1959→                              <span className="mx-1">&bull;</span>
+  1960→                              <span>Password: <span className="font-mono text-foreground">{showPasswords[cred.id] ? cred.password : "&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;"}</span></span>
+  1961→                              <Button type="button" variant="ghost" size="sm" className="h-5 w-5 ml-auto" onClick={() => { setShowPasswords({ ...showPasswords, [cred.id]: !showPasswords[cred.id] }); }} title={showPasswords[cred.id] ? "Hide" : "Show"} aria-label={showPasswords[cred.id] ? "Hide password" : "Show password"}>
+  1962→                                {showPasswords[cred.id] ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+  1963→                              </Button>
+  1964→                              <Button type="button" variant="ghost" size="sm" className="h-5 w-5" onClick={async () => { try { await navigator.clipboard.writeText(cred.password); toast.success("Copied"); } catch { toast.error("Failed to copy to clipboard"); } }} title="Copy" aria-label="Copy password">
+  1965→                                <Copy className="h-3 w-3" />
+  1966→                              </Button>
+  1967→                            </div>
+  1968→                          </>
+  1969→                        )}
+  1970→                      </div>
+  1971→                    ))}
+  1972→                  </div>
+  1973→                </div>
+  1974→              </TabsContent>
+  1975→
+  1976→              {/* Methods Tab — admin only */}
+  1977→              {isAdminUser && (
+  1978→              <TabsContent value="methods">
+  1979→                <div className="rounded-lg bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 p-4 mt-4 space-y-4">
+  1980→
+  1981→                  {/* Section 1: Assign methods to this project */}
+  1982→                  {editProject && (
+  1983→                    <div className="space-y-3 pb-4 border-b border-white/20 dark:border-white/10">
+  1984→                      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+  1985→                        <CheckCircle2 className="h-3.5 w-3.5" /> Methods for this Project
+  1986→                      </h3>
+  1987→                      <p className="text-[11px] text-muted-foreground">Select which methods apply to this project.</p>
+  1988→                      <div className="space-y-1.5 max-h-48 overflow-y-auto">
+  1989→                        {methodLoading ? (
+  1990→                          <div className="space-y-2">
+  1991→                            {[1, 2, 3].map((i) => (
+  1992→                              <div key={i} className="h-8 bg-muted/50 animate-pulse rounded-lg" />
+  1993→                            ))}
+  1994→                          </div>
+  1995→                        ) : (
+  1996→                          <>
+  1997→                            {projectMethods.length === 0 && (
+  1998→                              <p className="text-sm text-muted-foreground text-center py-4">No methods available. Add methods below first.</p>
+  1999→                            )}
+  2000→                            {projectMethods.map((pm) => (
+
+[showing lines 1-2000 of 2188; use offset=2001 with limit to continue reading]

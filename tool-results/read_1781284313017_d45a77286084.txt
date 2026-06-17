@@ -1,0 +1,1456 @@
+     1→     1→"use client";
+     2→     2→
+     3→     3→import { useEffect, useState, useCallback, useMemo } from "react";
+     4→     4→import { useSession } from "next-auth/react";
+     5→     5→import { useRouter } from "next/navigation";
+     6→     6→import {
+     7→     7→  Video, Plus, Calendar, Clock, Users, ExternalLink, MapPin,
+     8→     8→  Phone, Monitor, ChevronDown, ChevronUp, X, Check,
+     9→     9→  CalendarDays, CalendarRange, List, Grid3X3,
+    10→    10→  StickyNote, Link2,
+    11→    11→} from "lucide-react";
+    12→    12→import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+    13→    13→import { Button } from "@/components/ui/button";
+    14→    14→import { Badge } from "@/components/ui/badge";
+    15→    15→import { Input } from "@/components/ui/input";
+    16→    16→import { Label } from "@/components/ui/label";
+    17→    17→import { Textarea } from "@/components/ui/textarea";
+    18→    18→import { Separator } from "@/components/ui/separator";
+    19→    19→import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+    20→    20→import {
+    21→    21→  Dialog,
+    22→    22→  DialogContent,
+    23→    23→  DialogHeader,
+    24→    24→  DialogTitle,
+    25→    25→  DialogFooter,
+    26→    26→} from "@/components/ui/dialog";
+    27→    27→import {
+    28→    28→  AlertDialog,
+    29→    29→  AlertDialogAction,
+    30→    30→  AlertDialogCancel,
+    31→    31→  AlertDialogContent,
+    32→    32→  AlertDialogDescription,
+    33→    33→  AlertDialogFooter,
+    34→    34→  AlertDialogHeader,
+    35→    35→  AlertDialogTitle,
+    36→    36→} from "@/components/ui/alert-dialog";
+    37→    37→import {
+    38→    38→  Sheet,
+    39→    39→  SheetContent,
+    40→    40→  SheetHeader,
+    41→    41→  SheetTitle,
+    42→    42→} from "@/components/ui/sheet";
+    43→    43→import {
+    44→    44→  Select,
+    45→    45→  SelectContent,
+    46→    46→  SelectItem,
+    47→    47→  SelectTrigger,
+    48→    48→  SelectValue,
+    49→    49→} from "@/components/ui/select";
+    50→    50→
+    51→    51→import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+    52→    52→import { toast } from "sonner";
+    53→    53→import { cn, safeArray } from "@/lib/utils";
+    54→    54→import { PageHeader } from "@/components/page-header";
+    55→    55→import { Checkbox } from "@/components/ui/checkbox";
+    56→    56→
+    57→    57→// ━━ Meeting link URL sanitization — prevent javascript: XSS ━━
+    58→    58→function safeMeetingLink(link: string | null): string {
+    59→    59→  if (!link) return '#';
+    60→    60→  try {
+    61→    61→    const url = new URL(link);
+    62→    62→    return url.protocol === 'https:' || url.protocol === 'http:' ? link : '#';
+    63→    63→  } catch {
+    64→    64→    return '#';
+    65→    65→  }
+    66→    66→}
+    67→    67→
+    68→    68→// ━━ Types ━━
+    69→    69→interface MeetingAttendee {
+    70→    70→  id: string;
+    71→    71→  meetingId: string;
+    72→    72→  userId: string;
+    73→    73→  rsvpStatus: string;
+    74→    74→  user: {
+    75→    75→    id: string;
+    76→    76→    name: string;
+    77→    77→    email: string;
+    78→    78→    avatar: string | null;
+    79→    79→  };
+    80→    80→}
+    81→    81→
+    82→    82→interface Meeting {
+    83→    83→  id: string;
+    84→    84→  title: string;
+    85→    85→  description: string | null;
+    86→    86→  date: string;
+    87→    87→  startTime: string;
+    88→    88→  endTime: string | null;
+    89→    89→  organizerId: string;
+    90→    90→  meetingType: string;
+    91→    91→  meetingLink: string | null;
+    92→    92→  projectId: string | null;
+    93→    93→  status: string;
+    94→    94→  notes: string | null;
+    95→    95→  createdAt: string;
+    96→    96→  updatedAt: string;
+    97→    97→  organizer: {
+    98→    98→    id: string;
+    99→    99→    name: string;
+   100→   100→    email: string;
+   101→   101→    avatar: string | null;
+   102→   102→  };
+   103→   103→  project: { id: string; name: string } | null;
+   104→   104→  attendees: MeetingAttendee[];
+   105→   105→}
+   106→   106→
+   107→   107→interface TeamMember {
+   108→   108→  id: string;
+   109→   109→  name: string;
+   110→   110→  email: string;
+   111→   111→  avatar: string | null;
+   112→   112→  role: string;
+   113→   113→}
+   114→   114→
+   115→   115→interface Project {
+   116→   116→  id: string;
+   117→   117→  name: string;
+   118→   118→}
+   119→   119→
+   120→   120→// ━━ Constants ━━
+   121→   121→const meetingTypeConfig: Record<string, { label: string; icon: React.ComponentType<{ className?: string }>; color: string; bgColor: string }> = {
+   122→   122→  VIRTUAL: { label: "Virtual", icon: Video, color: "text-blue-600 dark:text-blue-400", bgColor: "bg-blue-100 dark:bg-blue-900/30" },
+   123→   123→  IN_PERSON: { label: "In Person", icon: MapPin, color: "text-green-600 dark:text-green-400", bgColor: "bg-green-100 dark:bg-green-900/30" },
+   124→   124→  PHONE: { label: "Phone", icon: Phone, color: "text-orange-600 dark:text-orange-400", bgColor: "bg-orange-100 dark:bg-orange-900/30" },
+   125→   125→};
+   126→   126→
+   127→   127→const statusConfig: Record<string, { label: string; color: string; bgColor: string; borderColor: string }> = {
+   128→   128→  SCHEDULED: { label: "Scheduled", color: "text-blue-700 dark:text-blue-300", bgColor: "bg-blue-100 dark:bg-blue-900/30", borderColor: "border-l-blue-500" },
+   129→   129→  IN_PROGRESS: { label: "In Progress", color: "text-yellow-700 dark:text-yellow-300", bgColor: "bg-yellow-100 dark:bg-yellow-900/30", borderColor: "border-l-yellow-500" },
+   130→   130→  COMPLETED: { label: "Completed", color: "text-green-700 dark:text-green-300", bgColor: "bg-green-100 dark:bg-green-900/30", borderColor: "border-l-green-500" },
+   131→   131→  CANCELLED: { label: "Cancelled", color: "text-red-700 dark:text-red-300", bgColor: "bg-red-100 dark:bg-red-900/30", borderColor: "border-l-red-500" },
+   132→   132→};
+   133→   133→
+   134→   134→const rsvpConfig: Record<string, { label: string; color: string; bgColor: string; icon: React.ComponentType<{ className?: string }> }> = {
+   135→   135→  PENDING: { label: "Pending", color: "text-yellow-700 dark:text-yellow-300", bgColor: "bg-yellow-100 dark:bg-yellow-900/30", icon: Clock },
+   136→   136→  ACCEPTED: { label: "Accepted", color: "text-green-700 dark:text-green-300", bgColor: "bg-green-100 dark:bg-green-900/30", icon: Check },
+   137→   137→  DECLINED: { label: "Declined", color: "text-red-700 dark:text-red-300", bgColor: "bg-red-100 dark:bg-red-900/30", icon: X },
+   138→   138→};
+   139→   139→
+   140→   140→// ━━ Helpers ━━
+   141→   141→function calculateMeetingDuration(start: string, end: string): string {
+   142→   142→  const [startH, startM] = start.split(":").map(Number)
+   143→   143→  const [endH, endM] = end.split(":").map(Number)
+   144→   144→  let diffMinutes = (endH * 60 + endM) - (startH * 60 + startM)
+   145→   145→  if (diffMinutes < 0) diffMinutes += 24 * 60 // overnight
+   146→   146→  const hours = Math.floor(diffMinutes / 60)
+   147→   147→  const mins = diffMinutes % 60
+   148→   148→  if (hours === 0) return `${mins}m`
+   149→   149→  if (mins === 0) return `${hours}h`
+   150→   150→  return `${hours}h ${mins}m`
+   151→   151→}
+   152→   152→
+   153→   153→function isOvernightMeeting(start: string, end: string): boolean {
+   154→   154→  if (!start || !end) return false
+   155→   155→  const [startH, startM] = start.split(":").map(Number)
+   156→   156→  const [endH, endM] = end.split(":").map(Number)
+   157→   157→  return (endH * 60 + endM) < (startH * 60 + startM) // strictly less (equal = same time = invalid, not overnight)
+   158→   158→}
+   159→   159→
+   160→   160→function formatTime(time: string): string {
+   161→   161→  if (!time) return "";
+   162→   162→  const [h, m] = time.split(":");
+   163→   163→  const hour = parseInt(h);
+   164→   164→  const ampm = hour >= 12 ? "PM" : "AM";
+   165→   165→  const displayHour = hour % 12 || 12;
+   166→   166→  return `${displayHour}:${m} ${ampm}`;
+   167→   167→}
+   168→   168→
+   169→   169→function formatDate(dateStr: string): string {
+   170→   170→  try {
+   171→   171→    const date = new Date(dateStr);
+   172→   172→    if (isNaN(date.getTime())) return "Invalid date";
+   173→   173→    return date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+   174→   174→  } catch {
+   175→   175→    return "Invalid date";
+   176→   176→  }
+   177→   177→}
+   178→   178→
+   179→   179→function isToday(dateStr: string): boolean {
+   180→   180→  const date = new Date(dateStr);
+   181→   181→  const today = new Date();
+   182→   182→  return date.toDateString() === today.toDateString();
+   183→   183→}
+   184→   184→
+   185→   185→function isTomorrow(dateStr: string): boolean {
+   186→   186→  const date = new Date(dateStr);
+   187→   187→  const tomorrow = new Date();
+   188→   188→  tomorrow.setDate(tomorrow.getDate() + 1);
+   189→   189→  return date.toDateString() === tomorrow.toDateString();
+   190→   190→}
+   191→   191→
+   192→   192→function isThisWeek(dateStr: string): boolean {
+   193→   193→  const date = new Date(dateStr);
+   194→   194→  const now = new Date();
+   195→   195→  const startOfWeek = new Date(now);
+   196→   196→  startOfWeek.setDate(now.getDate() - now.getDay());
+   197→   197→  startOfWeek.setHours(0, 0, 0, 0);
+   198→   198→  const endOfWeek = new Date(startOfWeek);
+   199→   199→  endOfWeek.setDate(startOfWeek.getDate() + 7);
+   200→   200→  return date >= startOfWeek && date < endOfWeek;
+   201→   201→}
+   202→   202→
+   203→   203→function getInitials(name: string): string {
+   204→   204→  return name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
+   205→   205→}
+   206→   206→
+   207→   207→function getDateLabel(dateStr: string): string {
+   208→   208→  if (isToday(dateStr)) return "Today";
+   209→   209→  if (isTomorrow(dateStr)) return "Tomorrow";
+   210→   210→  if (isThisWeek(dateStr)) return "This Week";
+   211→   211→  return "Later";
+   212→   212→}
+   213→   213→
+   214→   214→// ━━ Main Component ━━
+   215→   215→export default function MeetingsPage() {
+   216→   216→  const router = useRouter();
+   217→   217→  const { data: session, status } = useSession();
+   218→   218→  const [meetings, setMeetings] = useState<Meeting[]>([]);
+   219→   219→  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+   220→   220→  const [projects, setProjects] = useState<Project[]>([]);
+   221→   221→  const [loading, setLoading] = useState(true);
+   222→   222→  const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
+   223→   223→  const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
+   224→   224→  const [detailOpen, setDetailOpen] = useState(false);
+   225→   225→  const [dialogOpen, setDialogOpen] = useState(false);
+   226→   226→  const [editMode, setEditMode] = useState(false);
+   227→   227→  const [submitting, setSubmitting] = useState(false);
+   228→   228→  const [calendarDate, setCalendarDate] = useState<Date>(new Date());
+   229→   229→  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({ Today: true, Tomorrow: true, "This Week": true, Later: true });
+   230→   230→
+   231→   231→  const [cancelMeetingId, setCancelMeetingId] = useState<string | null>(null);
+   232→   232→
+   233→   233→  // Form state
+   234→   234→  const [formTitle, setFormTitle] = useState("");
+   235→   235→  const [formDescription, setFormDescription] = useState("");
+   236→   236→  const [formDate, setFormDate] = useState("");
+   237→   237→  const [formStartTime, setFormStartTime] = useState("09:00");
+   238→   238→  const [formEndTime, setFormEndTime] = useState("");
+   239→   239→  const [formMeetingType, setFormMeetingType] = useState("VIRTUAL");
+   240→   240→  const [formMeetingLink, setFormMeetingLink] = useState("");
+   241→   241→  const [formProjectId, setFormProjectId] = useState("");
+   242→   242→  const [formAttendeeIds, setFormAttendeeIds] = useState<string[]>([]);
+   243→   243→  const [formNotes, setFormNotes] = useState("");
+   244→   244→
+   245→   245→  const userRole = session?.user?.role || "DEVELOPER";
+   246→   246→  const userId = session?.user?.id || "";
+   247→   247→  const isAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+   248→   248→
+   249→   249→  const fetchMeetings = useCallback(async (signal?: AbortSignal) => {
+   250→   250→    try {
+   251→   251→      const res = await fetch("/api/meetings", { credentials: "include", signal });
+   252→   252→      if (res.status === 401) { router.push("/login"); return; }
+   253→   253→      if (res.ok) {
+   254→   254→        const data = await res.json();
+   255→   255→        setMeetings(safeArray<Meeting>(data.data || data));
+   256→   256→      } else {
+   257→   257→        // Show error for non-ok responses (500, 429, etc.)
+   258→   258→        try {
+   259→   259→          const errData = await res.json();
+   260→   260→          console.error("[meetings] API error:", errData);
+   261→   261→        } catch { /* ignore parse error */ }
+   262→   262→      }
+   263→   263→    } catch (err) {
+   264→   264→      if (err instanceof DOMException && err.name === "AbortError") return;
+   265→   265→      console.error("[meetings] Failed to fetch meetings:", err);
+   266→   266→      toast.error("Failed to load meetings");
+   267→   267→    } finally {
+   268→   268→      setLoading(false);
+   269→   269→    }
+   270→   270→  }, []);
+   271→   271→
+   272→   272→  const fetchTeamAndProjects = useCallback(async () => {
+   273→   273→    try {
+   274→   274→      const [teamRes, projectsRes] = await Promise.all([
+   275→   275→        fetch("/api/team", { credentials: "include" }),
+   276→   276→        fetch("/api/projects", { credentials: "include" }),
+   277→   277→      ]);
+   278→   278→      if (teamRes.ok) {
+   279→   279→        const teamData = await teamRes.json();
+   280→   280→        setTeamMembers(safeArray<TeamMember>(teamData).filter((u: TeamMember) => u.id !== userId));
+   281→   281→      }
+   282→   282→      if (projectsRes.ok) {
+   283→   283→        const projectData = await projectsRes.json();
+   284→   284→        setProjects(safeArray<Project>(projectData));
+   285→   285→      }
+   286→   286→    } catch (err) {
+   287→   287→      console.error("Failed to fetch team and projects:", err);
+   288→   288→    }
+   289→   289→  }, [userId]);
+   290→   290→
+   291→   291→  useEffect(() => {
+   292→   292→    const controller = new AbortController();
+   293→   293→    const signal = controller.signal;
+   294→   294→    fetchMeetings(signal);
+   295→   295→    fetchTeamAndProjects();
+   296→   296→    return () => controller.abort();
+   297→   297→  }, [fetchMeetings, fetchTeamAndProjects]);
+   298→   298→
+   299→   299→  // Stats
+   300→   300→  const stats = useMemo(() => {
+   301→   301→    const today = new Date();
+   302→   302→    today.setHours(0, 0, 0, 0);
+   303→   303→    const tomorrow = new Date(today);
+   304→   304→    tomorrow.setDate(tomorrow.getDate() + 1);
+   305→   305→    const weekEnd = new Date(today);
+   306→   306→    weekEnd.setDate(weekEnd.getDate() + 7);
+   307→   307→
+   308→   308→    const upcoming = meetings.filter((m) => m.status === "SCHEDULED" && new Date(m.date) >= today).length;
+   309→   309→    const todayCount = meetings.filter((m) => isToday(m.date) && m.status !== "CANCELLED").length;
+   310→   310→    const thisWeek = meetings.filter((m) => {
+   311→   311→      const d = new Date(m.date);
+   312→   312→      return d >= today && d < weekEnd && m.status !== "CANCELLED";
+   313→   313→    }).length;
+   314→   314→
+   315→   315→    return { upcoming, todayCount, thisWeek };
+   316→   316→  }, [meetings]);
+   317→   317→
+   318→   318→  // Group meetings
+   319→   319→  const groupedMeetings = useMemo(() => {
+   320→   320→    const groups: Record<string, Meeting[]> = { Today: [], Tomorrow: [], "This Week": [], Later: [] };
+   321→   321→
+   322→   322→    const sortedMeetings = [...meetings]
+   323→   323→      .filter((m) => m.status !== "CANCELLED")
+   324→   324→      .sort((a, b) => {
+   325→   325→        const dateCompare = new Date(a.date).getTime() - new Date(b.date).getTime();
+   326→   326→        if (dateCompare !== 0) return dateCompare;
+   327→   327→        return a.startTime.localeCompare(b.startTime);
+   328→   328→      });
+   329→   329→
+   330→   330→    for (const meeting of sortedMeetings) {
+   331→   331→      const label = getDateLabel(meeting.date);
+   332→   332→      groups[label].push(meeting);
+   333→   333→    }
+   334→   334→
+   335→   335→    return groups;
+   336→   336→  }, [meetings]);
+   337→   337→
+   338→   338→  const cancelledMeetings = useMemo(() => meetings.filter((m) => m.status === "CANCELLED"), [meetings]);
+   339→   339→
+   340→   340→  // Calendar days for the current month
+   341→   341→  const calendarDays = useMemo(() => {
+   342→   342→    const year = calendarDate.getFullYear();
+   343→   343→    const month = calendarDate.getMonth();
+   344→   344→    const firstDay = new Date(year, month, 1).getDay();
+   345→   345→    const daysInMonth = new Date(year, month + 1, 0).getDate();
+   346→   346→    const days: { day: number; meetings: Meeting[]; isCurrentMonth: boolean }[] = [];
+   347→   347→
+   348→   348→    // Previous month padding
+   349→   349→    const prevMonthDays = new Date(year, month, 0).getDate();
+   350→   350→    for (let i = firstDay - 1; i >= 0; i--) {
+   351→   351→      days.push({ day: prevMonthDays - i, meetings: [], isCurrentMonth: false });
+   352→   352→    }
+   353→   353→
+   354→   354→    // Current month days
+   355→   355→    for (let d = 1; d <= daysInMonth; d++) {
+   356→   356→      const dateStr = new Date(year, month, d).toISOString();
+   357→   357→      const dayMeetings = meetings.filter((m) => {
+   358→   358→        const mDate = new Date(m.date);
+   359→   359→        return mDate.getFullYear() === year && mDate.getMonth() === month && mDate.getDate() === d && m.status !== "CANCELLED";
+   360→   360→      });
+   361→   361→      days.push({ day: d, meetings: dayMeetings, isCurrentMonth: true });
+   362→   362→    }
+   363→   363→
+   364→   364→    // Next month padding
+   365→   365→    const remaining = 42 - days.length;
+   366→   366→    for (let i = 1; i <= remaining; i++) {
+   367→   367→      days.push({ day: i, meetings: [], isCurrentMonth: false });
+   368→   368→    }
+   369→   369→
+   370→   370→    return days;
+   371→   371→  }, [calendarDate, meetings]);
+   372→   372→
+   373→   373→  const resetForm = () => {
+   374→   374→    setFormTitle("");
+   375→   375→    setFormDescription("");
+   376→   376→    setFormDate("");
+   377→   377→    setFormStartTime("09:00");
+   378→   378→    setFormEndTime("");
+   379→   379→    setFormMeetingType("VIRTUAL");
+   380→   380→    setFormMeetingLink("");
+   381→   381→    setFormProjectId("");
+   382→   382→    setFormAttendeeIds([]);
+   383→   383→    setFormNotes("");
+   384→   384→    setEditMode(false);
+   385→   385→  };
+   386→   386→
+   387→   387→  const openCreateDialog = () => {
+   388→   388→    resetForm();
+   389→   389→    setDialogOpen(true);
+   390→   390→  };
+   391→   391→
+   392→   392→  const openEditDialog = (meeting: Meeting) => {
+   393→   393→    setFormTitle(meeting.title);
+   394→   394→    setFormDescription(meeting.description || "");
+   395→   395→    try {
+   396→   396→      setFormDate(new Date(meeting.date).toISOString().split("T")[0]);
+   397→   397→    } catch {
+   398→   398→      setFormDate("");
+   399→   399→    }
+   400→   400→    setFormStartTime(meeting.startTime || "09:00");
+   401→   401→    setFormEndTime(meeting.endTime || "");
+   402→   402→    setFormMeetingType(meeting.meetingType);
+   403→   403→    setFormMeetingLink(meeting.meetingLink || "");
+   404→   404→    setFormProjectId(meeting.projectId || "");
+   405→   405→    setFormAttendeeIds(safeArray<MeetingAttendee>(meeting.attendees).map((a) => a.userId));
+   406→   406→    setFormNotes(meeting.notes || "");
+   407→   407→    setEditMode(true);
+   408→   408→    setDetailOpen(false);
+   409→   409→    setDialogOpen(true);
+   410→   410→  };
+   411→   411→
+   412→   412→  const handleSubmit = async () => {
+   413→   413→    if (!formTitle || !formDate || !formStartTime) {
+   414→   414→      toast.error("Please fill in all required fields");
+   415→   415→      return;
+   416→   416→    }
+   417→   417→
+   418→   418→    setSubmitting(true);
+   419→   419→    try {
+   420→   420→      const url = editMode ? `/api/meetings/${selectedMeeting?.id}` : "/api/meetings";
+   421→   421→      const method = editMode ? "PATCH" : "POST";
+   422→   422→      const body: Record<string, unknown> = {
+   423→   423→        title: formTitle,
+   424→   424→        description: formDescription || undefined,
+   425→   425→        date: formDate,
+   426→   426→        startTime: formStartTime,
+   427→   427→        endTime: formEndTime || undefined,
+   428→   428→        meetingType: formMeetingType,
+   429→   429→        meetingLink: formMeetingLink || undefined,
+   430→   430→        projectId: formProjectId === "none" ? undefined : (formProjectId || undefined),
+   431→   431→        attendeeIds: formAttendeeIds,
+   432→   432→        notes: formNotes || undefined,
+   433→   433→      };
+   434→   434→
+   435→   435→      if (editMode) {
+   436→   436→        body.id = selectedMeeting?.id;
+   437→   437→      }
+   438→   438→
+   439→   439→      const res = await fetch(url, {
+   440→   440→        method,
+   441→   441→        headers: { "Content-Type": "application/json" },
+   442→   442→        credentials: "include",
+   443→   443→        body: JSON.stringify(body),
+   444→   444→      });
+   445→   445→
+   446→   446→      if (res.ok) {
+   447→   447→        toast.success(editMode ? "Meeting updated" : "Meeting scheduled");
+   448→   448→        setDialogOpen(false);
+   449→   449→        resetForm();
+   450→   450→        fetchMeetings();
+   451→   451→      } else {
+   452→   452→        const err = await res.json();
+   453→   453→        toast.error(err.error || "Failed to save meeting");
+   454→   454→      }
+   455→   455→    } catch {
+   456→   456→      toast.error("Failed to save meeting");
+   457→   457→    } finally {
+   458→   458→      setSubmitting(false);
+   459→   459→    }
+   460→   460→  };
+   461→   461→
+   462→   462→  const handleCancel = async (meetingId: string) => {
+   463→   463→    try {
+   464→   464→      const res = await fetch(`/api/meetings/${meetingId}`, {
+   465→   465→        method: "DELETE",
+   466→   466→        credentials: "include",
+   467→   467→      });
+   468→   468→      if (res.ok) {
+   469→   469→        toast.success("Meeting cancelled");
+   470→   470→        setDetailOpen(false);
+   471→   471→        setCancelMeetingId(null);
+   472→   472→        fetchMeetings();
+   473→   473→      } else {
+   474→   474→        const err = await res.json();
+   475→   475→        toast.error(err.error || "Failed to cancel meeting");
+   476→   476→      }
+   477→   477→    } catch {
+   478→   478→      toast.error("Failed to cancel meeting");
+   479→   479→    } finally {
+   480→   480→      setCancelMeetingId(null);
+   481→   481→    }
+   482→   482→  };
+   483→   483→
+   484→   484→  const handleRsvp = async (meetingId: string, rsvpStatus: "ACCEPTED" | "DECLINED") => {
+   485→   485→    try {
+   486→   486→      const res = await fetch(`/api/meetings/${meetingId}/rsvp`, {
+   487→   487→        method: "POST",
+   488→   488→        headers: { "Content-Type": "application/json" },
+   489→   489→        credentials: "include",
+   490→   490→        body: JSON.stringify({ rsvpStatus }),
+   491→   491→      });
+   492→   492→      if (res.ok) {
+   493→   493→        toast.success(rsvpStatus === "ACCEPTED" ? "Meeting accepted" : "Meeting declined");
+   494→   494→        fetchMeetings();
+   495→   495→        // Update detail view if open
+   496→   496→        if (selectedMeeting?.id === meetingId) {
+   497→   497→          setSelectedMeeting((prev) => {
+   498→   498→            if (!prev) return prev;
+   499→   499→            return {
+   500→   500→              ...prev,
+   501→   501→              attendees: prev.attendees.map((a) =>
+   502→   502→                a.userId === userId ? { ...a, rsvpStatus } : a
+   503→   503→              ),
+   504→   504→            };
+   505→   505→          });
+   506→   506→        }
+   507→   507→      } else {
+   508→   508→        const err = await res.json();
+   509→   509→        toast.error(err.error || "Failed to update RSVP");
+   510→   510→      }
+   511→   511→    } catch {
+   512→   512→      toast.error("Failed to update RSVP");
+   513→   513→    }
+   514→   514→  };
+   515→   515→
+   516→   516→  const toggleAttendee = (memberId: string) => {
+   517→   517→    setFormAttendeeIds((prev) =>
+   518→   518→      prev.includes(memberId) ? prev.filter((id) => id !== memberId) : [...prev, memberId]
+   519→   519→    );
+   520→   520→  };
+   521→   521→
+   522→   522→  const getUserRsvp = (meeting: Meeting): string | null => {
+   523→   523→    const attendee = meeting.attendees.find((a) => a.userId === userId);
+   524→   524→    return attendee?.rsvpStatus || null;
+   525→   525→  };
+   526→   526→
+   527→   527→  const isOrganizer = (meeting: Meeting): boolean => meeting.organizerId === userId;
+   528→   528→
+   529→   529→  const openDetail = (meeting: Meeting) => {
+   530→   530→    setSelectedMeeting(meeting);
+   531→   531→    setDetailOpen(true);
+   532→   532→  };
+   533→   533→
+   534→   534→  const toggleGroup = (group: string) => {
+   535→   535→    setExpandedGroups((prev) => ({ ...prev, [group]: !prev[group] }));
+   536→   536→  };
+   537→   537→
+   538→   538→  // ━━ Session loading guard ━━
+   539→   539→  if (status === "loading") {
+   540→   540→    return (
+   541→   541→      <div className="space-y-6">
+   542→   542→        <div className="h-8 w-48 bg-muted animate-pulse rounded-lg" />
+   543→   543→        <div className="grid gap-4 md:grid-cols-3">
+   544→   544→          {[1, 2, 3].map((i) => (
+   545→   545→            <div key={i} className="h-32 bg-muted animate-pulse rounded-xl" />
+   546→   546→          ))}
+   547→   547→        </div>
+   548→   548→      </div>
+   549→   549→    );
+   550→   550→  }
+   551→   551→
+   552→   552→  // ━━ Loading State ━━
+   553→   553→  if (loading) {
+   554→   554→    return (
+   555→   555→      <div className="space-y-6">
+   556→   556→        <div className="flex items-center justify-between">
+   557→   557→          <div>
+   558→   558→            <div className="h-8 w-48 bg-muted animate-pulse rounded-lg" />
+   559→   559→            <div className="h-4 w-72 bg-muted animate-pulse rounded mt-2" />
+   560→   560→          </div>
+   561→   561→          <div className="h-10 w-40 bg-muted animate-pulse rounded-lg" />
+   562→   562→        </div>
+   563→   563→        <div className="grid gap-4 md:grid-cols-3">
+   564→   564→          {[1, 2, 3].map((i) => (
+   565→   565→            <div key={i} className="h-32 bg-muted animate-pulse rounded-xl" />
+   566→   566→          ))}
+   567→   567→        </div>
+   568→   568→        <div className="space-y-3">
+   569→   569→          {[1, 2, 3, 4].map((i) => (
+   570→   570→            <div key={i} className="h-24 bg-muted animate-pulse rounded-xl" />
+   571→   571→          ))}
+   572→   572→        </div>
+   573→   573→      </div>
+   574→   574→    );
+   575→   575→  }
+   576→   576→
+   577→   577→  return (
+   578→   578→    <div className="space-y-6">
+   579→   579→      {/* ━━ Header ━━ */}
+   580→   580→      <PageHeader title="Meetings" description="Schedule and manage team meetings">
+   581→   581→        <div className="flex items-center gap-3">
+   582→   582→          {/* View Toggle */}
+   583→   583→          <div className="flex items-center border rounded-lg overflow-hidden">
+   584→   584→            <Button
+   585→   585→              variant={viewMode === "list" ? "default" : "ghost"}
+   586→   586→              size="sm"
+   587→   587→              className="rounded-none h-9 px-3"
+   588→   588→              onClick={() => setViewMode("list")}
+   589→   589→            >
+   590→   590→              <List className="h-4 w-4 mr-1" /> List
+   591→   591→            </Button>
+   592→   592→            <Button
+   593→   593→              variant={viewMode === "calendar" ? "default" : "ghost"}
+   594→   594→              size="sm"
+   595→   595→              className="rounded-none h-9 px-3"
+   596→   596→              onClick={() => setViewMode("calendar")}
+   597→   597→            >
+   598→   598→              <Grid3X3 className="h-4 w-4 mr-1" /> Calendar
+   599→   599→            </Button>
+   600→   600→          </div>
+   601→   601→          {isAdmin && (
+   602→   602→            <Button onClick={openCreateDialog}>
+   603→   603→              <Plus className="h-4 w-4 mr-2" /> Schedule Meeting
+   604→   604→            </Button>
+   605→   605→          )}
+   606→   606→        </div>
+   607→   607→      </PageHeader>
+   608→   608→
+   609→   609→      {/* ━━ Stats Cards ━━ */}
+   610→   610→      <div className="grid gap-4 md:grid-cols-3">
+   611→   611→        <Card className="border-l-4 border-l-blue-500">
+   612→   612→          <CardHeader className="pb-2">
+   613→   613→            <CardDescription className="flex items-center gap-2">
+   614→   614→              <CalendarRange className="h-4 w-4 text-blue-500" />
+   615→   615→              Upcoming Meetings
+   616→   616→            </CardDescription>
+   617→   617→          </CardHeader>
+   618→   618→          <CardContent>
+   619→   619→            <div className="flex items-center gap-3">
+   620→   620→              <span className="text-3xl font-bold">{stats.upcoming}</span>
+   621→   621→              <span className="text-xs text-muted-foreground">scheduled</span>
+   622→   622→            </div>
+   623→   623→          </CardContent>
+   624→   624→        </Card>
+   625→   625→        <Card className="border-l-4 border-l-green-500">
+   626→   626→          <CardHeader className="pb-2">
+   627→   627→            <CardDescription className="flex items-center gap-2">
+   628→   628→              <CalendarDays className="h-4 w-4 text-green-500" />
+   629→   629→              Today&apos;s Meetings
+   630→   630→            </CardDescription>
+   631→   631→          </CardHeader>
+   632→   632→          <CardContent>
+   633→   633→            <div className="flex items-center gap-3">
+   634→   634→              <span className="text-3xl font-bold">{stats.todayCount}</span>
+   635→   635→              <span className="text-xs text-muted-foreground">today</span>
+   636→   636→            </div>
+   637→   637→          </CardContent>
+   638→   638→        </Card>
+   639→   639→        <Card className="border-l-4 border-l-purple-500">
+   640→   640→          <CardHeader className="pb-2">
+   641→   641→            <CardDescription className="flex items-center gap-2">
+   642→   642→              <Calendar className="h-4 w-4 text-purple-500" />
+   643→   643→              This Week
+   644→   644→            </CardDescription>
+   645→   645→          </CardHeader>
+   646→   646→          <CardContent>
+   647→   647→            <div className="flex items-center gap-3">
+   648→   648→              <span className="text-3xl font-bold">{stats.thisWeek}</span>
+   649→   649→              <span className="text-xs text-muted-foreground">meetings</span>
+   650→   650→            </div>
+   651→   651→          </CardContent>
+   652→   652→        </Card>
+   653→   653→      </div>
+   654→   654→
+   655→   655→      {/* ━━ Main Content ━━ */}
+   656→   656→      {viewMode === "list" ? (
+   657→   657→        <div className="space-y-4">
+   658→   658→          {meetings.filter((m) => m.status !== "CANCELLED").length === 0 ? (
+   659→   659→            <Card>
+   660→   660→              <CardContent className="py-16">
+   661→   661→                <div className="text-center">
+   662→   662→                  <Video className="h-16 w-16 mx-auto text-muted-foreground opacity-30 mb-4" />
+   663→   663→                  <h3 className="text-lg font-semibold text-muted-foreground">No meetings scheduled</h3>
+   664→   664→                  <p className="text-sm text-muted-foreground mt-1">Start by scheduling a new meeting</p>
+   665→   665→                  {isAdmin && (
+   666→   666→                    <Button className="mt-4" onClick={openCreateDialog}>
+   667→   667→                      <Plus className="h-4 w-4 mr-2" /> Schedule Meeting
+   668→   668→                    </Button>
+   669→   669→                  )}
+   670→   670→                </div>
+   671→   671→              </CardContent>
+   672→   672→            </Card>
+   673→   673→          ) : (
+   674→   674→            Object.entries(groupedMeetings).map(([group, groupMeetings]) => {
+   675→   675→              if (groupMeetings.length === 0) return null;
+   676→   676→              const isExpanded = expandedGroups[group] !== false;
+   677→   677→              return (
+   678→   678→                <div key={group}>
+   679→   679→                  <button
+   680→   680→                    onClick={() => toggleGroup(group)}
+   681→   681→                    className="flex items-center gap-2 w-full text-left mb-3 group"
+   682→   682→                    type="button"
+   683→   683→                  >
+   684→   684→                    {isExpanded ? (
+   685→   685→                      <ChevronDown className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+   686→   686→                    ) : (
+   687→   687→                      <ChevronUp className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+   688→   688→                    )}
+   689→   689→                    <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+   690→   690→                      {group}
+   691→   691→                    </h2>
+   692→   692→                    <Badge variant="secondary" className="text-xs">
+   693→   693→                      {groupMeetings.length}
+   694→   694→                    </Badge>
+   695→   695→                  </button>
+   696→   696→                  {isExpanded && (
+   697→   697→                    <div className="space-y-3">
+   698→   698→                      {groupMeetings.map((meeting) => (
+   699→   699→                        <MeetingCard
+   700→   700→                          key={meeting.id}
+   701→   701→                          meeting={meeting}
+   702→   702→                          userId={userId}
+   703→   703→                          isAdmin={isAdmin}
+   704→   704→                          onOpenDetail={openDetail}
+   705→   705→                          onRsvp={handleRsvp}
+   706→   706→                        />
+   707→   707→                      ))}
+   708→   708→                    </div>
+   709→   709→                  )}
+   710→   710→                </div>
+   711→   711→              );
+   712→   712→            })
+   713→   713→          )}
+   714→   714→
+   715→   715→          {/* Cancelled meetings */}
+   716→   716→          {cancelledMeetings.length > 0 && (
+   717→   717→            <div>
+   718→   718→              <button
+   719→   719→                onClick={() => toggleGroup("Cancelled")}
+   720→   720→                className="flex items-center gap-2 w-full text-left mb-3 group"
+   721→   721→                type="button"
+   722→   722→              >
+   723→   723→                {expandedGroups["Cancelled"] !== false ? (
+   724→   724→                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+   725→   725→                ) : (
+   726→   726→                  <ChevronUp className="h-4 w-4 text-muted-foreground" />
+   727→   727→                )}
+   728→   728→                <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+   729→   729→                  Cancelled
+   730→   730→                </h2>
+   731→   731→                <Badge variant="secondary" className="text-xs">
+   732→   732→                  {cancelledMeetings.length}
+   733→   733→                </Badge>
+   734→   734→              </button>
+   735→   735→              {expandedGroups["Cancelled"] !== false && (
+   736→   736→                <div className="space-y-3 opacity-60">
+   737→   737→                  {cancelledMeetings.map((meeting) => (
+   738→   738→                    <MeetingCard
+   739→   739→                      key={meeting.id}
+   740→   740→                      meeting={meeting}
+   741→   741→                      userId={userId}
+   742→   742→                      isAdmin={isAdmin}
+   743→   743→                      onOpenDetail={openDetail}
+   744→   744→                      onRsvp={handleRsvp}
+   745→   745→                    />
+   746→   746→                  ))}
+   747→   747→                </div>
+   748→   748→              )}
+   749→   749→            </div>
+   750→   750→          )}
+   751→   751→        </div>
+   752→   752→      ) : (
+   753→   753→        /* ━━ Calendar View ━━ */
+   754→   754→        <Card>
+   755→   755→          <CardHeader className="pb-3">
+   756→   756→            <div className="flex items-center justify-between">
+   757→   757→              <CardTitle className="text-lg">
+   758→   758→                {calendarDate.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+   759→   759→              </CardTitle>
+   760→   760→              <div className="flex items-center gap-2">
+   761→   761→                <Button variant="outline" size="sm" onClick={() => {
+   762→   762→                  const d = new Date(calendarDate);
+   763→   763→                  d.setMonth(d.getMonth() - 1);
+   764→   764→                  setCalendarDate(d);
+   765→   765→                }}>
+   766→   766→                  Previous
+   767→   767→                </Button>
+   768→   768→                <Button variant="outline" size="sm" onClick={() => setCalendarDate(new Date())}>
+   769→   769→                  Today
+   770→   770→                </Button>
+   771→   771→                <Button variant="outline" size="sm" onClick={() => {
+   772→   772→                  const d = new Date(calendarDate);
+   773→   773→                  d.setMonth(d.getMonth() + 1);
+   774→   774→                  setCalendarDate(d);
+   775→   775→                }}>
+   776→   776→                  Next
+   777→   777→                </Button>
+   778→   778→              </div>
+   779→   779→            </div>
+   780→   780→          </CardHeader>
+   781→   781→          <CardContent>
+   782→   782→            {/* Calendar Header */}
+   783→   783→            <div className="grid grid-cols-7 gap-px bg-border rounded-t-lg overflow-hidden">
+   784→   784→              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+   785→   785→                <div key={day} className="bg-muted px-2 py-2 text-center text-xs font-semibold text-muted-foreground">
+   786→   786→                  {day}
+   787→   787→                </div>
+   788→   788→              ))}
+   789→   789→            </div>
+   790→   790→            {/* Calendar Grid */}
+   791→   791→            <div className="grid grid-cols-7 gap-px bg-border rounded-b-lg overflow-hidden">
+   792→   792→              {calendarDays.map((dayInfo, idx) => {
+   793→   793→                const isCurrentDay = dayInfo.isCurrentMonth &&
+   794→   794→                  dayInfo.day === new Date().getDate() &&
+   795→   795→                  calendarDate.getMonth() === new Date().getMonth() &&
+   796→   796→                  calendarDate.getFullYear() === new Date().getFullYear();
+   797→   797→
+   798→   798→                return (
+   799→   799→                  <div
+   800→   800→                    key={idx}
+   801→   801→                    className={cn(
+   802→   802→                      "bg-card min-h-[100px] p-1.5 relative",
+   803→   803→                      !dayInfo.isCurrentMonth && "bg-muted/30",
+   804→   804→                      isCurrentDay && "bg-primary/5"
+   805→   805→                    )}
+   806→   806→                  >
+   807→   807→                    <span
+   808→   808→                      className={cn(
+   809→   809→                        "text-xs font-medium inline-flex items-center justify-center h-6 w-6 rounded-full",
+   810→   810→                        isCurrentDay && "bg-primary text-primary-foreground",
+   811→   811→                        !dayInfo.isCurrentMonth && "text-muted-foreground/50"
+   812→   812→                      )}
+   813→   813→                    >
+   814→   814→                      {dayInfo.day}
+   815→   815→                    </span>
+   816→   816→                    <div className="mt-1 space-y-0.5">
+   817→   817→                      {dayInfo.meetings.slice(0, 3).map((m) => {
+   818→   818→                        const typeConf = meetingTypeConfig[m.meetingType] || meetingTypeConfig.VIRTUAL;
+   819→   819→                        return (
+   820→   820→                          <button
+   821→   821→                            key={m.id}
+   822→   822→                            onClick={() => openDetail(m)}
+   823→   823→                            className="w-full text-left"
+   824→   824→                            type="button"
+   825→   825→                          >
+   826→   826→                            <div className={cn(
+   827→   827→                              "text-[10px] px-1.5 py-0.5 rounded truncate font-medium",
+   828→   828→                              typeConf.bgColor,
+   829→   829→                              typeConf.color
+   830→   830→                            )}>
+   831→   831→                              {m.startTime} {m.title}
+   832→   832→                            </div>
+   833→   833→                          </button>
+   834→   834→                        );
+   835→   835→                      })}
+   836→   836→                      {dayInfo.meetings.length > 3 && (
+   837→   837→                        <div className="text-[10px] text-muted-foreground px-1.5">
+   838→   838→                          +{dayInfo.meetings.length - 3} more
+   839→   839→                        </div>
+   840→   840→                      )}
+   841→   841→                    </div>
+   842→   842→                  </div>
+   843→   843→                );
+   844→   844→              })}
+   845→   845→            </div>
+   846→   846→          </CardContent>
+   847→   847→        </Card>
+   848→   848→      )}
+   849→   849→
+   850→   850→      {/* ━━ Schedule/Edit Meeting Dialog ━━ */}
+   851→   851→      <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
+   852→   852→        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+   853→   853→          <DialogHeader>
+   854→   854→            <DialogTitle className="flex items-center gap-2">
+   855→   855→              <Video className="h-5 w-5 text-primary" />
+   856→   856→              {editMode ? "Edit Meeting" : "Schedule Meeting"}
+   857→   857→            </DialogTitle>
+   858→   858→          </DialogHeader>
+   859→   859→          <div className="space-y-4">
+   860→   860→            {/* Title */}
+   861→   861→            <div>
+   862→   862→              <Label>Title *</Label>
+   863→   863→              <Input
+   864→   864→                value={formTitle}
+   865→   865→                onChange={(e) => setFormTitle(e.target.value)}
+   866→   866→                placeholder="Meeting title"
+   867→   867→                className="mt-1"
+   868→   868→              />
+   869→   869→            </div>
+   870→   870→
+   871→   871→            {/* Description */}
+   872→   872→            <div>
+   873→   873→              <Label>Description</Label>
+   874→   874→              <Textarea
+   875→   875→                value={formDescription}
+   876→   876→                onChange={(e) => setFormDescription(e.target.value)}
+   877→   877→                placeholder="Brief meeting description..."
+   878→   878→                rows={3}
+   879→   879→                className="mt-1"
+   880→   880→              />
+   881→   881→            </div>
+   882→   882→
+   883→   883→            {/* Date & Time */}
+   884→   884→            <div className="grid grid-cols-2 gap-3">
+   885→   885→              <div>
+   886→   886→                <Label>Date *</Label>
+   887→   887→                <Input
+   888→   888→                  type="date"
+   889→   889→                  value={formDate}
+   890→   890→                  onChange={(e) => setFormDate(e.target.value)}
+   891→   891→                  className="mt-1"
+   892→   892→                />
+   893→   893→                {formDate && new Date(formDate) < new Date(new Date().toDateString()) && !editMode && (
+   894→   894→                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+   895→   895→                    You&apos;re scheduling a meeting in the past
+   896→   896→                  </p>
+   897→   897→                )}
+   898→   898→              </div>
+   899→   899→              <div className="grid grid-cols-2 gap-2">
+   900→   900→                <div>
+   901→   901→                  <Label>Start *</Label>
+   902→   902→                  <Input
+   903→   903→                    type="time"
+   904→   904→                    value={formStartTime}
+   905→   905→                    onChange={(e) => {
+   906→   906→                      const val = e.target.value
+   907→   907→                      setFormStartTime(val)
+   908→   908→                      // Auto-fill end time as start + 1 hour (only when creating, not editing)
+   909→   909→                      if (!editMode && val) {
+   910→   910→                        const [h, m] = val.split(":").map(Number)
+   911→   911→                        const endH = (h + 1) % 24
+   912→   912→                        setFormEndTime(`${String(endH).padStart(2, "0")}:${String(m).padStart(2, "0")}`)
+   913→   913→                      }
+   914→   914→                    }}
+   915→   915→                    className="mt-1"
+   916→   916→                  />
+   917→   917→                </div>
+   918→   918→                <div>
+   919→   919→                  <Label>End</Label>
+   920→   920→                  <Input
+   921→   921→                    type="time"
+   922→   922→                    value={formEndTime}
+   923→   923→                    onChange={(e) => setFormEndTime(e.target.value)}
+   924→   924→                    className="mt-1"
+   925→   925→                  />
+   926→   926→                </div>
+   927→   927→              </div>
+   928→   928→            </div>
+   929→   929→
+   930→   930→            {/* Duration & Overnight hints */}
+   931→   931→            {formStartTime && formEndTime && (
+   932→   932→              <div className="flex flex-wrap gap-2">
+   933→   933→                <p className="text-xs text-muted-foreground">
+   934→   934→                  Duration: {calculateMeetingDuration(formStartTime, formEndTime)}
+   935→   935→                </p>
+   936→   936→                {isOvernightMeeting(formStartTime, formEndTime) && (
+   937→   937→                  <p className="text-xs text-amber-600 dark:text-amber-400">
+   938→   938→                    Spans overnight (ends next day)
+   939→   939→                  </p>
+   940→   940→                )}
+   941→   941→              </div>
+   942→   942→            )}
+   943→   943→
+   944→   944→            {/* Meeting Type */}
+   945→   945→            <div>
+   946→   946→              <Label>Meeting Type</Label>
+   947→   947→              <Select value={formMeetingType} onValueChange={setFormMeetingType}>
+   948→   948→                <SelectTrigger className="mt-1">
+   949→   949→                  <SelectValue />
+   950→   950→                </SelectTrigger>
+   951→   951→                <SelectContent>
+   952→   952→                  <SelectItem value="VIRTUAL">
+   953→   953→                    <span className="flex items-center gap-2">
+   954→   954→                      <Video className="h-4 w-4" /> Virtual Meeting
+   955→   955→                    </span>
+   956→   956→                  </SelectItem>
+   957→   957→                  <SelectItem value="IN_PERSON">
+   958→   958→                    <span className="flex items-center gap-2">
+   959→   959→                      <MapPin className="h-4 w-4" /> In Person
+   960→   960→                    </span>
+   961→   961→                  </SelectItem>
+   962→   962→                  <SelectItem value="PHONE">
+   963→   963→                    <span className="flex items-center gap-2">
+   964→   964→                      <Phone className="h-4 w-4" /> Phone Call
+   965→   965→                    </span>
+   966→   966→                  </SelectItem>
+   967→   967→                </SelectContent>
+   968→   968→              </Select>
+   969→   969→            </div>
+   970→   970→
+   971→   971→            {/* Google Meet Link */}
+   972→   972→            {formMeetingType === "VIRTUAL" && (
+   973→   973→              <div>
+   974→   974→                <Label className="flex items-center gap-2">
+   975→   975→                  <Link2 className="h-3.5 w-3.5" />
+   976→   976→                  Meeting Link
+   977→   977→                </Label>
+   978→   978→                <div className="flex gap-2 mt-1">
+   979→   979→                  <Input
+   980→   980→                    value={formMeetingLink}
+   981→   981→                    onChange={(e) => setFormMeetingLink(e.target.value)}
+   982→   982→                    placeholder="https://meet.google.com/xxx-xxxx-xxx"
+   983→   983→                    className="flex-1"
+   984→   984→                  />
+   985→   985→                  <Button
+   986→   986→                    variant="outline"
+   987→   987→                    size="sm"
+   988→   988→                    className="shrink-0"
+   989→   989→                    onClick={() => window.open("https://meet.google.com", "_blank")}
+   990→   990→                  >
+   991→   991→                    <ExternalLink className="h-3.5 w-3.5 mr-1" />
+   992→   992→                    Open Meet
+   993→   993→                  </Button>
+   994→   994→                </div>
+   995→   995→                <p className="text-[11px] text-muted-foreground mt-1">
+   996→   996→                  Create a Google Meet at meet.google.com and paste the link here
+   997→   997→                </p>
+   998→   998→              </div>
+   999→   999→            )}
+  1000→  1000→
+  1001→  1001→            {/* Project */}
+  1002→  1002→            <div>
+  1003→  1003→              <Label>Project</Label>
+  1004→  1004→              <Select value={formProjectId} onValueChange={setFormProjectId}>
+  1005→  1005→                <SelectTrigger className="mt-1">
+  1006→  1006→                  <SelectValue placeholder="Select a project (optional)" />
+  1007→  1007→                </SelectTrigger>
+  1008→  1008→                <SelectContent>
+  1009→  1009→                  <SelectItem value="none">No project</SelectItem>
+  1010→  1010→                  {projects.map((p) => (
+  1011→  1011→                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+  1012→  1012→                  ))}
+  1013→  1013→                </SelectContent>
+  1014→  1014→              </Select>
+  1015→  1015→            </div>
+  1016→  1016→
+  1017→  1017→            {/* Attendees */}
+  1018→  1018→            <div>
+  1019→  1019→              <Label className="flex items-center gap-2">
+  1020→  1020→                <Users className="h-3.5 w-3.5" />
+  1021→  1021→                Attendees
+  1022→  1022→              </Label>
+  1023→  1023→              <div className="mt-2 border rounded-lg p-3 max-h-40 overflow-y-auto space-y-2">
+  1024→  1024→                {teamMembers.length === 0 ? (
+  1025→  1025→                  <p className="text-xs text-muted-foreground text-center py-2">No team members available</p>
+  1026→  1026→                ) : (
+  1027→  1027→                  teamMembers.map((member) => (
+  1028→  1028→                    <label
+  1029→  1029→                      key={member.id}
+  1030→  1030→                      className={cn(
+  1031→  1031→                        "flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors",
+  1032→  1032→                        formAttendeeIds.includes(member.id)
+  1033→  1033→                          ? "bg-primary/10 border border-primary/20"
+  1034→  1034→                          : "hover:bg-accent"
+  1035→  1035→                      )}
+  1036→  1036→                    >
+  1037→  1037→                      <Checkbox
+  1038→  1038→                        checked={formAttendeeIds.includes(member.id)}
+  1039→  1039→                        onCheckedChange={() => toggleAttendee(member.id)}
+  1040→  1040→                      />
+  1041→  1041→                      <Avatar className="h-7 w-7">
+  1042→  1042→                        <AvatarFallback className="text-xs bg-primary/10 text-primary">
+  1043→  1043→                          {getInitials(member.name)}
+  1044→  1044→                        </AvatarFallback>
+  1045→  1045→                      </Avatar>
+  1046→  1046→                      <div className="flex-1 min-w-0">
+  1047→  1047→                        <p className="text-sm font-medium truncate">{member.name}</p>
+  1048→  1048→                        <p className="text-[10px] text-muted-foreground">{member.role}</p>
+  1049→  1049→                      </div>
+  1050→  1050→                    </label>
+  1051→  1051→                  ))
+  1052→  1052→                )}
+  1053→  1053→              </div>
+  1054→  1054→              {formAttendeeIds.length > 0 && (
+  1055→  1055→                <p className="text-xs text-muted-foreground mt-1">
+  1056→  1056→                  {formAttendeeIds.length} attendee{formAttendeeIds.length > 1 ? "s" : ""} selected
+  1057→  1057→                </p>
+  1058→  1058→              )}
+  1059→  1059→            </div>
+  1060→  1060→
+  1061→  1061→            {/* Notes */}
+  1062→  1062→            <div>
+  1063→  1063→              <Label>Notes</Label>
+  1064→  1064→              <Textarea
+  1065→  1065→                value={formNotes}
+  1066→  1066→                onChange={(e) => setFormNotes(e.target.value)}
+  1067→  1067→                placeholder="Additional notes for this meeting..."
+  1068→  1068→                rows={2}
+  1069→  1069→                className="mt-1"
+  1070→  1070→              />
+  1071→  1071→            </div>
+  1072→  1072→          </div>
+  1073→  1073→          <DialogFooter>
+  1074→  1074→            <Button variant="outline" onClick={() => { setDialogOpen(false); resetForm(); }}>
+  1075→  1075→              Cancel
+  1076→  1076→            </Button>
+  1077→  1077→            <Button onClick={handleSubmit} disabled={submitting}>
+  1078→  1078→              {submitting ? "Saving..." : editMode ? "Update Meeting" : "Schedule Meeting"}
+  1079→  1079→            </Button>
+  1080→  1080→          </DialogFooter>
+  1081→  1081→        </DialogContent>
+  1082→  1082→      </Dialog>
+  1083→  1083→
+  1084→  1084→      {/* ━━ Meeting Detail Sheet ━━ */}
+  1085→  1085→      <Sheet open={detailOpen} onOpenChange={setDetailOpen}>
+  1086→  1086→        <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
+  1087→  1087→          {selectedMeeting && (
+  1088→  1088→            <div className="space-y-6">
+  1089→  1089→              <SheetHeader>
+  1090→  1090→                <SheetTitle className="text-xl pr-6">{selectedMeeting.title}</SheetTitle>
+  1091→  1091→              </SheetHeader>
+  1092→  1092→
+  1093→  1093→              {/* Status & Type Badges */}
+  1094→  1094→              <div className="flex flex-wrap gap-2">
+  1095→  1095→                <Badge className={cn("text-xs", statusConfig[selectedMeeting.status]?.bgColor, statusConfig[selectedMeeting.status]?.color)}>
+  1096→  1096→                  {statusConfig[selectedMeeting.status]?.label}
+  1097→  1097→                </Badge>
+  1098→  1098→                <Badge variant="outline" className={cn("text-xs", meetingTypeConfig[selectedMeeting.meetingType]?.color)}>
+  1099→  1099→                  {(() => {
+  1100→  1100→                    const Icon = meetingTypeConfig[selectedMeeting.meetingType]?.icon || Video;
+  1101→  1101→                    return <Icon className="h-3 w-3 mr-1" />;
+  1102→  1102→                  })()}
+  1103→  1103→                  {meetingTypeConfig[selectedMeeting.meetingType]?.label}
+  1104→  1104→                </Badge>
+  1105→  1105→              </div>
+  1106→  1106→
+  1107→  1107→              {/* Join Meeting Button */}
+  1108→  1108→              {selectedMeeting.meetingType === "VIRTUAL" && selectedMeeting.meetingLink && (
+  1109→  1109→                <a
+  1110→  1110→                  href={safeMeetingLink(selectedMeeting.meetingLink)}
+  1111→  1111→                  target="_blank"
+  1112→  1112→                  rel="noopener noreferrer"
+  1113→  1113→                  className="block"
+  1114→  1114→                >
+  1115→  1115→                  <Button className="w-full" size="lg">
+  1116→  1116→                    <Video className="h-5 w-5 mr-2" />
+  1117→  1117→                    Join with Google Meet
+  1118→  1118→                    <ExternalLink className="h-4 w-4 ml-2" />
+  1119→  1119→                  </Button>
+  1120→  1120→                </a>
+  1121→  1121→              )}
+  1122→  1122→
+  1123→  1123→              <Separator />
+  1124→  1124→
+  1125→  1125→              {/* Meeting Details */}
+  1126→  1126→              <div className="space-y-3">
+  1127→  1127→                <div className="flex items-start gap-3">
+  1128→  1128→                  <Calendar className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+  1129→  1129→                  <div>
+  1130→  1130→                    <p className="text-sm font-medium">{formatDate(selectedMeeting.date)}</p>
+  1131→  1131→                    <p className="text-sm text-muted-foreground">
+  1132→  1132→                      {formatTime(selectedMeeting.startTime)}
+  1133→  1133→                      {selectedMeeting.endTime && ` — ${formatTime(selectedMeeting.endTime)}`}
+  1134→  1134→                      {selectedMeeting.endTime && (
+  1135→  1135→                        <span className="ml-1.5 text-xs text-muted-foreground">
+  1136→  1136→                          ({calculateMeetingDuration(selectedMeeting.startTime, selectedMeeting.endTime)})
+  1137→  1137→                        </span>
+  1138→  1138→                      )}
+  1139→  1139→                      {selectedMeeting.startTime && selectedMeeting.endTime && isOvernightMeeting(selectedMeeting.startTime, selectedMeeting.endTime) && (
+  1140→  1140→                        <span className="ml-1 text-xs text-amber-600 dark:text-amber-400">overnight</span>
+  1141→  1141→                      )}
+  1142→  1142→                    </p>
+  1143→  1143→                  </div>
+  1144→  1144→                </div>
+  1145→  1145→
+  1146→  1146→                <div className="flex items-start gap-3">
+  1147→  1147→                  <Users className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+  1148→  1148→                  <div>
+  1149→  1149→                    <p className="text-sm font-medium">Organizer</p>
+  1150→  1150→                    <p className="text-sm text-muted-foreground">{selectedMeeting.organizer.name}</p>
+  1151→  1151→                  </div>
+  1152→  1152→                </div>
+  1153→  1153→
+  1154→  1154→                {selectedMeeting.project && (
+  1155→  1155→                  <div className="flex items-start gap-3">
+  1156→  1156→                    <Monitor className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+  1157→  1157→                    <div>
+  1158→  1158→                      <p className="text-sm font-medium">Project</p>
+  1159→  1159→                      <p className="text-sm text-muted-foreground">{selectedMeeting.project.name}</p>
+  1160→  1160→                    </div>
+  1161→  1161→                  </div>
+  1162→  1162→                )}
+  1163→  1163→
+  1164→  1164→                {selectedMeeting.meetingLink && (
+  1165→  1165→                  <div className="flex items-start gap-3">
+  1166→  1166→                    <Link2 className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+  1167→  1167→                    <div>
+  1168→  1168→                      <p className="text-sm font-medium">Meeting Link</p>
+  1169→  1169→                      <a
+  1170→  1170→                        href={safeMeetingLink(selectedMeeting.meetingLink)}
+  1171→  1171→                        target="_blank"
+  1172→  1172→                        rel="noopener noreferrer"
+  1173→  1173→                        className="text-sm text-primary hover:underline break-all"
+  1174→  1174→                      >
+  1175→  1175→                        {selectedMeeting.meetingLink}
+  1176→  1176→                      </a>
+  1177→  1177→                    </div>
+  1178→  1178→                  </div>
+  1179→  1179→                )}
+  1180→  1180→
+  1181→  1181→                {selectedMeeting.description && (
+  1182→  1182→                  <div className="flex items-start gap-3">
+  1183→  1183→                    <StickyNote className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+  1184→  1184→                    <div>
+  1185→  1185→                      <p className="text-sm font-medium">Description</p>
+  1186→  1186→                      <p className="text-sm text-muted-foreground whitespace-pre-wrap">{selectedMeeting.description}</p>
+  1187→  1187→                    </div>
+  1188→  1188→                  </div>
+  1189→  1189→                )}
+  1190→  1190→
+  1191→  1191→                {selectedMeeting.notes && (
+  1192→  1192→                  <div className="flex items-start gap-3">
+  1193→  1193→                    <StickyNote className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+  1194→  1194→                    <div>
+  1195→  1195→                      <p className="text-sm font-medium">Notes</p>
+  1196→  1196→                      <p className="text-sm text-muted-foreground whitespace-pre-wrap">{selectedMeeting.notes}</p>
+  1197→  1197→                    </div>
+  1198→  1198→                  </div>
+  1199→  1199→                )}
+  1200→  1200→              </div>
+  1201→  1201→
+  1202→  1202→              <Separator />
+  1203→  1203→
+  1204→  1204→              {/* Attendees */}
+  1205→  1205→              <div>
+  1206→  1206→                <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+  1207→  1207→                  <Users className="h-4 w-4" />
+  1208→  1208→                  Attendees ({selectedMeeting.attendees.length})
+  1209→  1209→                </h3>
+  1210→  1210→                <div className="space-y-2">
+  1211→  1211→                  {selectedMeeting.attendees.map((attendee) => {
+  1212→  1212→                    const rsvp = rsvpConfig[attendee.rsvpStatus] || rsvpConfig.PENDING;
+  1213→  1213→                    const RsvpIcon = rsvp.icon;
+  1214→  1214→                    return (
+  1215→  1215→                      <div key={attendee.id} className="flex items-center justify-between p-2 rounded-lg border bg-card">
+  1216→  1216→                        <div className="flex items-center gap-3">
+  1217→  1217→                          <Avatar className="h-8 w-8">
+  1218→  1218→                            <AvatarFallback className="text-xs bg-primary/10 text-primary">
+  1219→  1219→                              {getInitials(attendee.user.name)}
+  1220→  1220→                            </AvatarFallback>
+  1221→  1221→                          </Avatar>
+  1222→  1222→                          <div>
+  1223→  1223→                            <p className="text-sm font-medium">{attendee.user.name}</p>
+  1224→  1224→                            <p className="text-[10px] text-muted-foreground">{attendee.user.email}</p>
+  1225→  1225→                          </div>
+  1226→  1226→                        </div>
+  1227→  1227→                        <Badge className={cn("text-[10px]", rsvp.bgColor, rsvp.color)}>
+  1228→  1228→                          <RsvpIcon className="h-3 w-3 mr-1" />
+  1229→  1229→                          {rsvp.label}
+  1230→  1230→                        </Badge>
+  1231→  1231→                      </div>
+  1232→  1232→                    );
+  1233→  1233→                  })}
+  1234→  1234→                </div>
+  1235→  1235→              </div>
+  1236→  1236→
+  1237→  1237→              {/* RSVP for current user */}
+  1238→  1238→              {!isOrganizer(selectedMeeting) && getUserRsvp(selectedMeeting) && selectedMeeting.status !== "CANCELLED" && (
+  1239→  1239→                <>
+  1240→  1240→                  <Separator />
+  1241→  1241→                  <div>
+  1242→  1242→                    <h3 className="text-sm font-semibold mb-3">Your RSVP</h3>
+  1243→  1243→                    <div className="flex gap-2">
+  1244→  1244→                      <Button
+  1245→  1245→                        variant={getUserRsvp(selectedMeeting) === "ACCEPTED" ? "default" : "outline"}
+  1246→  1246→                        size="sm"
+  1247→  1247→                        className="flex-1"
+  1248→  1248→                        onClick={() => handleRsvp(selectedMeeting.id, "ACCEPTED")}
+  1249→  1249→                      >
+  1250→  1250→                        <Check className="h-4 w-4 mr-1" /> Accept
+  1251→  1251→                      </Button>
+  1252→  1252→                      <Button
+  1253→  1253→                        variant={getUserRsvp(selectedMeeting) === "DECLINED" ? "destructive" : "outline"}
+  1254→  1254→                        size="sm"
+  1255→  1255→                        className="flex-1"
+  1256→  1256→                        onClick={() => handleRsvp(selectedMeeting.id, "DECLINED")}
+  1257→  1257→                      >
+  1258→  1258→                        <X className="h-4 w-4 mr-1" /> Decline
+  1259→  1259→                      </Button>
+  1260→  1260→                    </div>
+  1261→  1261→                  </div>
+  1262→  1262→                </>
+  1263→  1263→              )}
+  1264→  1264→
+  1265→  1265→              {/* Actions */}
+  1266→  1266→              {(isOrganizer(selectedMeeting) || isAdmin) && selectedMeeting.status !== "CANCELLED" && (
+  1267→  1267→                <>
+  1268→  1268→                  <Separator />
+  1269→  1269→                  <div className="flex gap-2">
+  1270→  1270→                    <Button variant="outline" size="sm" className="flex-1" onClick={() => openEditDialog(selectedMeeting)}>
+  1271→  1271→                      Edit
+  1272→  1272→                    </Button>
+  1273→  1273→                    <Button variant="destructive" size="sm" className="flex-1" onClick={() => setCancelMeetingId(selectedMeeting.id)}>
+  1274→  1274→                      Cancel Meeting
+  1275→  1275→                    </Button>
+  1276→  1276→                  </div>
+  1277→  1277→                </>
+  1278→  1278→              )}
+  1279→  1279→            </div>
+  1280→  1280→          )}
+  1281→  1281→        </SheetContent>
+  1282→  1282→      </Sheet>
+  1283→  1283→
+  1284→  1284→      {/* Cancel Meeting Confirmation Dialog */}
+  1285→  1285→      <AlertDialog open={!!cancelMeetingId} onOpenChange={() => setCancelMeetingId(null)}>
+  1286→  1286→        <AlertDialogContent>
+  1287→  1287→          <AlertDialogHeader>
+  1288→  1288→            <AlertDialogTitle>Cancel Meeting</AlertDialogTitle>
+  1289→  1289→            <AlertDialogDescription>
+  1290→  1290→              Are you sure you want to cancel this meeting? This action cannot be undone.
+  1291→  1291→            </AlertDialogDescription>
+  1292→  1292→          </AlertDialogHeader>
+  1293→  1293→          <AlertDialogFooter>
+  1294→  1294→            <AlertDialogCancel>Keep Meeting</AlertDialogCancel>
+  1295→  1295→            <AlertDialogAction onClick={() => cancelMeetingId && handleCancel(cancelMeetingId)} className="bg-red-600 hover:bg-red-700">
+  1296→  1296→              Cancel Meeting
+  1297→  1297→            </AlertDialogAction>
+  1298→  1298→          </AlertDialogFooter>
+  1299→  1299→        </AlertDialogContent>
+  1300→  1300→      </AlertDialog>
+  1301→  1301→    </div>
+  1302→  1302→  );
+  1303→  1303→}
+  1304→  1304→
+  1305→  1305→// ━━ Meeting Card Component ━━
+  1306→  1306→function MeetingCard({
+  1307→  1307→  meeting,
+  1308→  1308→  userId,
+  1309→  1309→  isAdmin,
+  1310→  1310→  onOpenDetail,
+  1311→  1311→  onRsvp,
+  1312→  1312→}: {
+  1313→  1313→  meeting: Meeting;
+  1314→  1314→  userId: string;
+  1315→  1315→  isAdmin: boolean;
+  1316→  1316→  onOpenDetail: (m: Meeting) => void;
+  1317→  1317→  onRsvp: (meetingId: string, rsvpStatus: "ACCEPTED" | "DECLINED") => void;
+  1318→  1318→}) {
+  1319→  1319→  const typeConf = meetingTypeConfig[meeting.meetingType] || meetingTypeConfig.VIRTUAL;
+  1320→  1320→  const statusConf = statusConfig[meeting.status] || statusConfig.SCHEDULED;
+  1321→  1321→  const TypeIcon = typeConf.icon;
+  1322→  1322→  const userRsvp = meeting.attendees.find((a) => a.userId === userId)?.rsvpStatus;
+  1323→  1323→  const isOrganizer = meeting.organizerId === userId;
+  1324→  1324→
+  1325→  1325→  return (
+  1326→  1326→    <Card
+  1327→  1327→      className={cn(
+  1328→  1328→        "cursor-pointer transition-all hover:shadow-md border-l-4",
+  1329→  1329→        statusConf.borderColor,
+  1330→  1330→        meeting.status === "CANCELLED" && "opacity-60"
+  1331→  1331→      )}
+  1332→  1332→      onClick={() => onOpenDetail(meeting)}
+  1333→  1333→    >
+  1334→  1334→      <CardContent className="p-4">
+  1335→  1335→        <div className="flex flex-col sm:flex-row sm:items-start gap-3">
+  1336→  1336→          {/* Time Column */}
+  1337→  1337→          <div className="sm:w-24 shrink-0 text-center sm:text-left">
+  1338→  1338→            <p className="text-lg font-bold">{formatTime(meeting.startTime)}</p>
+  1339→  1339→            {meeting.endTime && (
+  1340→  1340→              <p className="text-xs text-muted-foreground">
+  1341→  1341→                {formatTime(meeting.endTime)}
+  1342→  1342→                <span className="ml-1">({calculateMeetingDuration(meeting.startTime, meeting.endTime)})</span>
+  1343→  1343→              </p>
+  1344→  1344→            )}
+  1345→  1345→            {meeting.startTime && meeting.endTime && isOvernightMeeting(meeting.startTime, meeting.endTime) && (
+  1346→  1346→              <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">overnight</p>
+  1347→  1347→            )}
+  1348→  1348→          </div>
+  1349→  1349→
+  1350→  1350→          {/* Main Content */}
+  1351→  1351→          <div className="flex-1 min-w-0">
+  1352→  1352→            <div className="flex flex-wrap items-center gap-2 mb-1.5">
+  1353→  1353→              <h3 className="font-semibold text-sm truncate">{meeting.title}</h3>
+  1354→  1354→              <Badge className={cn("text-[10px]", typeConf.bgColor, typeConf.color)}>
+  1355→  1355→                <TypeIcon className="h-3 w-3 mr-1" />
+  1356→  1356→                {typeConf.label}
+  1357→  1357→              </Badge>
+  1358→  1358→              {meeting.status !== "SCHEDULED" && (
+  1359→  1359→                <Badge className={cn("text-[10px]", statusConf.bgColor, statusConf.color)}>
+  1360→  1360→                  {statusConf.label}
+  1361→  1361→                </Badge>
+  1362→  1362→              )}
+  1363→  1363→            </div>
+  1364→  1364→
+  1365→  1365→            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+  1366→  1366→              <span className="flex items-center gap-1">
+  1367→  1367→                <Calendar className="h-3 w-3" />
+  1368→  1368→                {formatDate(meeting.date)}
+  1369→  1369→              </span>
+  1370→  1370→              <span className="flex items-center gap-1">
+  1371→  1371→                <Users className="h-3 w-3" />
+  1372→  1372→                {meeting.organizer.name}
+  1373→  1373→              </span>
+  1374→  1374→              {meeting.project && (
+  1375→  1375→                <span className="flex items-center gap-1">
+  1376→  1376→                  <Monitor className="h-3 w-3" />
+  1377→  1377→                  {meeting.project.name}
+  1378→  1378→                </span>
+  1379→  1379→              )}
+  1380→  1380→            </div>
+  1381→  1381→
+  1382→  1382→            {/* Attendee Avatars */}
+  1383→  1383→            {meeting.attendees.length > 0 && (
+  1384→  1384→              <div className="flex items-center gap-1 mt-2">
+  1385→  1385→                <div className="flex -space-x-2">
+  1386→  1386→                  {meeting.attendees.slice(0, 3).map((attendee) => (
+  1387→  1387→                    <TooltipProvider key={attendee.id}>
+  1388→  1388→                      <Tooltip>
+  1389→  1389→                        <TooltipTrigger asChild>
+  1390→  1390→                          <Avatar className="h-6 w-6 border-2 border-background">
+  1391→  1391→                            <AvatarFallback className="text-[9px] bg-primary/10 text-primary">
+  1392→  1392→                              {getInitials(attendee.user.name)}
+  1393→  1393→                            </AvatarFallback>
+  1394→  1394→                          </Avatar>
+  1395→  1395→                        </TooltipTrigger>
+  1396→  1396→                        <TooltipContent side="bottom" className="text-xs">
+  1397→  1397→                          {attendee.user.name}
+  1398→  1398→                        </TooltipContent>
+  1399→  1399→                      </Tooltip>
+  1400→  1400→                    </TooltipProvider>
+  1401→  1401→                  ))}
+  1402→  1402→                </div>
+  1403→  1403→                {meeting.attendees.length > 3 && (
+  1404→  1404→                  <span className="text-xs text-muted-foreground ml-1">
+  1405→  1405→                    +{meeting.attendees.length - 3} more
+  1406→  1406→                  </span>
+  1407→  1407→                )}
+  1408→  1408→              </div>
+  1409→  1409→            )}
+  1410→  1410→
+  1411→  1411→            {/* RSVP Status / Actions for current user */}
+  1412→  1412→            {userRsvp && !isOrganizer && meeting.status !== "CANCELLED" && (
+  1413→  1413→              <div className="flex items-center gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
+  1414→  1414→                {userRsvp === "PENDING" ? (
+  1415→  1415→                  <>
+  1416→  1416→                    <span className="text-xs text-muted-foreground">RSVP:</span>
+  1417→  1417→                    <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => onRsvp(meeting.id, "ACCEPTED")} aria-label={`Accept invitation for ${meeting.title}`}>
+  1418→  1418→                      <Check className="h-3 w-3 mr-1" /> Accept
+  1419→  1419→                    </Button>
+  1420→  1420→                    <Button size="sm" variant="outline" className="h-7 text-xs text-red-600" onClick={() => onRsvp(meeting.id, "DECLINED")} aria-label={`Decline invitation for ${meeting.title}`}>
+  1421→  1421→                      <X className="h-3 w-3 mr-1" /> Decline
+  1422→  1422→                    </Button>
+  1423→  1423→                  </>
+  1424→  1424→                ) : (
+  1425→  1425→                  <Badge className={cn("text-[10px]", rsvpConfig[userRsvp]?.bgColor, rsvpConfig[userRsvp]?.color)}>
+  1426→  1426→                    {(() => {
+  1427→  1427→                      const RsvpIcon = rsvpConfig[userRsvp]?.icon || Clock;
+  1428→  1428→                      return <RsvpIcon className="h-3 w-3 mr-1" />;
+  1429→  1429→                    })()}
+  1430→  1430→                    {rsvpConfig[userRsvp]?.label}
+  1431→  1431→                  </Badge>
+  1432→  1432→                )}
+  1433→  1433→              </div>
+  1434→  1434→            )}
+  1435→  1435→          </div>
+  1436→  1436→
+  1437→  1437→          {/* Google Meet Join Button */}
+  1438→  1438→          {meeting.meetingType === "VIRTUAL" && meeting.meetingLink && meeting.status !== "CANCELLED" && (
+  1439→  1439→            <div
+  1440→  1440→              className="shrink-0"
+  1441→  1441→              onClick={(e) => e.stopPropagation()}
+  1442→  1442→            >
+  1443→  1443→              <a href={safeMeetingLink(meeting.meetingLink)} target="_blank" rel="noopener noreferrer">
+  1444→  1444→                <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">
+  1445→  1445→                  <Video className="h-4 w-4 mr-1.5" />
+  1446→  1446→                  Join
+  1447→  1447→                </Button>
+  1448→  1448→              </a>
+  1449→  1449→            </div>
+  1450→  1450→          )}
+  1451→  1451→        </div>
+  1452→  1452→      </CardContent>
+  1453→  1453→    </Card>
+  1454→  1454→  );
+  1455→  1455→}
+  1456→  1456→

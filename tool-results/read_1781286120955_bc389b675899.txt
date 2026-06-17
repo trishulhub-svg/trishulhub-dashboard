@@ -1,0 +1,526 @@
+   200→              : `Welcome back, ${safeText(userName, "User")}! Here's your project overview.`}
+   201→          </p>
+   202→        </div>
+   203→        <div className="flex flex-wrap gap-2">
+   204→          {isAdminUser && (
+   205→            <Button size="sm" onClick={() => router.push("/dashboard/projects")}>
+   206→              <Plus className="h-4 w-4 mr-1" /> New Project
+   207→            </Button>
+   208→          )}
+   209→          <Button size="sm" variant="outline" onClick={() => router.push("/dashboard/workspace")}>
+   210→            <Rocket className="h-4 w-4 mr-1" /> Open Workspace
+   211→          </Button>
+   212→          {isAdminUser && (
+   213→            <Button size="sm" variant="outline" onClick={() => router.push("/dashboard/finance/invoices")}>
+   214→              <Send className="h-4 w-4 mr-1" /> Send Invoice
+   215→            </Button>
+   216→          )}
+   217→        </div>
+   218→      </div>
+   219→
+   220→      {/* ═══════════════════════════════════════════════════════════════════
+   221→          ADMIN VIEW
+   222→          ═══════════════════════════════════════════════════════════════════ */}
+   223→      {isAdminUser && (
+   224→        <>
+   225→          {/* Row 1 — 4 stat cards with gradient icon accents */}
+   226→          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+   227→            {/* Active Projects */}
+   228→            <Card
+   229→              onClick={() => router.push("/dashboard/projects")}
+   230→              className="cursor-pointer hover:shadow-md transition-shadow"
+   231→            >
+   232→              <CardContent className="p-4">
+   233→                <div className="flex items-center justify-between">
+   234→                  <div>
+   235→                    <p className="text-sm text-muted-foreground">Active Projects</p>
+   236→                    <p className="text-2xl font-bold">{activeProjects}</p>
+   237→                  </div>
+   238→                  <div className="h-10 w-10 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center">
+   239→                    <FolderKanban className="h-5 w-5 text-white" />
+   240→                  </div>
+   241→                </div>
+   242→                <p className="text-xs text-muted-foreground mt-2">{totalClients} clients total</p>
+   243→              </CardContent>
+   244→            </Card>
+   245→
+   246→            {/* New Leads */}
+   247→            <Card
+   248→              onClick={() => router.push("/dashboard/crm")}
+   249→              className="cursor-pointer hover:shadow-md transition-shadow"
+   250→            >
+   251→              <CardContent className="p-4">
+   252→                <div className="flex items-center justify-between">
+   253→                  <div>
+   254→                    <p className="text-sm text-muted-foreground">New Leads</p>
+   255→                    <p className="text-2xl font-bold">{newLeadsCount}</p>
+   256→                  </div>
+   257→                  <div className="h-10 w-10 rounded-full bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center">
+   258→                    <TrendingUp className="h-5 w-5 text-white" />
+   259→                  </div>
+   260→                </div>
+   261→                <p className="text-xs text-muted-foreground mt-2">{totalLeads} total leads</p>
+   262→              </CardContent>
+   263→            </Card>
+   264→
+   265→            {/* Revenue */}
+   266→            <Card
+   267→              onClick={() => router.push("/dashboard/finance")}
+   268→              className="cursor-pointer hover:shadow-md transition-shadow"
+   269→            >
+   270→              <CardContent className="p-4">
+   271→                <div className="flex items-center justify-between">
+   272→                  <div>
+   273→                    <p className="text-sm text-muted-foreground">Revenue</p>
+   274→                    <p className="text-2xl font-bold">{formatCurrency(totalRevenue)}</p>
+   275→                  </div>
+   276→                  <div className="h-10 w-10 rounded-full bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center">
+   277→                    <DollarSign className="h-5 w-5 text-white" />
+   278→                  </div>
+   279→                </div>
+   280→                <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 text-xs text-muted-foreground">
+   281→                  <span>Pending: {formatCurrency(pendingAmount)}</span>
+   282→                  {overdueAmount > 0 && <span className="text-red-500">Overdue: {formatCurrency(overdueAmount)}</span>}
+   283→                </div>
+   284→              </CardContent>
+   285→            </Card>
+   286→
+   287→            {/* Pending Tasks */}
+   288→            <Card
+   289→              onClick={() => router.push("/dashboard/projects")}
+   290→              className="cursor-pointer hover:shadow-md transition-shadow"
+   291→            >
+   292→              <CardContent className="p-4">
+   293→                <div className="flex items-center justify-between">
+   294→                  <div>
+   295→                    <p className="text-sm text-muted-foreground">Pending Tasks</p>
+   296→                    <p className="text-2xl font-bold">{pendingTasks}</p>
+   297→                  </div>
+   298→                  <div className="h-10 w-10 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
+   299→                    <Shield className="h-5 w-5 text-white" />
+   300→                  </div>
+   301→                </div>
+   302→                <p className="text-xs text-muted-foreground mt-2">{openTickets} open tickets</p>
+   303→              </CardContent>
+   304→            </Card>
+   305→          </div>
+   306→
+   307→          {/* Row 2 — Earnings Overview (wider) + Active Projects */}
+   308→          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+   309→            {/* Earnings Overview Card — 2 cols wide */}
+   310→            <Card
+   311→              onClick={() => setEarningsOpen(true)}
+   312→              className="lg:col-span-2 cursor-pointer hover:shadow-md transition-shadow bg-gradient-to-br from-emerald-50 to-blue-50 dark:from-emerald-950/20 dark:to-blue-950/20 border-emerald-200/60 dark:border-emerald-800/30"
+   313→            >
+   314→              <CardHeader className="pb-3">
+   315→                <div className="flex items-center justify-between">
+   316→                  <CardTitle className="text-base flex items-center gap-2">
+   317→                    <Wallet className="h-4 w-4 text-emerald-600" />
+   318→                    Earnings Overview
+   319→                  </CardTitle>
+   320→                  <span className="text-xs text-muted-foreground">Click to view details →</span>
+   321→                </div>
+   322→              </CardHeader>
+   323→              <CardContent>
+   324→                <div className="flex items-center gap-6 flex-wrap">
+   325→                  <div>
+   326→                    <p className="text-sm text-muted-foreground">Total Earnings (INR)</p>
+   327→                    <p className="text-3xl font-bold text-emerald-700 dark:text-emerald-300">
+   328→                      {formatCurrency(totalEarningsINR)}
+   329→                    </p>
+   330→                  </div>
+   331→                  <div>
+   332→                    <p className="text-sm text-muted-foreground">Approx. (GBP)</p>
+   333→                    <p className="text-3xl font-bold text-blue-700 dark:text-blue-300">
+   334→                      £{totalEarningsGBP.toLocaleString("en-GB", { minimumFractionDigits: 2 })}
+   335→                    </p>
+   336→                  </div>
+   337→                </div>
+   338→                {earningsData && earningsData.entries.length === 0 && (
+   339→                  <p className="text-xs text-muted-foreground mt-3">No salary entries recorded yet.</p>
+   340→                )}
+   341→              </CardContent>
+   342→            </Card>
+   343→
+   344→            {/* Active Projects — 1 col */}
+   345→            <Card className="lg:col-span-1">
+   346→              <CardHeader className="pb-3">
+   347→                <div className="flex items-center justify-between">
+   348→                  <CardTitle className="text-base">Active Projects</CardTitle>
+   349→                  <Button variant="ghost" size="sm" onClick={() => router.push("/dashboard/projects")}>
+   350→                    View All <ArrowRight className="h-3 w-3 ml-1" />
+   351→                  </Button>
+   352→                </div>
+   353→              </CardHeader>
+   354→              <CardContent>
+   355→                <div className="space-y-3 max-h-48 sm:max-h-64 overflow-y-auto custom-scrollbar">
+   356→                  {projects.length === 0 ? (
+   357→                    <p className="text-sm text-muted-foreground text-center py-8">No active projects</p>
+   358→                  ) : (
+   359→                    projects.slice(0, 5).map((project) => {
+   360→                      const pClient = project.client as Record<string, unknown> | undefined;
+   361→                      const progress = safeNumber(project.progress);
+   362→                      return (
+   363→                        <button
+   364→                          key={safeText(project.id, "")}
+   365→                          onClick={() => router.push(`/dashboard/projects/${safeText(project.id, "")}`)}
+   366→                          className="flex items-center gap-3 w-full p-2 rounded-lg hover:bg-muted transition-colors text-left"
+   367→                          type="button"
+   368→                        >
+   369→                          <FolderKanban className="h-5 w-5 text-muted-foreground shrink-0" />
+   370→                          <div className="flex-1 min-w-0">
+   371→                            <p className="text-sm font-medium truncate">{safeText(project.name, "Untitled")}</p>
+   372→                            <p className="text-xs text-muted-foreground">{pClient ? safeText(pClient.name, "Client") : "Client"}</p>
+   373→                          </div>
+   374→                          <div className="text-right shrink-0">
+   375→                            <p className="text-xs font-medium">{progress}%</p>
+   376→                            <Progress value={progress} className="h-1.5 w-16 mt-1" />
+   377→                          </div>
+   378→                        </button>
+   379→                      );
+   380→                    })
+   381→                  )}
+   382→                </div>
+   383→              </CardContent>
+   384→            </Card>
+   385→          </div>
+   386→
+   387→          {/* Row 3 — Recent Invoices + API Usage Tracker */}
+   388→          <div className="grid gap-4 md:grid-cols-2">
+   389→            {/* Recent Invoices */}
+   390→            <Card>
+   391→              <CardHeader className="pb-3">
+   392→                <div className="flex items-center justify-between">
+   393→                  <CardTitle className="text-base">Recent Invoices</CardTitle>
+   394→                  <Button variant="ghost" size="sm" onClick={() => router.push("/dashboard/finance/invoices")}>
+   395→                    View All <ArrowRight className="h-3 w-3 ml-1" />
+   396→                  </Button>
+   397→                </div>
+   398→              </CardHeader>
+   399→              <CardContent>
+   400→                <div className="space-y-2 max-h-48 sm:max-h-64 overflow-y-auto custom-scrollbar">
+   401→                  {invoices.length === 0 ? (
+   402→                    <p className="text-sm text-muted-foreground text-center py-8">No invoices</p>
+   403→                  ) : (
+   404→                    invoices.slice(0, 5).map((inv) => (
+   405→                      <button
+   406→                        key={inv.id}
+   407→                        type="button"
+   408→                        onClick={() => router.push("/dashboard/finance/invoices")}
+   409→                        className="flex items-center justify-between w-full p-2 rounded-lg hover:bg-muted/50 cursor-pointer"
+   410→                      >
+   411→                        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+   412→                          <DollarSign className="h-4 w-4 text-muted-foreground shrink-0" />
+   413→                          <div className="min-w-0">
+   414→                            <p className="text-sm font-medium truncate">{safeText(inv.invoiceNumber, "")}</p>
+   415→                            <p className="text-xs text-muted-foreground truncate">{inv.client ? safeText(inv.client.name, "") : ""}</p>
+   416→                          </div>
+   417→                        </div>
+   418→                        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+   419→                          <span className="text-xs sm:text-sm font-medium whitespace-nowrap">{formatCurrency(safeNumber(inv.total))}</span>
+   420→                          <Badge className={`text-[10px] shrink-0 ${invoiceStatusColors[inv.status] || ""}`}>
+   421→                            {safeText(inv.status, "")}
+   422→                          </Badge>
+   423→                        </div>
+   424→                      </button>
+   425→                    ))
+   426→                  )}
+   427→                </div>
+   428→              </CardContent>
+   429→            </Card>
+   430→
+   431→            {/* API Usage Tracker */}
+   432→            <Card>
+   433→              <CardHeader className="pb-3">
+   434→                <div className="flex items-center justify-between">
+   435→                  <div>
+   436→                    <CardTitle className="text-base">API Usage Tracker</CardTitle>
+   437→                    <CardDescription>Monthly budget and spending across all keys</CardDescription>
+   438→                  </div>
+   439→                  <Button variant="ghost" size="sm" onClick={() => router.push("/dashboard/api-keys")}>
+   440→                    View All <ArrowRight className="h-3 w-3 ml-1" />
+   441→                  </Button>
+   442→                </div>
+   443→              </CardHeader>
+   444→              <CardContent>
+   445→                <div className="space-y-4">
+   446→                  <div>
+   447→                    <div className="flex flex-wrap justify-between gap-1 text-xs sm:text-sm mb-1">
+   448→                      <span>Total Budget: ${budget.toFixed(2)}</span>
+   449→                      <span>Spent: ${apiSpend.toFixed(2)} ({budget > 0 ? ((apiSpend / budget) * 100).toFixed(1) : 0}%)</span>
+   450→                    </div>
+   451→                    <Progress
+   452→                      value={budget > 0 ? (apiSpend / budget) * 100 : 0}
+   453→                      className="h-3"
+   454→                    />
+   455→                  </div>
+   456→                  <div className="flex flex-wrap justify-between gap-1 text-xs text-muted-foreground">
+   457→                    <span>Remaining: ${(budget - apiSpend).toFixed(2)}</span>
+   458→                    <span>Expenses: {formatCurrency(totalExpenses)}</span>
+   459→                  </div>
+   460→                </div>
+   461→              </CardContent>
+   462→            </Card>
+   463→          </div>
+   464→        </>
+   465→      )}
+   466→
+   467→      {/* ═══════════════════════════════════════════════════════════════════
+   468→          DEVELOPER VIEW
+   469→          ═══════════════════════════════════════════════════════════════════ */}
+   470→      {!isAdminUser && (
+   471→        <>
+   472→          {/* Row 1 — 3 stat cards with gradient icon accents */}
+   473→          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+   474→            {/* Active Projects */}
+   475→            <Card
+   476→              onClick={() => router.push("/dashboard/projects")}
+   477→              className="cursor-pointer hover:shadow-md transition-shadow"
+   478→            >
+   479→              <CardContent className="p-4">
+   480→                <div className="flex items-center justify-between">
+   481→                  <div>
+   482→                    <p className="text-sm text-muted-foreground">Active Projects</p>
+   483→                    <p className="text-2xl font-bold">{activeProjects}</p>
+   484→                  </div>
+   485→                  <div className="h-10 w-10 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center">
+   486→                    <FolderKanban className="h-5 w-5 text-white" />
+   487→                  </div>
+   488→                </div>
+   489→                <p className="text-xs text-muted-foreground mt-2">{totalClients} clients total</p>
+   490→              </CardContent>
+   491→            </Card>
+   492→
+   493→            {/* My Tasks */}
+   494→            <Card
+   495→              onClick={() => router.push("/dashboard/projects")}
+   496→              className="cursor-pointer hover:shadow-md transition-shadow"
+   497→            >
+   498→              <CardContent className="p-4">
+   499→                <div className="flex items-center justify-between">
+   500→                  <div>
+   501→                    <p className="text-sm text-muted-foreground">My Tasks</p>
+   502→                    <p className="text-2xl font-bold">{pendingTasks}</p>
+   503→                  </div>
+   504→                  <div className="h-10 w-10 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
+   505→                    <ClipboardList className="h-5 w-5 text-white" />
+   506→                  </div>
+   507→                </div>
+   508→                <p className="text-xs text-muted-foreground mt-2">Pending tasks in your projects</p>
+   509→              </CardContent>
+   510→            </Card>
+   511→
+   512→            {/* Open Tickets */}
+   513→            <Card
+   514→              onClick={() => router.push("/dashboard/projects")}
+   515→              className="cursor-pointer hover:shadow-md transition-shadow"
+   516→            >
+   517→              <CardContent className="p-4">
+   518→                <div className="flex items-center justify-between">
+   519→                  <div>
+   520→                    <p className="text-sm text-muted-foreground">Open Tickets</p>
+   521→                    <p className="text-2xl font-bold">{openTickets}</p>
+   522→                  </div>
+   523→                  <div className="h-10 w-10 rounded-full bg-gradient-to-br from-orange-400 to-red-500 flex items-center justify-center">
+   524→                    <AlertCircle className="h-5 w-5 text-white" />
+   525→                  </div>
+   526→                </div>
+   527→                <p className="text-xs text-muted-foreground mt-2">Support tickets in your projects</p>
+   528→              </CardContent>
+   529→            </Card>
+   530→          </div>
+   531→
+   532→          {/* Row 2 — Earnings Card */}
+   533→          <Card
+   534→            onClick={() => setEarningsOpen(true)}
+   535→            className="cursor-pointer hover:shadow-md transition-shadow bg-gradient-to-br from-emerald-50 to-blue-50 dark:from-emerald-950/20 dark:to-blue-950/20 border-emerald-200/60 dark:border-emerald-800/30"
+   536→          >
+   537→            <CardContent className="p-4">
+   538→              <div className="flex items-center justify-between">
+   539→                <div>
+   540→                  <p className="text-sm text-muted-foreground">Total Earnings</p>
+   541→                  <p className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">
+   542→                    {formatCurrency(totalEarningsINR)}
+   543→                  </p>
+   544→                  <p className="text-xs text-muted-foreground mt-1">
+   545→                    ≈ £{totalEarningsGBP.toLocaleString("en-GB", { minimumFractionDigits: 2 })}
+   546→                  </p>
+   547→                </div>
+   548→                <div className="h-10 w-10 rounded-full bg-gradient-to-br from-emerald-400 to-blue-500 flex items-center justify-center">
+   549→                  <DollarSign className="h-5 w-5 text-white" />
+   550→                </div>
+   551→              </div>
+   552→            </CardContent>
+   553→          </Card>
+   554→
+   555→          {/* Row 3 — My Tasks Quick View + Quick Actions */}
+   556→          <div className="grid gap-4 md:grid-cols-2">
+   557→            {/* My Tasks Quick View */}
+   558→            <Card>
+   559→              <CardHeader className="pb-3">
+   560→                <div className="flex items-center justify-between">
+   561→                  <CardTitle className="text-base">Team Tasks</CardTitle>
+   562→                  <Button variant="ghost" size="sm" onClick={() => router.push("/dashboard/projects")}>
+   563→                    View All <ArrowRight className="h-3 w-3 ml-1" />
+   564→                  </Button>
+   565→                </div>
+   566→              </CardHeader>
+   567→              <CardContent>
+   568→                <div className="space-y-2 max-h-48 sm:max-h-64 overflow-y-auto custom-scrollbar">
+   569→                  {tasks.length === 0 ? (
+   570→                    <div className="text-center py-8 text-sm text-muted-foreground">
+   571→                      <ClipboardList className="h-10 w-10 mx-auto mb-3 text-muted-foreground/50" />
+   572→                      <p>No pending tasks</p>
+   573→                      <Button variant="outline" size="sm" className="mt-3" onClick={() => router.push("/dashboard/projects")}>
+   574→                        Go to Projects
+   575→                      </Button>
+   576→                    </div>
+   577→                  ) : (
+   578→                    tasks.slice(0, 5).map((task) => (
+   579→                      <div key={safeText(task.id, "")} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50">
+   580→                        <div className={cn(
+   581→                          "h-2 w-2 rounded-full shrink-0",
+   582→                          task.status === "DONE" ? "bg-green-500" :
+   583→                          task.status === "IN_PROGRESS" ? "bg-blue-500" :
+   584→                          task.status === "REVIEW" ? "bg-yellow-500" : "bg-gray-400"
+   585→                        )} />
+   586→                        <div className="flex-1 min-w-0">
+   587→                          <p className="text-sm font-medium truncate">{safeText(task.title, "Untitled Task")}</p>
+   588→                          <p className="text-xs text-muted-foreground">{task.project ? safeText(task.project.name, "") : ""}</p>
+   589→                        </div>
+   590→                        <Badge variant="outline" className="text-[10px] shrink-0">{safeText(task.status, "")}</Badge>
+   591→                      </div>
+   592→                    ))
+   593→                  )}
+   594→                </div>
+   595→              </CardContent>
+   596→            </Card>
+   597→
+   598→            {/* Quick Actions */}
+   599→            <Card>
+   600→              <CardHeader className="pb-3">
+   601→                <CardTitle className="text-base">Quick Actions</CardTitle>
+   602→                <CardDescription>Common actions for your workflow</CardDescription>
+   603→              </CardHeader>
+   604→              <CardContent className="space-y-2">
+   605→                <button
+   606→                  onClick={() => router.push("/dashboard/time-tracking")}
+   607→                  className="flex items-center gap-3 w-full p-3 rounded-lg hover:bg-muted transition-colors text-left"
+   608→                  type="button"
+   609→                >
+   610→                  <Clock className="h-5 w-5 text-blue-500" />
+   611→                  <div>
+   612→                    <p className="text-sm font-medium">Track Time</p>
+   613→                    <p className="text-xs text-muted-foreground">Log hours on your projects</p>
+   614→                  </div>
+   615→                </button>
+   616→                <button
+   617→                  onClick={() => router.push("/dashboard/workspace")}
+   618→                  className="flex items-center gap-3 w-full p-3 rounded-lg hover:bg-muted transition-colors text-left"
+   619→                  type="button"
+   620→                >
+   621→                  <Rocket className="h-5 w-5 text-purple-500" />
+   622→                  <div>
+   623→                    <p className="text-sm font-medium">AI Workspace</p>
+   624→                    <p className="text-xs text-muted-foreground">Launch the AI-powered workspace</p>
+   625→                  </div>
+   626→                </button>
+   627→                <button
+   628→                  onClick={() => router.push("/dashboard/leaves")}
+   629→                  className="flex items-center gap-3 w-full p-3 rounded-lg hover:bg-muted transition-colors text-left"
+   630→                  type="button"
+   631→                >
+   632→                  <AlertCircle className="h-5 w-5 text-orange-500" />
+   633→                  <div>
+   634→                    <p className="text-sm font-medium">Request Leave</p>
+   635→                    <p className="text-xs text-muted-foreground">Submit time-off requests</p>
+   636→                  </div>
+   637→                </button>
+   638→              </CardContent>
+   639→            </Card>
+   640→          </div>
+   641→        </>
+   642→      )}
+   643→
+   644→      {/* ═══════════════════════════════════════════════════════════════════
+   645→          EARNINGS DIALOG (shared by both admin & developer views)
+   646→          ═══════════════════════════════════════════════════════════════════ */}
+   647→      <Dialog open={earningsOpen} onOpenChange={setEarningsOpen}>
+   648→        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+   649→          <DialogHeader>
+   650→            <DialogTitle className="flex items-center gap-2">
+   651→              <Wallet className="h-5 w-5 text-emerald-600" />
+   652→              Earnings Details
+   653→            </DialogTitle>
+   654→            <DialogDescription>
+   655→              All salary entries recorded for your account
+   656→            </DialogDescription>
+   657→          </DialogHeader>
+   658→
+   659→          {earningsLoading ? (
+   660→            <div className="space-y-3 py-4">
+   661→              <Skeleton className="h-8 w-full" />
+   662→              <Skeleton className="h-8 w-full" />
+   663→              <Skeleton className="h-8 w-full" />
+   664→            </div>
+   665→          ) : earningsData && earningsData.entries.length > 0 ? (
+   666→            <div className="space-y-4">
+   667→              {/* Summary row */}
+   668→              <div className="grid grid-cols-2 gap-4">
+   669→                <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/30 p-3">
+   670→                  <p className="text-xs text-muted-foreground">Total (INR)</p>
+   671→                  <p className="text-xl font-bold text-emerald-700 dark:text-emerald-300">
+   672→                    {formatCurrency(earningsData.totalINR)}
+   673→                  </p>
+   674→                </div>
+   675→                <div className="rounded-lg bg-blue-50 dark:bg-blue-950/30 p-3">
+   676→                  <p className="text-xs text-muted-foreground">Approx. (GBP)</p>
+   677→                  <p className="text-xl font-bold text-blue-700 dark:text-blue-300">
+   678→                    £{earningsData.totalGBP.toLocaleString("en-GB", { minimumFractionDigits: 2 })}
+   679→                  </p>
+   680→                </div>
+   681→              </div>
+   682→
+   683→              {/* Entries table */}
+   684→              <div className="rounded-md border overflow-hidden">
+   685→                <table className="w-full text-sm">
+   686→                  <thead>
+   687→                    <tr className="border-b bg-muted/50">
+   688→                      <th className="text-left px-3 py-2 font-medium">Date</th>
+   689→                      <th className="text-left px-3 py-2 font-medium">Description</th>
+   690→                      <th className="text-right px-3 py-2 font-medium">Amount (INR)</th>
+   691→                      <th className="text-right px-3 py-2 font-medium">Amount (GBP)</th>
+   692→                      <th className="text-right px-3 py-2 font-medium">Ref</th>
+   693→                    </tr>
+   694→                  </thead>
+   695→                  <tbody>
+   696→                    {earningsData.entries.map((entry) => {
+   697→                      const gbp = Math.round((entry.amount / 105) * 100) / 100;
+   698→                      return (
+   699→                        <tr key={entry.id} className="border-b last:border-b-0 hover:bg-muted/30">
+   700→                          <td className="px-3 py-2 whitespace-nowrap">
+   701→                            {safeDate(entry.date) ? new Date(entry.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
+   702→                          </td>
+   703→                          <td className="px-3 py-2 truncate max-w-[200px]">{safeText(entry.description, "—")}</td>
+   704→                          <td className="px-3 py-2 text-right font-medium whitespace-nowrap">{formatCurrency(entry.amount)}</td>
+   705→                          <td className="px-3 py-2 text-right whitespace-nowrap">£{gbp.toLocaleString("en-GB", { minimumFractionDigits: 2 })}</td>
+   706→                          <td className="px-3 py-2 text-right text-muted-foreground whitespace-nowrap">{safeText(entry.paymentRef, "—")}</td>
+   707→                        </tr>
+   708→                      );
+   709→                    })}
+   710→                  </tbody>
+   711→                </table>
+   712→              </div>
+   713→            </div>
+   714→          ) : (
+   715→            <div className="text-center py-10">
+   716→              <Wallet className="h-10 w-10 mx-auto mb-3 text-muted-foreground/40" />
+   717→              <p className="text-sm text-muted-foreground">No salary entries recorded yet.</p>
+   718→              <p className="text-xs text-muted-foreground mt-1">Contact your admin for salary details.</p>
+   719→            </div>
+   720→          )}
+   721→        </DialogContent>
+   722→      </Dialog>
+   723→    </div>
+   724→  );
+   725→}

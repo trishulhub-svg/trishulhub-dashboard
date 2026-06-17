@@ -1,0 +1,1151 @@
+     1→// Auto-migration utility — ensures Prisma schema is in sync with DB.
+     2→//
+     3→// HOW IT WORKS:
+     4→// 1. On server startup, checks for missing tables and columns
+     5→// 2. Automatically creates missing tables and adds missing columns
+     6→// 3. Covers ALL 50 models — no manual SQL maintenance needed
+     7→//
+     8→// WHEN TO RUN: Automatically via src/instrumentation.ts on every server cold start.
+     9→// This is a safety net — the primary sync should be done via `prisma db push`.
+    10→//
+    11→// IMPORTANT: We use "try ALTER TABLE, catch duplicate column" instead of
+    12→// PRAGMA table_info because Turso/libSQL returns BigInt values in PRAGMA
+    13→// results which Prisma cannot serialize, causing a TypeError that silently
+    14→// skips all column migrations.
+    15→
+    16→import { db } from "@/lib/db"
+    17→
+    18→/** Safely extract error message from unknown error type */
+    19→function getErrMsg(err: unknown): string {
+    20→  return err instanceof Error ? err.message : String(err)
+    21→}
+    22→
+    23→let syncDone = false
+    24→
+    25→/** Columns to add if missing: uses "try ALTER, catch duplicate" approach */
+    26→const CRITICAL_COLUMNS: Array<{ table: string; column: string; sql: string }> = [
+    27→  { table: "Task", column: "approvedBy", sql: "ALTER TABLE Task ADD COLUMN approvedBy TEXT" },
+    28→  { table: "Task", column: "approvedAt", sql: "ALTER TABLE Task ADD COLUMN approvedAt DATETIME" },
+    29→  { table: "Task", column: "assigneeType", sql: "ALTER TABLE Task ADD COLUMN assigneeType TEXT NOT NULL DEFAULT 'HUMAN'" },
+    30→  { table: "CrossAgentMessage", column: "linkedChatId", sql: "ALTER TABLE CrossAgentMessage ADD COLUMN linkedChatId TEXT" },
+    31→  { table: "CrossAgentMessage", column: "shareFullChat", sql: "ALTER TABLE CrossAgentMessage ADD COLUMN shareFullChat INTEGER DEFAULT 0" },
+    32→  { table: "Chat", column: "lockedBy", sql: "ALTER TABLE Chat ADD COLUMN lockedBy TEXT" },
+    33→  { table: "Chat", column: "lockedAt", sql: "ALTER TABLE Chat ADD COLUMN lockedAt TEXT" },
+    34→  { table: "Chat", column: "lockedByName", sql: "ALTER TABLE Chat ADD COLUMN lockedByName TEXT" },
+    35→  { table: "Chat", column: "todoItems", sql: "ALTER TABLE Chat ADD COLUMN todoItems TEXT NOT NULL DEFAULT '[]'" },
+    36→  { table: "Chat", column: "isProcessing", sql: "ALTER TABLE Chat ADD COLUMN isProcessing INTEGER NOT NULL DEFAULT 0" },
+    37→  // Expense table columns (Finance page)
+    38→  { table: "Expense", column: "employeeId", sql: "ALTER TABLE Expense ADD COLUMN \"employeeId\" TEXT" },
+    39→  { table: "Expense", column: "paymentRef", sql: "ALTER TABLE Expense ADD COLUMN \"paymentRef\" TEXT" },
+    40→  // Subscription table columns (amount/rate system)
+    41→  { table: "Subscription", column: "exchangeRate", sql: "ALTER TABLE Subscription ADD COLUMN \"exchangeRate\" REAL NOT NULL DEFAULT 1" },
+    42→  // New columns from feature updates
+    43→  { table: "Client", column: "projectMethodId", sql: "ALTER TABLE Client ADD COLUMN projectMethodId TEXT" },
+    44→  { table: "ProjectMethod", column: "updatedAt", sql: `ALTER TABLE "ProjectMethod" ADD COLUMN "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP` },
+    45→  { table: "Invoice", column: "paymentMethod", sql: "ALTER TABLE Invoice ADD COLUMN paymentMethod TEXT" },
+    46→  { table: "Invoice", column: "gst", sql: "ALTER TABLE Invoice ADD COLUMN gst REAL" },
+    47→  { table: "Invoice", column: "gstPercent", sql: "ALTER TABLE Invoice ADD COLUMN gstPercent REAL" },
+    48→  { table: "Invoice", column: "notes", sql: "ALTER TABLE Invoice ADD COLUMN notes TEXT" },
+    49→  { table: "Invoice", column: "paymentStatus", sql: "ALTER TABLE Invoice ADD COLUMN paymentStatus TEXT NOT NULL DEFAULT 'UNPAID'" },
+    50→  { table: "Invoice", column: "sentById", sql: `ALTER TABLE "Invoice" ADD COLUMN "sentById" TEXT` },
+    51→  // Standalone task support
+    52→  { table: "Task", column: "createdBy", sql: "ALTER TABLE Task ADD COLUMN createdBy TEXT" },
+    53→  { table: "Task", column: "category", sql: "ALTER TABLE Task ADD COLUMN category TEXT NOT NULL DEFAULT 'GENERAL'" },
+    54→  // Project start date (moved from Client to Project)
+    55→  { table: "Project", column: "startDate", sql: "ALTER TABLE Project ADD COLUMN startDate DATETIME" },
+    56→  // Attendance — updatedAt column (added in schema but missing from older DBs)
+    57→  { table: "Attendance", column: "updatedAt", sql: `ALTER TABLE "Attendance" ADD COLUMN "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP` },
+    58→]
+    59→
+    60→/** Tables to create if missing (simplified CREATE TABLE IF NOT EXISTS) */
+    61→const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
+    62→  {
+    63→    name: "ClientWebsite",
+    64→    sql: `CREATE TABLE IF NOT EXISTS "ClientWebsite" ("id" TEXT NOT NULL PRIMARY KEY, "url" TEXT NOT NULL, "label" TEXT, "isPrimary" BOOLEAN NOT NULL DEFAULT 0, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "clientId" TEXT NOT NULL, FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE CASCADE)`
+    65→  },
+    66→  {
+    67→    name: "AppSetting",
+    68→    sql: `CREATE TABLE IF NOT EXISTS "AppSetting" ("key" TEXT NOT NULL PRIMARY KEY, "value" TEXT NOT NULL DEFAULT '', "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`
+    69→  },
+    70→  {
+    71→    name: "ProtocolVersion",
+    72→    sql: `CREATE TABLE IF NOT EXISTS "ProtocolVersion" ("id" TEXT NOT NULL PRIMARY KEY, "version" TEXT NOT NULL UNIQUE, "title" TEXT NOT NULL DEFAULT 'Trishul Protocol', "content" TEXT NOT NULL DEFAULT '', "stageDescriptions" TEXT NOT NULL DEFAULT '[]', "agentSkills" TEXT NOT NULL DEFAULT '[]', "isActive" BOOLEAN NOT NULL DEFAULT 1, "createdBy" TEXT NOT NULL, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL)`
+    73→  },
+    74→  {
+    75→    name: "ProtocolInvite",
+    76→    sql: `CREATE TABLE IF NOT EXISTS "ProtocolInvite" ("id" TEXT NOT NULL PRIMARY KEY, "protocolId" TEXT NOT NULL, "inviteCode" TEXT NOT NULL UNIQUE, "targetEmail" TEXT NOT NULL, "targetName" TEXT, "agentAccess" TEXT NOT NULL DEFAULT '[]', "expiresAt" DATETIME NOT NULL, "usedAt" DATETIME, "usedBy" TEXT, "createdBy" TEXT NOT NULL, "status" TEXT NOT NULL DEFAULT 'PENDING', "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL)`
+    77→  },
+    78→  {
+    79→    name: "ProtocolAccessLog",
+    80→    sql: `CREATE TABLE IF NOT EXISTS "ProtocolAccessLog" ("id" TEXT NOT NULL PRIMARY KEY, "inviteId" TEXT NOT NULL, "protocolId" TEXT NOT NULL, "userEmail" TEXT NOT NULL, "agentAccess" TEXT NOT NULL DEFAULT '[]', "ipAddress" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`
+    81→  },
+    82→  {
+    83→    name: "UserProtocolAccess",
+    84→    sql: `CREATE TABLE IF NOT EXISTS "UserProtocolAccess" ("id" TEXT NOT NULL PRIMARY KEY, "userId" TEXT NOT NULL UNIQUE, "userEmail" TEXT NOT NULL, "userName" TEXT, "protocolId" TEXT NOT NULL, "agentAccess" TEXT NOT NULL DEFAULT '[]', "isActive" BOOLEAN NOT NULL DEFAULT 1, "verifiedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "verifiedVia" TEXT NOT NULL, "lastAccessAt" DATETIME NOT NULL)`
+    85→  },
+    86→  {
+    87→    name: "UserCredential",
+    88→    sql: `CREATE TABLE IF NOT EXISTS "UserCredential" ("id" TEXT NOT NULL PRIMARY KEY, "userId" TEXT NOT NULL, "label" TEXT NOT NULL, "username" TEXT NOT NULL, "password" TEXT NOT NULL, "url" TEXT, "notes" TEXT, "createdBy" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL)`
+    89→  },
+    90→  {
+    91→    name: "EmailLog",
+    92→    sql: `CREATE TABLE IF NOT EXISTS "EmailLog" ("id" TEXT NOT NULL PRIMARY KEY, "to" TEXT NOT NULL, "subject" TEXT NOT NULL, "type" TEXT NOT NULL, "status" TEXT NOT NULL, "smtpConfigId" TEXT, "smtpHost" TEXT, "method" TEXT, "error" TEXT, "triggeredBy" TEXT, "metadata" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`
+    93→  },
+    94→  // W20: SmtpConfig (was only in ensureTablesExist() in smtp route, not in auto-migrate)
+    95→  {
+    96→    name: "SmtpConfig",
+    97→    sql: `CREATE TABLE IF NOT EXISTS "SmtpConfig" (
+    98→      "id" TEXT NOT NULL PRIMARY KEY,
+    99→      "host" TEXT NOT NULL,
+   100→      "port" INTEGER NOT NULL DEFAULT 587,
+   101→      "username" TEXT NOT NULL,
+   102→      "password" TEXT NOT NULL,
+   103→      "fromEmail" TEXT NOT NULL,
+   104→      "fromName" TEXT NOT NULL DEFAULT 'TrishulHub',
+   105→      "secure" BOOLEAN NOT NULL DEFAULT false,
+   106→      "isPrimary" BOOLEAN NOT NULL DEFAULT true,
+   107→      "isActive" BOOLEAN NOT NULL DEFAULT true,
+   108→      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   109→      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+   110→    )`
+   111→  },
+   112→  // New tables from feature updates
+   113→  {
+   114→    name: "ProjectMethod",
+   115→    sql: `CREATE TABLE IF NOT EXISTS "ProjectMethod" ("id" TEXT NOT NULL PRIMARY KEY, "name" TEXT NOT NULL UNIQUE, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`
+   116→  },
+   117→  {
+   118→    name: "ProjectAttachment",
+   119→    sql: `CREATE TABLE IF NOT EXISTS "ProjectAttachment" ("id" TEXT NOT NULL PRIMARY KEY, "projectId" TEXT NOT NULL, "fileName" TEXT NOT NULL, "fileData" TEXT NOT NULL, "fileSize" INTEGER NOT NULL, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE CASCADE)`
+   120→  },
+   121→  {
+   122→    name: "ProjectCredential",
+   123→    sql: `CREATE TABLE IF NOT EXISTS "ProjectCredential" ("id" TEXT NOT NULL PRIMARY KEY, "projectId" TEXT NOT NULL, "title" TEXT NOT NULL, "username" TEXT NOT NULL, "password" TEXT NOT NULL, "iv" TEXT NOT NULL, "tag" TEXT NOT NULL, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL, FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE CASCADE)`
+   124→  },
+   125→  {
+   126→    name: "ProjectWebsite",
+   127→    sql: `CREATE TABLE IF NOT EXISTS "ProjectWebsite" ("id" TEXT NOT NULL PRIMARY KEY, "url" TEXT NOT NULL, "label" TEXT, "isPrimary" BOOLEAN NOT NULL DEFAULT 0, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "projectId" TEXT NOT NULL, FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE CASCADE)`
+   128→  },
+   129→  {
+   130→    name: "Contract",
+   131→    sql: `CREATE TABLE IF NOT EXISTS "Contract" ("id" TEXT NOT NULL PRIMARY KEY, "clientId" TEXT NOT NULL, "contractNumber" TEXT NOT NULL UNIQUE, "title" TEXT NOT NULL, "status" TEXT NOT NULL DEFAULT 'DRAFT', "clientName" TEXT NOT NULL, "clientEmail" TEXT NOT NULL, "clientCompany" TEXT, "clientPhone" TEXT, "clientAddress" TEXT, "projectName" TEXT, "projectDescription" TEXT, "projectType" TEXT, "projectMethod" TEXT, "projectStartDate" TEXT, "deliveryDate" TEXT, "scopeOfWork" TEXT NOT NULL DEFAULT '', "paymentTerms" TEXT NOT NULL DEFAULT '', "totalValue" REAL NOT NULL DEFAULT 0, "currency" TEXT NOT NULL DEFAULT 'INR', "paymentSchedule" TEXT NOT NULL DEFAULT '', "startDate" TEXT, "endDate" TEXT, "termsAndConditions" TEXT NOT NULL DEFAULT '', "amendments" TEXT NOT NULL DEFAULT '', "specialClauses" TEXT NOT NULL DEFAULT '', "generatedBy" TEXT, "sentAt" DATETIME, "sentVia" TEXT, "signedAt" DATETIME, "templateText" TEXT, "templateFileName" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL, FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE CASCADE)`
+   132→  },
+   133→  // CRM — Lead
+   134→  {
+   135→    name: "Lead",
+   136→    sql: `CREATE TABLE IF NOT EXISTS "Lead" ("id" TEXT NOT NULL PRIMARY KEY, "name" TEXT NOT NULL, "email" TEXT NOT NULL UNIQUE, "company" TEXT, "website" TEXT, "phone" TEXT, "source" TEXT NOT NULL DEFAULT 'MANUAL', "score" INTEGER NOT NULL DEFAULT 0, "status" TEXT NOT NULL DEFAULT 'NEW', "notes" TEXT, "clientId" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL, FOREIGN KEY ("clientId") REFERENCES "Client"("id"))`
+   137→  },
+   138→  // CRM — LeadEmail
+   139→  {
+   140→    name: "LeadEmail",
+   141→    sql: `CREATE TABLE IF NOT EXISTS "LeadEmail" ("id" TEXT NOT NULL PRIMARY KEY, "leadId" TEXT NOT NULL, "subject" TEXT NOT NULL, "body" TEXT NOT NULL, "direction" TEXT NOT NULL DEFAULT 'OUTBOUND', "status" TEXT NOT NULL DEFAULT 'DRAFT', "sentAt" DATETIME, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY ("leadId") REFERENCES "Lead"("id") ON DELETE CASCADE)`
+   142→  },
+   143→  // CRM — Contact
+   144→  {
+   145→    name: "Contact",
+   146→    sql: `CREATE TABLE IF NOT EXISTS "Contact" ("id" TEXT NOT NULL PRIMARY KEY, "firstName" TEXT NOT NULL, "lastName" TEXT, "email" TEXT NOT NULL UNIQUE, "phone" TEXT, "jobTitle" TEXT, "clientId" TEXT, "leadId" TEXT, "notes" TEXT, "isPrimary" BOOLEAN NOT NULL DEFAULT 0, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL, FOREIGN KEY ("clientId") REFERENCES "Client"("id"), FOREIGN KEY ("leadId") REFERENCES "Lead"("id"))`
+   147→  },
+   148→  // CRM — Deal
+   149→  {
+   150→    name: "Deal",
+   151→    sql: `CREATE TABLE IF NOT EXISTS "Deal" ("id" TEXT NOT NULL PRIMARY KEY, "title" TEXT NOT NULL, "value" REAL NOT NULL DEFAULT 0, "currency" TEXT NOT NULL DEFAULT 'USD', "stage" TEXT NOT NULL DEFAULT 'LEAD', "probability" INTEGER NOT NULL DEFAULT 0, "expectedCloseDate" DATETIME, "actualCloseDate" DATETIME, "clientId" TEXT, "leadId" TEXT, "assignedToId" TEXT, "notes" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL, FOREIGN KEY ("clientId") REFERENCES "Client"("id"), FOREIGN KEY ("leadId") REFERENCES "Lead"("id"), FOREIGN KEY ("assignedToId") REFERENCES "User"("id"))`
+   152→  },
+   153→  // CRM — SupportTicket
+   154→  {
+   155→    name: "SupportTicket",
+   156→    sql: `CREATE TABLE IF NOT EXISTS "SupportTicket" ("id" TEXT NOT NULL PRIMARY KEY, "clientId" TEXT NOT NULL, "subject" TEXT NOT NULL, "description" TEXT NOT NULL, "status" TEXT NOT NULL DEFAULT 'OPEN', "priority" TEXT NOT NULL DEFAULT 'MEDIUM', "assignedTo" TEXT, "resolution" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL, FOREIGN KEY ("clientId") REFERENCES "Client"("id"), FOREIGN KEY ("assignedTo") REFERENCES "User"("id"))`
+   157→  },
+   158→  // CRM — TicketMessage
+   159→  {
+   160→    name: "TicketMessage",
+   161→    sql: `CREATE TABLE IF NOT EXISTS "TicketMessage" ("id" TEXT NOT NULL PRIMARY KEY, "ticketId" TEXT NOT NULL, "senderId" TEXT, "senderType" TEXT NOT NULL DEFAULT 'HUMAN', "message" TEXT NOT NULL, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY ("ticketId") REFERENCES "SupportTicket"("id"))`
+   162→  },
+   163→  {
+   164→    name: "NotificationPreference",
+   165→    sql: `CREATE TABLE IF NOT EXISTS "NotificationPreference" (
+   166→      "id" TEXT NOT NULL PRIMARY KEY,
+   167→      "userId" TEXT NOT NULL,
+   168→      "emailNotifications" BOOLEAN NOT NULL DEFAULT 1,
+   169→      "budgetAlerts" BOOLEAN NOT NULL DEFAULT 1,
+   170→      "meetingReminders" BOOLEAN NOT NULL DEFAULT 1,
+   171→      "taskReminders" BOOLEAN NOT NULL DEFAULT 1,
+   172→      "approvalAlerts" BOOLEAN NOT NULL DEFAULT 1,
+   173→      "invoiceReminders" BOOLEAN NOT NULL DEFAULT 1,
+   174→      "quietHoursEnabled" BOOLEAN NOT NULL DEFAULT 0,
+   175→      "quietHoursStart" TEXT,
+   176→      "quietHoursEnd" TEXT,
+   177→      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   178→      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   179→      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
+   180→    )`
+   181→  },
+   182→  {
+   183→    name: "FileMetadata",
+   184→    sql: `CREATE TABLE IF NOT EXISTS "FileMetadata" ("id" TEXT NOT NULL PRIMARY KEY, "driveFileId" TEXT NOT NULL UNIQUE, "name" TEXT NOT NULL, "mimeType" TEXT NOT NULL, "size" INTEGER NOT NULL DEFAULT 0, "parentId" TEXT, "trashed" BOOLEAN NOT NULL DEFAULT 0, "starred" BOOLEAN NOT NULL DEFAULT 0, "description" TEXT, "thumbnailLink" TEXT, "webViewLink" TEXT, "createdBy" TEXT NOT NULL, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL)`
+   185→  },
+   186→  {
+   187→    name: "FilePermission",
+   188→    sql: `CREATE TABLE IF NOT EXISTS "FilePermission" ("id" TEXT NOT NULL PRIMARY KEY, "fileId" TEXT NOT NULL, "driveFileId" TEXT NOT NULL, "userId" TEXT NOT NULL, "accessLevel" TEXT NOT NULL DEFAULT 'VIEW', "grantedBy" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY ("fileId") REFERENCES "FileMetadata"("id") ON DELETE CASCADE)`
+   189→  },
+   190→  {
+   191→    name: "_ProjectMethodToProject",
+   192→    sql: `CREATE TABLE IF NOT EXISTS "_ProjectMethodToProject" ("A" TEXT NOT NULL, "B" TEXT NOT NULL, PRIMARY KEY("A","B"), FOREIGN KEY ("A") REFERENCES "ProjectMethod"("id") ON DELETE CASCADE, FOREIGN KEY ("B") REFERENCES "Project"("id") ON DELETE CASCADE)`
+   193→  },
+   194→  // Protocol auth tables (serverless-friendly)
+   195→  {
+   196→    name: "ProtocolOtp",
+   197→    sql: `CREATE TABLE IF NOT EXISTS "ProtocolOtp" (
+   198→      "id" TEXT NOT NULL PRIMARY KEY,
+   199→      "email" TEXT NOT NULL,
+   200→      "otp" TEXT NOT NULL,
+   201→      "expiresAt" TEXT NOT NULL,
+   202→      "createdAt" TEXT NOT NULL DEFAULT (datetime('now'))
+   203→    )`
+   204→  },
+   205→  {
+   206→    name: "ProtocolRateLimit",
+   207→    sql: `CREATE TABLE IF NOT EXISTS "ProtocolRateLimit" (
+   208→      "id" TEXT NOT NULL PRIMARY KEY,
+   209→      "key" TEXT NOT NULL,
+   210→      "count" INTEGER NOT NULL DEFAULT 0,
+   211→      "windowStart" TEXT NOT NULL,
+   212→      "updatedAt" TEXT NOT NULL DEFAULT (datetime('now'))
+   213→    )`
+   214→  },
+   215→  // ActiveSession (serverless session tracking — also created in session-manager.ts)
+   216→  {
+   217→    name: "ActiveSession",
+   218→    sql: `CREATE TABLE IF NOT EXISTS "ActiveSession" (
+   219→      "id" TEXT PRIMARY KEY NOT NULL,
+   220→      "userId" TEXT NOT NULL UNIQUE,
+   221→      "sessionToken" TEXT NOT NULL,
+   222→      "createdAt" TEXT NOT NULL DEFAULT (datetime('now')),
+   223→      "updatedAt" TEXT NOT NULL DEFAULT (datetime('now')),
+   224→      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
+   225→    )`
+   226→  },
+   227→  // Personal Timetable (matching Prisma schema)
+   228→  {
+   229→    name: "PersonalTimetableTask",
+   230→    sql: `CREATE TABLE IF NOT EXISTS "PersonalTimetableTask" (
+   231→      "id" TEXT NOT NULL PRIMARY KEY,
+   232→      "userId" TEXT NOT NULL,
+   233→      "title" TEXT NOT NULL,
+   234→      "description" TEXT,
+   235→      "startTime" DATETIME NOT NULL,
+   236→      "endTime" DATETIME NOT NULL,
+   237→      "date" DATETIME NOT NULL,
+   238→      "priority" TEXT NOT NULL DEFAULT 'MEDIUM',
+   239→      "status" TEXT NOT NULL DEFAULT 'PENDING',
+   240→      "category" TEXT NOT NULL DEFAULT 'PERSONAL',
+   241→      "completedAt" DATETIME,
+   242→      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   243→      "updatedAt" DATETIME NOT NULL,
+   244→      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
+   245→    )`
+   246→  },
+   247→  // HR Tables
+   248→  {
+   249→    name: "Leave",
+   250→    sql: `CREATE TABLE IF NOT EXISTS "Leave" (
+   251→      "id" TEXT NOT NULL PRIMARY KEY,
+   252→      "userId" TEXT NOT NULL,
+   253→      "leaveType" TEXT NOT NULL,
+   254→      "startDate" DATETIME NOT NULL,
+   255→      "endDate" DATETIME NOT NULL,
+   256→      "reason" TEXT,
+   257→      "status" TEXT NOT NULL DEFAULT 'PENDING',
+   258→      "approvedBy" TEXT,
+   259→      "approvedAt" DATETIME,
+   260→      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   261→      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   262→      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE,
+   263→      FOREIGN KEY ("approvedBy") REFERENCES "User"("id")
+   264→    )`
+   265→  },
+   266→  {
+   267→    name: "Availability",
+   268→    sql: `CREATE TABLE IF NOT EXISTS "Availability" (
+   269→      "id" TEXT NOT NULL PRIMARY KEY,
+   270→      "userId" TEXT NOT NULL,
+   271→      "dayOfWeek" INTEGER NOT NULL,
+   272→      "startTime" TEXT NOT NULL,
+   273→      "endTime" TEXT NOT NULL,
+   274→      "isAvailable" BOOLEAN NOT NULL DEFAULT 1,
+   275→      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   276→      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   277→      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
+   278→    )`
+   279→  },
+   280→  {
+   281→    name: "AvailabilityOverride",
+   282→    sql: `CREATE TABLE IF NOT EXISTS "AvailabilityOverride" (
+   283→      "id" TEXT NOT NULL PRIMARY KEY,
+   284→      "userId" TEXT NOT NULL,
+   285→      "date" DATETIME NOT NULL,
+   286→      "startTime" TEXT,
+   287→      "endTime" TEXT,
+   288→      "isAvailable" BOOLEAN NOT NULL,
+   289→      "reason" TEXT,
+   290→      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   291→      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   292→      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE,
+   293→      CONSTRAINT "AvailabilityOverride_userId_date_key" UNIQUE ("userId", "date")
+   294→    )`
+   295→  },
+   296→  {
+   297→    name: "MeetingAttendee",
+   298→    sql: `CREATE TABLE IF NOT EXISTS "MeetingAttendee" (
+   299→      "id" TEXT NOT NULL PRIMARY KEY,
+   300→      "meetingId" TEXT NOT NULL,
+   301→      "userId" TEXT NOT NULL,
+   302→      "rsvpStatus" TEXT NOT NULL DEFAULT 'PENDING',
+   303→      FOREIGN KEY ("meetingId") REFERENCES "Meeting"("id") ON DELETE CASCADE,
+   304→      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE,
+   305→      CONSTRAINT "MeetingAttendee_meetingId_userId_key" UNIQUE ("meetingId", "userId")
+   306→    )`
+   307→  },
+   308→  {
+   309→    name: "TimetableSettings",
+   310→    sql: `CREATE TABLE IF NOT EXISTS "TimetableSettings" (
+   311→      "id" TEXT NOT NULL PRIMARY KEY,
+   312→      "userId" TEXT NOT NULL UNIQUE,
+   313→      "sleepHours" REAL NOT NULL DEFAULT 8,
+   314→      "workSplitPercent" REAL NOT NULL DEFAULT 60,
+   315→      "weekStartsOn" TEXT NOT NULL DEFAULT 'MONDAY',
+   316→      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   317→      "updatedAt" DATETIME NOT NULL,
+   318→      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
+   319→    )`
+   320→  },
+   321→  // HR — LeaveRequest (legacy)
+   322→  {
+   323→    name: "LeaveRequest",
+   324→    sql: `CREATE TABLE IF NOT EXISTS "LeaveRequest" (
+   325→      "id" TEXT NOT NULL PRIMARY KEY,
+   326→      "userId" TEXT NOT NULL,
+   327→      "type" TEXT NOT NULL DEFAULT 'CASUAL',
+   328→      "startDate" DATETIME NOT NULL,
+   329→      "endDate" DATETIME NOT NULL,
+   330→      "reason" TEXT,
+   331→      "status" TEXT NOT NULL DEFAULT 'PENDING',
+   332→      "approvedBy" TEXT,
+   333→      "feedback" TEXT,
+   334→      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   335→      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   336→      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
+   337→    )`
+   338→  },
+   339→  // HR — Attendance
+   340→  {
+   341→    name: "Attendance",
+   342→    sql: `CREATE TABLE IF NOT EXISTS "Attendance" (
+   343→      "id" TEXT NOT NULL PRIMARY KEY,
+   344→      "userId" TEXT NOT NULL,
+   345→      "date" DATETIME NOT NULL,
+   346→      "checkIn" DATETIME,
+   347→      "checkOut" DATETIME,
+   348→      "status" TEXT NOT NULL DEFAULT 'PRESENT',
+   349→      "notes" TEXT,
+   350→      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   351→      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   352→      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE,
+   353→      CONSTRAINT "Attendance_userId_date_key" UNIQUE ("userId", "date")
+   354→    )`
+   355→  },
+   356→  // HR — Meeting
+   357→  {
+   358→    name: "Meeting",
+   359→    sql: `CREATE TABLE IF NOT EXISTS "Meeting" (
+   360→      "id" TEXT NOT NULL PRIMARY KEY,
+   361→      "title" TEXT NOT NULL,
+   362→      "description" TEXT,
+   363→      "date" DATETIME NOT NULL,
+   364→      "startTime" TEXT NOT NULL,
+   365→      "endTime" TEXT,
+   366→      "organizerId" TEXT NOT NULL,
+   367→      "meetingType" TEXT NOT NULL DEFAULT 'VIRTUAL',
+   368→      "meetingLink" TEXT,
+   369→      "projectId" TEXT,
+   370→      "status" TEXT NOT NULL DEFAULT 'SCHEDULED',
+   371→      "notes" TEXT,
+   372→      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   373→      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   374→      FOREIGN KEY ("organizerId") REFERENCES "User"("id") ON DELETE CASCADE,
+   375→      FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE CASCADE
+   376→    )`
+   377→  },
+   378→  // Audit Log (Department-Wise) — standalone table, no FK to User
+   379→  {
+   380→    name: "AuditLog",
+   381→    sql: `CREATE TABLE IF NOT EXISTS "AuditLog" (
+   382→      "id" TEXT NOT NULL PRIMARY KEY,
+   383→      "userId" TEXT NOT NULL,
+   384→      "userName" TEXT NOT NULL,
+   385→      "userRole" TEXT NOT NULL,
+   386→      "userDepartment" TEXT,
+   387→      "department" TEXT NOT NULL,
+   388→      "page" TEXT NOT NULL,
+   389→      "action" TEXT NOT NULL,
+   390→      "entityType" TEXT,
+   391→      "entityId" TEXT,
+   392→      "description" TEXT NOT NULL,
+   393→      "oldValue" TEXT,
+   394→      "newValue" TEXT,
+   395→      "ipAddress" TEXT,
+   396→      "userAgent" TEXT,
+   397→      "status" TEXT NOT NULL DEFAULT 'SUCCESS',
+   398→      "metadata" TEXT,
+   399→      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+   400→    )`
+   401→  },
+   402→  // ━━ Lark Integration Tables ━━
+   403→  {
+   404→    name: "LarkUserMapping",
+   405→    sql: `CREATE TABLE IF NOT EXISTS "LarkUserMapping" (
+   406→      "id" TEXT NOT NULL PRIMARY KEY,
+   407→      "userId" TEXT NOT NULL,
+   408→      "larkOpenId" TEXT NOT NULL,
+   409→      "larkName" TEXT NOT NULL DEFAULT '',
+   410→      "larkEmail" TEXT NOT NULL DEFAULT '',
+   411→      "matchedBy" TEXT NOT NULL DEFAULT 'manual',
+   412→      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   413→      UNIQUE("userId"),
+   414→      UNIQUE("larkOpenId")
+   415→    )`
+   416→  },
+   417→  {
+   418→    name: "LarkTaskMapping",
+   419→    sql: `CREATE TABLE IF NOT EXISTS "LarkTaskMapping" (
+   420→      "id" TEXT NOT NULL PRIMARY KEY,
+   421→      "taskId" TEXT NOT NULL,
+   422→      "larkTaskId" TEXT NOT NULL,
+   423→      "larkTaskListId" TEXT NOT NULL,
+   424→      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   425→      UNIQUE("taskId"),
+   426→      UNIQUE("larkTaskId")
+   427→    )`
+   428→  },
+   429→  {
+   430→    name: "LarkSyncLog",
+   431→    sql: `CREATE TABLE IF NOT EXISTS "LarkSyncLog" (
+   432→      "id" TEXT NOT NULL PRIMARY KEY,
+   433→      "direction" TEXT NOT NULL,
+   434→      "action" TEXT NOT NULL,
+   435→      "status" TEXT NOT NULL,
+   436→      "taskId" TEXT,
+   437→      "larkTaskId" TEXT,
+   438→      "larkTaskListId" TEXT,
+   439→      "projectId" TEXT,
+   440→      "userId" TEXT,
+   441→      "error" TEXT,
+   442→      "metadata" TEXT,
+   443→      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+   444→    )`
+   445→  },
+   446→]
+   447→
+   448→/**
+   449→ * Helper to safely check if a column exists in a table.
+   450→ * Uses a SELECT query instead of PRAGMA table_info to avoid BigInt serialization
+   451→ * errors that occur with Turso/libSQL adapter.
+   452→ */
+   453→async function columnExists(table: string, column: string): Promise<boolean> {
+   454→  try {
+   455→    // Use a safe approach: try to SELECT the column with LIMIT 0.
+   456→    // This validates the column exists without fetching any data.
+   457→    await db.$executeRawUnsafe(`SELECT "${column}" FROM "${table}" LIMIT 0`)
+   458→    return true
+   459→  } catch {
+   460→    return false
+   461→  }
+   462→}
+   463→
+   464→/**
+   465→ * Compare schema with DB and auto-fix any missing tables or columns.
+   466→ * Safe to call multiple times — skips if already synced in this process.
+   467→ */
+   468→export async function ensureAllTables(): Promise<void> {
+   469→  if (syncDone) return
+   470→
+   471→  try {
+   472→    // Quick DB connectivity check
+   473→    await db.$queryRawUnsafe("SELECT 1")
+   474→  } catch (err: unknown) {
+   475→    console.error("[auto-migrate] Database connection failed:", getErrMsg(err))
+   476→    // Do NOT set syncDone — allow retry on next cold start
+   477→    return
+   478→  }
+   479→
+   480→  try {
+   481→    // 1. Create missing tables
+   482→    for (const tableDef of CRITICAL_TABLES) {
+   483→      try {
+   484→        await db.$executeRawUnsafe(tableDef.sql)
+   485→      } catch (err: unknown) {
+   486→        // Table already exists or other error — non-fatal
+   487→        if (!getErrMsg(err)?.includes('already exists')) {
+   488→          console.warn(`[auto-migrate] Table ${tableDef.name}: ${getErrMsg(err)}`)
+   489→        }
+   490→      }
+   491→    }
+   492→
+   493→    // 1b. Create missing unique indexes for NotificationPreference
+   494→    try {
+   495→      await db.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "NotificationPreference_userId_key" ON "NotificationPreference"("userId")`)
+   496→    } catch (err: unknown) {
+   497→      if (!getErrMsg(err)?.includes('already exists')) {
+   498→        console.warn(`[auto-migrate] NotificationPreference_userId_key index: ${getErrMsg(err)}`)
+   499→      }
+   500→    }
+   501→
+   502→    // 1c. Create missing indexes for Expense table
+   503→    try {
+   504→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Expense_employeeId_idx" ON "Expense"("employeeId")`)
+   505→    } catch (err: unknown) {
+   506→      if (!getErrMsg(err)?.includes('already exists')) {
+   507→        console.warn(`[auto-migrate] Expense_employeeId_idx index: ${getErrMsg(err)}`)
+   508→      }
+   509→    }
+   510→
+   511→    // 1d. Create index for Invoice.sentById (finance queries)
+   512→    try {
+   513→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Invoice_sentById_idx" ON "Invoice"("sentById")`)
+   514→    } catch (err: unknown) {
+   515→      if (!getErrMsg(err)?.includes('already exists')) {
+   516→        console.warn(`[auto-migrate] Invoice_sentById_idx: ${getErrMsg(err)}`)
+   517→      }
+   518→    }
+   519→
+   520→    // 1e. Rename Subscription.rate → Subscription.amount (column rename)
+   521→    // Use columnExists helper instead of PRAGMA table_info to avoid BigInt errors
+   522→    try {
+   523→      const hasAmount = await columnExists("Subscription", "amount")
+   524→      if (!hasAmount) {
+   525→        // Check if old "rate" column exists
+   526→        const hasRate = await columnExists("Subscription", "rate")
+   527→        if (hasRate) {
+   528→          await db.$executeRawUnsafe(`ALTER TABLE "Subscription" RENAME COLUMN "rate" TO "amount"`)
+   529→          console.log(`[auto-migrate] Renamed Subscription.rate → Subscription.amount`)
+   530→        }
+   531→      }
+   532→    } catch (err: unknown) {
+   533→      console.warn(`[auto-migrate] Subscription column rename: ${getErrMsg(err)}`)
+   534→    }
+   535→
+   536→    // 1e. Make Project.clientId nullable (was NOT NULL, now optional for "No client" projects)
+   537→    // Note: Skipping the PRAGMA-based nullable check since it requires BigInt-safe PRAGMA.
+   538→    // This migration was likely already applied. If not, the table recreation fallback
+   539→    // will be handled by a future explicit migration.
+   540→    // The nullable change is non-blocking — Prisma handles null values at the ORM level.
+   541→
+   542→    // 1f. Create indexes for FileMetadata
+   543→    try {
+   544→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "FileMetadata_parentId_idx" ON "FileMetadata"("parentId")`)
+   545→    } catch (err: unknown) {
+   546→      if (!getErrMsg(err)?.includes('already exists')) {
+   547→        console.warn(`[auto-migrate] FileMetadata_parentId_idx index: ${getErrMsg(err)}`)
+   548→      }
+   549→    }
+   550→    try {
+   551→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "FileMetadata_createdBy_idx" ON "FileMetadata"("createdBy")`)
+   552→    } catch (err: unknown) {
+   553→      if (!getErrMsg(err)?.includes('already exists')) {
+   554→        console.warn(`[auto-migrate] FileMetadata_createdBy_idx index: ${getErrMsg(err)}`)
+   555→      }
+   556→    }
+   557→    try {
+   558→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "FileMetadata_trashed_idx" ON "FileMetadata"("trashed")`)
+   559→    } catch (err: unknown) {
+   560→      if (!getErrMsg(err)?.includes('already exists')) {
+   561→        console.warn(`[auto-migrate] FileMetadata_trashed_idx index: ${getErrMsg(err)}`)
+   562→      }
+   563→    }
+   564→    try {
+   565→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "FilePermission_userId_idx" ON "FilePermission"("userId")`)
+   566→    } catch (err: unknown) {
+   567→      if (!getErrMsg(err)?.includes('already exists')) {
+   568→        console.warn(`[auto-migrate] FilePermission_userId_idx index: ${getErrMsg(err)}`)
+   569→      }
+   570→    }
+   571→    try {
+   572→      await db.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "FilePermission_fileId_userId_key" ON "FilePermission"("fileId", "userId")`)
+   573→    } catch (err: unknown) {
+   574→      if (!getErrMsg(err)?.includes('already exists')) {
+   575→        console.warn(`[auto-migrate] FilePermission_fileId_userId_key index: ${getErrMsg(err)}`)
+   576→      }
+   577→    }
+   578→
+   579→    // 1g. Migrate _ProjectMethodToProject to add PRIMARY KEY for existing DBs
+   580→    // SQLite doesn't support ALTER TABLE ADD PRIMARY KEY, so we recreate the table
+   581→    // Wrapped in a transaction for atomicity (L13)
+   582→    try {
+   583→      await db.$executeRawUnsafe(`BEGIN`)
+   584→      try {
+   585→        await db.$executeRawUnsafe(`
+   586→          CREATE TABLE IF NOT EXISTS "_ProjectMethodToProject_new" (
+   587→            "A" TEXT NOT NULL,
+   588→            "B" TEXT NOT NULL,
+   589→            PRIMARY KEY("A","B")
+   590→          )
+   591→        `)
+   592→        // Copy data from old table (if it exists) — INSERT OR IGNORE handles duplicate PKs
+   593→        await db.$executeRawUnsafe(`INSERT OR IGNORE INTO "_ProjectMethodToProject_new" ("A", "B") SELECT "A", "B" FROM "_ProjectMethodToProject"`)
+   594→        await db.$executeRawUnsafe(`DROP TABLE IF EXISTS "_ProjectMethodToProject"`)
+   595→        await db.$executeRawUnsafe(`ALTER TABLE "_ProjectMethodToProject_new" RENAME TO "_ProjectMethodToProject"`)
+   596→        await db.$executeRawUnsafe(`COMMIT`)
+   597→        console.log(`[auto-migrate] Migrated _ProjectMethodToProject to add PRIMARY KEY`)
+   598→      } catch (innerErr: unknown) {
+   599→        await db.$executeRawUnsafe(`ROLLBACK`).catch(() => {})
+   600→        // Old table doesn't exist yet (fresh DB) — new table is already correct
+   601→        const innerMsg = innerErr instanceof Error ? innerErr.message : String(innerErr)
+   602→        if (!innerMsg.includes('no such table') && !innerMsg.includes('already exists')) {
+   603→          throw innerErr
+   604→        }
+   605→      }
+   606→    } catch (err: unknown) {
+   607→      console.warn(`[auto-migrate] _ProjectMethodToProject PRIMARY KEY migration: ${getErrMsg(err)}`)
+   608→    }
+   609→
+   610→    // Join table indexes for Project ↔ ProjectMethod
+   611→    try {
+   612→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "_ProjectMethodToProject_A_index" ON "_ProjectMethodToProject"("A")`)
+   613→    } catch (err: unknown) {
+   614→      if (!getErrMsg(err)?.includes('already exists')) {
+   615→        console.warn(`[auto-migrate] _ProjectMethodToProject_A_index: ${getErrMsg(err)}`)
+   616→      }
+   617→    }
+   618→    try {
+   619→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "_ProjectMethodToProject_B_index" ON "_ProjectMethodToProject"("B")`)
+   620→    } catch (err: unknown) {
+   621→      if (!getErrMsg(err)?.includes('already exists')) {
+   622→        console.warn(`[auto-migrate] _ProjectMethodToProject_B_index: ${getErrMsg(err)}`)
+   623→      }
+   624→    }
+   625→
+   626→    // 1h. Missing indexes declared in Prisma schema
+   627→    // Contract indexes
+   628→    try {
+   629→      await db.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "Contract_clientId_index" ON "Contract"("clientId")`)
+   630→    } catch (err: unknown) {
+   631→      if (!getErrMsg(err)?.includes('already exists')) {
+   632→        console.warn(`[auto-migrate] Contract_clientId_index: ${getErrMsg(err)}`)
+   633→      }
+   634→    }
+   635→    try {
+   636→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Contract_status_index" ON "Contract"("status")`)
+   637→    } catch (err: unknown) {
+   638→      if (!getErrMsg(err)?.includes('already exists')) {
+   639→        console.warn(`[auto-migrate] Contract_status_index: ${getErrMsg(err)}`)
+   640→      }
+   641→    }
+   642→    // ProjectWebsite indexes
+   643→    try {
+   644→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ProjectWebsite_projectId_index" ON "ProjectWebsite"("projectId")`)
+   645→    } catch (err: unknown) {
+   646→      if (!getErrMsg(err)?.includes('already exists')) {
+   647→        console.warn(`[auto-migrate] ProjectWebsite_projectId_index: ${getErrMsg(err)}`)
+   648→      }
+   649→    }
+   650→    // ProjectAttachment indexes
+   651→    try {
+   652→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ProjectAttachment_projectId_index" ON "ProjectAttachment"("projectId")`)
+   653→    } catch (err: unknown) {
+   654→      if (!getErrMsg(err)?.includes('already exists')) {
+   655→        console.warn(`[auto-migrate] ProjectAttachment_projectId_index: ${getErrMsg(err)}`)
+   656→      }
+   657→    }
+   658→    // ProjectCredential indexes
+   659→    try {
+   660→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ProjectCredential_projectId_index" ON "ProjectCredential"("projectId")`)
+   661→    } catch (err: unknown) {
+   662→      if (!getErrMsg(err)?.includes('already exists')) {
+   663→        console.warn(`[auto-migrate] ProjectCredential_projectId_index: ${getErrMsg(err)}`)
+   664→      }
+   665→    }
+   666→    // PersonalTimetableTask indexes
+   667→    try {
+   668→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PersonalTimetableTask_userId_index" ON "PersonalTimetableTask"("userId")`)
+   669→    } catch (err: unknown) {
+   670→      if (!getErrMsg(err)?.includes('already exists')) {
+   671→        console.warn(`[auto-migrate] PersonalTimetableTask_userId_index: ${getErrMsg(err)}`)
+   672→      }
+   673→    }
+   674→    try {
+   675→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PersonalTimetableTask_userId_date_index" ON "PersonalTimetableTask"("userId", "date")`)
+   676→    } catch (err: unknown) {
+   677→      if (!getErrMsg(err)?.includes('already exists')) {
+   678→        console.warn(`[auto-migrate] PersonalTimetableTask_userId_date_index: ${getErrMsg(err)}`)
+   679→      }
+   680→    }
+   681→    try {
+   682→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PersonalTimetableTask_userId_status_index" ON "PersonalTimetableTask"("userId", "status")`)
+   683→    } catch (err: unknown) {
+   684→      if (!getErrMsg(err)?.includes('already exists')) {
+   685→        console.warn(`[auto-migrate] PersonalTimetableTask_userId_status_index: ${getErrMsg(err)}`)
+   686→      }
+   687→    }
+   688→    try {
+   689→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PersonalTimetableTask_date_index" ON "PersonalTimetableTask"("date")`)
+   690→    } catch (err: unknown) {
+   691→      if (!getErrMsg(err)?.includes('already exists')) {
+   692→        console.warn(`[auto-migrate] PersonalTimetableTask_date_index: ${getErrMsg(err)}`)
+   693→      }
+   694→    }
+   695→    // EmailLog indexes
+   696→    try {
+   697→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailLog_type_index" ON "EmailLog"("type")`)
+   698→    } catch (err: unknown) {
+   699→      if (!getErrMsg(err)?.includes('already exists')) {
+   700→        console.warn(`[auto-migrate] EmailLog_type_index: ${getErrMsg(err)}`)
+   701→      }
+   702→    }
+   703→    try {
+   704→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailLog_status_index" ON "EmailLog"("status")`)
+   705→    } catch (err: unknown) {
+   706→      if (!getErrMsg(err)?.includes('already exists')) {
+   707→        console.warn(`[auto-migrate] EmailLog_status_index: ${getErrMsg(err)}`)
+   708→      }
+   709→    }
+   710→    try {
+   711→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailLog_createdAt_index" ON "EmailLog"("createdAt")`)
+   712→    } catch (err: unknown) {
+   713→      if (!getErrMsg(err)?.includes('already exists')) {
+   714→        console.warn(`[auto-migrate] EmailLog_createdAt_index: ${getErrMsg(err)}`)
+   715→      }
+   716→    }
+   717→    try {
+   718→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailLog_triggeredBy_index" ON "EmailLog"("triggeredBy")`)
+   719→    } catch (err: unknown) {
+   720→      if (!getErrMsg(err)?.includes('already exists')) {
+   721→        console.warn(`[auto-migrate] EmailLog_triggeredBy_index: ${getErrMsg(err)}`)
+   722→      }
+   723→    }
+   724→    // FilePermission indexes
+   725→    try {
+   726→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "FilePermission_driveFileId_index" ON "FilePermission"("driveFileId")`)
+   727→    } catch (err: unknown) {
+   728→      if (!getErrMsg(err)?.includes('already exists')) {
+   729→        console.warn(`[auto-migrate] FilePermission_driveFileId_index: ${getErrMsg(err)}`)
+   730→      }
+   731→    }
+   732→    // CRM — ClientWebsite indexes
+   733→    try {
+   734→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_clientwebsite_clientId" ON "ClientWebsite"("clientId")`)
+   735→    } catch (err: unknown) {
+   736→      if (!getErrMsg(err)?.includes('already exists')) {
+   737→        console.warn(`[auto-migrate] idx_clientwebsite_clientId: ${getErrMsg(err)}`)
+   738→      }
+   739→    }
+   740→    // CRM — Lead indexes
+   741→    try {
+   742→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_lead_status" ON "Lead"("status")`)
+   743→    } catch (err: unknown) {
+   744→      if (!getErrMsg(err)?.includes('already exists')) {
+   745→        console.warn(`[auto-migrate] idx_lead_status: ${getErrMsg(err)}`)
+   746→      }
+   747→    }
+   748→    try {
+   749→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_lead_clientId" ON "Lead"("clientId")`)
+   750→    } catch (err: unknown) {
+   751→      if (!getErrMsg(err)?.includes('already exists')) {
+   752→        console.warn(`[auto-migrate] idx_lead_clientId: ${getErrMsg(err)}`)
+   753→      }
+   754→    }
+   755→    // CRM — LeadEmail indexes
+   756→    try {
+   757→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_leademail_leadId" ON "LeadEmail"("leadId")`)
+   758→    } catch (err: unknown) {
+   759→      if (!getErrMsg(err)?.includes('already exists')) {
+   760→        console.warn(`[auto-migrate] idx_leademail_leadId: ${getErrMsg(err)}`)
+   761→      }
+   762→    }
+   763→    // CRM — Contact indexes
+   764→    try {
+   765→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_contact_clientId" ON "Contact"("clientId")`)
+   766→    } catch (err: unknown) {
+   767→      if (!getErrMsg(err)?.includes('already exists')) {
+   768→        console.warn(`[auto-migrate] idx_contact_clientId: ${getErrMsg(err)}`)
+   769→      }
+   770→    }
+   771→    try {
+   772→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_contact_leadId" ON "Contact"("leadId")`)
+   773→    } catch (err: unknown) {
+   774→      if (!getErrMsg(err)?.includes('already exists')) {
+   775→        console.warn(`[auto-migrate] idx_contact_leadId: ${getErrMsg(err)}`)
+   776→      }
+   777→    }
+   778→    // CRM — Deal indexes
+   779→    try {
+   780→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_deal_clientId" ON "Deal"("clientId")`)
+   781→    } catch (err: unknown) {
+   782→      if (!getErrMsg(err)?.includes('already exists')) {
+   783→        console.warn(`[auto-migrate] idx_deal_clientId: ${getErrMsg(err)}`)
+   784→      }
+   785→    }
+   786→    try {
+   787→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_deal_stage" ON "Deal"("stage")`)
+   788→    } catch (err: unknown) {
+   789→      if (!getErrMsg(err)?.includes('already exists')) {
+   790→        console.warn(`[auto-migrate] idx_deal_stage: ${getErrMsg(err)}`)
+   791→      }
+   792→    }
+   793→    try {
+   794→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_deal_leadId" ON "Deal"("leadId")`)
+   795→    } catch (err: unknown) {
+   796→      if (!getErrMsg(err)?.includes('already exists')) {
+   797→        console.warn(`[auto-migrate] idx_deal_leadId: ${getErrMsg(err)}`)
+   798→      }
+   799→    }
+   800→    try {
+   801→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_deal_expectedCloseDate" ON "Deal"("expectedCloseDate")`)
+   802→    } catch (err: unknown) {
+   803→      if (!getErrMsg(err)?.includes('already exists')) {
+   804→        console.warn(`[auto-migrate] idx_deal_expectedCloseDate: ${getErrMsg(err)}`)
+   805→      }
+   806→    }
+   807→    // CRM — SupportTicket indexes
+   808→    try {
+   809→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_supportticket_clientId" ON "SupportTicket"("clientId")`)
+   810→    } catch (err: unknown) {
+   811→      if (!getErrMsg(err)?.includes('already exists')) {
+   812→        console.warn(`[auto-migrate] idx_supportticket_clientId: ${getErrMsg(err)}`)
+   813→      }
+   814→    }
+   815→    try {
+   816→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_supportticket_status" ON "SupportTicket"("status")`)
+   817→    } catch (err: unknown) {
+   818→      if (!getErrMsg(err)?.includes('already exists')) {
+   819→        console.warn(`[auto-migrate] idx_supportticket_status: ${getErrMsg(err)}`)
+   820→      }
+   821→    }
+   822→    // CRM — TicketMessage indexes
+   823→    try {
+   824→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_ticketmessage_ticketId" ON "TicketMessage"("ticketId")`)
+   825→    } catch (err: unknown) {
+   826→      if (!getErrMsg(err)?.includes('already exists')) {
+   827→        console.warn(`[auto-migrate] idx_ticketmessage_ticketId: ${getErrMsg(err)}`)
+   828→      }
+   829→    }
+   830→    // ProtocolOtp indexes
+   831→    try {
+   832→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ProtocolOtp_expiresAt_index" ON "ProtocolOtp"("expiresAt")`)
+   833→    } catch (err: unknown) {
+   834→      if (!getErrMsg(err)?.includes('already exists')) {
+   835→        console.warn(`[auto-migrate] ProtocolOtp_expiresAt_index: ${getErrMsg(err)}`)
+   836→      }
+   837→    }
+   838→    // ProtocolRateLimit indexes
+   839→    try {
+   840→      await db.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "ProtocolRateLimit_key_index" ON "ProtocolRateLimit"("key")`)
+   841→    } catch (err: unknown) {
+   842→      if (!getErrMsg(err)?.includes('already exists')) {
+   843→        console.warn(`[auto-migrate] ProtocolRateLimit_key_index: ${getErrMsg(err)}`)
+   844→      }
+   845→    }
+   846→
+   847→    // 1i. HR indexes
+   848→    try {
+   849→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Attendance_userId_status_idx" ON "Attendance"("userId", "status")`)
+   850→    } catch (err: unknown) {
+   851→      if (!getErrMsg(err)?.includes('already exists')) {
+   852→        console.warn(`[auto-migrate] Attendance_userId_status_idx: ${getErrMsg(err)}`)
+   853→      }
+   854→    }
+   855→    try {
+   856→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Meeting_status_idx" ON "Meeting"("status")`)
+   857→    } catch (err: unknown) {
+   858→      if (!getErrMsg(err)?.includes('already exists')) {
+   859→        console.warn(`[auto-migrate] Meeting_status_idx: ${getErrMsg(err)}`)
+   860→      }
+   861→    }
+   862→
+   863→    // AuditLog indexes
+   864→    try {
+   865→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AuditLog_userId_idx" ON "AuditLog"("userId")`)
+   866→    } catch (err: unknown) {
+   867→      if (!getErrMsg(err)?.includes('already exists')) {
+   868→        console.warn(`[auto-migrate] AuditLog_userId_idx: ${getErrMsg(err)}`)
+   869→      }
+   870→    }
+   871→    try {
+   872→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AuditLog_department_idx" ON "AuditLog"("department")`)
+   873→    } catch (err: unknown) {
+   874→      if (!getErrMsg(err)?.includes('already exists')) {
+   875→        console.warn(`[auto-migrate] AuditLog_department_idx: ${getErrMsg(err)}`)
+   876→      }
+   877→    }
+   878→    try {
+   879→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AuditLog_page_idx" ON "AuditLog"("page")`)
+   880→    } catch (err: unknown) {
+   881→      if (!getErrMsg(err)?.includes('already exists')) {
+   882→        console.warn(`[auto-migrate] AuditLog_page_idx: ${getErrMsg(err)}`)
+   883→      }
+   884→    }
+   885→    try {
+   886→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AuditLog_action_idx" ON "AuditLog"("action")`)
+   887→    } catch (err: unknown) {
+   888→      if (!getErrMsg(err)?.includes('already exists')) {
+   889→        console.warn(`[auto-migrate] AuditLog_action_idx: ${getErrMsg(err)}`)
+   890→      }
+   891→    }
+   892→    try {
+   893→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AuditLog_entityId_idx" ON "AuditLog"("entityId")`)
+   894→    } catch (err: unknown) {
+   895→      if (!getErrMsg(err)?.includes('already exists')) {
+   896→        console.warn(`[auto-migrate] AuditLog_entityId_idx: ${getErrMsg(err)}`)
+   897→      }
+   898→    }
+   899→    try {
+   900→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AuditLog_createdAt_idx" ON "AuditLog"("createdAt")`)
+   901→    } catch (err: unknown) {
+   902→      if (!getErrMsg(err)?.includes('already exists')) {
+   903→        console.warn(`[auto-migrate] AuditLog_createdAt_idx: ${getErrMsg(err)}`)
+   904→      }
+   905→    }
+   906→    try {
+   907→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AuditLog_department_page_idx" ON "AuditLog"("department", "page")`)
+   908→    } catch (err: unknown) {
+   909→      if (!getErrMsg(err)?.includes('already exists')) {
+   910→        console.warn(`[auto-migrate] AuditLog_department_page_idx: ${getErrMsg(err)}`)
+   911→      }
+   912→    }
+   913→    try {
+   914→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AuditLog_department_action_idx" ON "AuditLog"("department", "action")`)
+   915→    } catch (err: unknown) {
+   916→      if (!getErrMsg(err)?.includes('already exists')) {
+   917→        console.warn(`[auto-migrate] AuditLog_department_action_idx: ${getErrMsg(err)}`)
+   918→      }
+   919→    }
+   920→    try {
+   921→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AuditLog_userId_createdAt_idx" ON "AuditLog"("userId", "createdAt")`)
+   922→    } catch (err: unknown) {
+   923→      if (!getErrMsg(err)?.includes('already exists')) {
+   924→        console.warn(`[auto-migrate] AuditLog_userId_createdAt_idx: ${getErrMsg(err)}`)
+   925→      }
+   926→    }
+   927→
+   928→    try {
+   929→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "MeetingAttendee_userId_idx" ON "MeetingAttendee"("userId")`)
+   930→    } catch (err: unknown) {
+   931→      if (!getErrMsg(err)?.includes('already exists')) {
+   932→        console.warn(`[auto-migrate] MeetingAttendee_userId_idx: ${getErrMsg(err)}`)
+   933→      }
+   934→    }
+   935→    try {
+   936→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "TestAttempt_assignmentId_idx" ON "TestAttempt"("assignmentId")`)
+   937→    } catch (err: unknown) {
+   938→      if (!getErrMsg(err)?.includes('already exists')) {
+   939→        console.warn(`[auto-migrate] TestAttempt_assignmentId_idx: ${getErrMsg(err)}`)
+   940→      }
+   941→    }
+   942→    try {
+   943→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "TrainingAssignment_assignedTo_status_idx" ON "TrainingAssignment"("assignedTo", "status")`)
+   944→    } catch (err: unknown) {
+   945→      if (!getErrMsg(err)?.includes('already exists')) {
+   946→        console.warn(`[auto-migrate] TrainingAssignment_assignedTo_status_idx: ${getErrMsg(err)}`)
+   947→      }
+   948→    }
+   949→
+   950→    // Phase 8: Indexes for new modules
+   951→    // SupportTicket indexes
+   952→    try {
+   953→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_supportticket_assignedTo" ON "SupportTicket"("assignedTo")`)
+   954→    } catch (err: unknown) {
+   955→      if (!getErrMsg(err)?.includes('already exists')) {
+   956→        console.warn(`[auto-migrate] idx_supportticket_assignedTo: ${getErrMsg(err)}`)
+   957→      }
+   958→    }
+   959→    try {
+   960→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_supportticket_priority" ON "SupportTicket"("priority")`)
+   961→    } catch (err: unknown) {
+   962→      if (!getErrMsg(err)?.includes('already exists')) {
+   963→        console.warn(`[auto-migrate] idx_supportticket_priority: ${getErrMsg(err)}`)
+   964→      }
+   965→    }
+   966→    try {
+   967→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_supportticket_clientId_status" ON "SupportTicket"("clientId", "status")`)
+   968→    } catch (err: unknown) {
+   969→      if (!getErrMsg(err)?.includes('already exists')) {
+   970→        console.warn(`[auto-migrate] idx_supportticket_clientId_status: ${getErrMsg(err)}`)
+   971→      }
+   972→    }
+   973→    // Notification indexes
+   974→    try {
+   975→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_notification_isRead" ON "Notification"("isRead")`)
+   976→    } catch (err: unknown) {
+   977→      if (!getErrMsg(err)?.includes('already exists')) {
+   978→        console.warn(`[auto-migrate] idx_notification_isRead: ${getErrMsg(err)}`)
+   979→      }
+   980→    }
+   981→    // NotificationPreference index
+   982→    try {
+   983→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_notificationpreference_userId" ON "NotificationPreference"("userId")`)
+   984→    } catch (err: unknown) {
+   985→      if (!getErrMsg(err)?.includes('already exists')) {
+   986→        console.warn(`[auto-migrate] idx_notificationpreference_userId: ${getErrMsg(err)}`)
+   987→      }
+   988→    }
+   989→    // Approval index
+   990→    try {
+   991→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_approval_requesterId_status" ON "Approval"("requesterId", "status")`)
+   992→    } catch (err: unknown) {
+   993→      if (!getErrMsg(err)?.includes('already exists')) {
+   994→        console.warn(`[auto-migrate] idx_approval_requesterId_status: ${getErrMsg(err)}`)
+   995→      }
+   996→    }
+   997→    // ProtocolAccessLog indexes
+   998→    try {
+   999→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_protocolaccesslog_protocolId" ON "ProtocolAccessLog"("protocolId")`)
+  1000→    } catch (err: unknown) {
+  1001→      if (!getErrMsg(err)?.includes('already exists')) {
+  1002→        console.warn(`[auto-migrate] idx_protocolaccesslog_protocolId: ${getErrMsg(err)}`)
+  1003→      }
+  1004→    }
+  1005→    try {
+  1006→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_protocolaccesslog_userEmail" ON "ProtocolAccessLog"("userEmail")`)
+  1007→    } catch (err: unknown) {
+  1008→      if (!getErrMsg(err)?.includes('already exists')) {
+  1009→        console.warn(`[auto-migrate] idx_protocolaccesslog_userEmail: ${getErrMsg(err)}`)
+  1010→      }
+  1011→    }
+  1012→    try {
+  1013→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_protocolaccesslog_createdAt" ON "ProtocolAccessLog"("createdAt")`)
+  1014→    } catch (err: unknown) {
+  1015→      if (!getErrMsg(err)?.includes('already exists')) {
+  1016→        console.warn(`[auto-migrate] idx_protocolaccesslog_createdAt: ${getErrMsg(err)}`)
+  1017→      }
+  1018→    }
+  1019→    // AvailabilityOverride index (composite userId+date — UNIQUE already covers this, but add explicit for clarity)
+  1020→    try {
+  1021→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_availabilityoverride_userId_date" ON "AvailabilityOverride"("userId", "date")`)
+  1022→    } catch (err: unknown) {
+  1023→      if (!getErrMsg(err)?.includes('already exists')) {
+  1024→        console.warn(`[auto-migrate] idx_availabilityoverride_userId_date: ${getErrMsg(err)}`)
+  1025→      }
+  1026→    }
+  1027→    // Availability index (composite userId+dayOfWeek)
+  1028→    try {
+  1029→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_availability_userId_dayOfWeek" ON "Availability"("userId", "dayOfWeek")`)
+  1030→    } catch (err: unknown) {
+  1031→      if (!getErrMsg(err)?.includes('already exists')) {
+  1032→        console.warn(`[auto-migrate] idx_availability_userId_dayOfWeek: ${getErrMsg(err)}`)
+  1033→      }
+  1034→    }
+  1035→    // MeetingAttendee index (meetingId)
+  1036→    try {
+  1037→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_meetingattendee_meetingId" ON "MeetingAttendee"("meetingId")`)
+  1038→    } catch (err: unknown) {
+  1039→      if (!getErrMsg(err)?.includes('already exists')) {
+  1040→        console.warn(`[auto-migrate] idx_meetingattendee_meetingId: ${getErrMsg(err)}`)
+  1041→      }
+  1042→    }
+  1043→
+  1044→    // Phase 7: Fix invoices where total !== subtotal + tax + gst
+  1045→    try {
+  1046→      const result = await db.$executeRawUnsafe(
+  1047→        `UPDATE Invoice SET total = (subtotal + tax + COALESCE(gst, 0)) WHERE ABS(total - (subtotal + tax + COALESCE(gst, 0))) > 0.01 AND total IS NOT NULL`
+  1048→      )
+  1049→      console.log("[auto-migrate] Fixed invoice totals where total !== subtotal + tax + gst")
+  1050→    } catch (err: unknown) {
+  1051→      console.warn("[auto-migrate] Invoice total fix migration:", getErrMsg(err))
+  1052→    }
+  1053→
+  1054→    // 2. Add missing columns to existing tables
+  1055→    // Use "try ALTER TABLE, catch duplicate column" approach instead of PRAGMA table_info.
+  1056→    // This is safe because: if column exists → ALTER fails with "duplicate column" (caught & ignored)
+  1057→    // if column missing → ALTER succeeds and column is added.
+  1058→    // This avoids the BigInt serialization error from PRAGMA table_info with Turso/libSQL.
+  1059→    for (const colDef of CRITICAL_COLUMNS) {
+  1060→      try {
+  1061→        await db.$executeRawUnsafe(colDef.sql)
+  1062→        console.log(`[auto-migrate] Added column ${colDef.column} to ${colDef.table}`)
+  1063→      } catch (err: unknown) {
+  1064→        const msg = getErrMsg(err) || ""
+  1065→        // "duplicate column name" = column already exists, expected and OK
+  1066→        // "no such table" = table doesn't exist yet, will be created on next cold start
+  1067→        if (!msg.includes("duplicate column") && !msg.includes("no such table")) {
+  1068→          console.warn(`[auto-migrate] Column ${colDef.column} on ${colDef.table}: ${msg}`)
+  1069→        }
+  1070→      }
+  1071→    }
+  1072→
+  1073→    // Mark as done ONLY after all migrations succeed
+  1074→    // Lark integration indexes
+  1075→    try {
+  1076→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "LarkUserMapping_userId_index" ON "LarkUserMapping"("userId")`)
+  1077→    } catch (err: unknown) {
+  1078→      if (!getErrMsg(err)?.includes('already exists')) {
+  1079→        console.warn(`[auto-migrate] LarkUserMapping_userId_index: ${getErrMsg(err)}`)
+  1080→      }
+  1081→    }
+  1082→    try {
+  1083→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "LarkUserMapping_larkOpenId_index" ON "LarkUserMapping"("larkOpenId")`)
+  1084→    } catch (err: unknown) {
+  1085→      if (!getErrMsg(err)?.includes('already exists')) {
+  1086→        console.warn(`[auto-migrate] LarkUserMapping_larkOpenId_index: ${getErrMsg(err)}`)
+  1087→      }
+  1088→    }
+  1089→    try {
+  1090→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "LarkTaskMapping_taskId_index" ON "LarkTaskMapping"("taskId")`)
+  1091→    } catch (err: unknown) {
+  1092→      if (!getErrMsg(err)?.includes('already exists')) {
+  1093→        console.warn(`[auto-migrate] LarkTaskMapping_taskId_index: ${getErrMsg(err)}`)
+  1094→      }
+  1095→    }
+  1096→    try {
+  1097→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "LarkTaskMapping_larkTaskId_index" ON "LarkTaskMapping"("larkTaskId")`)
+  1098→    } catch (err: unknown) {
+  1099→      if (!getErrMsg(err)?.includes('already exists')) {
+  1100→        console.warn(`[auto-migrate] LarkTaskMapping_larkTaskId_index: ${getErrMsg(err)}`)
+  1101→      }
+  1102→    }
+  1103→    try {
+  1104→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "LarkSyncLog_direction_index" ON "LarkSyncLog"("direction")`)
+  1105→    } catch (err: unknown) {
+  1106→      if (!getErrMsg(err)?.includes('already exists')) {
+  1107→        console.warn(`[auto-migrate] LarkSyncLog_direction_index: ${getErrMsg(err)}`)
+  1108→      }
+  1109→    }
+  1110→    try {
+  1111→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "LarkSyncLog_status_index" ON "LarkSyncLog"("status")`)
+  1112→    } catch (err: unknown) {
+  1113→      if (!getErrMsg(err)?.includes('already exists')) {
+  1114→        console.warn(`[auto-migrate] LarkSyncLog_status_index: ${getErrMsg(err)}`)
+  1115→      }
+  1116→    }
+  1117→    try {
+  1118→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "LarkSyncLog_createdAt_index" ON "LarkSyncLog"("createdAt")`)
+  1119→    } catch (err: unknown) {
+  1120→      if (!getErrMsg(err)?.includes('already exists')) {
+  1121→        console.warn(`[auto-migrate] LarkSyncLog_createdAt_index: ${getErrMsg(err)}`)
+  1122→      }
+  1123→    }
+  1124→    try {
+  1125→      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "LarkSyncLog_taskId_index" ON "LarkSyncLog"("taskId")`)
+  1126→    } catch (err: unknown) {
+  1127→      if (!getErrMsg(err)?.includes('already exists')) {
+  1128→        console.warn(`[auto-migrate] LarkSyncLog_taskId_index: ${getErrMsg(err)}`)
+  1129→      }
+  1130→    }
+  1131→
+  1132→    syncDone = true
+  1133→  } catch (err: unknown) {
+  1134→    console.error("[auto-migrate] Schema check error (non-fatal):", getErrMsg(err))
+  1135→  }
+  1136→}
+  1137→
+  1138→/**
+  1139→ * @deprecated — use ensureAllTables()
+  1140→ */
+  1141→export async function ensureTable(_tableName: string): Promise<boolean> {
+  1142→  return true
+  1143→}
+  1144→
+  1145→/**
+  1146→ * @deprecated — use ensureAllTables()
+  1147→ */
+  1148→export async function runAutoMigrations(): Promise<void> {
+  1149→  await ensureAllTables()
+  1150→}
+  1151→

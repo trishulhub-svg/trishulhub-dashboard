@@ -1,0 +1,252 @@
+/home/z/my-project/trishulhub-dash-repo/src/lib/types.ts:119:    color: "text-orange-500",
+/home/z/my-project/trishulhub-dash-repo/src/lib/types.ts:120:    bgColor: "bg-orange-500/10",
+/home/z/my-project/trishulhub-dash-repo/src/lib/format.ts:61:  API_COSTS: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
+/home/z/my-project/trishulhub-dash-repo/src/lib/audit-log.ts:37:  EXPORT: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
+/home/z/my-project/trishulhub-dash-repo/src/lib/audit-log.ts:44:  STATUS_CHANGE: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400",
+/home/z/my-project/trishulhub-dash-repo/src/lib/audit-log.ts:67:  BUSINESS: "text-amber-600 dark:text-amber-400",
+/home/z/my-project/trishulhub-dash-repo/src/components/training/branded-document-view.tsx:73:          <div className="bg-orange-50/80 dark:bg-orange-950/20 border-l-4 border-[#E85D04] rounded-r-lg px-4 sm:px-5 py-3 sm:py-4">
+/home/z/my-project/trishulhub-dash-repo/src/components/training/branded-document-view.tsx:123:            prose-h1:text-2xl prose-h1:sm:text-3xl prose-h1:font-bold prose-h1:mt-8 prose-h1:mb-4 prose-h1:text-[#C2410C] dark:prose-h1:text-[#F97316]
+/home/z/my-project/trishulhub-dash-repo/src/components/training/branded-document-view.tsx:124:            prose-h2:text-xl prose-h2:sm:text-2xl prose-h2:font-bold prose-h2:mt-6 prose-h2:mb-3 prose-h2:text-[#C2410C] dark:prose-h2:text-[#F97316] prose-h2:border-l-[3px] prose-h2:border-[#E85D04] prose-h2:pl-3
+/home/z/my-project/trishulhub-dash-repo/src/components/training/branded-document-view.tsx:129:            prose-code:text-[#C2410C] prose-code:bg-orange-50 dark:prose-code:bg-orange-950/30 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-sm
+/home/z/my-project/trishulhub-dash-repo/src/components/training/branded-document-view.tsx:136:            prose-blockquote:border-l-[#E85D04] prose-blockquote:bg-orange-50 dark:prose-blockquote:bg-orange-950/20 prose-blockquote:rounded-r-lg prose-blockquote:py-2 prose-blockquote:px-4
+/home/z/my-project/trishulhub-dash-repo/src/components/training/branded-document-view.tsx:139:            prose-ul:bg-orange-50/50 dark:prose-ul:bg-orange-950/10 prose-ul:rounded-lg prose-ul:p-4
+/home/z/my-project/trishulhub-dash-repo/src/app/login/page.tsx:214:                <CardTitle className="text-orange-700 dark:text-orange-400 text-base">First Time Setup</CardTitle>
+/home/z/my-project/trishulhub-dash-repo/src/app/login/page.tsx:215:                <CardDescription className="text-orange-600 dark:text-orange-300 text-xs">
+/home/z/my-project/trishulhub-dash-repo/src/app/login/page.tsx:221:                  className="w-full bg-orange-600 hover:bg-orange-700 text-white h-10 text-sm font-semibold"
+/home/z/my-project/trishulhub-dash-repo/src/app/login/page.tsx:227:                <p className="text-[11px] text-orange-500 text-center">
+/home/z/my-project/trishulhub-dash-repo/src/app/login/page.tsx:233:                      <div key={i} className="text-orange-700 dark:text-orange-300">{log}</div>
+/home/z/my-project/trishulhub-dash-repo/src/components/dashboard/finance/subscription-expiry-badge.tsx:177:        <Badge className="text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+/home/z/my-project/trishulhub-dash-repo/src/components/dashboard/finance/subscription-expiry-badge.tsx:180:        <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+/home/z/my-project/trishulhub-dash-repo/src/components/dashboard/finance/expense-detail-sheet.tsx:59:  MARKETING: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+/home/z/my-project/trishulhub-dash-repo/src/components/dashboard/finance/expense-detail-sheet.tsx:67:  PENDING: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
+/home/z/my-project/trishulhub-dash-repo/src/components/dashboard/finance/expense-detail-sheet.tsx:70:  UNPAID: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
+/home/z/my-project/trishulhub-dash-repo/src/components/dashboard/finance/overview-section.tsx:283:            "border-t-2 border-t-amber-500"
+/home/z/my-project/trishulhub-dash-repo/src/components/dashboard/finance/overview-section.tsx:291:              <p className="text-2xl font-bold text-amber-600">
+/home/z/my-project/trishulhub-dash-repo/src/components/dashboard/finance/overview-section.tsx:297:            <div className="h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+/home/z/my-project/trishulhub-dash-repo/src/components/dashboard/finance/overview-section.tsx:298:              <CreditCard className="h-5 w-5 text-amber-600" />
+/home/z/my-project/trishulhub-dash-repo/src/components/dashboard/finance/overview-section.tsx:375:              <p className="text-xl font-bold text-amber-600">
+/home/z/my-project/trishulhub-dash-repo/src/components/dashboard/finance/overview-section.tsx:379:            <div className="h-8 w-8 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+/home/z/my-project/trishulhub-dash-repo/src/components/dashboard/finance/overview-section.tsx:380:              <Clock className="h-4 w-4 text-amber-600" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/layout.tsx:777:                    <Eye className="h-4 w-4 text-amber-600" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/layout.tsx:795:                  <Eye className="h-4 w-4 text-amber-600" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/training/page.tsx:167:  const briefCharColor = briefCharPercent > 90 ? "text-red-500" : briefCharPercent > 70 ? "text-amber-500" : "text-muted-foreground"
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/training/page.tsx:176:            <Button size="sm" className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white" disabled={generating}>
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/training/page.tsx:183:                <DialogTitle className="flex items-center gap-2"><div className="h-8 w-8 rounded-lg bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center"><Sparkles className="h-4 w-4 text-white" /></div>Generate Training with AI</DialogTitle>
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/training/page.tsx:190:                    <div className={cn("h-7 w-7 rounded-full flex items-center justify-center text-xs font-semibold transition-colors shrink-0", wizardStep >= step.num ? "bg-orange-500 text-white" : "bg-muted text-muted-foreground")}>{wizardStep > step.num ? <CheckCircle2 className="h-3.5 w-3.5" /> : step.num}</div>
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/training/page.tsx:192:                    {i < 1 && <div className={cn("flex-1 h-px mx-1", wizardStep > step.num ? "bg-orange-500" : "bg-border")} />}
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/training/page.tsx:246:                            briefCharPercent > 90 ? "bg-red-500" : briefCharPercent > 70 ? "bg-amber-500" : "bg-orange-500"
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/training/page.tsx:255:                    <p className="text-xs text-amber-500 flex items-center gap-1"><AlertCircle className="h-3 w-3" /> Approaching character limit.</p>
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/training/page.tsx:314:                {wizardStep === 1 ? <Button onClick={() => setWizardStep(2)} disabled={!newTopic.trim()} className="gap-1.5">Next: Attachments <ChevronRight className="h-4 w-4" /></Button> : <Button onClick={handleCreate} disabled={!newTopic.trim() || generating} className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white gap-1.5 min-w-[160px]">{generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} Generate with AI</Button>}
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/training/page.tsx:327:          { icon: Users, label: "Total Assignments", value: totalAssignments, bg: "bg-orange-100 dark:bg-orange-900/30", iconColor: "text-orange-600 dark:text-orange-400" },
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/approvals/page.tsx:107:  CONTENT_PIECE: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/approvals/page.tsx:110:  EXPENSE_APPROVAL: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/approvals/page.tsx:123:  NEEDS_IMPROVEMENT: "border-orange-300 bg-orange-50/50 dark:border-orange-700 dark:bg-orange-900/10",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/approvals/page.tsx:139:  SICK: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/approvals/page.tsx:146:  HIGH: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/approvals/page.tsx:630:            <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg p-3">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/approvals/page.tsx:631:              <div className="flex items-center gap-1 text-xs text-orange-700 dark:text-orange-300 mb-1">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/approvals/page.tsx:661:                  className="border-orange-400 text-orange-600 hover:bg-orange-50 flex-1"
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/approvals/page.tsx:723:            <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg p-3">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/approvals/page.tsx:724:              <div className="flex items-center gap-1 text-xs text-orange-700 dark:text-orange-300 mb-1">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/approvals/page.tsx:831:                  className="border-orange-400 text-orange-600 hover:bg-orange-50 flex-1"
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/approvals/page.tsx:927:                className="border-orange-400 text-orange-600 hover:bg-orange-50 flex-1"
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/approvals/page.tsx:1102:      color: "text-amber-600 dark:text-amber-400",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/approvals/page.tsx:1103:      bg: "bg-amber-50 dark:bg-amber-900/20",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/approvals/page.tsx:1138:      color: "text-amber-600 dark:text-amber-400",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/approvals/page.tsx:1139:      bg: "bg-amber-50 dark:bg-amber-900/20",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/training/[docId]/page.tsx:124:  TEST_STARTED: { label: "In Progress", className: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" },
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/[projectId]/todos/page.tsx:30:  HIGH: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/[projectId]/todos/page.tsx:37:  HIGH: "bg-orange-400",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/[projectId]/todos/page.tsx:415:            <Clock className="h-4 w-4 text-orange-400" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/training/error.tsx:24:        <AlertTriangle className="h-12 w-12 text-amber-500 mx-auto" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/workspace/page.tsx:1054:          --ws-accent-cyan: #f59e0b;
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/workspace/page.tsx:1412:          color: #f59e0b; border: 1px solid rgba(251,191,36,0.20);
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/workspace/page.tsx:1449:        .ws-hero-rings--bluelight { color: #f59e0b; }
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/workspace/page.tsx:1572:        .ws-feed-prefix--warn { color: #f59e0b; }
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/workspace/page.tsx:1587:          color: #f59e0b;
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/workspace/page.tsx:1657:        .ws-root--bluelight .ws-horizon-task-prefix { color: #f59e0b; }
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/workspace/page.tsx:1674:        .ws-root--bluelight .ws-horizon-timer { color: #f59e0b; }
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/workspace/page.tsx:1709:          background: linear-gradient(90deg, #f59e0b, #d97706);
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/workspace/page.tsx:1745:          color: #f59e0b;
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/workspace/page.tsx:1788:          color: #f59e0b;
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/workspace/page.tsx:1832:          color: #f59e0b;
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/[projectId]/page.tsx:41:  AWAITING_APPROVAL: "bg-orange-50 dark:bg-orange-900/20",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/[projectId]/page.tsx:49:  AWAITING_APPROVAL: "bg-orange-400",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/[projectId]/page.tsx:57:  AWAITING_APPROVAL: "text-orange-600 dark:text-orange-400",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/[projectId]/page.tsx:65:  APPROVAL: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/[projectId]/page.tsx:73:  HIGH: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/[projectId]/page.tsx:80:  HIGH: "border-l-orange-400 dark:border-l-orange-500",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/[projectId]/page.tsx:88:  if (progress < 70) return "[&>div]:bg-amber-500 [&>div]:shadow-amber-500/30";
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/[projectId]/page.tsx:442:  const progressColorClass = projectProgress < 30 ? "text-red-600 dark:text-red-400" : projectProgress < 70 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400";
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/[projectId]/page.tsx:490:            const fillColor = displayProgress < 30 ? "bg-red-500" : displayProgress < 70 ? "bg-amber-500" : "bg-emerald-500";
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/[projectId]/page.tsx:491:            const handleShadow = displayProgress < 30 ? "shadow-red-500/30" : displayProgress < 70 ? "shadow-amber-500/30" : "shadow-emerald-500/30";
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/[projectId]/page.tsx:532:                      style={{ left: `calc(${displayProgress}% - 6px)`, backgroundColor: displayProgress < 30 ? "#ef4444" : displayProgress < 70 ? "#f59e0b" : "#10b981" }}
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/[projectId]/page.tsx:645:                            {wIsPrimary && <Star className="h-3 w-3 text-amber-500 shrink-0" />}
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/[projectId]/page.tsx:701:            const avatarColor = mRole === "LEAD" ? "from-amber-400 to-orange-500" : "from-slate-500 to-slate-600 dark:from-slate-400 dark:to-slate-500";
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/[projectId]/page.tsx:907:                            {wIsPrimary && <Star className="h-3 w-3 text-amber-500 inline" />}
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/[projectId]/page.tsx:916:                              className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground/40 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/20 opacity-0 group-hover/ws:opacity-100 transition-all"
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/[projectId]/page.tsx:1014:                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-orange-50 dark:bg-orange-900/10 border border-orange-200/80 dark:border-orange-900/30">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/[projectId]/page.tsx:1015:                      <Clock className="h-3.5 w-3.5 text-orange-600 dark:text-orange-400 shrink-0" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/[projectId]/page.tsx:1016:                      <p className="text-[11px] text-orange-700 dark:text-orange-300 font-medium">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/[projectId]/page.tsx:1074:                        className="flex-1 h-7 text-[11px] border-orange-200 dark:border-orange-900/40 hover:bg-orange-50 dark:hover:bg-orange-900/20 text-orange-600 dark:text-orange-400"
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/[projectId]/page.tsx:1253:                                  className="h-5 text-[9px] px-1.5 text-orange-600 hover:text-orange-700 hover:bg-orange-50 dark:hover:bg-orange-900/20 font-semibold"
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/[projectId]/page.tsx:1260:                              <span className="text-[9px] text-orange-500 flex items-center gap-0.5 px-1 font-medium">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/crm/page.tsx:72:  { key: "NEGOTIATING", label: "Negotiating",  dot: "bg-orange-400",  glowColor: "hover:shadow-orange-500/5 dark:hover:shadow-orange-400/10",  accentBar: "bg-orange-400",  accentRing: "ring-orange-400/20" },
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/crm/page.tsx:105:  NEGOTIATING: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/crm/page.tsx:220:        lead.status === "NEGOTIATING" && "border-l-orange-400 dark:border-l-orange-500",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/[projectId]/error.tsx:107:            <p className="text-[10px] uppercase tracking-wider text-orange-500 dark:text-orange-400 font-semibold mb-1">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/[projectId]/error.tsx:112:                <span key={key.trim()} className="inline-block px-2 py-0.5 text-xs font-mono bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300 rounded">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/tasks/page.tsx:42:  AWAITING_APPROVAL: "bg-orange-50 dark:bg-orange-900/20",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/tasks/page.tsx:50:  AWAITING_APPROVAL: "bg-orange-400",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/tasks/page.tsx:58:  AWAITING_APPROVAL: "text-orange-600 dark:text-orange-400",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/tasks/page.tsx:65:  HIGH: "border-l-orange-400 dark:border-l-orange-500",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/tasks/page.tsx:72:  HIGH: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/tasks/page.tsx:79:  FOLLOW_UP: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/tasks/page.tsx:741:                                  className="h-5 text-[9px] px-1.5 text-orange-600 hover:text-orange-700 hover:bg-orange-50 dark:hover:bg-orange-900/20 font-semibold"
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/tasks/page.tsx:749:                              <span className="text-[9px] text-orange-500 flex items-center gap-0.5 px-1 font-medium">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/todos/page.tsx:99:  TEST_STARTED: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/todos/page.tsx:112:  URGENT: "bg-red-400", HIGH: "bg-orange-400", MEDIUM: "bg-blue-400", LOW: "bg-gray-400",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/todos/page.tsx:116:  URGENT: "border-l-red-400", HIGH: "border-l-orange-400", MEDIUM: "border-l-blue-400", LOW: "border-l-gray-300 dark:border-l-gray-600",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/todos/page.tsx:123:  AWAITING_APPROVAL: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/todos/page.tsx:131:  FOLLOW_UP: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/todos/page.tsx:280:        {isAwaiting && <CheckCircle2 className="h-3 w-3 text-orange-400" />}
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/todos/page.tsx:297:          <Badge className="text-[10px] bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300 font-medium">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/todos/page.tsx:355:        {isAwaiting && <CheckCircle2 className="h-3 w-3 text-orange-400" />}
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/todos/page.tsx:381:          <Badge className="text-[10px] bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300 font-medium">Reviewing</Badge>
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/todos/page.tsx:763:        <GlassStatCard label="Awaiting Review" value={awaitingApproval} color="text-amber-700 dark:text-amber-300" icon={<Clock className="h-4 w-4 text-amber-500" />} delay={160} />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/todos/page.tsx:1499:            <GlassStatCard label="Awaiting Review" value={teamStats.awaiting} color="text-amber-700 dark:text-amber-300" icon={<Clock className="h-4 w-4 text-amber-500" />} delay={160} />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/audit-trail/page.tsx:162:  if (status === "SKIPPED") return "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400"
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/audit-trail/page.tsx:170:  return <MinusCircle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/audit-trail/page.tsx:520:                <span className="h-2 w-2 rounded-full bg-amber-400" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/audit-trail/page.tsx:1066:                              <span className={cn("text-[10px] font-semibold", syncStatusBadge(log.status).includes("green") ? "text-green-700 dark:text-green-400" : syncStatusBadge(log.status).includes("red") ? "text-red-700 dark:text-red-400" : "text-amber-700 dark:text-amber-400")}>
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/page.tsx:59:  APPROVAL: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/page.tsx:68:  APPROVAL: "bg-orange-400",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/page.tsx:80:  { key: "APPROVAL",   label: "Approval",    dot: "bg-orange-400",  glowColor: "hover:shadow-orange-500/5 dark:hover:shadow-orange-400/10", accentBar: "bg-orange-400", accentRing: "ring-orange-400/20" },
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/page.tsx:105:  if (progress < 70) return "[&>div]:bg-amber-500 [&>div]:shadow-amber-500/30";
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/page.tsx:151:        pStatus === "APPROVAL" && "border-l-orange-400 dark:border-l-orange-500",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/page.tsx:226:          className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 border border-amber-500/20 dark:border-amber-500/10 shadow-sm transition-colors cursor-pointer"
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/page.tsx:242:          <span className={cn("font-bold tabular-nums", pProgress < 30 ? "text-red-600 dark:text-red-400" : pProgress < 70 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400")}>{pProgress}%</span>
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/page.tsx:520:            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 border border-amber-500/20 dark:border-amber-500/10 shadow-sm transition-colors cursor-pointer"
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/projects/page.tsx:538:        <span className={cn("text-[11px] font-bold tabular-nums w-8 text-right", pProgress < 30 ? "text-red-600 dark:text-red-400" : pProgress < 70 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400")}>
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/finance/invoices/page.tsx:59:  DUE: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/finance/invoices/page.tsx:1031:            "border-t-2 border-t-amber-500"
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/finance/invoices/page.tsx:1039:              <p className="text-2xl font-bold text-amber-600">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/finance/invoices/page.tsx:1043:            <div className="h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/finance/invoices/page.tsx:1044:              <Clock className="h-5 w-5 text-amber-600" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/my-training/page.tsx:50:  TEST_STARTED: { label: "In Progress", className: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400", icon: Play },
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/my-training/page.tsx:152:            <div className="h-9 w-9 sm:h-10 sm:w-10 rounded-lg bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center shrink-0">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/my-training/page.tsx:153:              <Play className="h-4 w-4 sm:h-5 sm:w-5 text-orange-600 dark:text-orange-400" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/settings/page.tsx:127:  ADMIN: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/settings/page.tsx:2031:          <div className="p-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/settings/page.tsx:2032:            <p className="text-[11px] text-amber-700 dark:text-amber-300"><strong>Tip:</strong> Click "Test" first to verify your SMTP connection before adding.</p>
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/settings/page.tsx:2109:                  <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/settings/page.tsx:2111:                      <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/settings/page.tsx:2112:                      <p className="text-[11px] text-amber-700 dark:text-amber-300">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/finance/expenses/page.tsx:67:  MARKETING: "border-l-orange-500",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/my-training/[assignmentId]/page.tsx:436:              <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/leaves/page.tsx:84:  PUBLIC_HOLIDAY: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/leaves/page.tsx:107:  PUBLIC_HOLIDAY: "border-l-orange-500",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/leaves/page.tsx:115:  PUBLIC_HOLIDAY: "bg-orange-500",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/leaves/page.tsx:475:              <AlertTriangle className="h-8 w-8 text-orange-500" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/finance/page.tsx:126:  MARKETING: "border-l-orange-500 bg-orange-50 dark:bg-orange-950/20",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/finance/page.tsx:142:  YEARLY: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/finance/page.tsx:770:      { name: "Subscriptions", value: totalSubscriptionMonthly, color: "#f97316" },
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/finance/page.tsx:771:      { name: "Manual Expenses", value: stats.totalExpenses, color: "#f59e0b" },
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/finance/page.tsx:809:        <Card className="border-l-4 border-l-red-500 transition-shadow hover:shadow-lg bg-gradient-to-br from-red-50 to-orange-50/50 dark:from-red-950/20 dark:to-orange-950/10">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/finance/page.tsx:824:        <Card className="border-l-4 border-l-orange-500 transition-shadow hover:shadow-lg bg-gradient-to-br from-orange-50 to-amber-50/50 dark:from-orange-950/20 dark:to-amber-950/10">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/finance/page.tsx:829:                <p className="text-2xl font-bold text-orange-600">{formatCurrency(safeNumber(totalSubscriptionMonthly))}<span className="text-sm font-normal text-muted-foreground">/mo</span></p>
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/finance/page.tsx:831:              <div className="h-10 w-10 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/finance/page.tsx:832:                <CreditCard className="h-5 w-5 text-orange-600" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/finance/page.tsx:903:                    <p className="text-2xl font-bold text-amber-600">{formatCurrency(safeNumber(stats.pendingAmount))}</p>
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/finance/page.tsx:905:                  <div className="h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/finance/page.tsx:906:                    <Clock className="h-5 w-5 text-amber-600" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/finance/page.tsx:929:                    <p className="text-2xl font-bold text-orange-600">{formatCurrency(safeNumber(monthlySpend))}</p>
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/finance/page.tsx:931:                  <div className="h-10 w-10 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/finance/page.tsx:932:                    <CreditCard className="h-5 w-5 text-orange-600" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/finance/page.tsx:965:                <div className="text-center p-3 rounded-lg bg-amber-50 dark:bg-amber-950/20">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/finance/page.tsx:966:                  <Clock className="h-5 w-5 text-amber-600 mx-auto mb-1" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/finance/page.tsx:967:                  <p className="text-lg font-bold text-amber-600">{formatCurrency(safeNumber(stats.pendingAmount))}</p>
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/finance/page.tsx:1107:            <Card className="border-l-4 border-l-orange-500 bg-gradient-to-r from-orange-50 to-amber-50/30 dark:from-orange-950/10 dark:to-amber-950/5">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/finance/page.tsx:1114:                  <p className="text-xl font-bold text-orange-600">{formatCurrency(safeNumber(subTotalMonthly))}<span className="text-sm font-normal text-muted-foreground">/mo</span></p>
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/finance/page.tsx:1178:            <Card className="border-l-4 border-l-red-500 bg-gradient-to-r from-red-50 to-orange-50/30 dark:from-red-950/10 dark:to-orange-950/5">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/team/page.tsx:79:  ADMIN: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/team/page.tsx:695:                        <p className="text-xs mt-1 text-orange-600 dark:text-orange-400">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/clients/page.tsx:206:  REAL_ESTATE: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/clients/page.tsx:210:  FOOD_BEVERAGE: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/clients/page.tsx:220:  APPROVAL: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/clients/page.tsx:238:  NEGOTIATING: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/clients/page.tsx:253:  HIGH: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/clients/page.tsx:261:  NEGOTIATION: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/clients/page.tsx:1220:        <div className="rounded-xl p-3 transition-all bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-amber-200/40 dark:border-amber-500/20 hover:shadow-md">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/clients/page.tsx:1222:            <DollarSign className="h-3.5 w-3.5 text-amber-500" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/clients/page.tsx:1225:          <p className="text-xl font-bold tracking-tight text-amber-600 dark:text-amber-400">{stats.revenue != null ? formatCurrency(stats.revenue) : "—"}</p>
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/clients/page.tsx:2075:              <FileSignature className="h-5 w-5 text-orange-500" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/clients/page.tsx:2115:                <Button onClick={handleGenerateContract} disabled={contractGenerating} className="w-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/clients/page.tsx:2232:                    <Button onClick={handleSaveContract} className="flex-1 bg-orange-500 hover:bg-orange-600">Save Changes</Button>
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/page.tsx:276:                  <div className="h-10 w-10 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/page.tsx:277:                    <AlertCircle className="h-5 w-5 text-orange-600" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/page.tsx:568:                <AlertCircle className="h-5 w-5 text-orange-500" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/agents/page.tsx:1036:          --ws-accent-cyan: #f59e0b;
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/agents/page.tsx:1394:          color: #f59e0b; border: 1px solid rgba(251,191,36,0.20);
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/agents/page.tsx:1431:        .ws-hero-rings--bluelight { color: #f59e0b; }
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/agents/page.tsx:1554:        .ws-feed-prefix--warn { color: #f59e0b; }
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/agents/page.tsx:1569:          color: #f59e0b;
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/agents/page.tsx:1639:        .ws-root--bluelight .ws-horizon-task-prefix { color: #f59e0b; }
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/agents/page.tsx:1656:        .ws-root--bluelight .ws-horizon-timer { color: #f59e0b; }
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/agents/page.tsx:1691:          background: linear-gradient(90deg, #f59e0b, #d97706);
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/agents/page.tsx:1727:          color: #f59e0b;
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/agents/page.tsx:1770:          color: #f59e0b;
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/agents/page.tsx:1814:          color: #f59e0b;
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/availability/page.tsx:195:  REVIEW: { color: "text-amber-700", bg: "bg-amber-100", darkBg: "dark:bg-amber-900/30", label: "Review" },
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/availability/page.tsx:203:  HIGH: { color: "text-orange-600", label: "High" },
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/availability/page.tsx:730:                <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/availability/page.tsx:837:                                      <Badge className="text-[9px] px-1.5 py-0 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 border-0">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/availability/page.tsx:908:                                      <span className="font-medium text-amber-600">Override: </span>
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/availability/page.tsx:974:                      <div className="mt-2 p-2 rounded-md bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/availability/page.tsx:975:                        <div className="text-xs font-medium text-amber-700 dark:text-amber-400">Override Active</div>
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/availability/page.tsx:976:                        <div className="text-xs text-amber-600 dark:text-amber-500 mt-0.5">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/availability/page.tsx:1278:                      <div className="mt-3 p-2 rounded-md bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/availability/page.tsx:1279:                        <div className="text-xs font-medium text-amber-700 dark:text-amber-400">Active Override(s)</div>
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/availability/page.tsx:1281:                          <div key={o.id} className="text-xs text-amber-600 dark:text-amber-500 mt-0.5">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/availability/page.tsx:1379:                      <FileText className="h-4 w-4 text-amber-500" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/availability/page.tsx:1420:                                        ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/meetings/page.tsx:124:  PHONE: { label: "Phone", icon: Phone, color: "text-orange-600 dark:text-orange-400", bgColor: "bg-orange-100 dark:bg-orange-900/30" },
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/meetings/page.tsx:948:                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/meetings/page.tsx:991:                  <p className="text-xs text-amber-600 dark:text-amber-400">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/meetings/page.tsx:1194:                        <span className="ml-1 text-xs text-amber-600 dark:text-amber-400">overnight</span>
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/meetings/page.tsx:1405:              <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">overnight</p>
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/timetable/page.tsx:139:  HIGH: { color: "text-orange-600 dark:text-orange-400", border: "border-orange-300 dark:border-orange-700 hover:border-orange-500/50", bg: "bg-orange-50 dark:bg-orange-950/30", badge: "bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300" },
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/timetable/page.tsx:148:  MEETING: { icon: Video, color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-100 dark:bg-amber-900/40" },
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/timetable/page.tsx:156:  FINANCE: { icon: Banknote, color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-100 dark:bg-amber-900/40", badge: "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300" },
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/timetable/page.tsx:167:  FINANCE: "border-l-amber-500",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/timetable/page.tsx:178:  MEETING: "border-l-amber-500",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/timetable/page.tsx:886:        <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/50">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/timetable/page.tsx:887:          <Lightbulb className="h-5 w-5 text-amber-500 shrink-0" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/timetable/page.tsx:888:          <p className="text-sm text-amber-800 dark:text-amber-200">{insight}</p>
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/timetable/page.tsx:1009:        <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/50">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/timetable/page.tsx:1010:          <Lightbulb className="h-5 w-5 text-amber-500 shrink-0" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/timetable/page.tsx:1011:          <p className="text-sm text-amber-800 dark:text-amber-200">{insight}</p>
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/timetable/page.tsx:1536:      <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/50">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/timetable/page.tsx:1537:        <Lightbulb className="h-5 w-5 text-amber-500 shrink-0" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/timetable/page.tsx:1538:        <p className="text-sm text-amber-800 dark:text-amber-200">{insight}</p>
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/timetable/page.tsx:1853:              <AlertCircle className="h-5 w-5 text-amber-500" />
+/home/z/my-project/trishulhub-dash-repo/src/app/globals.css:122:   BLUE LIGHT MODE — Warm amber tint with brand accent
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/time-tracking/page.tsx:185:  "bg-orange-500",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/time-tracking/page.tsx:186:  "bg-amber-500",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/time-tracking/page.tsx:870:              <div className="h-10 w-10 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/time-tracking/page.tsx:871:                <Users className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/access-hub/page.tsx:124:  Hosting: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/access-hub/page.tsx:1004:      <div className="h-1 bg-gradient-to-r from-amber-500 via-orange-500 to-yellow-500" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/access-hub/page.tsx:1007:          <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/access-hub/page.tsx:1008:            <Fingerprint className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/access-hub/page.tsx:1368:              <div className="h-1 bg-gradient-to-r from-amber-500 via-orange-500 to-yellow-500" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/access-hub/page.tsx:1371:                  <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/access-hub/page.tsx:1372:                    <UserCog className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/access-hub/page.tsx:1660:                                <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-500" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/access-hub/page.tsx:1661:                                <span className="text-xs text-amber-600 dark:text-amber-400">Sync in progress...</span>
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/access-hub/page.tsx:1689:                      <Badge variant={hasEncryptionKey ? "outline" : "secondary"} className={`text-xs flex-shrink-0 ${hasEncryptionKey ? "text-emerald-600 border-emerald-200 dark:border-emerald-800 dark:text-emerald-400" : "text-amber-600 bg-amber-50 dark:bg-amber-900/20 dark:text-amber-400"}`}>
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/access-hub/page.tsx:1703:                          <AlertCircle className="h-3.5 w-3.5 text-amber-500" />
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/access-hub/page.tsx:1704:                          <span className="text-xs text-amber-600 dark:text-amber-400">No encryption key set — using environment variable</span>
+/home/z/my-project/trishulhub-dash-repo/src/app/dashboard/access-hub/page.tsx:1741:                      <Badge variant={hasCredEncKey ? "default" : "secondary"} className={hasCredEncKey ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" : "bg-amber-500/10 text-amber-600 border-amber-500/20"}>
+
+[Showing results with pagination = limit: 250]

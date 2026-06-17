@@ -1,0 +1,1863 @@
+     1→"use client";
+     2→
+     3→import { useEffect, useState, useCallback, useMemo } from "react";
+     4→import { useSession } from "next-auth/react";
+     5→import { useRouter } from "next/navigation";
+     6→import { safeArray, safeText } from "@/lib/utils";
+     7→import {
+     8→  Clock, Plus, Trash2, CalendarDays, AlertCircle, ChevronLeft, ChevronRight,
+     9→  CheckCircle2, Circle, CalendarClock, Edit3, X, RefreshCw,
+    10→  Users, BarChart3, Timer, Target, Video, FileText, Eye,
+    11→} from "lucide-react";
+    12→import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+    13→import { Button } from "@/components/ui/button";
+    14→import { Badge } from "@/components/ui/badge";
+    15→import { Input } from "@/components/ui/input";
+    16→import { Label } from "@/components/ui/label";
+    17→import { Textarea } from "@/components/ui/textarea";
+    18→import { Switch } from "@/components/ui/switch";
+    19→import { Skeleton } from "@/components/ui/skeleton";
+    20→import { Progress } from "@/components/ui/progress";
+    21→import { Separator } from "@/components/ui/separator";
+    22→import { ScrollArea } from "@/components/ui/scroll-area";
+    23→import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+    24→import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+    25→import { Calendar } from "@/components/ui/calendar";
+    26→import {
+    27→  Popover, PopoverContent, PopoverTrigger,
+    28→} from "@/components/ui/popover";
+    29→import {
+    30→  Tooltip, TooltipContent, TooltipTrigger,
+    31→} from "@/components/ui/tooltip";
+    32→import {
+    33→  Dialog,
+    34→  DialogContent,
+    35→  DialogHeader,
+    36→  DialogTitle,
+    37→  DialogFooter,
+    38→} from "@/components/ui/dialog";
+    39→import {
+    40→  AlertDialog,
+    41→  AlertDialogAction,
+    42→  AlertDialogCancel,
+    43→  AlertDialogContent,
+    44→  AlertDialogDescription,
+    45→  AlertDialogFooter,
+    46→  AlertDialogHeader,
+    47→  AlertDialogTitle,
+    48→} from "@/components/ui/alert-dialog";
+    49→import {
+    50→  Select,
+    51→  SelectContent,
+    52→  SelectItem,
+    53→  SelectTrigger,
+    54→  SelectValue,
+    55→} from "@/components/ui/select";
+    56→import {
+    57→  Table,
+    58→  TableBody,
+    59→  TableCell,
+    60→  TableHead,
+    61→  TableHeader,
+    62→  TableRow,
+    63→} from "@/components/ui/table";
+    64→import { toast } from "sonner";
+    65→import { PageHeader } from "@/components/page-header";
+    66→
+    67→// ─── Interfaces ────────────────────────────────────────────────────────────────
+    68→
+    69→interface AvailabilityEntry {
+    70→  id: string;
+    71→  userId: string;
+    72→  dayOfWeek: number;
+    73→  startTime: string;
+    74→  endTime: string;
+    75→  isAvailable: boolean;
+    76→  createdAt?: string;
+    77→  updatedAt?: string;
+    78→  user?: { id: string; name: string; email: string; role: string; avatar: string | null };
+    79→}
+    80→
+    81→interface OverrideEntry {
+    82→  id: string;
+    83→  userId: string;
+    84→  date: string;
+    85→  startTime: string | null;
+    86→  endTime: string | null;
+    87→  isAvailable: boolean;
+    88→  reason: string | null;
+    89→  createdAt?: string;
+    90→  updatedAt?: string;
+    91→  user?: { id: string; name: string; email: string; avatar: string | null };
+    92→}
+    93→
+    94→interface TeamUser {
+    95→  id: string;
+    96→  name: string;
+    97→  email: string;
+    98→  role: string;
+    99→  department: string | null;
+   100→  isActive: boolean;
+   101→  avatar?: string | null;
+   102→}
+   103→
+   104→interface WeekDayData {
+   105→  dayOfWeek: number;
+   106→  dayName: string;
+   107→  availability: { id: string; startTime: string; endTime: string; isAvailable: boolean; hours: number }[];
+   108→  override: { id: string; date: string; startTime: string | null; endTime: string | null; isAvailable: boolean; reason: string | null } | null;
+   109→  isOnLeave: boolean;
+   110→  taskCount: number;
+   111→  doneTaskCount: number;
+   112→  meetingCount: number;
+   113→  totalHours: number;
+   114→}
+   115→
+   116→interface WeekScheduleUser {
+   117→  user: { id: string; name: string; email: string; role: string; department: string | null; avatar: string | null };
+   118→  days: Record<string, WeekDayData>;
+   119→}
+   120→
+   121→interface WeekSchedule {
+   122→  weekStart: string;
+   123→  weekEnd: string;
+   124→  users: WeekScheduleUser[];
+   125→}
+   126→
+   127→interface DailySchedule {
+   128→  date: string;
+   129→  dayOfWeek: number;
+   130→  dayName: string;
+   131→  user: { id: string; name: string; email: string; role: string; department: string | null; avatar: string | null };
+   132→  availability: { id: string; startTime: string; endTime: string; isAvailable: boolean; hours: number }[];
+   133→  overrides: { id: string; date: string; startTime: string | null; endTime: string | null; isAvailable: boolean; reason: string | null }[];
+   134→  isOnLeave: boolean;
+   135→  leaveInfo: unknown;
+   136→  tasks: { id: string; title: string; status: string; priority: string; deadline: string; projectName: string | null; projectStatus: string | null }[];
+   137→  timeEntries: { id: string; description: string; clockIn: string; clockOut: string; totalHours: number; status: string; projectName: string | null }[];
+   138→  meetings: { id: string; title: string; startTime: string; endTime: string; meetingType: string; status: string }[];
+   139→  totalScheduledHours: number;
+   140→  totalWorkedHours: number;
+   141→  taskSummary: { total: number; done: number; inProgress: number; todo: number };
+   142→}
+   143→
+   144→// ─── Constants ─────────────────────────────────────────────────────────────────
+   145→
+   146→const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+   147→const DAY_NAMES_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+   148→
+   149→function formatDateOnly(d: Date): string {
+   150→  const year = d.getFullYear();
+   151→  const month = String(d.getMonth() + 1).padStart(2, "0");
+   152→  const day = String(d.getDate()).padStart(2, "0");
+   153→  return `${year}-${month}-${day}`;
+   154→}
+   155→
+   156→function getWeekStart(date: Date): Date {
+   157→  const d = new Date(date);
+   158→  const day = d.getDay();
+   159→  d.setDate(d.getDate() - day);
+   160→  d.setHours(0, 0, 0, 0);
+   161→  return d;
+   162→}
+   163→
+   164→function getWeekDates(startDate: Date): Date[] {
+   165→  const dates: Date[] = [];
+   166→  for (let i = 0; i < 7; i++) {
+   167→    const d = new Date(startDate);
+   168→    d.setDate(startDate.getDate() + i);
+   169→    dates.push(d);
+   170→  }
+   171→  return dates;
+   172→}
+   173→
+   174→function getUserInitials(name: string): string {
+   175→  return name
+   176→    .split(" ")
+   177→    .map((n) => n[0])
+   178→    .join("")
+   179→    .toUpperCase()
+   180→    .slice(0, 2);
+   181→}
+   182→
+   183→function timeToMinutes(time: string): number {
+   184→  const [h, m] = time.split(":").map(Number);
+   185→  return h * 60 + m;
+   186→}
+   187→
+   188→
+   189→// ─── Task status config ───────────────────────────────────────────────────────
+   190→
+   191→const TASK_STATUS_STYLES: Record<string, { color: string; bg: string; darkBg: string; label: string }> = {
+   192→  DONE: { color: "text-green-700", bg: "bg-green-100", darkBg: "dark:bg-green-900/30", label: "Done" },
+   193→  IN_PROGRESS: { color: "text-sky-700", bg: "bg-sky-100", darkBg: "dark:bg-sky-900/30", label: "In Progress" },
+   194→  TODO: { color: "text-gray-600", bg: "bg-gray-100", darkBg: "dark:bg-gray-800/50", label: "To Do" },
+   195→  REVIEW: { color: "text-amber-700", bg: "bg-amber-100", darkBg: "dark:bg-amber-900/30", label: "Review" },
+   196→  AWAITING_APPROVAL: { color: "text-purple-700", bg: "bg-purple-100", darkBg: "dark:bg-purple-900/30", label: "Awaiting" },
+   197→};
+   198→
+   199→// ─── Priority config ───────────────────────────────────────────────────────────
+   200→
+   201→const PRIORITY_STYLES: Record<string, { color: string; label: string }> = {
+   202→  CRITICAL: { color: "text-red-600", label: "Critical" },
+   203→  HIGH: { color: "text-orange-600", label: "High" },
+   204→  MEDIUM: { color: "text-yellow-600", label: "Medium" },
+   205→  LOW: { color: "text-green-600", label: "Low" },
+   206→};
+   207→
+   208→// ─── Main Component ────────────────────────────────────────────────────────────
+   209→
+   210→export default function AvailabilityPage() {
+   211→  const router = useRouter();
+   212→  const { data: session, status } = useSession();
+   213→  const userRole = session?.user?.role || "DEVELOPER";
+   214→  const isUserAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+   215→  const isSessionLoading = status === "loading";
+   216→
+   217→  // ── Core data ──
+   218→  const [teamUsers, setTeamUsers] = useState<TeamUser[]>([]);
+   219→  const [availabilities, setAvailabilities] = useState<AvailabilityEntry[]>([]);
+   220→  const [overrides, setOverrides] = useState<OverrideEntry[]>([]);
+   221→  const [loading, setLoading] = useState(true);
+   222→  const [error, setError] = useState<string | null>(null);
+   223→
+   224→  // ── Weekly Overview state ──
+   225→  const [weekOffset, setWeekOffset] = useState(0);
+   226→  const [weekSchedule, setWeekSchedule] = useState<WeekSchedule | null>(null);
+   227→  const [weekLoading, setWeekLoading] = useState(false);
+   228→  const [selectedDayDetail, setSelectedDayDetail] = useState<{
+   229→    userId: string; userName: string; date: string; dayData: WeekDayData
+   230→  } | null>(null);
+   231→
+   232→  // ── Daily Schedule state ──
+   233→  const [dailyDate, setDailyDate] = useState<Date>(new Date());
+   234→  const [dailyUserId, setDailyUserId] = useState<string>("");
+   235→  const [dailySchedule, setDailySchedule] = useState<DailySchedule | null>(null);
+   236→  const [dailyLoading, setDailyLoading] = useState(false);
+   237→
+   238→  // ── Dialog states ──
+   239→  const [availDialogOpen, setAvailDialogOpen] = useState(false);
+   240→  const [overrideDialogOpen, setOverrideDialogOpen] = useState(false);
+   241→  const [editingAvailability, setEditingAvailability] = useState<AvailabilityEntry | null>(null);
+   242→  const [editingOverride, setEditingOverride] = useState<OverrideEntry | null>(null);
+   243→  const [submitting, setSubmitting] = useState(false);
+   244→
+   245→  // ── Delete confirmation states ──
+   246→  const [deleteAvailId, setDeleteAvailId] = useState<string | null>(null);
+   247→  const [deleteOverrideId, setDeleteOverrideId] = useState<string | null>(null);
+   248→
+   249→  // ── Availability form state ──
+   250→  const [formUserId, setFormUserId] = useState("");
+   251→  const [formDayOfWeek, setFormDayOfWeek] = useState("1");
+   252→  const [formStartTime, setFormStartTime] = useState("09:00");
+   253→  const [formEndTime, setFormEndTime] = useState("17:00");
+   254→  const [formIsAvailable, setFormIsAvailable] = useState(true);
+   255→
+   256→  // ── Override form state ──
+   257→  const [formOverrideUserId, setFormOverrideUserId] = useState("");
+   258→  const [formOverrideDate, setFormOverrideDate] = useState("");
+   259→  const [formOverrideStartTime, setFormOverrideStartTime] = useState("");
+   260→  const [formOverrideEndTime, setFormOverrideEndTime] = useState("");
+   261→  const [formOverrideIsAvailable, setFormOverrideIsAvailable] = useState(false);
+   262→  const [formOverrideReason, setFormOverrideReason] = useState("");
+   263→
+   264→  // ── Calendar popover state ──
+   265→  const [calendarOpen, setCalendarOpen] = useState(false);
+   266→  const [dailyCalendarOpen, setDailyCalendarOpen] = useState(false);
+   267→
+   268→  // ── Computed values ──
+   269→  const currentWeekStart = useMemo(() => {
+   270→    const now = new Date();
+   271→    now.setDate(now.getDate() + weekOffset * 7);
+   272→    return getWeekStart(now);
+   273→  }, [weekOffset]);
+   274→
+   275→  const weekDates = useMemo(() => getWeekDates(currentWeekStart), [currentWeekStart]);
+   276→
+   277→  const weekStartStr = formatDateOnly(currentWeekStart);
+   278→  const weekEndStr = formatDateOnly(weekDates[6]);
+   279→
+   280→  // ── Data fetching ──
+   281→  const fetchCoreData = useCallback(async () => {
+   282→    try {
+   283→      const [availRes, overrideRes, teamRes] = await Promise.all([
+   284→        fetch("/api/availability", { credentials: "include" }),
+   285→        fetch("/api/availability/overrides", { credentials: "include" }),
+   286→        fetch("/api/team?type=users", { credentials: "include" }),
+   287→      ]);
+   288→      if (availRes.status === 401 || overrideRes.status === 401 || teamRes.status === 401) {
+   289→        router.push("/login");
+   290→        return;
+   291→      }
+   292→      if (availRes.ok) setAvailabilities(safeArray(await availRes.json()));
+   293→      if (overrideRes.ok) setOverrides(safeArray(await overrideRes.json()));
+   294→      if (teamRes.ok) {
+   295→        const users = safeArray<TeamUser>(await teamRes.json());
+   296→        setTeamUsers(users);
+   297→        if (!dailyUserId && users.length > 0) {
+   298→          setDailyUserId(users[0].id);
+   299→        }
+   300→      }
+   301→    } catch (err: unknown) {
+   302→      console.error("[availability] Failed to fetch data:", err);
+   303→      setError("Failed to load data");
+   304→    } finally {
+   305→      setLoading(false);
+   306→    }
+   307→  }, [router, dailyUserId]);
+   308→
+   309→  const fetchWeekSchedule = useCallback(async () => {
+   310→    setWeekLoading(true);
+   311→    try {
+   312→      const res = await fetch(`/api/availability/schedule?type=week&date=${weekStartStr}`, {
+   313→        credentials: "include",
+   314→      });
+   315→      if (res.ok) {
+   316→        const data = await res.json();
+   317→        setWeekSchedule(data);
+   318→      } else if (res.status === 401) {
+   319→        router.push("/login");
+   320→      }
+   321→    } catch (err: unknown) {
+   322→      console.error("Failed to fetch week schedule:", err);
+   323→    } finally {
+   324→      setWeekLoading(false);
+   325→    }
+   326→  }, [weekStartStr, router]);
+   327→
+   328→  const fetchDailySchedule = useCallback(async () => {
+   329→    if (!dailyUserId) return;
+   330→    setDailyLoading(true);
+   331→    try {
+   332→      const dateStr = formatDateOnly(dailyDate);
+   333→      const res = await fetch(
+   334→        `/api/availability/schedule?date=${dateStr}&userId=${dailyUserId}`,
+   335→        { credentials: "include" }
+   336→      );
+   337→      if (res.ok) {
+   338→        const data = await res.json();
+   339→        setDailySchedule(data);
+   340→      } else if (res.status === 401) {
+   341→        router.push("/login");
+   342→      }
+   343→    } catch (err: unknown) {
+   344→      console.error("Failed to fetch daily schedule:", err);
+   345→    } finally {
+   346→      setDailyLoading(false);
+   347→    }
+   348→  }, [dailyUserId, dailyDate, router]);
+   349→
+   350→  useEffect(() => {
+   351→    if (isUserAdmin) fetchCoreData();
+   352→  }, [fetchCoreData, isUserAdmin]);
+   353→
+   354→  useEffect(() => {
+   355→    if (isUserAdmin && !loading) fetchWeekSchedule();
+   356→  }, [fetchWeekSchedule, isUserAdmin, loading]);
+   357→
+   358→  useEffect(() => {
+   359→    if (isUserAdmin && !loading && dailyUserId) fetchDailySchedule();
+   360→  }, [fetchDailySchedule, isUserAdmin, loading, dailyUserId]);
+   361→
+   362→  // ── Filter upcoming overrides ──
+   363→  const upcomingOverrides = useMemo(
+   364→    () => overrides.filter((o) => {
+   365→      const d = new Date(o.date + "T00:00:00");
+   366→      const today = new Date();
+   367→      today.setHours(0, 0, 0, 0);
+   368→      return d >= today;
+   369→    }),
+   370→    [overrides]
+   371→  );
+   372→
+   373→  const pastOverrides = useMemo(
+   374→    () => overrides.filter((o) => {
+   375→      const d = new Date(o.date + "T00:00:00");
+   376→      const today = new Date();
+   377→      today.setHours(0, 0, 0, 0);
+   378→      return d < today;
+   379→    }),
+   380→    [overrides]
+   381→  );
+   382→
+   383→  // ── Form reset helpers ──
+   384→  const resetAvailForm = () => {
+   385→    setFormUserId("");
+   386→    setFormDayOfWeek("1");
+   387→    setFormStartTime("09:00");
+   388→    setFormEndTime("17:00");
+   389→    setFormIsAvailable(true);
+   390→    setEditingAvailability(null);
+   391→  };
+   392→
+   393→  const resetOverrideForm = () => {
+   394→    setFormOverrideUserId("");
+   395→    setFormOverrideDate("");
+   396→    setFormOverrideStartTime("");
+   397→    setFormOverrideEndTime("");
+   398→    setFormOverrideIsAvailable(false);
+   399→    setFormOverrideReason("");
+   400→    setEditingOverride(null);
+   401→  };
+   402→
+   403→  const openEditAvailability = (entry: AvailabilityEntry) => {
+   404→    setEditingAvailability(entry);
+   405→    setFormUserId(entry.userId);
+   406→    setFormDayOfWeek(entry.dayOfWeek.toString());
+   407→    setFormStartTime(entry.startTime);
+   408→    setFormEndTime(entry.endTime);
+   409→    setFormIsAvailable(entry.isAvailable);
+   410→    setAvailDialogOpen(true);
+   411→  };
+   412→
+   413→  const openEditOverride = (override: OverrideEntry) => {
+   414→    setEditingOverride(override);
+   415→    setFormOverrideUserId(override.userId);
+   416→    setFormOverrideDate(override.date);
+   417→    setFormOverrideStartTime(override.startTime || "");
+   418→    setFormOverrideEndTime(override.endTime || "");
+   419→    setFormOverrideIsAvailable(override.isAvailable);
+   420→    setFormOverrideReason(override.reason || "");
+   421→    setOverrideDialogOpen(true);
+   422→  };
+   423→
+   424→  // ── CRUD handlers ──
+   425→  const handleSaveAvailability = async () => {
+   426→    if (!formUserId || formDayOfWeek === undefined) {
+   427→      toast.error("Please fill in all required fields");
+   428→      return;
+   429→    }
+   430→    if (formStartTime >= formEndTime) {
+   431→      toast.error("Start time must be before end time");
+   432→      return;
+   433→    }
+   434→    setSubmitting(true);
+   435→    try {
+   436→      let res: Response;
+   437→      if (editingAvailability) {
+   438→        res = await fetch(`/api/availability/${editingAvailability.id}`, {
+   439→          method: "PATCH",
+   440→          headers: { "Content-Type": "application/json" },
+   441→          credentials: "include",
+   442→          body: JSON.stringify({
+   443→            dayOfWeek: parseInt(formDayOfWeek),
+   444→            startTime: formStartTime,
+   445→            endTime: formEndTime,
+   446→            isAvailable: formIsAvailable,
+   447→          }),
+   448→        });
+   449→      } else {
+   450→        res = await fetch("/api/availability", {
+   451→          method: "POST",
+   452→          headers: { "Content-Type": "application/json" },
+   453→          credentials: "include",
+   454→          body: JSON.stringify({
+   455→            userId: formUserId,
+   456→            dayOfWeek: parseInt(formDayOfWeek),
+   457→            startTime: formStartTime,
+   458→            endTime: formEndTime,
+   459→            isAvailable: formIsAvailable,
+   460→          }),
+   461→        });
+   462→      }
+   463→      if (res.ok) {
+   464→        toast.success(editingAvailability ? "Availability updated" : "Availability added");
+   465→        setAvailDialogOpen(false);
+   466→        resetAvailForm();
+   467→        fetchCoreData();
+   468→        fetchWeekSchedule();
+   469→      } else {
+   470→        const err = await res.json();
+   471→        toast.error(safeText(err.error, "Failed to save availability"));
+   472→      }
+   473→    } catch {
+   474→      toast.error("Failed to save availability");
+   475→    } finally {
+   476→      setSubmitting(false);
+   477→    }
+   478→  };
+   479→
+   480→  const handleSaveOverride = async () => {
+   481→    if (!formOverrideUserId || !formOverrideDate) {
+   482→      toast.error("Please fill in all required fields");
+   483→      return;
+   484→    }
+   485→    if (formOverrideStartTime && formOverrideEndTime && formOverrideStartTime >= formOverrideEndTime) {
+   486→      toast.error("Start time must be before end time");
+   487→      return;
+   488→    }
+   489→    setSubmitting(true);
+   490→    try {
+   491→      let res: Response;
+   492→      if (editingOverride) {
+   493→        res = await fetch(`/api/availability/overrides/${editingOverride.id}`, {
+   494→          method: "PATCH",
+   495→          headers: { "Content-Type": "application/json" },
+   496→          credentials: "include",
+   497→          body: JSON.stringify({
+   498→            date: formOverrideDate,
+   499→            startTime: formOverrideStartTime || null,
+   500→            endTime: formOverrideEndTime || null,
+   501→            isAvailable: formOverrideIsAvailable,
+   502→            reason: formOverrideReason || null,
+   503→          }),
+   504→        });
+   505→      } else {
+   506→        res = await fetch("/api/availability/overrides", {
+   507→          method: "POST",
+   508→          headers: { "Content-Type": "application/json" },
+   509→          credentials: "include",
+   510→          body: JSON.stringify({
+   511→            userId: formOverrideUserId,
+   512→            date: formOverrideDate,
+   513→            startTime: formOverrideStartTime || null,
+   514→            endTime: formOverrideEndTime || null,
+   515→            isAvailable: formOverrideIsAvailable,
+   516→            reason: formOverrideReason || null,
+   517→          }),
+   518→        });
+   519→      }
+   520→      if (res.ok) {
+   521→        toast.success(editingOverride ? "Override updated" : "Override added");
+   522→        setOverrideDialogOpen(false);
+   523→        resetOverrideForm();
+   524→        fetchCoreData();
+   525→        fetchWeekSchedule();
+   526→      } else {
+   527→        const err = await res.json();
+   528→        toast.error(safeText(err.error, "Failed to save override"));
+   529→      }
+   530→    } catch {
+   531→      toast.error("Failed to save override");
+   532→    } finally {
+   533→      setSubmitting(false);
+   534→    }
+   535→  };
+   536→
+   537→  const handleDeleteAvailability = async (id: string) => {
+   538→    try {
+   539→      const res = await fetch(`/api/availability/${id}`, {
+   540→        method: "DELETE",
+   541→        credentials: "include",
+   542→      });
+   543→      if (res.ok) {
+   544→        toast.success("Availability deleted");
+   545→        fetchCoreData();
+   546→        fetchWeekSchedule();
+   547→      } else {
+   548→        toast.error("Failed to delete");
+   549→      }
+   550→    } catch {
+   551→      toast.error("Failed to delete");
+   552→    } finally {
+   553→      setDeleteAvailId(null);
+   554→    }
+   555→  };
+   556→
+   557→  const handleDeleteOverride = async (id: string) => {
+   558→    try {
+   559→      const res = await fetch(`/api/availability/overrides/${id}`, {
+   560→        method: "DELETE",
+   561→        credentials: "include",
+   562→      });
+   563→      if (res.ok) {
+   564→        toast.success("Override deleted");
+   565→        fetchCoreData();
+   566→        fetchWeekSchedule();
+   567→      } else {
+   568→        toast.error("Failed to delete");
+   569→      }
+   570→    } catch {
+   571→      toast.error("Failed to delete");
+   572→    } finally {
+   573→      setDeleteOverrideId(null);
+   574→    }
+   575→  };
+   576→
+   577→  // ── Navigation ──
+   578→  const goToToday = () => setWeekOffset(0);
+   579→  const prevWeek = () => setWeekOffset((w) => w - 1);
+   580→  const nextWeek = () => setWeekOffset((w) => w + 1);
+   581→
+   582→  const handleCalendarSelect = (date: Date | undefined) => {
+   583→    if (date) {
+   584→      const now = new Date();
+   585→      const selectedWeekStart = getWeekStart(date);
+   586→      const currentWeekStartNow = getWeekStart(now);
+   587→      const diffMs = selectedWeekStart.getTime() - currentWeekStartNow.getTime();
+   588→      const diffWeeks = Math.round(diffMs / (7 * 24 * 60 * 60 * 1000));
+   589→      setWeekOffset(diffWeeks);
+   590→      setCalendarOpen(false);
+   591→    }
+   592→  };
+   593→
+   594→  // ─── Loading / Auth states ──────────────────────────────────────────────────
+   595→
+   596→  if (isSessionLoading) {
+   597→    return (
+   598→      <div className="space-y-6">
+   599→        <div className="flex items-center gap-3">
+   600→          <Skeleton className="h-8 w-8 rounded" />
+   601→          <Skeleton className="h-8 w-56" />
+   602→        </div>
+   603→        <div className="grid gap-4 md:grid-cols-3">
+   604→          {[1, 2, 3].map((i) => (
+   605→            <Skeleton key={i} className="h-32 rounded-lg" />
+   606→          ))}
+   607→        </div>
+   608→        <Skeleton className="h-[500px] rounded-lg" />
+   609→      </div>
+   610→    );
+   611→  }
+   612→
+   613→  if (!isUserAdmin) {
+   614→    return (
+   615→      <div className="flex items-center justify-center h-64">
+   616→        <div className="text-center">
+   617→          <AlertCircle className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
+   618→          <p className="text-muted-foreground">You don&apos;t have access to this page</p>
+   619→        </div>
+   620→      </div>
+   621→    );
+   622→  }
+   623→
+   624→  if (loading) {
+   625→    return (
+   626→      <div className="space-y-6">
+   627→        <div className="flex items-center gap-3">
+   628→          <Skeleton className="h-8 w-8 rounded" />
+   629→          <Skeleton className="h-8 w-56" />
+   630→        </div>
+   631→        <div className="grid gap-4 md:grid-cols-3">
+   632→          {[1, 2, 3].map((i) => (
+   633→            <Skeleton key={i} className="h-32 rounded-lg" />
+   634→          ))}
+   635→        </div>
+   636→        <Skeleton className="h-[500px] rounded-lg" />
+   637→      </div>
+   638→    );
+   639→  }
+   640→
+   641→  if (error) {
+   642→    return (
+   643→      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+   644→        <AlertCircle className="h-12 w-12 text-destructive" />
+   645→        <p className="text-muted-foreground">{error}</p>
+   646→        <Button variant="outline" onClick={() => { setError(null); setLoading(true); fetchCoreData(); }}>
+   647→          <RefreshCw className="h-4 w-4 mr-2" /> Try Again
+   648→        </Button>
+   649→      </div>
+   650→    );
+   651→  }
+   652→
+   653→  // ─── Render ──────────────────────────────────────────────────────────────────
+   654→  const todayStr = formatDateOnly(new Date());
+   655→
+   656→  return (
+   657→    <div className="space-y-6">
+   658→      <PageHeader title="Availability Management" description="Manage team schedules, daily views, and availability overrides">
+   659→        <Button variant="outline" onClick={() => { resetOverrideForm(); setOverrideDialogOpen(true); }}>
+   660→          <CalendarDays className="h-4 w-4 mr-2" /> Add Override
+   661→        </Button>
+   662→        <Button onClick={() => { resetAvailForm(); setAvailDialogOpen(true); }}>
+   663→          <Plus className="h-4 w-4 mr-2" /> Add Availability
+   664→        </Button>
+   665→      </PageHeader>
+   666→
+   667→      <Tabs defaultValue="weekly" className="space-y-4">
+   668→        <TabsList>
+   669→          <TabsTrigger value="weekly">
+   670→            <CalendarDays className="h-4 w-4 mr-1.5" /> Weekly Overview
+   671→          </TabsTrigger>
+   672→          <TabsTrigger value="daily">
+   673→            <Clock className="h-4 w-4 mr-1.5" /> Daily Schedule
+   674→          </TabsTrigger>
+   675→          <TabsTrigger value="overrides">
+   676→            <CalendarClock className="h-4 w-4 mr-1.5" /> Overrides
+   677→          </TabsTrigger>
+   678→        </TabsList>
+   679→
+   680→        {/* ═══════════════════════════════════════════════════════════════════════
+   681→            TAB 1: Weekly Overview
+   682→        ═══════════════════════════════════════════════════════════════════════ */}
+   683→        <TabsContent value="weekly" className="space-y-4">
+   684→          {/* Week Navigation */}
+   685→          <div className="flex items-center justify-between flex-wrap gap-3">
+   686→            <div className="flex items-center gap-2">
+   687→              <Button variant="outline" size="sm" onClick={prevWeek} aria-label="Previous week">
+   688→                <ChevronLeft className="h-4 w-4" />
+   689→              </Button>
+   690→              <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+   691→                <PopoverTrigger asChild>
+   692→                  <Button variant="outline" size="sm" className="min-w-[220px] justify-start text-left font-normal">
+   693→                    <CalendarDays className="mr-2 h-4 w-4" />
+   694→                    {new Date(weekStartStr + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+   695→                    {" — "}
+   696→                    {new Date(weekEndStr + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+   697→                  </Button>
+   698→                </PopoverTrigger>
+   699→                <PopoverContent className="w-auto p-0" align="start">
+   700→                  <Calendar
+   701→                    mode="single"
+   702→                    selected={currentWeekStart}
+   703→                    onSelect={handleCalendarSelect}
+   704→                  />
+   705→                </PopoverContent>
+   706→              </Popover>
+   707→              <Button variant="outline" size="sm" onClick={nextWeek} aria-label="Next week">
+   708→                <ChevronRight className="h-4 w-4" />
+   709→              </Button>
+   710→              {weekOffset !== 0 && (
+   711→                <Button variant="ghost" size="sm" onClick={goToToday}>
+   712→                  Today
+   713→                </Button>
+   714→              )}
+   715→            </div>
+   716→            <div className="flex items-center gap-3 text-sm text-muted-foreground">
+   717→              <span className="flex items-center gap-1.5">
+   718→                <span className="h-2.5 w-2.5 rounded-full bg-green-500" />
+   719→                <span className="text-xs text-muted-foreground">Available</span>
+   720→              </span>
+   721→              <span className="flex items-center gap-1.5">
+   722→                <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
+   723→                <span className="text-xs text-muted-foreground">Unavailable</span>
+   724→              </span>
+   725→              <span className="flex items-center gap-1.5">
+   726→                <span className="h-2.5 w-2.5 rounded-full bg-sky-500" />
+   727→                <span className="text-xs text-muted-foreground">On Leave</span>
+   728→              </span>
+   729→              <span className="flex items-center gap-1.5">
+   730→                <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
+   731→                <span className="text-xs text-muted-foreground">Override</span>
+   732→              </span>
+   733→            </div>
+   734→          </div>
+   735→
+   736→          {/* Weekly Grid */}
+   737→          <Card>
+   738→            <CardContent className="p-0">
+   739→              {weekLoading ? (
+   740→                <div className="p-6 space-y-4">
+   741→                  <Skeleton className="h-6 w-full" />
+   742→                  {[1, 2, 3, 4].map((i) => (
+   743→                    <Skeleton key={i} className="h-20 w-full" />
+   744→                  ))}
+   745→                </div>
+   746→              ) : !weekSchedule || weekSchedule.users.length === 0 ? (
+   747→                <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+   748→                  <Users className="h-12 w-12 opacity-50 mb-3" />
+   749→                  <p className="text-sm">No team members found for this week</p>
+   750→                </div>
+   751→              ) : (
+   752→                <div className="w-full overflow-x-auto -mx-6">
+   753→                  <div className="min-w-[900px] px-6">
+   754→                    {/* Header row */}
+   755→                    <div className="grid grid-cols-[180px_repeat(7,1fr)] border-b bg-muted/50 sticky top-0 z-10">
+   756→                      <div className="p-3 text-xs font-semibold text-muted-foreground border-r flex items-center">
+   757→                        Team Member
+   758→                      </div>
+   759→                      {weekDates.map((date, i) => {
+   760→                        const dayStr = formatDateOnly(date);
+   761→                        const isToday = dayStr === todayStr;
+   762→                        return (
+   763→                          <div
+   764→                            key={dayStr}
+   765→                            className={`p-3 text-center border-r last:border-r-0 ${isToday ? "bg-primary/5" : ""}`}
+   766→                          >
+   767→                            <div className={`text-xs font-medium ${isToday ? "text-primary" : "text-muted-foreground"}`}>
+   768→                              {DAY_NAMES_SHORT[i]}
+   769→                            </div>
+   770→                            <div className={`text-lg font-bold ${isToday ? "text-primary" : ""}`}>
+   771→                              {date.getDate()}
+   772→                            </div>
+   773→                            <div className={`text-[10px] ${isToday ? "text-primary" : "text-muted-foreground"}`}>
+   774→                              {date.toLocaleDateString("en-US", { month: "short" })}
+   775→                            </div>
+   776→                          </div>
+   777→                        );
+   778→                      })}
+   779→                    </div>
+   780→
+   781→                    {/* User rows */}
+   782→                    {weekSchedule.users.map((userSchedule) => (
+   783→                      <div
+   784→                        key={userSchedule.user.id}
+   785→                        className="grid grid-cols-[180px_repeat(7,1fr)] border-b last:border-b-0 hover:bg-muted/20 transition-colors"
+   786→                      >
+   787→                        {/* User info */}
+   788→                        <div className="p-3 border-r flex items-center gap-2">
+   789→                          <Avatar className="h-7 w-7">
+   790→                            <AvatarImage src={userSchedule.user.avatar || undefined} alt={userSchedule.user.name} />
+   791→                            <AvatarFallback className="text-[10px]">
+   792→                              {getUserInitials(userSchedule.user.name)}
+   793→                            </AvatarFallback>
+   794→                          </Avatar>
+   795→                          <div className="min-w-0">
+   796→                            <div className="text-sm font-medium truncate">{userSchedule.user.name}</div>
+   797→                            <div className="text-[10px] text-muted-foreground truncate">
+   798→                              {safeText(userSchedule.user.role, "")}
+   799→                            </div>
+   800→                          </div>
+   801→                        </div>
+   802→
+   803→                        {/* Day cells */}
+   804→                        {weekDates.map((date) => {
+   805→                          const dayStr = formatDateOnly(date);
+   806→                          const dayData = userSchedule.days[dayStr];
+   807→                          const isToday = dayStr === todayStr;
+   808→
+   809→                          if (!dayData) {
+   810→                            return (
+   811→                              <div key={dayStr} className="p-2 border-r last:border-r-0 flex items-center justify-center">
+   812→                                <span className="text-[10px] text-muted-foreground">—</span>
+   813→                              </div>
+   814→                            );
+   815→                          }
+   816→
+   817→                          return (
+   818→                            <Tooltip key={dayStr}>
+   819→                              <TooltipTrigger asChild>
+   820→                                <div
+   821→                                  className={`p-2 border-r last:border-r-0 cursor-pointer transition-colors hover:bg-muted/40 min-h-[80px] flex flex-col gap-1 ${isToday ? "bg-primary/[0.03]" : ""}`}
+   822→                                  onClick={() => setSelectedDayDetail({
+   823→                                    userId: userSchedule.user.id,
+   824→                                    userName: userSchedule.user.name,
+   825→                                    date: dayStr,
+   826→                                    dayData,
+   827→                                  })}
+   828→                                >
+   829→                                  {/* Status badges */}
+   830→                                  <div className="flex flex-wrap gap-1">
+   831→                                    {dayData.isOnLeave && (
+   832→                                      <Badge className="text-[9px] px-1.5 py-0 bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300 border-0">
+   833→                                        LEAVE
+   834→                                      </Badge>
+   835→                                    )}
+   836→                                    {dayData.override && !dayData.isOnLeave && (
+   837→                                      <Badge className="text-[9px] px-1.5 py-0 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 border-0">
+   838→                                        OVERRIDE
+   839→                                      </Badge>
+   840→                                    )}
+   841→                                  </div>
+   842→
+   843→                                  {/* Availability slots */}
+   844→                                  {dayData.isOnLeave ? (
+   845→                                    <div className="flex-1 flex items-center justify-center">
+   846→                                      <span className="text-[10px] text-sky-500 font-medium">Off</span>
+   847→                                    </div>
+   848→                                  ) : dayData.availability.length > 0 ? (
+   849→                                    <div className="flex flex-wrap gap-1">
+   850→                                      {dayData.availability.slice(0, 3).map((slot) => (
+   851→                                        <Badge
+   852→                                          key={slot.id}
+   853→                                          className="text-[9px] px-1.5 py-0 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 border-0"
+   854→                                        >
+   855→                                          {slot.startTime}-{slot.endTime}
+   856→                                        </Badge>
+   857→                                      ))}
+   858→                                      {dayData.availability.length > 3 && (
+   859→                                        <span className="text-[9px] text-muted-foreground">+{dayData.availability.length - 3}</span>
+   860→                                      )}
+   861→                                    </div>
+   862→                                  ) : (
+   863→                                    <div className="flex-1 flex items-center justify-center">
+   864→                                      <span className="text-[10px] text-muted-foreground">Not Set</span>
+   865→                                    </div>
+   866→                                  )}
+   867→
+   868→                                  {/* Counts row */}
+   869→                                  <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-auto pt-1 border-t border-border/50">
+   870→                                    {(dayData.taskCount > 0 || dayData.doneTaskCount > 0) && (
+   871→                                      <span className="flex items-center gap-0.5">
+   872→                                        <CheckCircle2 className="h-2.5 w-2.5 text-green-500" />
+   873→                                        {dayData.doneTaskCount}/{dayData.taskCount}
+   874→                                      </span>
+   875→                                    )}
+   876→                                    {dayData.meetingCount > 0 && (
+   877→                                      <span className="flex items-center gap-0.5">
+   878→                                        <Video className="h-2.5 w-2.5 text-sky-500" />
+   879→                                        {dayData.meetingCount}
+   880→                                      </span>
+   881→                                    )}
+   882→                                  </div>
+   883→                                </div>
+   884→                              </TooltipTrigger>
+   885→                              <TooltipContent side="bottom" className="max-w-[260px]">
+   886→                                <div className="space-y-1.5 text-left">
+   887→                                  <div className="font-semibold text-xs">{userSchedule.user.name} — {dayData.dayName}, {dayStr}</div>
+   888→                                  <Separator />
+   889→                                  {dayData.isOnLeave ? (
+   890→                                    <div className="text-[11px] text-sky-600 font-medium">On Leave</div>
+   891→                                  ) : dayData.availability.length > 0 ? (
+   892→                                    <div className="space-y-0.5">
+   893→                                      <div className="text-[11px] font-medium">Availability:</div>
+   894→                                      {dayData.availability.map((s) => (
+   895→                                        <div key={s.id} className="text-[10px] text-muted-foreground">
+   896→                                          {s.startTime} – {s.endTime} ({s.hours}h)
+   897→                                        </div>
+   898→                                      ))}
+   899→                                      <div className="text-[10px] text-muted-foreground">
+   900→                                        Total: {dayData.totalHours}h scheduled
+   901→                                      </div>
+   902→                                    </div>
+   903→                                  ) : (
+   904→                                    <div className="text-[11px] text-muted-foreground">No availability set</div>
+   905→                                  )}
+   906→                                  {dayData.override && (
+   907→                                    <div className="text-[10px]">
+   908→                                      <span className="font-medium text-amber-600">Override: </span>
+   909→                                      {dayData.override.isAvailable ? "Available" : "Unavailable"}
+   910→                                      {dayData.override.reason && ` — ${dayData.override.reason}`}
+   911→                                    </div>
+   912→                                  )}
+   913→                                  <div className="text-[10px] text-muted-foreground">
+   914→                                    Tasks: {dayData.doneTaskCount}/{dayData.taskCount} done
+   915→                                    {dayData.meetingCount > 0 && ` | Meetings: ${dayData.meetingCount}`}
+   916→                                  </div>
+   917→                                </div>
+   918→                              </TooltipContent>
+   919→                            </Tooltip>
+   920→                          );
+   921→                        })}
+   922→                      </div>
+   923→                    ))}
+   924→                  </div>
+   925→                </div>
+   926→              )}
+   927→            </CardContent>
+   928→          </Card>
+   929→
+   930→          {/* Day Detail Panel */}
+   931→          {selectedDayDetail && (
+   932→            <Card>
+   933→              <CardHeader className="pb-3">
+   934→                <div className="flex items-center justify-between">
+   935→                  <div>
+   936→                    <CardTitle className="text-base">
+   937→                      {selectedDayDetail.userName} — {selectedDayDetail.dayData.dayName}
+   938→                    </CardTitle>
+   939→                    <CardDescription>
+   940→                      {selectedDayDetail.date}
+   941→                    </CardDescription>
+   942→                  </div>
+   943→                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setSelectedDayDetail(null)} aria-label="Close day detail">
+   944→                    <X className="h-4 w-4" />
+   945→                  </Button>
+   946→                </div>
+   947→              </CardHeader>
+   948→              <CardContent>
+   949→                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+   950→                  {/* Availability */}
+   951→                  <div className="space-y-2">
+   952→                    <h4 className="text-sm font-semibold text-muted-foreground">Availability</h4>
+   953→                    {selectedDayDetail.dayData.isOnLeave ? (
+   954→                      <Badge className="bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300 border-0">
+   955→                        On Leave
+   956→                      </Badge>
+   957→                    ) : selectedDayDetail.dayData.availability.length > 0 ? (
+   958→                      <div className="space-y-1">
+   959→                        {selectedDayDetail.dayData.availability.map((slot) => (
+   960→                          <div key={slot.id} className="flex items-center gap-2 text-sm">
+   961→                            <Clock className="h-3.5 w-3.5 text-green-500" />
+   962→                            <span>{slot.startTime} – {slot.endTime}</span>
+   963→                            <span className="text-muted-foreground text-xs">({slot.hours}h)</span>
+   964→                          </div>
+   965→                        ))}
+   966→                        <div className="text-xs text-muted-foreground pt-1">
+   967→                          Total scheduled: {selectedDayDetail.dayData.totalHours}h
+   968→                        </div>
+   969→                      </div>
+   970→                    ) : (
+   971→                      <span className="text-sm text-muted-foreground">Not configured</span>
+   972→                    )}
+   973→                    {selectedDayDetail.dayData.override && (
+   974→                      <div className="mt-2 p-2 rounded-md bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800">
+   975→                        <div className="text-xs font-medium text-amber-700 dark:text-amber-400">Override Active</div>
+   976→                        <div className="text-xs text-amber-600 dark:text-amber-500 mt-0.5">
+   977→                          {selectedDayDetail.dayData.override.isAvailable ? "Available" : "Unavailable"}
+   978→                          {selectedDayDetail.dayData.override.startTime && selectedDayDetail.dayData.override.endTime
+   979→                            ? ` (${selectedDayDetail.dayData.override.startTime}–${selectedDayDetail.dayData.override.endTime})`
+   980→                            : " (All Day)"}
+   981→                        </div>
+   982→                        {selectedDayDetail.dayData.override.reason && (
+   983→                          <div className="text-xs text-muted-foreground mt-0.5">
+   984→                            {safeText(selectedDayDetail.dayData.override.reason)}
+   985→                          </div>
+   986→                        )}
+   987→                      </div>
+   988→                    )}
+   989→                  </div>
+   990→
+   991→                  {/* Tasks */}
+   992→                  <div className="space-y-2">
+   993→                    <h4 className="text-sm font-semibold text-muted-foreground">Tasks</h4>
+   994→                    <div className="flex items-center gap-2 text-2xl font-bold">
+   995→                      <span>{selectedDayDetail.dayData.doneTaskCount}</span>
+   996→                      <span className="text-muted-foreground text-base font-normal">/ {selectedDayDetail.dayData.taskCount}</span>
+   997→                    </div>
+   998→                    <div className="text-xs text-muted-foreground">done / total</div>
+   999→                    {selectedDayDetail.dayData.taskCount > 0 && (
+  1000→                      <Progress
+  1001→                        value={(selectedDayDetail.dayData.doneTaskCount / selectedDayDetail.dayData.taskCount) * 100}
+  1002→                        className="h-1.5"
+  1003→                      />
+  1004→                    )}
+  1005→                  </div>
+  1006→
+  1007→                  {/* Meetings */}
+  1008→                  <div className="space-y-2">
+  1009→                    <h4 className="text-sm font-semibold text-muted-foreground">Meetings</h4>
+  1010→                    <div className="flex items-center gap-2">
+  1011→                      <Video className="h-5 w-5 text-sky-500" />
+  1012→                      <span className="text-2xl font-bold">{selectedDayDetail.dayData.meetingCount}</span>
+  1013→                    </div>
+  1014→                    <div className="text-xs text-muted-foreground">scheduled</div>
+  1015→                  </div>
+  1016→
+  1017→                  {/* Quick Actions */}
+  1018→                  <div className="space-y-2">
+  1019→                    <h4 className="text-sm font-semibold text-muted-foreground">Quick Actions</h4>
+  1020→                    <Button
+  1021→                      variant="outline"
+  1022→                      size="sm"
+  1023→                      className="w-full justify-start"
+  1024→                      onClick={() => {
+  1025→                        setSelectedDayDetail(null);
+  1026→                        setDailyDate(new Date(selectedDayDetail.date + "T00:00:00"));
+  1027→                        setDailyUserId(selectedDayDetail.userId);
+  1028→                        // Switch to daily tab programmatically via DOM
+  1029→                        const dailyTab = document.querySelector('[data-state][value="daily"]') as HTMLElement;
+  1030→                        if (dailyTab) dailyTab.click();
+  1031→                      }}
+  1032→                    >
+  1033→                      <Eye className="h-3.5 w-3.5 mr-1.5" /> View Daily Detail
+  1034→                    </Button>
+  1035→                  </div>
+  1036→                </div>
+  1037→              </CardContent>
+  1038→            </Card>
+  1039→          )}
+  1040→        </TabsContent>
+  1041→
+  1042→        {/* ═══════════════════════════════════════════════════════════════════════
+  1043→            TAB 2: Daily Schedule
+  1044→        ═══════════════════════════════════════════════════════════════════════ */}
+  1045→        <TabsContent value="daily" className="space-y-4">
+  1046→          {/* Controls */}
+  1047→          <div className="flex flex-wrap items-center gap-3">
+  1048→            {/* Date picker */}
+  1049→            <Popover open={dailyCalendarOpen} onOpenChange={setDailyCalendarOpen}>
+  1050→              <PopoverTrigger asChild>
+  1051→                <Button variant="outline" className="min-w-[180px] justify-start text-left font-normal">
+  1052→                  <CalendarDays className="mr-2 h-4 w-4" />
+  1053→                  {dailyDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
+  1054→                </Button>
+  1055→              </PopoverTrigger>
+  1056→              <PopoverContent className="w-auto p-0" align="start">
+  1057→                <Calendar
+  1058→                  mode="single"
+  1059→                  selected={dailyDate}
+  1060→                  onSelect={(d) => { if (d) { setDailyDate(d); setDailyCalendarOpen(false); } }}
+  1061→                />
+  1062→              </PopoverContent>
+  1063→            </Popover>
+  1064→
+  1065→            {/* User selector */}
+  1066→            <Select value={dailyUserId} onValueChange={setDailyUserId}>
+  1067→              <SelectTrigger className="w-[200px]">
+  1068→                <SelectValue placeholder="Select team member" />
+  1069→              </SelectTrigger>
+  1070→              <SelectContent>
+  1071→                {teamUsers.map((u) => (
+  1072→                  <SelectItem key={u.id} value={u.id}>
+  1073→                    <div className="flex items-center gap-2">
+  1074→                      <Avatar className="h-5 w-5">
+  1075→                        <AvatarImage src={u.avatar || undefined} alt={u.name} />
+  1076→                        <AvatarFallback className="text-[8px]">{getUserInitials(u.name)}</AvatarFallback>
+  1077→                      </Avatar>
+  1078→                      {u.name}
+  1079→                    </div>
+  1080→                  </SelectItem>
+  1081→                ))}
+  1082→              </SelectContent>
+  1083→            </Select>
+  1084→
+  1085→            {/* Quick nav buttons */}
+  1086→            <Button variant="ghost" size="sm" onClick={() => setDailyDate(new Date())}>
+  1087→              Today
+  1088→            </Button>
+  1089→            <Button variant="outline" size="sm" onClick={() => {
+  1090→              const d = new Date(dailyDate);
+  1091→              d.setDate(d.getDate() - 1);
+  1092→              setDailyDate(d);
+  1093→            }}>
+  1094→              <ChevronLeft className="h-4 w-4" />
+  1095→            </Button>
+  1096→            <Button variant="outline" size="sm" onClick={() => {
+  1097→              const d = new Date(dailyDate);
+  1098→              d.setDate(d.getDate() + 1);
+  1099→              setDailyDate(d);
+  1100→            }}>
+  1101→              <ChevronRight className="h-4 w-4" />
+  1102→            </Button>
+  1103→          </div>
+  1104→
+  1105→          {/* Daily Schedule Content */}
+  1106→          {dailyLoading ? (
+  1107→            <div className="space-y-4">
+  1108→              <div className="grid gap-4 md:grid-cols-4">
+  1109→                {[1, 2, 3, 4].map((i) => (
+  1110→                  <Skeleton key={i} className="h-24 rounded-lg" />
+  1111→                ))}
+  1112→              </div>
+  1113→              <Skeleton className="h-[400px] rounded-lg" />
+  1114→            </div>
+  1115→          ) : dailySchedule ? (
+  1116→            <div className="space-y-4">
+  1117→              {/* Leave banner */}
+  1118→              {dailySchedule.isOnLeave && (
+  1119→                <Card className="border-sky-200 bg-sky-50/50 dark:border-sky-800 dark:bg-sky-950/20">
+  1120→                  <CardContent className="py-3 flex items-center gap-3">
+  1121→                    <div className="h-8 w-8 rounded-full bg-sky-100 dark:bg-sky-900/50 flex items-center justify-center">
+  1122→                      <CalendarDays className="h-4 w-4 text-sky-600 dark:text-sky-400" />
+  1123→                    </div>
+  1124→                    <div>
+  1125→                      <div className="text-sm font-medium text-sky-700 dark:text-sky-300">
+  1126→                        {safeText(dailySchedule.user.name)} is on leave today
+  1127→                      </div>
+  1128→                      {(() => {
+  1129→                        const info = dailySchedule.leaveInfo;
+  1130→                        if (info && typeof info === "object" && "reason" in info) {
+  1131→                          const reason = (info as Record<string, unknown>).reason;
+  1132→                          if (reason && typeof reason === "string") {
+  1133→                            return <div className="text-xs text-sky-600 dark:text-sky-400">{safeText(reason)}</div>;
+  1134→                          }
+  1135→                        }
+  1136→                        return null;
+  1137→                      })()}
+  1138→                    </div>
+  1139→                  </CardContent>
+  1140→                </Card>
+  1141→              )}
+  1142→
+  1143→              {/* Stats cards */}
+  1144→              <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
+  1145→                <Card>
+  1146→                  <CardContent className="p-4">
+  1147→                    <div className="flex items-center gap-3">
+  1148→                      <div className="h-10 w-10 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+  1149→                        <Timer className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+  1150→                      </div>
+  1151→                      <div>
+  1152→                        <div className="text-2xl font-bold">{dailySchedule.totalScheduledHours}h</div>
+  1153→                        <div className="text-xs text-muted-foreground">Scheduled</div>
+  1154→                      </div>
+  1155→                    </div>
+  1156→                  </CardContent>
+  1157→                </Card>
+  1158→                <Card>
+  1159→                  <CardContent className="p-4">
+  1160→                    <div className="flex items-center gap-3">
+  1161→                      <div className="h-10 w-10 rounded-lg bg-sky-100 dark:bg-sky-900/30 flex items-center justify-center">
+  1162→                        <BarChart3 className="h-5 w-5 text-sky-600 dark:text-sky-400" />
+  1163→                      </div>
+  1164→                      <div>
+  1165→                        <div className="text-2xl font-bold">{dailySchedule.totalWorkedHours}h</div>
+  1166→                        <div className="text-xs text-muted-foreground">Worked</div>
+  1167→                      </div>
+  1168→                    </div>
+  1169→                  </CardContent>
+  1170→                </Card>
+  1171→                <Card>
+  1172→                  <CardContent className="p-4">
+  1173→                    <div className="flex items-center gap-3">
+  1174→                      <div className="h-10 w-10 rounded-lg bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center">
+  1175→                        <Target className="h-5 w-5 text-violet-600 dark:text-violet-400" />
+  1176→                      </div>
+  1177→                      <div>
+  1178→                        <div className="text-2xl font-bold">
+  1179→                          {dailySchedule.taskSummary.done}/{dailySchedule.taskSummary.total}
+  1180→                        </div>
+  1181→                        <div className="text-xs text-muted-foreground">Tasks Done</div>
+  1182→                      </div>
+  1183→                    </div>
+  1184→                  </CardContent>
+  1185→                </Card>
+  1186→                <Card>
+  1187→                  <CardContent className="p-4">
+  1188→                    <div className="flex items-center gap-3">
+  1189→                      <div className="h-10 w-10 rounded-lg bg-rose-100 dark:bg-rose-900/30 flex items-center justify-center">
+  1190→                        <Video className="h-5 w-5 text-rose-600 dark:text-rose-400" />
+  1191→                      </div>
+  1192→                      <div>
+  1193→                        <div className="text-2xl font-bold">{dailySchedule.meetings.length}</div>
+  1194→                        <div className="text-xs text-muted-foreground">Meetings</div>
+  1195→                      </div>
+  1196→                    </div>
+  1197→                  </CardContent>
+  1198→                </Card>
+  1199→              </div>
+  1200→
+  1201→              {/* Task completion progress */}
+  1202→              {dailySchedule.taskSummary.total > 0 && (
+  1203→                <Card>
+  1204→                  <CardContent className="p-4">
+  1205→                    <div className="flex items-center justify-between mb-2">
+  1206→                      <span className="text-sm font-medium">Task Completion</span>
+  1207→                      <span className="text-sm text-muted-foreground">
+  1208→                        {Math.round((dailySchedule.taskSummary.done / dailySchedule.taskSummary.total) * 100)}%
+  1209→                      </span>
+  1210→                    </div>
+  1211→                    <Progress value={(dailySchedule.taskSummary.done / dailySchedule.taskSummary.total) * 100} className="h-2.5" />
+  1212→                    <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
+  1213→                      <span className="flex items-center gap-1">
+  1214→                        <CheckCircle2 className="h-3 w-3 text-green-500" /> {dailySchedule.taskSummary.done} done
+  1215→                      </span>
+  1216→                      <span className="flex items-center gap-1">
+  1217→                        <Circle className="h-3 w-3 text-sky-500" /> {dailySchedule.taskSummary.inProgress} in progress
+  1218→                      </span>
+  1219→                      <span className="flex items-center gap-1">
+  1220→                        <Circle className="h-3 w-3 text-gray-400" /> {dailySchedule.taskSummary.todo} to do
+  1221→                      </span>
+  1222→                    </div>
+  1223→                  </CardContent>
+  1224→                </Card>
+  1225→              )}
+  1226→
+  1227→              {/* Timeline Area */}
+  1228→              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+  1229→                {/* Left: Availability timeline */}
+  1230→                <Card>
+  1231→                  <CardHeader className="pb-3">
+  1232→                    <CardTitle className="text-sm font-semibold flex items-center gap-2">
+  1233→                      <Timer className="h-4 w-4 text-emerald-500" />
+  1234→                      Availability Schedule
+  1235→                    </CardTitle>
+  1236→                  </CardHeader>
+  1237→                  <CardContent className="space-y-3">
+  1238→                    {dailySchedule.availability.length === 0 && !dailySchedule.isOnLeave ? (
+  1239→                      <div className="text-center py-6 text-muted-foreground text-sm">
+  1240→                        <Clock className="h-8 w-8 mx-auto opacity-30 mb-2" />
+  1241→                        No availability configured for {dailySchedule.dayName}
+  1242→                      </div>
+  1243→                    ) : dailySchedule.availability.length > 0 ? (
+  1244→                      dailySchedule.availability.map((slot) => {
+  1245→                        const startMin = timeToMinutes(slot.startTime);
+  1246→                        const endMin = timeToMinutes(slot.endTime);
+  1247→                        const duration = endMin - startMin;
+  1248→                        const dayStart = 480; // 8:00 AM
+  1249→                        const dayEnd = 1200; // 8:00 PM
+  1250→                        const totalRange = dayEnd - dayStart;
+  1251→                        const leftPct = Math.max(0, ((startMin - dayStart) / totalRange) * 100);
+  1252→                        const widthPct = Math.max(2, (duration / totalRange) * 100);
+  1253→
+  1254→                        return (
+  1255→                          <div key={slot.id} className="space-y-1">
+  1256→                            <div className="relative h-10 bg-muted/50 rounded-md overflow-hidden">
+  1257→                              {/* Time markers */}
+  1258→                              <div className="absolute inset-0 flex justify-between px-1 text-[8px] text-muted-foreground/50">
+  1259→                                <span>8am</span><span>10am</span><span>12pm</span><span>2pm</span><span>4pm</span><span>6pm</span><span>8pm</span>
+  1260→                              </div>
+  1261→                              {/* Available block */}
+  1262→                              <div
+  1263→                                className="absolute top-1 bottom-1 rounded bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center"
+  1264→                                style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+  1265→                              >
+  1266→                                <span className="text-[9px] font-medium text-emerald-700 dark:text-emerald-300 whitespace-nowrap px-1">
+  1267→                                  {slot.startTime}-{slot.endTime}
+  1268→                                </span>
+  1269→                              </div>
+  1270→                            </div>
+  1271→                          </div>
+  1272→                        );
+  1273→                      })
+  1274→                    ) : null}
+  1275→
+  1276→                    {/* Override info */}
+  1277→                    {dailySchedule.overrides.length > 0 && (
+  1278→                      <div className="mt-3 p-2 rounded-md bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800">
+  1279→                        <div className="text-xs font-medium text-amber-700 dark:text-amber-400">Active Override(s)</div>
+  1280→                        {dailySchedule.overrides.map((o) => (
+  1281→                          <div key={o.id} className="text-xs text-amber-600 dark:text-amber-500 mt-0.5">
+  1282→                            {o.isAvailable ? "Available" : "Unavailable"}
+  1283→                            {o.startTime && o.endTime ? ` (${o.startTime}–${o.endTime})` : " (All Day)"}
+  1284→                            {o.reason && ` — ${safeText(o.reason)}`}
+  1285→                          </div>
+  1286→                        ))}
+  1287→                      </div>
+  1288→                    )}
+  1289→                  </CardContent>
+  1290→                </Card>
+  1291→
+  1292→                {/* Right: Tasks & Meetings timeline */}
+  1293→                <Card>
+  1294→                  <CardHeader className="pb-3">
+  1295→                    <CardTitle className="text-sm font-semibold flex items-center gap-2">
+  1296→                      <Target className="h-4 w-4 text-violet-500" />
+  1297→                      Tasks & Meetings
+  1298→                    </CardTitle>
+  1299→                  </CardHeader>
+  1300→                  <CardContent>
+  1301→                    <ScrollArea className="max-h-[400px]">
+  1302→                      <div className="space-y-2">
+  1303→                        {/* Tasks */}
+  1304→                        {dailySchedule.tasks.length === 0 && dailySchedule.meetings.length === 0 && (
+  1305→                          <div className="text-center py-6 text-muted-foreground text-sm">
+  1306→                            <FileText className="h-8 w-8 mx-auto opacity-30 mb-2" />
+  1307→                            No tasks or meetings for this day
+  1308→                          </div>
+  1309→                        )}
+  1310→
+  1311→                        {dailySchedule.tasks.map((task) => {
+  1312→                          const statusStyle = TASK_STATUS_STYLES[task.status] || TASK_STATUS_STYLES.TODO;
+  1313→                          const priorityStyle = PRIORITY_STYLES[task.priority] || PRIORITY_STYLES.MEDIUM;
+  1314→                          return (
+  1315→                            <div
+  1316→                              key={task.id}
+  1317→                              className={`p-2.5 rounded-md border ${statusStyle.bg} ${statusStyle.darkBg} transition-colors`}
+  1318→                            >
+  1319→                              <div className="flex items-start justify-between gap-2">
+  1320→                                <div className="min-w-0 flex-1">
+  1321→                                  <div className={`text-sm font-medium ${task.status === "DONE" ? "line-through text-muted-foreground" : ""}`}>
+  1322→                                    {safeText(task.title, "Untitled Task")}
+  1323→                                  </div>
+  1324→                                  <div className="flex items-center gap-2 mt-1">
+  1325→                                    <Badge className={`text-[9px] px-1.5 py-0 ${statusStyle.bg} ${statusStyle.darkBg} ${statusStyle.color} border-0`}>
+  1326→                                      {statusStyle.label}
+  1327→                                    </Badge>
+  1328→                                    <Badge className={`text-[9px] px-1.5 py-0 bg-transparent border-0 ${priorityStyle.color}`}>
+  1329→                                      {priorityStyle.label}
+  1330→                                    </Badge>
+  1331→                                    {task.projectName && (
+  1332→                                      <span className="text-[10px] text-muted-foreground truncate">
+  1333→                                        {safeText(task.projectName)}
+  1334→                                      </span>
+  1335→                                    )}
+  1336→                                  </div>
+  1337→                                </div>
+  1338→                                {task.status === "DONE" && (
+  1339→                                  <CheckCircle2 className="h-4 w-4 text-green-500 flex-shrink-0 mt-0.5" />
+  1340→                                )}
+  1341→                              </div>
+  1342→                            </div>
+  1343→                          );
+  1344→                        })}
+  1345→
+  1346→                        {/* Meetings */}
+  1347→                        {dailySchedule.meetings.map((meeting) => (
+  1348→                          <div
+  1349→                            key={meeting.id}
+  1350→                            className="p-2.5 rounded-md border bg-sky-50 dark:bg-sky-900/20 border-sky-200 dark:border-sky-800"
+  1351→                          >
+  1352→                            <div className="flex items-start gap-2">
+  1353→                              <Video className="h-4 w-4 text-sky-500 flex-shrink-0 mt-0.5" />
+  1354→                              <div className="min-w-0">
+  1355→                                <div className="text-sm font-medium">{safeText(meeting.title, "Meeting")}</div>
+  1356→                                <div className="text-xs text-muted-foreground mt-0.5">
+  1357→                                  {safeText(meeting.startTime)} – {safeText(meeting.endTime)}
+  1358→                                  {meeting.meetingType && (
+  1359→                                    <Badge className="ml-2 text-[9px] px-1.5 py-0 bg-sky-100 text-sky-600 dark:bg-sky-900/40 dark:text-sky-300 border-0">
+  1360→                                      {safeText(meeting.meetingType)}
+  1361→                                    </Badge>
+  1362→                                  )}
+  1363→                                </div>
+  1364→                              </div>
+  1365→                            </div>
+  1366→                          </div>
+  1367→                        ))}
+  1368→                      </div>
+  1369→                    </ScrollArea>
+  1370→                  </CardContent>
+  1371→                </Card>
+  1372→              </div>
+  1373→
+  1374→              {/* Time Entries Summary */}
+  1375→              {dailySchedule.timeEntries.length > 0 && (
+  1376→                <Card>
+  1377→                  <CardHeader className="pb-3">
+  1378→                    <CardTitle className="text-sm font-semibold flex items-center gap-2">
+  1379→                      <FileText className="h-4 w-4 text-amber-500" />
+  1380→                      Time Entries
+  1381→                    </CardTitle>
+  1382→                  </CardHeader>
+  1383→                  <CardContent>
+  1384→                    <div className="rounded-md border overflow-hidden">
+  1385→                      <Table>
+  1386→                        <TableHeader>
+  1387→                          <TableRow>
+  1388→                            <TableHead className="text-xs">Description</TableHead>
+  1389→                            <TableHead className="text-xs">Project</TableHead>
+  1390→                            <TableHead className="text-xs">Clock In</TableHead>
+  1391→                            <TableHead className="text-xs">Clock Out</TableHead>
+  1392→                            <TableHead className="text-xs text-right">Hours</TableHead>
+  1393→                            <TableHead className="text-xs">Status</TableHead>
+  1394→                          </TableRow>
+  1395→                        </TableHeader>
+  1396→                        <TableBody>
+  1397→                          {dailySchedule.timeEntries.map((entry) => (
+  1398→                            <TableRow key={entry.id}>
+  1399→                              <TableCell className="text-xs font-medium max-w-[200px] truncate">
+  1400→                                {safeText(entry.description, "No description")}
+  1401→                              </TableCell>
+  1402→                              <TableCell className="text-xs text-muted-foreground">
+  1403→                                {safeText(entry.projectName, "—")}
+  1404→                              </TableCell>
+  1405→                              <TableCell className="text-xs text-muted-foreground">
+  1406→                                {safeText(entry.clockIn)}
+  1407→                              </TableCell>
+  1408→                              <TableCell className="text-xs text-muted-foreground">
+  1409→                                {safeText(entry.clockOut, "—")}
+  1410→                              </TableCell>
+  1411→                              <TableCell className="text-xs font-medium text-right">
+  1412→                                {entry.totalHours}h
+  1413→                              </TableCell>
+  1414→                              <TableCell>
+  1415→                                <Badge
+  1416→                                  className={`text-[9px] px-1.5 py-0 border-0 ${
+  1417→                                    entry.status === "APPROVED"
+  1418→                                      ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+  1419→                                      : entry.status === "PENDING"
+  1420→                                        ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+  1421→                                        : "bg-gray-100 text-gray-600 dark:bg-gray-800/50 dark:text-gray-400"
+  1422→                                  }`}
+  1423→                                >
+  1424→                                  {safeText(entry.status)}
+  1425→                                </Badge>
+  1426→                              </TableCell>
+  1427→                            </TableRow>
+  1428→                          ))}
+  1429→                          <TableRow className="bg-muted/50 font-semibold">
+  1430→                            <TableCell colSpan={4} className="text-xs">Total</TableCell>
+  1431→                            <TableCell className="text-xs text-right">{dailySchedule.totalWorkedHours}h</TableCell>
+  1432→                            <TableCell />
+  1433→                          </TableRow>
+  1434→                        </TableBody>
+  1435→                      </Table>
+  1436→                    </div>
+  1437→                  </CardContent>
+  1438→                </Card>
+  1439→              )}
+  1440→            </div>
+  1441→          ) : (
+  1442→            <Card>
+  1443→              <CardContent className="py-16 flex flex-col items-center text-muted-foreground">
+  1444→                <Clock className="h-12 w-12 opacity-30 mb-3" />
+  1445→                <p className="text-sm">Select a date and team member to view the daily schedule</p>
+  1446→              </CardContent>
+  1447→            </Card>
+  1448→          )}
+  1449→        </TabsContent>
+  1450→
+  1451→        {/* ═══════════════════════════════════════════════════════════════════════
+  1452→            TAB 3: Overrides
+  1453→        ═══════════════════════════════════════════════════════════════════════ */}
+  1454→        <TabsContent value="overrides" className="space-y-4">
+  1455→          {/* Upcoming overrides */}
+  1456→          <Card>
+  1457→            <CardHeader>
+  1458→              <div className="flex items-center justify-between">
+  1459→                <div>
+  1460→                  <CardTitle>Upcoming Overrides</CardTitle>
+  1461→                  <CardDescription>Active and future availability overrides</CardDescription>
+  1462→                </div>
+  1463→                <Button size="sm" onClick={() => { resetOverrideForm(); setOverrideDialogOpen(true); }}>
+  1464→                  <Plus className="h-4 w-4 mr-1.5" /> Add Override
+  1465→                </Button>
+  1466→              </div>
+  1467→            </CardHeader>
+  1468→            <CardContent>
+  1469→              {upcomingOverrides.length === 0 ? (
+  1470→                <div className="flex flex-col items-center py-10 text-muted-foreground">
+  1471→                  <CalendarClock className="h-12 w-12 opacity-30 mb-3" />
+  1472→                  <p className="text-sm">No upcoming overrides</p>
+  1473→                  <Button
+  1474→                    variant="outline"
+  1475→                    size="sm"
+  1476→                    className="mt-3"
+  1477→                    onClick={() => { resetOverrideForm(); setOverrideDialogOpen(true); }}
+  1478→                  >
+  1479→                    <Plus className="h-3 w-3 mr-1" /> Create Override
+  1480→                  </Button>
+  1481→                </div>
+  1482→              ) : (
+  1483→                <div className="rounded-md border overflow-hidden">
+  1484→                  <Table>
+  1485→                    <TableHeader>
+  1486→                      <TableRow>
+  1487→                        <TableHead className="text-xs">Employee</TableHead>
+  1488→                        <TableHead className="text-xs">Date</TableHead>
+  1489→                        <TableHead className="text-xs">Time</TableHead>
+  1490→                        <TableHead className="text-xs">Status</TableHead>
+  1491→                        <TableHead className="text-xs">Reason</TableHead>
+  1492→                        <TableHead className="text-xs text-right">Actions</TableHead>
+  1493→                      </TableRow>
+  1494→                    </TableHeader>
+  1495→                    <TableBody>
+  1496→                      {upcomingOverrides.map((override) => (
+  1497→                        <TableRow key={override.id}>
+  1498→                          <TableCell>
+  1499→                            <div className="flex items-center gap-2">
+  1500→                              <Avatar className="h-6 w-6">
+  1501→                                <AvatarImage src={override.user?.avatar || undefined} alt={override.user?.name || ""} />
+  1502→                                <AvatarFallback className="text-[8px]">
+  1503→                                  {override.user?.name ? getUserInitials(override.user.name) : "?"}
+  1504→                                </AvatarFallback>
+  1505→                              </Avatar>
+  1506→                              <span className="text-sm font-medium">{override.user?.name || "Unknown"}</span>
+  1507→                            </div>
+  1508→                          </TableCell>
+  1509→                          <TableCell className="text-xs">
+  1510→                            {new Date(override.date + "T00:00:00").toLocaleDateString("en-US", {
+  1511→                              weekday: "short", month: "short", day: "numeric",
+  1512→                            })}
+  1513→                          </TableCell>
+  1514→                          <TableCell className="text-xs text-muted-foreground">
+  1515→                            {override.startTime && override.endTime
+  1516→                              ? `${override.startTime} – ${override.endTime}`
+  1517→                              : "All Day"}
+  1518→                          </TableCell>
+  1519→                          <TableCell>
+  1520→                            <Badge
+  1521→                              className={`text-[10px] px-2 py-0.5 border-0 ${
+  1522→                                override.isAvailable
+  1523→                                  ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+  1524→                                  : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+  1525→                              }`}
+  1526→                            >
+  1527→                              {override.isAvailable ? "Available" : "Unavailable"}
+  1528→                            </Badge>
+  1529→                          </TableCell>
+  1530→                          <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">
+  1531→                            {override.reason ? safeText(override.reason) : "—"}
+  1532→                          </TableCell>
+  1533→                          <TableCell>
+  1534→                            <div className="flex items-center justify-end gap-1">
+  1535→                              <Tooltip>
+  1536→                                <TooltipTrigger asChild>
+  1537→                                  <Button
+  1538→                                    size="icon"
+  1539→                                    variant="ghost"
+  1540→                                    className="h-7 w-7"
+  1541→                                    onClick={() => openEditOverride(override)}
+  1542→                                  >
+  1543→                                    <Edit3 className="h-3.5 w-3.5" />
+  1544→                                  </Button>
+  1545→                                </TooltipTrigger>
+  1546→                                <TooltipContent>Edit override</TooltipContent>
+  1547→                              </Tooltip>
+  1548→                              <Tooltip>
+  1549→                                <TooltipTrigger asChild>
+  1550→                                  <Button
+  1551→                                    size="icon"
+  1552→                                    variant="ghost"
+  1553→                                    className="h-7 w-7 text-red-400 hover:text-red-600"
+  1554→                                    onClick={() => setDeleteOverrideId(override.id)}
+  1555→                                  >
+  1556→                                    <Trash2 className="h-3.5 w-3.5" />
+  1557→                                  </Button>
+  1558→                                </TooltipTrigger>
+  1559→                                <TooltipContent>Delete override</TooltipContent>
+  1560→                              </Tooltip>
+  1561→                            </div>
+  1562→                          </TableCell>
+  1563→                        </TableRow>
+  1564→                      ))}
+  1565→                    </TableBody>
+  1566→                  </Table>
+  1567→                </div>
+  1568→              )}
+  1569→            </CardContent>
+  1570→          </Card>
+  1571→
+  1572→          {/* Past overrides */}
+  1573→          {pastOverrides.length > 0 && (
+  1574→            <Card>
+  1575→              <CardHeader>
+  1576→                <CardTitle className="text-sm text-muted-foreground">Past Overrides</CardTitle>
+  1577→                <CardDescription>Historical override records</CardDescription>
+  1578→              </CardHeader>
+  1579→              <CardContent>
+  1580→                <div className="rounded-md border overflow-hidden">
+  1581→                  <Table>
+  1582→                    <TableHeader>
+  1583→                      <TableRow>
+  1584→                        <TableHead className="text-xs">Employee</TableHead>
+  1585→                        <TableHead className="text-xs">Date</TableHead>
+  1586→                        <TableHead className="text-xs">Time</TableHead>
+  1587→                        <TableHead className="text-xs">Status</TableHead>
+  1588→                        <TableHead className="text-xs">Reason</TableHead>
+  1589→                        <TableHead className="text-xs text-right">Actions</TableHead>
+  1590→                      </TableRow>
+  1591→                    </TableHeader>
+  1592→                    <TableBody>
+  1593→                      {pastOverrides.map((override) => (
+  1594→                        <TableRow key={override.id} className="opacity-60">
+  1595→                          <TableCell>
+  1596→                            <div className="flex items-center gap-2">
+  1597→                              <Avatar className="h-6 w-6">
+  1598→                                <AvatarImage src={override.user?.avatar || undefined} alt={override.user?.name || ""} />
+  1599→                                <AvatarFallback className="text-[8px]">
+  1600→                                  {override.user?.name ? getUserInitials(override.user.name) : "?"}
+  1601→                                </AvatarFallback>
+  1602→                              </Avatar>
+  1603→                              <span className="text-sm font-medium">{override.user?.name || "Unknown"}</span>
+  1604→                            </div>
+  1605→                          </TableCell>
+  1606→                          <TableCell className="text-xs">
+  1607→                            {new Date(override.date + "T00:00:00").toLocaleDateString("en-US", {
+  1608→                              month: "short", day: "numeric",
+  1609→                            })}
+  1610→                          </TableCell>
+  1611→                          <TableCell className="text-xs text-muted-foreground">
+  1612→                            {override.startTime && override.endTime
+  1613→                              ? `${override.startTime} – ${override.endTime}`
+  1614→                              : "All Day"}
+  1615→                          </TableCell>
+  1616→                          <TableCell>
+  1617→                            <Badge
+  1618→                              className={`text-[10px] px-2 py-0.5 border-0 ${
+  1619→                                override.isAvailable
+  1620→                                  ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+  1621→                                  : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+  1622→                              }`}
+  1623→                            >
+  1624→                              {override.isAvailable ? "Available" : "Unavailable"}
+  1625→                            </Badge>
+  1626→                          </TableCell>
+  1627→                          <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">
+  1628→                            {override.reason ? safeText(override.reason) : "—"}
+  1629→                          </TableCell>
+  1630→                          <TableCell>
+  1631→                            <div className="flex items-center justify-end gap-1">
+  1632→                              <Tooltip>
+  1633→                                <TooltipTrigger asChild>
+  1634→                                  <Button
+  1635→                                    size="icon"
+  1636→                                    variant="ghost"
+  1637→                                    className="h-7 w-7"
+  1638→                                    onClick={() => openEditOverride(override)}
+  1639→                                  >
+  1640→                                    <Edit3 className="h-3.5 w-3.5" />
+  1641→                                  </Button>
+  1642→                                </TooltipTrigger>
+  1643→                                <TooltipContent>Edit override</TooltipContent>
+  1644→                              </Tooltip>
+  1645→                              <Tooltip>
+  1646→                                <TooltipTrigger asChild>
+  1647→                                  <Button
+  1648→                                    size="icon"
+  1649→                                    variant="ghost"
+  1650→                                    className="h-7 w-7 text-red-400 hover:text-red-600"
+  1651→                                    onClick={() => setDeleteOverrideId(override.id)}
+  1652→                                  >
+  1653→                                    <Trash2 className="h-3.5 w-3.5" />
+  1654→                                  </Button>
+  1655→                                </TooltipTrigger>
+  1656→                                <TooltipContent>Delete override</TooltipContent>
+  1657→                              </Tooltip>
+  1658→                            </div>
+  1659→                          </TableCell>
+  1660→                        </TableRow>
+  1661→                      ))}
+  1662→                    </TableBody>
+  1663→                  </Table>
+  1664→                </div>
+  1665→              </CardContent>
+  1666→            </Card>
+  1667→          )}
+  1668→        </TabsContent>
+  1669→      </Tabs>
+  1670→
+  1671→      {/* ═══════════════════════════════════════════════════════════════════════
+  1672→          DIALOGS
+  1673→      ═══════════════════════════════════════════════════════════════════════ */}
+  1674→
+  1675→      {/* Add/Edit Availability Dialog */}
+  1676→      <Dialog open={availDialogOpen} onOpenChange={setAvailDialogOpen}>
+  1677→        <DialogContent>
+  1678→          <DialogHeader>
+  1679→            <DialogTitle>{editingAvailability ? "Edit Availability" : "Add Availability"}</DialogTitle>
+  1680→          </DialogHeader>
+  1681→          <div className="space-y-4">
+  1682→            {!editingAvailability && (
+  1683→              <div className="space-y-2">
+  1684→                <Label>Employee</Label>
+  1685→                <Select value={formUserId} onValueChange={setFormUserId}>
+  1686→                  <SelectTrigger className="w-full">
+  1687→                    <SelectValue placeholder="Select employee" />
+  1688→                  </SelectTrigger>
+  1689→                  <SelectContent>
+  1690→                    {teamUsers.map((u) => (
+  1691→                      <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+  1692→                    ))}
+  1693→                  </SelectContent>
+  1694→                </Select>
+  1695→              </div>
+  1696→            )}
+  1697→            <div className="space-y-2">
+  1698→              <Label>Day of Week</Label>
+  1699→              <Select value={formDayOfWeek} onValueChange={setFormDayOfWeek}>
+  1700→                <SelectTrigger className="w-full">
+  1701→                  <SelectValue />
+  1702→                </SelectTrigger>
+  1703→                <SelectContent>
+  1704→                  {DAY_NAMES.map((name, i) => (
+  1705→                    <SelectItem key={i} value={i.toString()}>{name}</SelectItem>
+  1706→                  ))}
+  1707→                </SelectContent>
+  1708→              </Select>
+  1709→            </div>
+  1710→            <div className="grid grid-cols-2 gap-3">
+  1711→              <div className="space-y-2">
+  1712→                <Label>Start Time</Label>
+  1713→                <Input type="time" value={formStartTime} onChange={(e) => setFormStartTime(e.target.value)} />
+  1714→              </div>
+  1715→              <div className="space-y-2">
+  1716→                <Label>End Time</Label>
+  1717→                <Input type="time" value={formEndTime} onChange={(e) => setFormEndTime(e.target.value)} />
+  1718→              </div>
+  1719→            </div>
+  1720→            <div className="flex items-center justify-between">
+  1721→              <div>
+  1722→                <Label>Available</Label>
+  1723→                <p className="text-xs text-muted-foreground">Toggle on if available, off if unavailable</p>
+  1724→              </div>
+  1725→              <Switch checked={formIsAvailable} onCheckedChange={setFormIsAvailable} />
+  1726→            </div>
+  1727→          </div>
+  1728→          <DialogFooter>
+  1729→            <Button variant="outline" onClick={() => setAvailDialogOpen(false)}>Cancel</Button>
+  1730→            <Button onClick={handleSaveAvailability} disabled={submitting}>
+  1731→              {submitting ? "Saving..." : editingAvailability ? "Update" : "Add"}
+  1732→            </Button>
+  1733→          </DialogFooter>
+  1734→        </DialogContent>
+  1735→      </Dialog>
+  1736→
+  1737→      {/* Add/Edit Override Dialog */}
+  1738→      <Dialog open={overrideDialogOpen} onOpenChange={setOverrideDialogOpen}>
+  1739→        <DialogContent>
+  1740→          <DialogHeader>
+  1741→            <DialogTitle>{editingOverride ? "Edit Override" : "Add Availability Override"}</DialogTitle>
+  1742→          </DialogHeader>
+  1743→          <div className="space-y-4">
+  1744→            {!editingOverride && (
+  1745→              <div className="space-y-2">
+  1746→                <Label>Employee</Label>
+  1747→                <Select value={formOverrideUserId} onValueChange={setFormOverrideUserId}>
+  1748→                  <SelectTrigger className="w-full">
+  1749→                    <SelectValue placeholder="Select employee" />
+  1750→                  </SelectTrigger>
+  1751→                  <SelectContent>
+  1752→                    {teamUsers.map((u) => (
+  1753→                      <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+  1754→                    ))}
+  1755→                  </SelectContent>
+  1756→                </Select>
+  1757→              </div>
+  1758→            )}
+  1759→            <div className="space-y-2">
+  1760→              <Label>Date</Label>
+  1761→              <Popover>
+  1762→                <PopoverTrigger asChild>
+  1763→                  <Button variant="outline" className="w-full justify-start text-left font-normal">
+  1764→                    <CalendarDays className="mr-2 h-4 w-4" />
+  1765→                    {formOverrideDate
+  1766→                      ? new Date(formOverrideDate + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "long", day: "numeric", year: "numeric" })
+  1767→                      : "Pick a date"}
+  1768→                  </Button>
+  1769→                </PopoverTrigger>
+  1770→                <PopoverContent className="w-auto p-0" align="start">
+  1771→                  <Calendar
+  1772→                    mode="single"
+  1773→                    selected={formOverrideDate ? new Date(formOverrideDate + "T00:00:00") : undefined}
+  1774→                    onSelect={(d) => { if (d) setFormOverrideDate(formatDateOnly(d)); }}
+  1775→                  />
+  1776→                </PopoverContent>
+  1777→              </Popover>
+  1778→            </div>
+  1779→            <div className="grid grid-cols-2 gap-3">
+  1780→              <div className="space-y-2">
+  1781→                <Label>Start Time <span className="text-muted-foreground text-xs">(Optional)</span></Label>
+  1782→                <Input
+  1783→                  type="time"
+  1784→                  value={formOverrideStartTime}
+  1785→                  onChange={(e) => setFormOverrideStartTime(e.target.value)}
+  1786→                />
+  1787→              </div>
+  1788→              <div className="space-y-2">
+  1789→                <Label>End Time <span className="text-muted-foreground text-xs">(Optional)</span></Label>
+  1790→                <Input
+  1791→                  type="time"
+  1792→                  value={formOverrideEndTime}
+  1793→                  onChange={(e) => setFormOverrideEndTime(e.target.value)}
+  1794→                />
+  1795→              </div>
+  1796→            </div>
+  1797→            <div className="flex items-center justify-between">
+  1798→              <div>
+  1799→                <Label>Available</Label>
+  1800→                <p className="text-xs text-muted-foreground">Toggle on if available, off if unavailable</p>
+  1801→              </div>
+  1802→              <Switch checked={formOverrideIsAvailable} onCheckedChange={setFormOverrideIsAvailable} />
+  1803→            </div>
+  1804→            <div className="space-y-2">
+  1805→              <Label>Reason <span className="text-muted-foreground text-xs">(Optional)</span></Label>
+  1806→              <Textarea
+  1807→                value={formOverrideReason}
+  1808→                onChange={(e) => setFormOverrideReason(e.target.value)}
+  1809→                placeholder="Reason for the override..."
+  1810→                rows={2}
+  1811→              />
+  1812→            </div>
+  1813→          </div>
+  1814→          <DialogFooter>
+  1815→            <Button variant="outline" onClick={() => setOverrideDialogOpen(false)}>Cancel</Button>
+  1816→            <Button onClick={handleSaveOverride} disabled={submitting}>
+  1817→              {submitting ? "Saving..." : editingOverride ? "Update Override" : "Add Override"}
+  1818→            </Button>
+  1819→          </DialogFooter>
+  1820→        </DialogContent>
+  1821→      </Dialog>
+  1822→
+  1823→      {/* Delete Availability Confirmation Dialog */}
+  1824→      <AlertDialog open={!!deleteAvailId} onOpenChange={() => setDeleteAvailId(null)}>
+  1825→        <AlertDialogContent>
+  1826→          <AlertDialogHeader>
+  1827→            <AlertDialogTitle>Delete Availability</AlertDialogTitle>
+  1828→            <AlertDialogDescription>
+  1829→              Are you sure you want to delete this availability slot? This action cannot be undone.
+  1830→            </AlertDialogDescription>
+  1831→          </AlertDialogHeader>
+  1832→          <AlertDialogFooter>
+  1833→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+  1834→            <AlertDialogAction onClick={() => deleteAvailId && handleDeleteAvailability(deleteAvailId)} className="bg-red-600 hover:bg-red-700">
+  1835→              Delete
+  1836→            </AlertDialogAction>
+  1837→          </AlertDialogFooter>
+  1838→        </AlertDialogContent>
+  1839→      </AlertDialog>
+  1840→
+  1841→      {/* Delete Override Confirmation Dialog */}
+  1842→      <AlertDialog open={!!deleteOverrideId} onOpenChange={() => setDeleteOverrideId(null)}>
+  1843→        <AlertDialogContent>
+  1844→          <AlertDialogHeader>
+  1845→            <AlertDialogTitle>Delete Override</AlertDialogTitle>
+  1846→            <AlertDialogDescription>
+  1847→              Are you sure you want to delete this availability override? This action cannot be undone.
+  1848→            </AlertDialogDescription>
+  1849→          </AlertDialogHeader>
+  1850→          <AlertDialogFooter>
+  1851→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+  1852→            <AlertDialogAction onClick={() => deleteOverrideId && handleDeleteOverride(deleteOverrideId)} className="bg-red-600 hover:bg-red-700">
+  1853→              Delete
+  1854→            </AlertDialogAction>
+  1855→          </AlertDialogFooter>
+  1856→        </AlertDialogContent>
+  1857→      </AlertDialog>
+  1858→
+  1859→      {/* TODO: Extract duplicated override tables (upcoming/past) into a shared OverrideTable component */}
+  1860→    </div>
+  1861→  );
+  1862→}
+  1863→
