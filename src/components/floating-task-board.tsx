@@ -497,6 +497,7 @@ function FloatingBoardWindow({
   onMinimize,
   onBringToFront,
   onRestoreBoard,
+  onToggleFullscreen,
   onPositionChange,
   onSizeChange,
 }: {
@@ -505,6 +506,7 @@ function FloatingBoardWindow({
   onMinimize: () => void;
   onBringToFront: () => void;
   onRestoreBoard: () => void;
+  onToggleFullscreen: () => void;
   onPositionChange: (pos: { x: number; y: number }) => void;
   onSizeChange: (size: { width: number; height: number }) => void;
 }) {
@@ -579,7 +581,21 @@ function FloatingBoardWindow({
     triggerGlow();
   }, [onRestoreBoard, triggerGlow]);
 
+  // ESC key listener to exit fullscreen
+  useEffect(() => {
+    if (!board.fullscreen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onToggleFullscreen();
+      }
+    };
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+  }, [board.fullscreen, onToggleFullscreen]);
+
   const windowVisible = !board.minimized;
+  const isFullscreen = board.fullscreen && !isMobile;
 
   return (
     <div
@@ -588,26 +604,28 @@ function FloatingBoardWindow({
         display: windowVisible ? "flex" : "none",
         visibility: windowVisible ? "visible" : "hidden",
         pointerEvents: windowVisible ? "auto" : "none",
-        left: board.position.x,
-        top: board.position.y,
-        width: board.size.width,
-        height: board.size.height,
-        zIndex: board.zIndex,
+        left: isFullscreen ? 0 : board.position.x,
+        top: isFullscreen ? 0 : board.position.y,
+        width: isFullscreen ? "100vw" : board.size.width,
+        height: isFullscreen ? "100vh" : board.size.height,
+        zIndex: isFullscreen ? 99999 : board.zIndex,
       }}
       className={isMobile
         ? `fixed inset-0 z-[10000] flex-col bg-white dark:bg-[#0a0a0a]`
-        : `fixed flex-col overflow-hidden
-           rounded-2xl
-           bg-white/75 dark:bg-black/40
-           backdrop-blur-2xl saturate-[1.8]
-           border border-white/40 dark:border-white/[0.1]
-           shadow-[0_0_0_0.5px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.06),0_16px_56px_rgba(0,0,0,0.06),inset_0_0.5px_0_rgba(255,255,255,0.7),inset_0_1px_0_rgba(255,255,255,0.5),inset_0_-0.5px_0_rgba(0,0,0,0.02)]
-           dark:shadow-[0_0_0_0.5px_rgba(255,255,255,0.06),0_4px_16px_rgba(0,0,0,0.2),0_16px_56px_rgba(0,0,0,0.25),inset_0_0.5px_0_rgba(255,255,255,0.08),inset_0_1px_0_rgba(255,255,255,0.05)]
-           ${glowing ? "ring-2 ring-blue-400/60 ring-offset-1 ring-offset-transparent transition-shadow duration-300" : ""}`
+        : isFullscreen
+          ? `fixed flex-col overflow-hidden bg-white dark:bg-[#0a0a0a]`
+          : `fixed flex-col overflow-hidden
+             rounded-2xl
+             bg-white/75 dark:bg-black/40
+             backdrop-blur-2xl saturate-[1.8]
+             border border-white/40 dark:border-white/[0.1]
+             shadow-[0_0_0_0.5px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.06),0_16px_56px_rgba(0,0,0,0.06),inset_0_0.5px_0_rgba(255,255,255,0.7),inset_0_1px_0_rgba(255,255,255,0.5),inset_0_-0.5px_0_rgba(0,0,0,0.02)]
+             dark:shadow-[0_0_0_0.5px_rgba(255,255,255,0.06),0_4px_16px_rgba(0,0,0,0.2),0_16px_56px_rgba(0,0,0,0.25),inset_0_0.5px_0_rgba(255,255,255,0.08),inset_0_1px_0_rgba(255,255,255,0.05)]
+             ${glowing ? "ring-2 ring-blue-400/60 ring-offset-1 ring-offset-transparent transition-shadow duration-300" : ""}`
       }
-      onMouseDown={handleBringToFront}
+      onMouseDown={isFullscreen ? undefined : handleBringToFront}
       onTouchStart={(e) => {
-        if (!board.minimized) handleBringToFront();
+        if (!board.minimized && !isFullscreen) handleBringToFront();
       }}
     >
       {isMobile ? (
@@ -656,18 +674,23 @@ function FloatingBoardWindow({
       ) : (
         <>
           <div
-            className="flex items-center justify-between px-3 py-2 shrink-0 select-none cursor-move
-              bg-white/50 dark:bg-white/[0.04]
+            className={`flex items-center justify-between px-3 py-2 shrink-0 select-none ${isFullscreen ? "cursor-default" : "cursor-move"}
+              ${isFullscreen ? "bg-white dark:bg-[#0a0a0a]" : "bg-white/50 dark:bg-white/[0.04]"}
               border-b border-black/[0.04] dark:border-white/[0.06]
-              touch-none"
-            onMouseDown={(e) => startDrag(e, board.position.x, board.position.y)}
-            onTouchStart={(e) => startDrag(e, board.position.x, board.position.y)}
+              touch-none`
+            }
+            onMouseDown={isFullscreen ? undefined : (e) => startDrag(e, board.position.x, board.position.y)}
+            onTouchStart={isFullscreen ? undefined : (e) => startDrag(e, board.position.x, board.position.y)}
           >
             <div className="flex items-center gap-2 min-w-0">
               <div className="flex items-center gap-1.5 shrink-0">
-                <button onClick={onClose} className="w-[11px] h-[11px] rounded-full bg-[#ff5f57] hover:brightness-90 transition-all hover:shadow-[0_0_4px_rgba(255,95,87,0.4)]" title="Close" />
-                <button onClick={onMinimize} className="w-[11px] h-[11px] rounded-full bg-[#febc2e] hover:brightness-90 transition-all hover:shadow-[0_0_4px_rgba(254,188,46,0.4)]" title="Minimize" />
-                <div className="w-[11px] h-[11px] rounded-full bg-[#28c840]/40" />
+                <button onClick={(e) => { e.stopPropagation(); onClose(); }} className="w-[11px] h-[11px] rounded-full bg-[#ff5f57] hover:brightness-90 transition-all hover:shadow-[0_0_4px_rgba(255,95,87,0.4)]" title="Close" />
+                <button onClick={(e) => { e.stopPropagation(); onMinimize(); }} className="w-[11px] h-[11px] rounded-full bg-[#febc2e] hover:brightness-90 transition-all hover:shadow-[0_0_4px_rgba(254,188,46,0.4)]" title="Minimize" />
+                <button
+                  onClick={(e) => { e.stopPropagation(); onToggleFullscreen(); }}
+                  className={`w-[11px] h-[11px] rounded-full transition-all ${isFullscreen ? "bg-[#28c840] hover:brightness-90 shadow-[0_0_4px_rgba(40,200,64,0.4)]" : "bg-[#28c840]/40 hover:bg-[#28c840]/60"}`}
+                  title={isFullscreen ? "Exit Fullscreen (Esc)" : "Enter Fullscreen"}
+                />
               </div>
               <span className="text-[11px] font-semibold text-foreground/80 dark:text-white/70 truncate select-none">
                 {board.projectName}
@@ -681,7 +704,7 @@ function FloatingBoardWindow({
             </div>
           </div>
 
-          <div className="flex-1 relative bg-white dark:bg-[#0a0a0a] rounded-b-2xl overflow-hidden">
+          <div className={`flex-1 relative ${isFullscreen ? "" : "bg-white dark:bg-[#0a0a0a] rounded-b-2xl"} overflow-hidden`}>
             {!iframeReady && (
               <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-black/60 backdrop-blur-sm z-10">
                 <div className="flex flex-col items-center gap-2">
@@ -698,7 +721,7 @@ function FloatingBoardWindow({
             />
           </div>
 
-          {!isMobile && (
+          {!isMobile && !isFullscreen && (
             <div
               onMouseDown={(e) => startResize(e, board.size.width, board.size.height)}
               className="absolute bottom-0 right-0 w-6 h-6 cursor-se-resize z-20
@@ -727,6 +750,7 @@ export function FloatingBoardRenderer() {
     minimizeBoard,
     bringToFront,
     restoreBoard,
+    toggleFullscreen,
     updatePosition,
     updateSize,
     updateCapsulePosition,
@@ -770,6 +794,7 @@ export function FloatingBoardRenderer() {
             onMinimize={() => minimizeBoard(board.projectId)}
             onBringToFront={() => bringToFront(board.projectId)}
             onRestoreBoard={() => restoreBoard(board.projectId)}
+            onToggleFullscreen={() => toggleFullscreen(board.projectId)}
             onPositionChange={(pos) => updatePosition(board.projectId, pos)}
             onSizeChange={(size) => updateSize(board.projectId, size)}
           />
