@@ -8,6 +8,7 @@ import {
   ArrowLeft, Plus, Bot, User, Clock, Trash2, Users, UserPlus, X, CalendarDays, Tag,
   CheckCircle2, ShieldCheck, Activity, Gauge, ListTodo, CircleDot, ClipboardCheck,
   ChevronRight, ExternalLink, Settings, Globe, Star, Pencil, Trash2 as Trash2Icon, Loader2,
+  Github, Database, Server, Eye, EyeOff, Copy, Save, Key, Link2,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator, } from "@/components/ui/dropdown-menu";
 import { Card, CardContent } from "@/components/ui/card";
@@ -136,6 +137,22 @@ export default function ProjectDetailPage() {
   const [newWebsiteLabel, setNewWebsiteLabel] = useState("");
   const [editingWebsiteId, setEditingWebsiteId] = useState<string | null>(null);
 
+  // ── Infrastructure section state ──
+  const [infraEditing, setInfraEditing] = useState(false);
+  const [infraSaving, setInfraSaving] = useState(false);
+  const [infraForm, setInfraForm] = useState({
+    githubRepoUrl: "",
+    githubBranch: "",
+    tursoUrl: "",
+    vercelProjectId: "",
+    deployUrl: "",
+  });
+  const [tokenEditOpen, setTokenEditOpen] = useState(false);
+  const [tokenForm, setTokenForm] = useState({ githubToken: "", tursoToken: "" });
+  const [tokenSaving, setTokenSaving] = useState(false);
+  const [revealedTokens, setRevealedTokens] = useState<Record<string, string>>({});
+  const [revealing, setRevealing] = useState<string | null>(null);
+
   // M-PRJ-6 FIX: Debounce timer ref for progress input
   const progressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const progressTrackRef = useRef<HTMLDivElement>(null);
@@ -233,18 +250,139 @@ export default function ProjectDetailPage() {
     retry: 1,
   });
 
+  // ── React Query: Infrastructure ──
+  const { data: infraData, isLoading: infraLoading } = useQuery({
+    queryKey: ["project-infra", projectId],
+    queryFn: async () => {
+      if (!projectId) return null;
+      const res = await fetch(`/api/projects/${projectId}/infra`, { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) return null;
+      const raw = deepSanitize(await res.json());
+      const infra = (raw as Record<string, unknown>)?.infrastructure as Record<string, unknown> | undefined;
+      return infra || null;
+    },
+    enabled: !!projectId,
+    staleTime: 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: 1,
+  });
+
   const project = projectData;
   const tasks = tasksData;
   const members = membersData;
   const teamUsers = teamUsersData;
   const websites = websitesData;
+  const infrastructure = infraData;
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ["project", projectId] });
     queryClient.invalidateQueries({ queryKey: ["project-tasks", projectId] });
     queryClient.invalidateQueries({ queryKey: ["project-members", projectId] });
     queryClient.invalidateQueries({ queryKey: ["project-websites", projectId] });
+    queryClient.invalidateQueries({ queryKey: ["project-infra", projectId] });
   };
+
+  // ── Infrastructure handlers ──
+  const handleInfraEdit = useCallback(() => {
+    setInfraForm({
+      githubRepoUrl: extractStr(infrastructure, "githubRepoUrl", ""),
+      githubBranch: extractStr(infrastructure, "githubBranch", ""),
+      tursoUrl: extractStr(infrastructure, "tursoUrl", ""),
+      vercelProjectId: extractStr(infrastructure, "vercelProjectId", ""),
+      deployUrl: extractStr(infrastructure, "deployUrl", ""),
+    });
+    setInfraEditing(true);
+  }, [infrastructure]);
+
+  const handleInfraSave = useCallback(async () => {
+    setInfraSaving(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/infra`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(infraForm),
+      });
+      if (res.status === 401) { window.location.href = "/login"; return; }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.error || "Failed to save infrastructure");
+        return;
+      }
+      toast.success("Infrastructure updated");
+      setInfraEditing(false);
+      queryClient.invalidateQueries({ queryKey: ["project-infra", projectId] });
+    } catch {
+      toast.error("Failed to save infrastructure");
+    } finally {
+      setInfraSaving(false);
+    }
+  }, [projectId, infraForm, queryClient]);
+
+  const handleTokenSave = useCallback(async () => {
+    setTokenSaving(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/infra`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          githubToken: tokenForm.githubToken || null,
+          tursoToken: tokenForm.tursoToken || null,
+        }),
+      });
+      if (res.status === 401) { window.location.href = "/login"; return; }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.error || "Failed to save tokens");
+        return;
+      }
+      toast.success("Tokens updated");
+      setTokenEditOpen(false);
+      setTokenForm({ githubToken: "", tursoToken: "" });
+      queryClient.invalidateQueries({ queryKey: ["project-infra", projectId] });
+      setRevealedTokens({});
+    } catch {
+      toast.error("Failed to save tokens");
+    } finally {
+      setTokenSaving(false);
+    }
+  }, [projectId, tokenForm, queryClient]);
+
+  const handleRevealToken = useCallback(async (kind: "github" | "turso") => {
+    setRevealing(kind);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/infra/tokens/reveal`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ kind }),
+      });
+      if (res.status === 401) { window.location.href = "/login"; return; }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.error || `No ${kind} token set`);
+        return;
+      }
+      const data = await res.json();
+      setRevealedTokens(prev => ({ ...prev, [kind]: data.token }));
+    } catch {
+      toast.error("Failed to reveal token");
+    } finally {
+      setRevealing(null);
+    }
+  }, [projectId]);
+
+  const copyToClipboard = useCallback((text: string, label: string) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+      toast.success(`${label} copied to clipboard`);
+    }).catch(() => {
+      toast.error("Failed to copy");
+    });
+  }, []);
 
   // ── Website CRUD handlers ──
   const handleAddWebsite = async () => {
@@ -785,6 +923,265 @@ export default function ProjectDetailPage() {
             </Dialog>
           )}
         </div>
+      )}
+
+      {/* ═══════ Infrastructure Section ═══════ */}
+      <div className="rounded-xl border border-white/20 dark:border-white/10 bg-white/60 dark:bg-white/[0.02] backdrop-blur-xl overflow-hidden" style={{ animation: "card-enter 0.4s ease-out both", animationDelay: "180ms" }}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-black/[0.04] dark:border-white/[0.06] bg-black/[0.01] dark:bg-white/[0.01]">
+          <div className="flex items-center gap-2">
+            <Server className="h-4 w-4 text-muted-foreground" />
+            <h2 className="text-sm font-bold tracking-tight">Infrastructure</h2>
+            {infrastructure && (extractStr(infrastructure, "githubRepoUrl", "") || extractStr(infrastructure, "tursoUrl", "")) && (
+              <Badge variant="secondary" className="text-[10px] font-semibold h-5 px-1.5">Configured</Badge>
+            )}
+          </div>
+          {isAdminUser && !infraEditing && (
+            <div className="flex items-center gap-1.5">
+              <Button size="sm" variant="outline" className="h-7 text-xs px-2.5 gap-1" onClick={handleInfraEdit}>
+                <Pencil className="h-3 w-3" /> Edit
+              </Button>
+              {userRole === "SUPER_ADMIN" && (
+                <Button size="sm" variant="outline" className="h-7 text-xs px-2.5 gap-1" onClick={() => setTokenEditOpen(true)}>
+                  <Key className="h-3 w-3" /> Tokens
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="p-4 space-y-3">
+          {infraLoading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+            </div>
+          ) : infraEditing ? (
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium flex items-center gap-1.5"><Github className="h-3 w-3" /> GitHub Repo URL</Label>
+                  <Input
+                    value={infraForm.githubRepoUrl}
+                    onChange={(e) => setInfraForm(p => ({ ...p, githubRepoUrl: e.target.value }))}
+                    placeholder="trishulhub-svg/trishulhub-dashboard.git"
+                    className="h-9 text-xs"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium">Default Branch</Label>
+                  <Input
+                    value={infraForm.githubBranch}
+                    onChange={(e) => setInfraForm(p => ({ ...p, githubBranch: e.target.value }))}
+                    placeholder="main"
+                    className="h-9 text-xs"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium flex items-center gap-1.5"><Database className="h-3 w-3" /> Turso DB URL</Label>
+                  <Input
+                    value={infraForm.tursoUrl}
+                    onChange={(e) => setInfraForm(p => ({ ...p, tursoUrl: e.target.value }))}
+                    placeholder="libsql://xxx.turso.io"
+                    className="h-9 text-xs"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium">Vercel Project ID</Label>
+                  <Input
+                    value={infraForm.vercelProjectId}
+                    onChange={(e) => setInfraForm(p => ({ ...p, vercelProjectId: e.target.value }))}
+                    placeholder="prj_xxxxx"
+                    className="h-9 text-xs"
+                  />
+                </div>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label className="text-xs font-medium flex items-center gap-1.5"><Link2 className="h-3 w-3" /> Deploy URL</Label>
+                  <Input
+                    value={infraForm.deployUrl}
+                    onChange={(e) => setInfraForm(p => ({ ...p, deployUrl: e.target.value }))}
+                    placeholder="https://xxx.vercel.app"
+                    className="h-9 text-xs"
+                  />
+                </div>
+              </div>
+              <div className="flex items-center gap-2 pt-1">
+                <Button size="sm" className="h-8 text-xs gap-1" onClick={handleInfraSave} disabled={infraSaving}>
+                  {infraSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                  Save
+                </Button>
+                <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => setInfraEditing(false)} disabled={infraSaving}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {/* GitHub Repo */}
+              <div className="flex items-start gap-2 p-2.5 rounded-lg bg-white/40 dark:bg-white/[0.02] border border-black/[0.03] dark:border-white/[0.04]">
+                <Github className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">GitHub Repo</p>
+                  {extractStr(infrastructure, "githubRepoUrl", "") ? (
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <code className="text-[11px] font-mono truncate flex-1">{extractStr(infrastructure, "githubRepoUrl", "")}</code>
+                      <button onClick={() => copyToClipboard(extractStr(infrastructure, "githubRepoUrl", ""), "Repo URL")} className="text-muted-foreground/40 hover:text-foreground/80 shrink-0" aria-label="Copy">
+                        <Copy className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-muted-foreground/50 italic mt-0.5">Not configured</p>
+                  )}
+                  {extractStr(infrastructure, "githubBranch", "") && (
+                    <p className="text-[10px] text-muted-foreground/60 mt-0.5">Branch: {extractStr(infrastructure, "githubBranch", "")}</p>
+                  )}
+                </div>
+              </div>
+
+              {/* GitHub Token */}
+              <div className="flex items-start gap-2 p-2.5 rounded-lg bg-white/40 dark:bg-white/[0.02] border border-black/[0.03] dark:border-white/[0.04]">
+                <Key className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">GitHub Token</p>
+                  {infrastructure && infrastructure.hasGithubToken ? (
+                    <div className="flex items-center gap-1 mt-0.5">
+                      {revealedTokens.github ? (
+                        <>
+                          <code className="text-[11px] font-mono truncate flex-1">{revealedTokens.github}</code>
+                          <button onClick={() => copyToClipboard(revealedTokens.github, "GitHub token")} className="text-muted-foreground/40 hover:text-foreground/80 shrink-0" aria-label="Copy">
+                            <Copy className="h-3 w-3" />
+                          </button>
+                          <button onClick={() => setRevealedTokens(p => { const n = { ...p }; delete n.github; return n; })} className="text-muted-foreground/40 hover:text-foreground/80 shrink-0" aria-label="Hide">
+                            <EyeOff className="h-3 w-3" />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-[11px] font-mono text-muted-foreground flex-1">••••••••••••</span>
+                          <button onClick={() => handleRevealToken("github")} disabled={revealing === "github"} className="text-muted-foreground/40 hover:text-foreground/80 shrink-0 disabled:opacity-50" aria-label="Reveal">
+                            {revealing === "github" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Eye className="h-3 w-3" />}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-muted-foreground/50 italic mt-0.5">No token set</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Turso URL */}
+              <div className="flex items-start gap-2 p-2.5 rounded-lg bg-white/40 dark:bg-white/[0.02] border border-black/[0.03] dark:border-white/[0.04]">
+                <Database className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Turso DB URL</p>
+                  {extractStr(infrastructure, "tursoUrl", "") ? (
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <code className="text-[11px] font-mono truncate flex-1">{extractStr(infrastructure, "tursoUrl", "")}</code>
+                      <button onClick={() => copyToClipboard(extractStr(infrastructure, "tursoUrl", ""), "Turso URL")} className="text-muted-foreground/40 hover:text-foreground/80 shrink-0" aria-label="Copy">
+                        <Copy className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-muted-foreground/50 italic mt-0.5">Not configured</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Turso Token */}
+              <div className="flex items-start gap-2 p-2.5 rounded-lg bg-white/40 dark:bg-white/[0.02] border border-black/[0.03] dark:border-white/[0.04]">
+                <Key className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Turso Token</p>
+                  {infrastructure && infrastructure.hasTursoToken ? (
+                    <div className="flex items-center gap-1 mt-0.5">
+                      {revealedTokens.turso ? (
+                        <>
+                          <code className="text-[11px] font-mono truncate flex-1">{revealedTokens.turso}</code>
+                          <button onClick={() => copyToClipboard(revealedTokens.turso, "Turso token")} className="text-muted-foreground/40 hover:text-foreground/80 shrink-0" aria-label="Copy">
+                            <Copy className="h-3 w-3" />
+                          </button>
+                          <button onClick={() => setRevealedTokens(p => { const n = { ...p }; delete n.turso; return n; })} className="text-muted-foreground/40 hover:text-foreground/80 shrink-0" aria-label="Hide">
+                            <EyeOff className="h-3 w-3" />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-[11px] font-mono text-muted-foreground flex-1">••••••••••••</span>
+                          <button onClick={() => handleRevealToken("turso")} disabled={revealing === "turso"} className="text-muted-foreground/40 hover:text-foreground/80 shrink-0 disabled:opacity-50" aria-label="Reveal">
+                            {revealing === "turso" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Eye className="h-3 w-3" />}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-muted-foreground/50 italic mt-0.5">No token set</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Deploy URL */}
+              {extractStr(infrastructure, "deployUrl", "") && (
+                <div className="flex items-start gap-2 p-2.5 rounded-lg bg-white/40 dark:bg-white/[0.02] border border-black/[0.03] dark:border-white/[0.04] sm:col-span-2">
+                  <Link2 className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Deploy URL</p>
+                    <a href={extractStr(infrastructure, "deployUrl", "")} target="_blank" rel="noopener noreferrer" className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 mt-0.5">
+                      {extractStr(infrastructure, "deployUrl", "")}
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Token Edit Dialog (SUPER_ADMIN only) ── */}
+      {userRole === "SUPER_ADMIN" && (
+        <Dialog open={tokenEditOpen} onOpenChange={setTokenEditOpen}>
+          <DialogContent className="sm:max-w-md bg-white/80 dark:bg-gray-950/80 backdrop-blur-xl border-white/20 dark:border-white/10">
+            <DialogHeader>
+              <DialogTitle className="text-base font-bold flex items-center gap-2">
+                <Key className="h-4 w-4" /> Manage Tokens
+              </DialogTitle>
+              <DialogDescription className="text-xs">
+                Set GitHub and Turso access tokens. Tokens are encrypted at rest. Leave blank to clear.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium flex items-center gap-1.5"><Github className="h-3 w-3" /> GitHub Token (PAT)</Label>
+                <Input
+                  type="password"
+                  value={tokenForm.githubToken}
+                  onChange={(e) => setTokenForm(p => ({ ...p, githubToken: e.target.value }))}
+                  placeholder="ghp_xxxxxxxxxxxx (leave blank to keep current)"
+                  className="h-9 text-xs font-mono"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium flex items-center gap-1.5"><Database className="h-3 w-3" /> Turso Token</Label>
+                <Input
+                  type="password"
+                  value={tokenForm.tursoToken}
+                  onChange={(e) => setTokenForm(p => ({ ...p, tursoToken: e.target.value }))}
+                  placeholder="eyJxxxxxxxxxxxxx (leave blank to keep current)"
+                  className="h-9 text-xs font-mono"
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-2 pt-2">
+              <Button size="sm" className="h-8 text-xs gap-1" onClick={handleTokenSave} disabled={tokenSaving}>
+                {tokenSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                Save Tokens
+              </Button>
+              <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => { setTokenEditOpen(false); setTokenForm({ githubToken: "", tursoToken: "" }); }} disabled={tokenSaving}>
+                Cancel
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       )}
 
       {/* ═══════ Task Board — Header + Add Task ═══════ */}

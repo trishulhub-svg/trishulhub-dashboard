@@ -127,6 +127,10 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
     sql: `CREATE TABLE IF NOT EXISTS "ProjectWebsite" ("id" TEXT NOT NULL PRIMARY KEY, "url" TEXT NOT NULL, "label" TEXT, "isPrimary" BOOLEAN NOT NULL DEFAULT 0, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "projectId" TEXT NOT NULL, FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE CASCADE)`
   },
   {
+    name: "ProjectInfrastructure",
+    sql: `CREATE TABLE IF NOT EXISTS "ProjectInfrastructure" ("id" TEXT NOT NULL PRIMARY KEY, "projectId" TEXT NOT NULL UNIQUE, "githubRepoUrl" TEXT, "githubBranch" TEXT, "tursoUrl" TEXT, "vercelProjectId" TEXT, "deployUrl" TEXT, "githubTokenEnc" TEXT, "githubTokenIv" TEXT, "githubTokenTag" TEXT, "tursoTokenEnc" TEXT, "tursoTokenIv" TEXT, "tursoTokenTag" TEXT, "updatedBy" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL, FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE CASCADE)`
+  },
+  {
     name: "Contract",
     sql: `CREATE TABLE IF NOT EXISTS "Contract" ("id" TEXT NOT NULL PRIMARY KEY, "clientId" TEXT NOT NULL, "contractNumber" TEXT NOT NULL UNIQUE, "title" TEXT NOT NULL, "status" TEXT NOT NULL DEFAULT 'DRAFT', "clientName" TEXT NOT NULL, "clientEmail" TEXT NOT NULL, "clientCompany" TEXT, "clientPhone" TEXT, "clientAddress" TEXT, "projectName" TEXT, "projectDescription" TEXT, "projectType" TEXT, "projectMethod" TEXT, "projectStartDate" TEXT, "deliveryDate" TEXT, "scopeOfWork" TEXT NOT NULL DEFAULT '', "paymentTerms" TEXT NOT NULL DEFAULT '', "totalValue" REAL NOT NULL DEFAULT 0, "currency" TEXT NOT NULL DEFAULT 'INR', "paymentSchedule" TEXT NOT NULL DEFAULT '', "startDate" TEXT, "endDate" TEXT, "termsAndConditions" TEXT NOT NULL DEFAULT '', "amendments" TEXT NOT NULL DEFAULT '', "specialClauses" TEXT NOT NULL DEFAULT '', "generatedBy" TEXT, "sentAt" DATETIME, "sentVia" TEXT, "signedAt" DATETIME, "templateText" TEXT, "templateFileName" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL, FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE CASCADE)`
   },
@@ -661,6 +665,14 @@ export async function ensureAllTables(): Promise<void> {
     } catch (err: unknown) {
       if (!getErrMsg(err)?.includes('already exists')) {
         console.warn(`[auto-migrate] ProjectCredential_projectId_index: ${getErrMsg(err)}`)
+      }
+    }
+    // ProjectInfrastructure indexes (projectId is UNIQUE so already indexed, but explicit for clarity)
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ProjectInfrastructure_projectId_index" ON "ProjectInfrastructure"("projectId")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] ProjectInfrastructure_projectId_index: ${getErrMsg(err)}`)
       }
     }
     // PersonalTimetableTask indexes

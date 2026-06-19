@@ -432,11 +432,41 @@ model Project {
   attachments  ProjectAttachment[]
   credentials  ProjectCredential[]
   websites     ProjectWebsite[]
+  infrastructure ProjectInfrastructure?
   // methods are fetched via raw SQL on _ProjectMethodToProject join table
 
   @@index([clientId])
   @@index([status])
   @@index([deadline])
+}
+
+// ━━ Project Infrastructure (repo URL, GitHub token, Turso URL, Turso token) ━━
+// Stores deployment/infrastructure metadata for each project.
+// Tokens are AES-256-GCM encrypted at rest using the credential encryption key.
+model ProjectInfrastructure {
+  id              String   @id @default(cuid())
+  projectId       String   @unique
+
+  // Non-secret fields (visible to assigned members)
+  githubRepoUrl   String?  // e.g., "trishulhub-svg/trishulhub-dashboard.git"
+  githubBranch    String?  // default branch, e.g., "main"
+  tursoUrl        String?  // e.g., "libsql://xxx.turso.io"
+  vercelProjectId String?
+  deployUrl       String?  // e.g., "https://trishulhub-dashboard.vercel.app"
+
+  // Secret fields (AES-256-GCM encrypted, revealed only via dedicated endpoint)
+  githubTokenEnc  String?  // base64-encoded ciphertext
+  githubTokenIv   String?  // base64-encoded IV
+  githubTokenTag  String?  // base64-encoded auth tag
+  tursoTokenEnc   String?  // base64-encoded ciphertext
+  tursoTokenIv    String?  // base64-encoded IV
+  tursoTokenTag   String?  // base64-encoded auth tag
+
+  updatedBy       String?  // userId of last editor
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
 
 // ━━ Project Websites (live URLs for each project) ━━
