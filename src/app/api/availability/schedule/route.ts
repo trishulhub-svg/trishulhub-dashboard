@@ -56,7 +56,6 @@ export async function GET(req: NextRequest) {
       ensureTable("Availability"),
       ensureTable("AvailabilityOverride"),
       ensureTable("AvailabilityDateRange"),
-      ensureTable("Task"),
       ensureTable("TimeEntry"),
       ensureTable("Leave"),
       ensureTable("LeaveRequest"),

@@ -34,7 +34,6 @@ export async function GET(req: NextRequest) {
     await Promise.all([
       ensureTable("Approval"),
       ensureTable("LeaveRequest"),
-      ensureTable("Task"),
     ])
 
     const badges: Record<string, number> = {}
