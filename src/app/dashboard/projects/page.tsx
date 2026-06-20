@@ -204,11 +204,9 @@ function KanbanProjectCard({
         <Badge className={`text-[10px] px-1.5 py-0 leading-4 font-medium ${statusColors[pStatus] || ""}`}>
           {pStatus.replace("_", " ")}
         </Badge>
-        {project.isDemo === true && (
-          <Badge className="text-[9px] px-1.5 py-0 leading-3 font-bold tracking-wider bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white" title="Demo project">
-            DEMO
-          </Badge>
-        )}
+        {/* Task 7 (Phase 4): demo projects no longer appear on this page, so
+            the per-card DEMO badge has been removed. Demo view still renders
+            its header-level DEMO badge via the isDemoView branch below. */}
         <span className="text-[11px] text-muted-foreground truncate max-w-[140px]">
           {pClientName}
         </span>
@@ -513,11 +511,9 @@ function ListViewRow({
         <Badge className={`text-[10px] px-2 py-0.5 font-medium ${statusColors[pStatus] || ""}`}>
           {pStatus.replace("_", " ")}
         </Badge>
-        {project.isDemo === true && (
-          <Badge className="text-[9px] px-1.5 py-0 leading-3 font-bold tracking-wider bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white" title="Demo project">
-            DEMO
-          </Badge>
-        )}
+        {/* Task 7 (Phase 4): per-card DEMO badge removed — demos no longer
+            surface in the main projects list. The demo view shows a single
+            header-level DEMO badge instead. */}
       </div>
 
       {/* Pending Tasks Badge */}
@@ -845,7 +841,10 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
   const { data: projectsData = [], isLoading: projectsLoading } = useQuery({
     queryKey: projectsQueryKey,
     queryFn: async () => {
-      const url = isDemoView ? "/api/projects?isDemo=true" : "/api/projects";
+      // Task 7 (Phase 4): main projects page excludes demo projects — they
+      // live exclusively on /dashboard/demo. Explicit ?isDemo=false mirrors
+      // the new API default and keeps the intent obvious at the call site.
+      const url = isDemoView ? "/api/projects?isDemo=true" : "/api/projects?isDemo=false";
       const res = await fetch(url, { credentials: "include" });
       if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
       if (!res.ok) throw new Error("Failed to load projects");
@@ -1543,15 +1542,6 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
               </ToggleGroupItem>
             </ToggleGroup>
           )}
-          {/* My Todos — ghost variant */}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 gap-1.5 text-xs text-muted-foreground hidden sm:inline-flex"
-            onClick={() => router.push("/dashboard/projects/todos")}
-          >
-            <ClipboardCheck className="h-3.5 w-3.5" /> <span className="hidden md:inline">My Todos</span>
-          </Button>
           {/* New Project */}
           {isAdminUser && (
           <Dialog open={addOpen} onOpenChange={setAddOpen}>

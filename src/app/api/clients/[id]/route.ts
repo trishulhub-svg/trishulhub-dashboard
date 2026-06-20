@@ -8,6 +8,7 @@ import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { deepSanitize } from "@/lib/utils"
+import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
 function serializeClientDetail(c: any) {
   if (!c) return c
@@ -270,6 +271,14 @@ export async function PATCH(
         include: { websites: true },
       })
     })
+    // Audit: log client update (fire-and-forget)
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+      department: "BUSINESS", page: "clients", action: "UPDATE",
+      entityType: "Client", entityId: id,
+      description: `Updated client: ${client.name}`,
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+    })
     return NextResponse.json(deepSanitize(serializeClientDetail(client)))
   } catch (updateErr: unknown) {
     console.error("[clients/[id]] PATCH update error:", updateErr instanceof Error ? updateErr.message : String(updateErr))
@@ -318,6 +327,16 @@ export async function DELETE(
     const client = await db.client.update({
       where: { id },
       data: { status: "CHURNED" },
+    })
+    // Audit: log client soft-delete (deactivation) (fire-and-forget)
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+      department: "BUSINESS", page: "clients", action: "DELETE",
+      entityType: "Client", entityId: id,
+      description: `Deactivated client (set status to CHURNED): ${client.name}`,
+      oldValue: existing.status,
+      newValue: "CHURNED",
+      ipAddress: getIpAddress(_req), userAgent: getUserAgent(_req),
     })
     return NextResponse.json({ success: true, client: deepSanitize(serializeClientDetail(client)) })
   } catch (error: unknown) {

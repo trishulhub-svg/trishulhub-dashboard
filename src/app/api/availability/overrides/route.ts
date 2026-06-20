@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { ensureTable } from "@/lib/auto-migrate"
 import { rateLimit } from "@/lib/rate-limit"
+import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
 // W32: Standardized time validation regex (validates HH:MM with proper hour/minute ranges)
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/
@@ -149,6 +150,15 @@ export async function POST(req: NextRequest) {
       },
     })
 
+    // Audit: log availability override creation (fire-and-forget)
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole,
+      department: "HR_PEOPLE", page: "availability", action: "CREATE",
+      entityType: "AvailabilityOverride", entityId: override.id,
+      description: `Created availability override for user ${override.user?.name || userId} on ${new Date(date).toLocaleDateString()}${reason ? ` (${reason})` : ""}`,
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+    })
+
     return NextResponse.json(override, { status: 201 })
   } catch (error: unknown) {
     // C26: Handle P2002 unique constraint violation (duplicate userId+date)
@@ -192,6 +202,15 @@ export async function DELETE(req: NextRequest) {
     if (!existing) return NextResponse.json({ error: "Override not found" }, { status: 404 })
 
     await db.availabilityOverride.delete({ where: { id } })
+
+    // Audit: log availability override deletion (fire-and-forget)
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole,
+      department: "HR_PEOPLE", page: "availability", action: "DELETE",
+      entityType: "AvailabilityOverride", entityId: id,
+      description: `Deleted availability override for user ${existing.userId} on ${existing.date instanceof Date ? existing.date.toLocaleDateString() : String(existing.date)}`,
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+    })
     return NextResponse.json({ success: true })
   } catch (error: unknown) {
     console.error("[availability/overrides] DELETE error:", error instanceof Error ? error.message : String(error))

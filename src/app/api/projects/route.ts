@@ -7,7 +7,7 @@ import { isAdmin, getAssignedProjectIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { createProjectSchema, updateProjectSchema } from "@/lib/validations"
-import { logAudit, getIpAddress, getUserAgent, buildDescription } from "@/lib/audit-log"
+import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
 const VALID_PROJECT_STATUSES = ["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"]
 
@@ -63,11 +63,21 @@ export async function GET(req: NextRequest) {
     const offset = Math.max(Number(searchParams.get("offset")) || 0, 0)
 
     // isDemo filter: "true" → only demo projects, "false" → only non-demo,
-    // omitted → return all projects (demo + non-demo). The main projects list
-    // shows everything with a DEMO badge; /dashboard/demo filters to isDemo=true.
+    // "all" → return all projects (demo + non-demo). When omitted, defaults
+    // to excluding demos so /dashboard/projects (and any caller that doesn't
+    // explicitly opt in) only sees regular projects; /dashboard/demo uses
+    // ?isDemo=true. Single-project fetches (projectId specified) never apply
+    // the default so demo project detail/edit loads keep working.
+    //
+    // Task 7 (Phase 4): demo projects now live ONLY on /dashboard/demo;
+    // regular projects live ONLY on /dashboard/projects.
     const isDemoParam = searchParams.get("isDemo")
     const isDemoFilter: boolean | undefined =
-      isDemoParam === "true" ? true : isDemoParam === "false" ? false : undefined
+      isDemoParam === "true" ? true
+      : isDemoParam === "false" ? false
+      : isDemoParam === "all" ? undefined
+      : projectId ? undefined  // single-project fetch — never filter by isDemo
+      : false                   // list fetch with no param — exclude demos
 
     // CLIENT users can only see their own projects
     if (userRole === "CLIENT") {
@@ -212,10 +222,13 @@ export async function POST(req: NextRequest) {
     const name = sanitizeInput(validated.name, 200)
     const description = validated.description ? sanitizeInput(validated.description, 2000) : null
     const projectStatus = validated.status || "PLANNING"
-    const clientId = validated.clientId || null
+    // Normalize clientId: empty string ("") and undefined both mean "No Client"
+    // and must be persisted as null (Prisma expects null for optional relations).
+    const rawClientId = typeof validated.clientId === "string" ? validated.clientId.trim() : ""
+    const clientId = rawClientId.length > 0 ? rawClientId : null
 
     // If clientId is provided, verify client exists
-    if (clientId && clientId.trim()) {
+    if (clientId) {
       const clientExists = await db.client.findUnique({ where: { id: clientId } })
       if (!clientExists) {
         return NextResponse.json({ error: "Client not found" }, { status: 400 })
@@ -227,10 +240,11 @@ export async function POST(req: NextRequest) {
         name,
         description: description,
         status: projectStatus,
-        clientId: clientId && clientId.trim() ? clientId : null,
+        clientId,
         // M-PRJ-1 FIX: Use ?? instead of || so budget: 0 is preserved
         budget: validated.budget ?? null,
         deadline: validated.deadline ? new Date(validated.deadline) : null,
+        startDate: validated.startDate ? new Date(validated.startDate) : null,
         // Demo flag — defaults to false; set to true when creating from /dashboard/demo
         isDemo: validated.isDemo === true,
       },
@@ -238,9 +252,9 @@ export async function POST(req: NextRequest) {
     // I1: Targeted Date serialization
     void logAudit({
       userId: session.user.id, userName: session.user.name || "unknown", userRole,
-      department: "BUSINESS", page: "projects", action: "CREATE",
-      entityType: "project", entityId: project.id,
-      description: buildDescription("CREATE", "project", project.name),
+      department: "TEAM_WORK", page: "projects", action: "CREATE",
+      entityType: "Project", entityId: project.id,
+      description: `Created project: ${project.name}`,
       ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
     })
     return NextResponse.json(serializeProjectDates(project), { status: 201 })
@@ -324,6 +338,23 @@ export async function PUT(req: NextRequest) {
 
     const project = await db.project.update({ where: { id: projectId }, data: sanitizedData })
     // I1: Targeted Date serialization
+
+    // Audit: log UPDATE (or STATUS_CHANGE if the only meaningful change was the status field)
+    const statusOnlyChange =
+      sanitizedData.status !== undefined &&
+      Object.keys(sanitizedData).every((k) => k === "status")
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole,
+      department: "TEAM_WORK", page: "projects",
+      action: statusOnlyChange ? "STATUS_CHANGE" : "UPDATE",
+      entityType: "Project", entityId: projectId,
+      description: statusOnlyChange
+        ? `Changed project status: ${existing.name} (${existing.status} → ${sanitizedData.status})`
+        : `Updated project: ${project.name}`,
+      oldValue: sanitizedData.status !== undefined ? existing.status : undefined,
+      newValue: sanitizedData.status !== undefined ? String(sanitizedData.status) : undefined,
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+    })
     return NextResponse.json(serializeProjectDates(project))
   } catch (error: unknown) {
     console.error("[projects] PUT error:", error instanceof Error ? error.message : String(error))
@@ -356,6 +387,9 @@ export async function DELETE(req: NextRequest) {
     const existing = await db.project.findUnique({ where: { id } })
     if (!existing) return NextResponse.json({ error: "Project not found" }, { status: 404 })
 
+    // Capture project name before deletion for the audit log
+    const projectName = existing.name
+
     // C4: Use $transaction for atomic deletion of all related records
     await db.$transaction(async (tx) => {
       // M-PRJ-9 FIX: Explicitly delete attachments and credentials before project
@@ -372,6 +406,15 @@ export async function DELETE(req: NextRequest) {
       await tx.invoice.deleteMany({ where: { projectId: id } })
       // Delete the project itself
       await tx.project.delete({ where: { id } })
+    })
+
+    // Audit: log project deletion (fire-and-forget)
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole,
+      department: "TEAM_WORK", page: "projects", action: "DELETE",
+      entityType: "Project", entityId: id,
+      description: `Deleted project: ${projectName}`,
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
     })
 
     return NextResponse.json({ success: true })

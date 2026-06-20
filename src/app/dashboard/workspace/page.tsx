@@ -244,15 +244,12 @@ export default function TrishulWorkspacePage() {
   }, []);
 
   /* ── Handlers ── */
+  // Access Hub is available to all roles (SUPER_ADMIN, ADMIN, DEVELOPER).
+  // The page renders a "My Credentials" view for non-admins, so it is safe to
+  // navigate directly — matches the sidebar "Access Hub → Credentials" entry.
   const handleCredentials = useCallback(() => {
-    const role = session?.user?.role;
-    if (role === "SUPER_ADMIN" || role === "ADMIN") {
-      router.push("/dashboard/access-hub");
-    } else {
-      // Access Hub is admin-only — show guidance message
-      window.alert("Access Hub is available for admins only. Please contact your administrator for workspace credentials.");
-    }
-  }, [router, session]);
+    router.push("/dashboard/access-hub?tab=credentials");
+  }, [router]);
 
   /* ── Time-based greeting ── */
   const [greeting, setGreeting] = useState("Good evening");

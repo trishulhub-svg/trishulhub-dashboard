@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { ensureTable } from "@/lib/auto-migrate"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
+import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
 // W32: Standardized time validation regex (validates HH:MM with proper hour/minute ranges)
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/
@@ -167,6 +168,15 @@ export async function POST(req: NextRequest) {
       include: {
         user: { select: { id: true, name: true, email: true, avatar: true } },
       },
+    })
+
+    // Audit: log availability date range creation (fire-and-forget)
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+      department: "HR_PEOPLE", page: "availability", action: "CREATE",
+      entityType: "AvailabilityDateRange", entityId: created.id,
+      description: `Created availability date range for user ${created.user?.name || targetUserId}: ${toYmd(start)} to ${toYmd(end)}${reason ? ` (${String(reason).slice(0, 80)})` : ""}`,
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
     })
 
     const mapped = {

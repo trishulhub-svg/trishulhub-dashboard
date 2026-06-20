@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { ensureTable } from "@/lib/auto-migrate"
 import { rateLimit } from "@/lib/rate-limit"
+import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
 // W32: Standardized time validation regex (validates HH:MM with proper hour/minute ranges)
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/
@@ -133,6 +134,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       })
     })
 
+    // Audit: log availability date range update (fire-and-forget)
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+      department: "HR_PEOPLE", page: "availability", action: "UPDATE",
+      entityType: "AvailabilityDateRange", entityId: id,
+      description: `Updated availability date range for user ${updated.user?.name || updated.userId} (fields: ${Object.keys(data).join(", ") || "none"})`,
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+    })
+
     const mapped = {
       id: updated.id,
       userId: updated.userId,
@@ -200,6 +210,15 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     }
 
     await db.availabilityDateRange.delete({ where: { id } })
+
+    // Audit: log availability date range deletion (fire-and-forget)
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+      department: "HR_PEOPLE", page: "availability", action: "DELETE",
+      entityType: "AvailabilityDateRange", entityId: id,
+      description: `Deleted availability date range for user ${existing.userId}: ${toYmd(existing.startDate instanceof Date ? existing.startDate : new Date(existing.startDate))} to ${toYmd(existing.endDate instanceof Date ? existing.endDate : new Date(existing.endDate))}`,
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+    })
     return NextResponse.json({ success: true })
   } catch (error: unknown) {
     console.error("[availability/date-ranges] DELETE error:", error instanceof Error ? error.message : String(error))

@@ -36,8 +36,14 @@ export async function GET() {
       getAssignedClientIds(userId, role),
     ])
 
-    // Build where clauses based on role
-    const projectWhere = assignedProjectIds ? { id: { in: assignedProjectIds } } : {}
+    // Build where clauses based on role.
+    // Task 7 (Phase 4): main dashboard excludes demo projects from both the
+    // recent-projects list and the "Active Projects" count so demos don't
+    // inflate headline metrics. Demo projects are still fully visible on
+    // /dashboard/demo — this filter only affects the main dashboard tiles.
+    const projectWhere = assignedProjectIds
+      ? { id: { in: assignedProjectIds }, isDemo: false }
+      : { isDemo: false }
     const clientWhere = assignedClientIds ? { id: { in: assignedClientIds } } : {}
     const invoiceWhere = assignedClientIds ? { clientId: { in: assignedClientIds } } : {}
     const expenseWhere = assignedProjectIds ? { projectId: { in: assignedProjectIds } } : {}

@@ -6,6 +6,7 @@ import { isPrivateHost } from "@/lib/ssrf"
 import { isValidEmail } from "@/lib/email"
 import { rateLimit } from "@/lib/rate-limit"
 import { encryptSmtpPassword, decryptSmtpPassword } from "@/lib/encryption"
+import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
 // I22: Note — error response formats across endpoints are inconsistent (some use `error`+`detail`+`code`, others just `error`).
 // Future: standardize to a single error envelope shape across all API routes.
@@ -161,6 +162,14 @@ export async function POST(req: NextRequest) {
       })
 
       console.log("[smtp] POST: SMTP config created successfully:", config.id)
+      // Audit: log SMTP config creation (fire-and-forget)
+      void logAudit({
+        userId: session.user.id, userName: session.user.name || "unknown", userRole,
+        department: "SYSTEM", page: "settings", action: "CONFIG_CHANGE",
+        entityType: "SmtpConfig", entityId: config.id,
+        description: `Created SMTP config: ${config.host}:${config.port} (${config.fromEmail})${isPrimary !== false ? " (primary)" : ""}`,
+        ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+      })
       return NextResponse.json(config, { status: 201 })
     }
 
@@ -192,6 +201,14 @@ export async function POST(req: NextRequest) {
     })
 
     console.log("[smtp] POST: SMTP config created successfully:", config.id)
+    // Audit: log SMTP config creation (fire-and-forget)
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole,
+      department: "SYSTEM", page: "settings", action: "CONFIG_CHANGE",
+      entityType: "SmtpConfig", entityId: config.id,
+      description: `Created SMTP config: ${config.host}:${config.port} (${config.fromEmail})`,
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+    })
     return NextResponse.json(config, { status: 201 })
   } catch (error: unknown) {
     console.error("[smtp] Error:", error instanceof Error ? error.message : String(error))
@@ -288,6 +305,14 @@ export async function PATCH(req: NextRequest) {
           secure: true, isPrimary: true, isActive: true, createdAt: true, updatedAt: true,
         },
       })
+      // Audit: log SMTP config update (fire-and-forget)
+      void logAudit({
+        userId: session.user.id, userName: session.user.name || "unknown", userRole,
+        department: "SYSTEM", page: "settings", action: "CONFIG_CHANGE",
+        entityType: "SmtpConfig", entityId: id,
+        description: `Updated SMTP config (set as primary): ${config?.host || id}:${config?.port || "?"}`,
+        ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+      })
       return NextResponse.json(config)
     }
 
@@ -310,6 +335,15 @@ export async function PATCH(req: NextRequest) {
         createdAt: true,
         updatedAt: true,
       },
+    })
+
+    // Audit: log SMTP config update (fire-and-forget)
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole,
+      department: "SYSTEM", page: "settings", action: "CONFIG_CHANGE",
+      entityType: "SmtpConfig", entityId: id,
+      description: `Updated SMTP config: ${config.host}:${config.port} (${config.fromEmail})`,
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
     })
 
     return NextResponse.json(config)
@@ -348,6 +382,15 @@ export async function DELETE(req: NextRequest) {
     if (!existing) return NextResponse.json({ error: "SMTP config not found" }, { status: 404 })
 
     await db.smtpConfig.delete({ where: { id } })
+
+    // Audit: log SMTP config deletion (fire-and-forget)
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole,
+      department: "SYSTEM", page: "settings", action: "DELETE",
+      entityType: "SmtpConfig", entityId: id,
+      description: `Deleted SMTP config: ${existing.host}:${existing.port} (${existing.fromEmail})${existing.isPrimary ? " (was primary)" : ""}`,
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+    })
 
     // If we deleted the primary, make the remaining one primary (if any)
     if (existing.isPrimary) {

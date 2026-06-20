@@ -6,6 +6,7 @@ import { Prisma } from "@prisma/client"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { isAdmin } from "@/lib/rbac"
+import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
 const VALID_CATEGORIES = ["HOSTING", "DOMAINS", "API_COSTS", "TOOLS", "MARKETING", "SALARY", "SOFTWARE", "OTHER"] as const
 type ExpenseCategory = typeof VALID_CATEGORIES[number]
@@ -188,6 +189,14 @@ export async function POST(req: NextRequest) {
         employee: { select: { id: true, name: true } },
       },
     })
+    // Audit: log expense creation (fire-and-forget)
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+      department: "BUSINESS", page: "expenses", action: "CREATE",
+      entityType: "Expense", entityId: expense.id,
+      description: `Created expense: ${expense.description} (${expense.category}, £${expense.amount})`,
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+    })
     return NextResponse.json(JSON.parse(JSON.stringify(expense)))
   } catch {
     return NextResponse.json({ error: "Failed to create expense" }, { status: 500 })
@@ -294,6 +303,14 @@ export async function PATCH(req: NextRequest) {
       }
       return NextResponse.json({ error: "Expense update failed" }, { status: 500 })
     }
+    // Audit: log expense PATCH update (fire-and-forget)
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+      department: "BUSINESS", page: "expenses", action: "UPDATE",
+      entityType: "Expense", entityId: id,
+      description: `Updated expense: ${expense.description} (${expense.category})`,
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+    })
     return NextResponse.json(JSON.parse(JSON.stringify(expense)))
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -386,6 +403,15 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "Expense update failed" }, { status: 500 })
     }
 
+    // Audit: log expense PUT update (fire-and-forget)
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+      department: "BUSINESS", page: "expenses", action: "UPDATE",
+      entityType: "Expense", entityId: id,
+      description: `Updated expense (PUT): ${expense.description} (${expense.category})`,
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+    })
+
     return NextResponse.json(JSON.parse(JSON.stringify(expense)))
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -441,6 +467,14 @@ export async function DELETE(req: NextRequest) {
       }
       return NextResponse.json({ error: "Internal server error" }, { status: 500 })
     }
+    // Audit: log expense deletion (fire-and-forget)
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+      department: "BUSINESS", page: "expenses", action: "DELETE",
+      entityType: "Expense", entityId: id,
+      description: `Deleted expense (id: ${id})`,
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+    })
     return NextResponse.json({ success: true })
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

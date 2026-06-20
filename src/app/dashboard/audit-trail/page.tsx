@@ -618,9 +618,12 @@ export default function AuditTrailPage() {
                           <SelectItem value="EXPORT">Export</SelectItem>
                           <SelectItem value="SEND">Send</SelectItem>
                           <SelectItem value="ASSIGN">Assign</SelectItem>
+                          <SelectItem value="UPLOAD">Upload</SelectItem>
+                          <SelectItem value="DOWNLOAD">Download</SelectItem>
                           <SelectItem value="STATUS_CHANGE">Status Change</SelectItem>
                           <SelectItem value="CONFIG_CHANGE">Config Change</SelectItem>
                           <SelectItem value="ACCESS">Access</SelectItem>
+                          <SelectItem value="READ">Read</SelectItem>
                         </SelectContent>
                       </Select>
                       <Select value={statusFilter} onValueChange={setStatusFilter}>

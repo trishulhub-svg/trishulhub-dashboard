@@ -6,6 +6,7 @@ import { canManageTraining } from "@/lib/rbac"
 // TODO: Use trainingRateLimit() from rate-limit.ts for consistency (W33)
 import { rateLimit } from "@/lib/rate-limit"
 import { ensureTrainingTables } from "@/lib/training-migration"
+import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
 // GET /api/training/documents/[id] - Get single document
 export async function GET(
@@ -89,6 +90,9 @@ export async function DELETE(
     const document = await db.trainingDocument.findUnique({ where: { id } })
     if (!document) return NextResponse.json({ error: "Document not found" }, { status: 404 })
 
+    // Capture topic for audit log before deletion
+    const documentTopic = document.topic
+
     // Cascading delete wrapped in transaction for atomicity
     await db.$transaction(async (tx) => {
       const assignments = await tx.trainingAssignment.findMany({ where: { documentId: id } })
@@ -98,6 +102,15 @@ export async function DELETE(
       await tx.trainingAssignment.deleteMany({ where: { documentId: id } })
       await tx.trainingTest.deleteMany({ where: { documentId: id } })
       await tx.trainingDocument.delete({ where: { id } })
+    })
+
+    // Audit: log training document deletion (fire-and-forget)
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+      department: "LEARNING", page: "training", action: "DELETE",
+      entityType: "TrainingDocument", entityId: id,
+      description: `Deleted training document: ${documentTopic.slice(0, 100)}`,
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
     })
 
     return NextResponse.json({ success: true })

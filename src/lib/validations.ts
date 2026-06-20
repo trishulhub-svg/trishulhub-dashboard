@@ -20,11 +20,14 @@ export const createCredentialSchema = z.object({
 export const createProjectSchema = z.object({
   name: z.string().min(1, "Project name is required").max(200),
   description: z.string().max(2000).optional(),
-  clientId: z.string().min(1).optional().or(z.literal(null).optional()),
+  // Allow "No Client" projects — accept empty string ("") and null in addition
+  // to a real client ID. The API POST handler normalizes "" / undefined to null.
+  clientId: z.string().optional().or(z.literal("")).nullable(),
   status: z.enum(["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"]).optional(),
   progress: z.number().int().min(0).max(100).optional(),
   isDemo: z.boolean().optional(),
   deadline: z.string().optional(),
+  startDate: z.string().optional(),
   budget: z.number().min(0).optional().nullable(),
   websites: z.array(z.object({
     url: z.string().min(1, "URL is required").max(500),

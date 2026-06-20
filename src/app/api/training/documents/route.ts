@@ -8,6 +8,7 @@ import { rateLimit } from "@/lib/rate-limit"
 import { after } from "next/server"
 import { callAIWithFailover } from "@/lib/ai/openrouter"
 import { ensureTrainingTables } from "@/lib/training-migration"
+import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
 // Vercel serverless function timeout (seconds) — increased for background AI generation via after()
 export const maxDuration = 300
@@ -113,6 +114,15 @@ export async function POST(req: NextRequest) {
         status: "GENERATING",
         generatedBy: userId,
       },
+    })
+
+    // Audit: log training document creation (fire-and-forget)
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+      department: "LEARNING", page: "training", action: "CREATE",
+      entityType: "TrainingDocument", entityId: document.id,
+      description: `Created training document: ${topic.trim().slice(0, 100)}`,
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
     })
 
     // ── Background AI generation (runs after response is sent) ──

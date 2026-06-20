@@ -8,6 +8,7 @@ import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { deepSanitize } from "@/lib/utils"
+import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
 function serializeClientDates(c: any) {
   if (!c) return c
@@ -326,6 +327,14 @@ export async function POST(req: NextRequest) {
         data: createData,
         include: { websites: true },
       })
+    })
+    // Audit: log client creation (fire-and-forget)
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+      department: "BUSINESS", page: "clients", action: "CREATE",
+      entityType: "Client", entityId: client.id,
+      description: `Created client: ${client.name}`,
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
     })
     return NextResponse.json(deepSanitize(client), { status: 201 })
   } catch (error: unknown) {

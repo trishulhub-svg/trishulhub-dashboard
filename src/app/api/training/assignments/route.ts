@@ -6,6 +6,7 @@ import { canManageTraining } from "@/lib/rbac"
 // TODO: Use trainingRateLimit() from rate-limit.ts for consistency (W33)
 import { rateLimit } from "@/lib/rate-limit"
 import { ensureTrainingTables } from "@/lib/training-migration"
+import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
 // GET /api/training/assignments - List assignments
 export async function GET(req: NextRequest) {
@@ -181,6 +182,17 @@ export async function POST(req: NextRequest) {
       } catch (notifyErr: unknown) {
         console.error("[training/assignments] Notification error (non-blocking):", notifyErr instanceof Error ? notifyErr.message : notifyErr)
       }
+    }
+
+    // Audit: log training assignment creation (fire-and-forget) — one entry per assignment
+    for (const assignment of assignments) {
+      void logAudit({
+        userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+        department: "LEARNING", page: "training", action: "ASSIGN",
+        entityType: "TrainingAssignment", entityId: assignment.id,
+        description: `Assigned training "${document.topic.slice(0, 80)}" (${testLevel} level) to user ${assignment.assignedTo}`,
+        ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+      })
     }
 
     return NextResponse.json(assignments, { status: 201 })

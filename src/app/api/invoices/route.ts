@@ -9,6 +9,7 @@ import { createInvoiceSchema, updateInvoiceSchema, validateRequest } from "@/lib
 // Note: deepSanitize is actually a deep clone, not XSS sanitization
 import { deepSanitize } from "@/lib/utils"
 import { ensureAllTables } from "@/lib/auto-migrate"
+import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
 // GET /api/invoices - List invoices (ADMIN/SUPER_ADMIN see all, CLIENT sees own, DEVELOPER sees assigned projects)
 export async function GET(req: NextRequest) {
@@ -171,6 +172,14 @@ export async function POST(req: NextRequest) {
       }
       throw txError
     }
+    // Audit: log invoice creation (fire-and-forget)
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole,
+      department: "BUSINESS", page: "invoices", action: "CREATE",
+      entityType: "Invoice", entityId: invoice.id,
+      description: `Created invoice: ${invoice.invoiceNumber}`,
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+    })
     return NextResponse.json({ data: invoice, message: "Invoice created" }, { status: 201 })
   } catch (error: unknown) {
     console.error("[invoices] POST error:", error instanceof Error ? error.message : error)
@@ -253,6 +262,8 @@ export async function PATCH(req: NextRequest) {
     // P11-INTEG-04: Wrap all DB operations in a transaction to prevent TOCTOU races
     // Use a sentinel to distinguish validation errors from the successful invoice result
     const TX_ERR = Symbol("TX_ERR")
+    // Fetch previous state BEFORE the transaction so it's available for the audit log
+    const previousInvoice = await db.invoice.findUnique({ where: { id }, select: { status: true, invoiceNumber: true } })
     const result = await db.$transaction(async (tx) => {
       // Fetch existing invoice for status transition validation & total recompute
       const existing = await tx.invoice.findUnique({ where: { id } })
@@ -318,6 +329,25 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
+    // Audit: log invoice update — use STATUS_CHANGE when the status field was the primary change
+    const updatedInvoice = result.invoice
+    if (updatedInvoice) {
+      const statusChanged = data.status !== undefined
+      const prevStatus = previousInvoice?.status || "unknown"
+      void logAudit({
+        userId: session.user.id, userName: session.user.name || "unknown", userRole,
+        department: "BUSINESS", page: "invoices",
+        action: statusChanged ? "STATUS_CHANGE" : "UPDATE",
+        entityType: "Invoice", entityId: id,
+        description: statusChanged
+          ? `Changed invoice status: ${updatedInvoice.invoiceNumber} (${prevStatus} → ${data.status})`
+          : `Updated invoice: ${updatedInvoice.invoiceNumber}`,
+        oldValue: statusChanged ? prevStatus : undefined,
+        newValue: statusChanged ? String(data.status) : undefined,
+        ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+      })
+    }
+
     return NextResponse.json(result.invoice)
   } catch (error: unknown) {
     console.error("[invoices] PATCH error:", error instanceof Error ? error.message : error)
@@ -376,7 +406,19 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Cannot delete a paid invoice. Financial records must be preserved." }, { status: 403 })
     }
 
+    // Capture invoice number before deletion for the audit log
+    const invoiceNumber = existing.invoiceNumber
+
     await db.invoice.delete({ where: { id: invoiceId } })
+
+    // Audit: log invoice deletion (fire-and-forget)
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole,
+      department: "BUSINESS", page: "invoices", action: "DELETE",
+      entityType: "Invoice", entityId: invoiceId,
+      description: `Deleted invoice: ${invoiceNumber}`,
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+    })
     return NextResponse.json({ success: true })
   } catch (error: unknown) {
     console.error("[invoices] DELETE error:", error instanceof Error ? error.message : error)

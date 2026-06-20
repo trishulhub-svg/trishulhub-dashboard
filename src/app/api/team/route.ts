@@ -7,6 +7,7 @@ import bcrypt from "bcryptjs"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { VALID_DEPARTMENT_VALUES } from "@/lib/types"
+import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
 // [C3] Helper: convert Date to local YYYY-MM-DD string (avoids UTC timezone issue)
 function toLocalDateStr(d: Date): string {
@@ -443,6 +444,15 @@ export async function POST(req: NextRequest) {
         },
       })
 
+      // Audit: log leave request creation (fire-and-forget)
+      void logAudit({
+        userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+        department: "HR_PEOPLE", page: "team", action: "CREATE",
+        entityType: "LeaveRequest", entityId: leave.id,
+        description: `Created leave request (${leaveType}) on behalf of user ${leaveUserId} from ${parsedStart.toLocaleDateString()} to ${parsedEnd.toLocaleDateString()}`,
+        ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+      })
+
       // Notify admins about new leave request (fire-and-forget — non-blocking)
       try {
         const admins = await db.user.findMany({
@@ -516,6 +526,14 @@ export async function POST(req: NextRequest) {
           ...(notes ? { notes: (notes as string)?.slice(0, 1000) || null } : {}),
         },
       })
+      // Audit: log attendance record creation (fire-and-forget)
+      void logAudit({
+        userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+        department: "HR_PEOPLE", page: "team", action: "CREATE",
+        entityType: "Attendance", entityId: attendance.id,
+        description: `Created attendance record for user ${attUserId || session.user.id} on ${new Date(date as string).toLocaleDateString()}${attStatus ? ` (${attStatus})` : ""}`,
+        ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+      })
       return NextResponse.json(attendance, { status: 201 })
     }
 
@@ -578,6 +596,15 @@ export async function POST(req: NextRequest) {
           department: (department as string) || null,
           isActive: true,
         }
+      })
+
+      // Audit: log new user creation (fire-and-forget)
+      void logAudit({
+        userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+        department: "HR_PEOPLE", page: "team", action: "CREATE",
+        entityType: "User", entityId: user.id,
+        description: `Created user: ${user.name} (${user.email}, role: ${user.role})`,
+        ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
       })
 
       return NextResponse.json({ id: user.id, name: user.name, email: user.email, role: user.role }, { status: 201 })
@@ -705,6 +732,16 @@ export async function PATCH(req: NextRequest) {
         console.error("[team] leave decision notification error (non-blocking):", notifyErr instanceof Error ? notifyErr.message : String(notifyErr))
       }
 
+      // Audit: log leave decision (approve/reject) — fire-and-forget
+      void logAudit({
+        userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+        department: "HR_PEOPLE", page: "team", action: "STATUS_CHANGE",
+        entityType: "LeaveRequest", entityId: id as string,
+        description: `Changed leave request status to ${data.status} (type: ${leave.type}, user: ${leave.userId})`,
+        newValue: data.status as string,
+        ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+      })
+
       return NextResponse.json(leave)
     }
 
@@ -721,6 +758,14 @@ export async function PATCH(req: NextRequest) {
         if (data[key] !== undefined) sanitizedAttData[key] = data[key]
       }
       const attendanceRecord = await db.attendance.update({ where: { id: id as string }, data: sanitizedAttData })
+      // Audit: log attendance update (fire-and-forget)
+      void logAudit({
+        userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+        department: "HR_PEOPLE", page: "team", action: "UPDATE",
+        entityType: "Attendance", entityId: id as string,
+        description: `Updated attendance record (fields: ${Object.keys(sanitizedAttData).join(", ") || "none"})`,
+        ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+      })
       return NextResponse.json(attendanceRecord)
     }
 
@@ -792,6 +837,17 @@ export async function PATCH(req: NextRequest) {
       data: updateData,
       select: { id: true, name: true, email: true, role: true, department: true, isActive: true },
     })
+
+    // Audit: log user profile update (fire-and-forget)
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+      department: "HR_PEOPLE", page: "team", action: "UPDATE",
+      entityType: "User", entityId: effectiveId,
+      description: `Updated user profile: ${user.name} (fields: ${Object.keys(updateData).join(", ") || "none"})`,
+      newValue: data.role ? String(data.role) : undefined,
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+    })
+
     return NextResponse.json(user)
   } catch (error: unknown) {
     // Handle authorization/validation errors thrown inside transaction
@@ -850,6 +906,14 @@ export async function DELETE(req: NextRequest) {
         return NextResponse.json({ error: "Attendance record not found" }, { status: 404 })
       }
       await db.attendance.delete({ where: { id } })
+      // Audit: log attendance record deletion (fire-and-forget)
+      void logAudit({
+        userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+        department: "HR_PEOPLE", page: "team", action: "DELETE",
+        entityType: "Attendance", entityId: id,
+        description: `Deleted attendance record for user ${record.userId} on ${record.date instanceof Date ? record.date.toLocaleDateString() : String(record.date)}`,
+        ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+      })
       return NextResponse.json({ success: true })
     }
 

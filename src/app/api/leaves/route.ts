@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureTable } from "@/lib/auto-migrate"
+import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
 const VALID_LEAVE_TYPES = [
   "SICK_LEAVE",
@@ -146,6 +147,15 @@ export async function POST(req: NextRequest) {
       include: {
         user: { select: { id: true, name: true, email: true, role: true } },
       },
+    })
+
+    // Audit: log leave request creation (fire-and-forget)
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole,
+      department: "HR_PEOPLE", page: "leaves", action: "CREATE",
+      entityType: "Leave", entityId: leave.id,
+      description: `Created leave request (${leaveType}) for ${leave.user?.name || targetUserId} from ${new Date(startDate).toLocaleDateString()} to ${new Date(endDate).toLocaleDateString()}`,
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
     })
 
     // Notify admins about new leave request (fire-and-forget, don't block creation)

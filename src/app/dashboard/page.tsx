@@ -114,37 +114,31 @@ export default function DashboardPage() {
   if (!data) return null;
 
   // DASH-004: Safe default object with safeNumber — replaces unsafe `as` cast
+  // NOTE: API Usage (totalApiSpend/monthlyBudget/totalExpenses) and Support Ticket (openTickets)
+  // stats have been intentionally removed from the dashboard home page.
+  // The underlying data is still returned by /api/dashboard and the api-keys/support APIs remain intact.
   const rawStats = (data.stats || {}) as Record<string, unknown>;
   const stats = {
     totalRevenue: safeNumber(rawStats.totalRevenue),
     pendingAmount: safeNumber(rawStats.pendingAmount),
     overdueAmount: safeNumber(rawStats.overdueAmount),
-    totalExpenses: safeNumber(rawStats.totalExpenses),
-    totalApiSpend: safeNumber(rawStats.totalApiSpend),
-    monthlyBudget: safeNumber(rawStats.monthlyBudget),
     newLeadsCount: safeNumber(rawStats.newLeadsCount),
     activeProjects: safeNumber(rawStats.activeProjects),
-    openTickets: safeNumber(rawStats.openTickets),
     totalClients: safeNumber(rawStats.totalClients),
     totalLeads: safeNumber(rawStats.totalLeads),
   };
 
   const projects = safeArray<{ id: string; name: string; status: string; progress: number; deadline: string | null; client: { name: string } }>(data.projects);
   const invoices = safeArray<{ id: string; invoiceNumber: string; status: string; total: number; client: { name: string }; dueDate: string }>(data.invoices);
-  const apiKeys = safeArray<{ id: string; keyName: string; currentSpend: number; monthlyBudget: number }>(data.apiKeys);
 
   // W9: Extract frequently-used stats to local variables to avoid redundant safeNumber() calls
-  const budget = stats.monthlyBudget;
-  const apiSpend = stats.totalApiSpend;
   const totalRevenue = stats.totalRevenue;
   const pendingAmount = stats.pendingAmount;
   const overdueAmount = stats.overdueAmount;
-  const totalExpenses = stats.totalExpenses;
   const activeProjects = stats.activeProjects;
   const totalClients = stats.totalClients;
   const newLeadsCount = stats.newLeadsCount;
   const totalLeads = stats.totalLeads;
-  const openTickets = stats.openTickets;
 
   const formatCurrency = (n: number) => `₹${n.toLocaleString("en-IN")}`;
 
@@ -178,10 +172,15 @@ export default function DashboardPage() {
 
       {/* Stats Cards - Different for developers vs admins */}
       {/* DASH-001: All stat cards are now clickable with onClick, cursor-pointer, hover effect */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      {/* Redesign: Switched to a 3-col grid so admins get a perfectly balanced row (3 cards). */}
+      {/* For developers (single Active Projects stat), the card spans full width to stay prominent and avoid gaps. */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card
           onClick={() => router.push("/dashboard/projects")}
-          className="cursor-pointer hover:shadow-md transition-shadow liquid-glass-card"
+          className={cn(
+            "cursor-pointer hover:shadow-md transition-shadow liquid-glass-card",
+            !isAdminUser && "sm:col-span-2 lg:col-span-3"
+          )}
         >
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
@@ -198,7 +197,7 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        {isAdminUser ? (
+        {isAdminUser && (
           <>
             <Card
               onClick={() => router.push("/dashboard/crm")}
@@ -236,26 +235,6 @@ export default function DashboardPage() {
                   <span>Pending: {formatCurrency(pendingAmount)}</span>
                   {overdueAmount > 0 && <span className="text-red-500">Overdue: {formatCurrency(overdueAmount)}</span>}
                 </div>
-              </CardContent>
-            </Card>
-          </>
-        ) : (
-          <>
-            <Card
-              onClick={() => router.push("/dashboard/projects")}
-              className="cursor-pointer hover:shadow-md transition-shadow liquid-glass-card"
-            >
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Open Tickets</p>
-                    <p className="text-2xl font-bold">{openTickets}</p>
-                  </div>
-                  <div className="h-10 w-10 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
-                    <AlertCircle className="h-5 w-5 text-orange-600" />
-                  </div>
-                </div>
-                <p className="text-xs text-muted-foreground mt-2">Support tickets in your projects</p>
               </CardContent>
             </Card>
           </>
@@ -319,7 +298,7 @@ export default function DashboardPage() {
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {/* Active Projects */}
-        <Card className="lg:col-span-3">
+        <Card className="md:col-span-2 lg:col-span-3 liquid-glass-card">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <CardTitle className="text-base">{isAdminUser ? "Active Projects" : "My Projects"}</CardTitle>
@@ -364,45 +343,11 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* Bottom section - only show API tracker and Invoices for admins */}
+      {/* Bottom section - Recent Invoices for admins (API Usage Tracker removed in dashboard redesign) */}
       {isAdminUser && (
-        <div className="grid gap-4 md:grid-cols-2">
-          {/* API Usage Tracker */}
-          <Card>
-            {/* DASH-006: Added "View All" button to API Usage Tracker header */}
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-base">API Usage Tracker</CardTitle>
-                  <CardDescription>Monthly budget and spending across all keys</CardDescription>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => router.push("/dashboard/api-keys")}>
-                  View All <ArrowRight className="h-3 w-3 ml-1" />
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div>
-                  <div className="flex flex-wrap justify-between gap-1 text-xs sm:text-sm mb-1">
-                    <span>Total Budget: ${budget.toFixed(2)}</span>
-                    <span>Spent: ${apiSpend.toFixed(2)} ({budget > 0 ? ((apiSpend / budget) * 100).toFixed(1) : 0}%)</span>
-                  </div>
-                  <Progress
-                    value={budget > 0 ? (apiSpend / budget) * 100 : 0}
-                    className="h-3"
-                  />
-                </div>
-                <div className="flex flex-wrap justify-between gap-1 text-xs text-muted-foreground">
-                  <span>Remaining: ${(budget - apiSpend).toFixed(2)}</span>
-                  <span>Expenses: {formatCurrency(totalExpenses)}</span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
+        <div className="grid gap-4 md:grid-cols-1">
           {/* Recent Invoices */}
-          <Card>
+          <Card className="liquid-glass-card">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base">Recent Invoices</CardTitle>
@@ -446,11 +391,11 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Developer-specific bottom section */}
+      {/* Developer-specific bottom section (Open Tickets card removed in dashboard redesign) */}
       {!isAdminUser && (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-1">
           {/* Quick Actions */}
-          <Card>
+          <Card className="liquid-glass-card">
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Quick Actions</CardTitle>
               <CardDescription>Common actions for your workflow</CardDescription>

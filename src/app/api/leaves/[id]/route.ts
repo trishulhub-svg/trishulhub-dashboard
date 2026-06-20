@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureTable } from "@/lib/auto-migrate"
+import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
 // PATCH /api/leaves/[id] - Update leave status (approve/reject/cancel)
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -32,6 +33,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
 
     // Wrap leave approval in transaction to prevent TOCTOU
+    const previousLeave = await db.leave.findUnique({ where: { id } })
     const leave = await db.$transaction(async (tx) => {
       const existingLeave = await tx.leave.findUnique({ where: { id } })
       if (!existingLeave) return null
@@ -78,6 +80,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (!leave) {
       return NextResponse.json({ error: "Leave not found" }, { status: 404 })
     }
+
+    // Audit: log leave status change (approve/reject/cancel) — fire-and-forget
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole,
+      department: "HR_PEOPLE", page: "leaves", action: "STATUS_CHANGE",
+      entityType: "Leave", entityId: id,
+      description: `Changed leave status: ${leave.leaveType} for ${leave.user?.name || leave.userId} (${previousLeave?.status || "unknown"} → ${status})`,
+      oldValue: previousLeave?.status || undefined,
+      newValue: status,
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+    })
 
     // Notify the employee about the leave decision (fire-and-forget)
     if (status === "APPROVED" || status === "REJECTED") {
@@ -141,14 +154,22 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
       if (!isAdmin(userRole) && leave.userId !== userId) {
         throw new Error("You can only delete your own leave requests")
       }
-
       await tx.leave.delete({ where: { id } })
-      return true
+      return leave
     })
 
     if (result === null) {
       return NextResponse.json({ error: "Leave not found" }, { status: 404 })
     }
+
+    // Audit: log leave deletion (fire-and-forget)
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole,
+      department: "HR_PEOPLE", page: "leaves", action: "DELETE",
+      entityType: "Leave", entityId: id,
+      description: `Deleted leave request (${result.leaveType}) for ${result.userId}`,
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+    })
 
     return NextResponse.json({ success: true })
   } catch (error: unknown) {

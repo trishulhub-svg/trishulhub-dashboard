@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { ensureTable } from "@/lib/auto-migrate"
 import { rateLimit } from "@/lib/rate-limit"
+import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
 // W32: Standardized time validation regex (validates HH:MM with proper hour/minute ranges)
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/
@@ -99,6 +100,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       })
     })
 
+    // Audit: log availability update (fire-and-forget)
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole,
+      department: "HR_PEOPLE", page: "availability", action: "UPDATE",
+      entityType: "Availability", entityId: id,
+      description: `Updated availability for user ${availability.user?.name || availability.userId} (fields: ${Object.keys(data).join(", ") || "none"})`,
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+    })
+
     return NextResponse.json(availability)
   } catch (error: unknown) {
     console.error("[availability] PATCH error:", error instanceof Error ? error.message : String(error))
@@ -133,12 +143,22 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
     const { id } = await params
 
-    await db.$transaction(async (tx) => {
-      const existing = await tx.availability.findUnique({ where: { id } })
-      if (!existing) {
-        throw new Error("NOT_FOUND")
-      }
-      await tx.availability.delete({ where: { id } })
+    // Fetch existing record before deletion (for audit log) — outside the transaction
+    // so TypeScript can correctly narrow the type across the async boundary.
+    const existingRecord = await db.availability.findUnique({ where: { id } })
+    if (!existingRecord) {
+      return NextResponse.json({ error: "Availability not found" }, { status: 404 })
+    }
+
+    await db.availability.delete({ where: { id } })
+
+    // Audit: log availability deletion (fire-and-forget)
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole,
+      department: "HR_PEOPLE", page: "availability", action: "DELETE",
+      entityType: "Availability", entityId: id,
+      description: `Deleted availability for user ${existingRecord.userId}: day ${existingRecord.dayOfWeek}, ${existingRecord.startTime}–${existingRecord.endTime}`,
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
     })
 
     return NextResponse.json({ success: true })

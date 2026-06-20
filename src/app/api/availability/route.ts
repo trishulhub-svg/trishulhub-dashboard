@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { ensureTable } from "@/lib/auto-migrate"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
+import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
 // W32: Standardized time validation regex (validates HH:MM with proper hour/minute ranges)
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/
@@ -149,6 +150,15 @@ export async function POST(req: NextRequest) {
           user: { select: { id: true, name: true, email: true, avatar: true } },
         },
       })
+    })
+
+    // Audit: log availability entry creation (fire-and-forget)
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole,
+      department: "HR_PEOPLE", page: "availability", action: "CREATE",
+      entityType: "Availability", entityId: availability.id,
+      description: `Created availability for user ${availability.user?.name || userId}: day ${dayOfWeek}, ${startTime}–${endTime}`,
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
     })
 
     return NextResponse.json(availability, { status: 201 })
