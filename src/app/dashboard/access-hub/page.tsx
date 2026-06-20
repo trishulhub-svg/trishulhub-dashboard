@@ -869,7 +869,78 @@ function AccessHubContent() {
 
           {/* ═══════════ TAB 2: PROTOCOL & RESOURCES ═══════════ */}
           <TabsContent value="protocol" className="space-y-5 mt-2">
-            {/* Protocol PDF Card */}
+            {/* Protocol v12 Card — the new OTP-based protocol */}
+            <Card className="overflow-hidden border-border/60 shadow-sm">
+              <div className="h-1 bg-gradient-to-r from-emerald-500 to-teal-600" />
+              <CardHeader className="pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+                    <FileText className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                  <div className="flex-1">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      Protocol v12
+                      <Badge variant="default" className="text-[10px] bg-emerald-500/10 text-emerald-600 border-emerald-500/20">Active</Badge>
+                    </CardTitle>
+                    <CardDescription className="text-xs">OTP-based, dashboard-integrated workspace protocol</CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 p-2.5 bg-muted/40 rounded-lg">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium">GitHub Repository</p>
+                      <a href="https://github.com/trishulhub-svg/trishul-protocol-v12" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-mono">
+                        trishulhub-svg/trishul-protocol-v12
+                      </a>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 p-2.5 bg-muted/40 rounded-lg">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium">Activation Flow</p>
+                      <p className="text-xs text-muted-foreground">OTP via email → JWT → /api/agent/* calls</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 p-2.5 bg-muted/40 rounded-lg">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium">Self-Healing</p>
+                      <p className="text-xs text-muted-foreground">Type /resume if GLM forgets — rebuilds full state</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 p-2.5 bg-muted/40 rounded-lg">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium">Commands</p>
+                      <p className="text-xs text-muted-foreground">/start, /end, /endproject, /resume, /refresh, /docu, /demo, +4 more</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button onClick={() => window.open("https://github.com/trishulhub-svg/trishul-protocol-v12/blob/main/README.md", "_blank")} variant="outline" size="sm" className="flex-1 min-w-[120px]">
+                    <FileText className="h-3.5 w-3.5 mr-1.5" /> View README
+                  </Button>
+                  <Button onClick={() => window.open("https://github.com/trishulhub-svg/trishul-protocol-v12/blob/main/commands/start.md", "_blank")} variant="outline" size="sm" className="flex-1 min-w-[120px]">
+                    <FileText className="h-3.5 w-3.5 mr-1.5" /> View /start
+                  </Button>
+                  <Button onClick={() => window.open("https://github.com/trishulhub-svg/trishul-protocol-v12/blob/main/rules.json", "_blank")} variant="outline" size="sm" className="flex-1 min-w-[120px]">
+                    <FileText className="h-3.5 w-3.5 mr-1.5" /> View Rules
+                  </Button>
+                </div>
+                <div className="pt-3 border-t border-border/50">
+                  <p className="text-xs text-muted-foreground">
+                    <strong>How to use:</strong> In any GLM session, tell the AI to read the Protocol v12 README.
+                    It will ask for your email, send an OTP, authenticate you, and auto clock-in.
+                    Type /end to clock out. Type /resume if the GLM forgets.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Legacy Protocol PDF Card (for historical reference) */}
             <Card className="overflow-hidden border-border/60 shadow-sm">
               <div className="h-1 bg-gradient-to-r from-rose-500 to-red-600" />
               <CardHeader className="pb-3">
