@@ -94,9 +94,6 @@ export async function GET(req: NextRequest) {
     const myApprovalItems = myPendingLeaves
     if (myApprovalItems > 0) badges["/dashboard/approvals"] = myApprovalItems
 
-    // Meetings: could add meeting count later if needed
-    // For now, no badge on meetings
-
     return NextResponse.json(badges)
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error"

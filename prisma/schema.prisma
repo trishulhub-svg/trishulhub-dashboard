@@ -1,8 +1,8 @@
 // TODO: Convert to Prisma enums when feasible: UserRole, ProjectStatus, TaskStatus, TaskPriority,
-// MeetingStatus, MeetingType, InvoiceStatus,
+// InvoiceStatus,
 // LeadStatus, ClientStatus, ApprovalStatus, ApiKeyStatus, ApiKeyProvider,
 // LeaveType, LeaveRequestType, ExpenseCategory, SubscriptionFrequency, SubscriptionStatus,
-// DealStage, Currency, PaymentMethod, NotificationType, RsvpStatus, TimetableCategory,
+// DealStage, Currency, PaymentMethod, NotificationType,
 // ProjectMemberRole, TrainingTestLevel, AssignmentStatus, etc.
 
 generator client {
@@ -35,8 +35,6 @@ model User {
   notifications      Notification[]
   approvalActions    Approval[]       @relation("ApprovalActions")
   timeEntries        TimeEntry[]
-  organizedMeetings  Meeting[]
-  meetingAttendances MeetingAttendee[]
   projectMemberships ProjectMember[]
   emailVerifications EmailVerification[]
   passwordChanges    PasswordChange[]
@@ -51,8 +49,6 @@ model User {
   trainingTests        TrainingTest[]     @relation("TrainingTestGenerator")
   trainingAssigned     TrainingAssignment[] @relation("TrainingEmployee")
   trainingAssignedBy   TrainingAssignment[] @relation("TrainingAssigner")
-  personalTimetableTasks PersonalTimetableTask[]
-  timetableSettings      TimetableSettings?
   expenses                Expense[]             @relation("ExpenseEmployee")
   protocolVersions    ProtocolVersion[]  @relation("ProtocolVersions")
   protocolInvites     ProtocolInvite[]     @relation("ProtocolInvites")
@@ -425,7 +421,6 @@ model Project {
   client       Client?       @relation(fields: [clientId], references: [id])
   invoices     Invoice[]
   timeEntries  TimeEntry[]
-  meetings     Meeting[]
   expenses     Expense[]
   subscriptions Subscription[]
   members      ProjectMember[]
@@ -810,49 +805,6 @@ model NotificationPreference {
   @@index([userId])
 }
 
-// ━━ Meetings ━━
-model Meeting {
-  id           String   @id @default(cuid())
-  title        String
-  description  String?
-  date         DateTime
-  startTime    String   // Format: "HH:mm" e.g., "09:30"
-  endTime      String?  // Format: "HH:mm" e.g., "10:30"
-  organizerId  String
-  meetingType  String   @default("VIRTUAL") // VIRTUAL, IN_PERSON, PHONE
-  meetingLink  String?  // Google Meet link
-  projectId    String?
-  status       String   @default("SCHEDULED") // SCHEDULED, IN_PROGRESS, COMPLETED, CANCELLED
-  notes        String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  organizer    User     @relation(fields: [organizerId], references: [id], onDelete: Cascade)
-  project      Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  attendees    MeetingAttendee[]
-
-  @@index([organizerId])
-  @@index([projectId])
-  @@index([date])
-  @@index([status])
-  @@map("Meeting")
-}
-
-model MeetingAttendee {
-  id         String  @id @default(cuid())
-  meetingId  String
-  userId     String
-  rsvpStatus String  @default("PENDING") // PENDING, ACCEPTED, DECLINED
-
-  meeting    Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-  user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([meetingId, userId])
-  @@index([meetingId])
-  @@index([userId])
-  @@map("MeetingAttendee")
-}
-
 // ━━ Expenses ━━
 model Expense {
   id          String   @id @default(cuid())
@@ -1151,42 +1103,6 @@ model TestAttempt {
 
   @@index([assignmentId])
   @@map("TestAttempt")
-}
-
-// ━━ Personalized Time Table ━━
-model PersonalTimetableTask {
-  id          String   @id @default(cuid())
-  userId      String
-  title       String
-  description String?
-  startTime   DateTime // When the task starts
-  endTime     DateTime // When the task ends
-  date        DateTime // The date this task belongs to (for filtering)
-  priority    String   @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
-  status      String   @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, CANCELLED
-  category    String   @default("PERSONAL") // PERSONAL, HEALTH, FINANCE, STUDY, SOCIAL, OTHER, WORK_LOCAL
-  completedAt DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([userId, date])
-  @@index([userId, status])
-  @@index([date])
-}
-
-model TimetableSettings {
-  id              String  @id @default(cuid())
-  userId          String  @unique
-  sleepHours      Float   @default(8)
-  workSplitPercent Float  @default(60) // % of available time for work (rest for personal)
-  weekStartsOn    String  @default("MONDAY") // MONDAY or SUNDAY
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  user            User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 // ━━ Protocol Management ━━

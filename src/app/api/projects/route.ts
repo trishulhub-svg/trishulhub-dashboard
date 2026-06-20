@@ -365,12 +365,6 @@ export async function DELETE(req: NextRequest) {
       await tx.projectMember.deleteMany({ where: { projectId: id } })
       // Delete time entries
       await tx.timeEntry.deleteMany({ where: { projectId: id } })
-      // Delete meetings + attendees
-      const meetings = await tx.meeting.findMany({ where: { projectId: id }, select: { id: true } })
-      for (const meeting of meetings) {
-        await tx.meetingAttendee.deleteMany({ where: { meetingId: meeting.id } })
-      }
-      await tx.meeting.deleteMany({ where: { projectId: id } })
       // Delete expenses and subscriptions
       await tx.expense.deleteMany({ where: { projectId: id } })
       await tx.subscription.deleteMany({ where: { projectId: id } })

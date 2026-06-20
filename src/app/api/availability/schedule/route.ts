@@ -57,8 +57,6 @@ export async function GET(req: NextRequest) {
       ensureTable("AvailabilityOverride"),
       ensureTable("Task"),
       ensureTable("TimeEntry"),
-      ensureTable("Meeting"),
-      ensureTable("MeetingAttendee"),
       ensureTable("Leave"),
       ensureTable("LeaveRequest"),
     ])
@@ -137,7 +135,6 @@ async function handleDailyView(dateStr: string, dateObj: Date, userId: string) {
     timeEntries,
     leaves,
     leaveRequests,
-    meetingAttendances,
   ] = await Promise.all([
     // 1. Weekly availability for this day
     db.availability.findMany({
@@ -184,30 +181,6 @@ async function handleDailyView(dateStr: string, dateObj: Date, userId: string) {
         endDate: { gte: startOfDay },
       },
       orderBy: { createdAt: "desc" },
-    }),
-
-    // 6. Meetings the user is attending on this date
-    db.meetingAttendee.findMany({
-      where: {
-        userId,
-        meeting: {
-          date: { gte: startOfDay, lte: endOfDay },
-          status: { in: ["SCHEDULED", "IN_PROGRESS"] },
-        },
-      },
-      include: {
-        meeting: {
-          select: {
-            id: true,
-            title: true,
-            startTime: true,
-            endTime: true,
-            meetingType: true,
-            status: true,
-          },
-        },
-      },
-      orderBy: { meeting: { startTime: "asc" } },
     }),
   ])
 
@@ -290,14 +263,6 @@ async function handleDailyView(dateStr: string, dateObj: Date, userId: string) {
       status: te.status,
       projectName: te.project?.name || null,
     })),
-    meetings: meetingAttendances.map(ma => ({
-      id: ma.meeting.id,
-      title: ma.meeting.title,
-      startTime: ma.meeting.startTime,
-      endTime: ma.meeting.endTime,
-      meetingType: ma.meeting.meetingType,
-      status: ma.meeting.status,
-    })),
     totalScheduledHours,
     totalWorkedHours: Math.round(totalWorkedHours * 100) / 100,
   }
@@ -361,7 +326,6 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
   const [
     allAvailabilities,
     allOverrides,
-    allMeetingAttendees,
     allLeaves,
   ] = await Promise.all([
     // Availability for all users for all days of the week
@@ -381,20 +345,6 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
         date: { gte: weekStart, lte: weekEnd },
       },
       orderBy: [{ userId: "asc" }, { date: "asc" }],
-    }),
-
-    // Meeting attendees for meetings within the week
-    db.meetingAttendee.findMany({
-      where: {
-        userId: { in: userIds },
-        meeting: {
-          date: { gte: weekStart, lte: weekEnd },
-          status: { in: ["SCHEDULED", "IN_PROGRESS"] },
-        },
-      },
-      include: {
-        meeting: { select: { date: true } },
-      },
     }),
 
     // Approved leaves overlapping the week
@@ -424,14 +374,6 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
       return [`${o.userId}:${formatDateOnly(overrideDate)}`, o]
     })
   )
-  const meetingsByUserAndDay = new Map<string, typeof allMeetingAttendees>()
-  for (const ma of allMeetingAttendees) {
-    const mDate = ma.meeting.date instanceof Date ? ma.meeting.date : new Date(ma.meeting.date)
-    const key = `${ma.userId}:${formatDateOnly(mDate)}`
-    const arr = meetingsByUserAndDay.get(key) || []
-    arr.push(ma)
-    meetingsByUserAndDay.set(key, arr)
-  }
   const leavesByUser = new Map<string, typeof allLeaves>()
   for (const l of allLeaves) {
     const arr = leavesByUser.get(l.userId) || []
@@ -465,9 +407,6 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
         const lEnd = l.endDate instanceof Date ? l.endDate : new Date(l.endDate)
         return lStart <= dayEnd && lEnd >= dayStart
       })
-
-      // Meetings on this day using pre-built map
-      const dayMeetings = (meetingsByUserAndDay.get(`${user.id}:${dayStr}`) || []).filter(Boolean)
 
       // Determine effective availability
       let effectiveAvailabilities: { id: string; startTime: string; endTime: string; isAvailable: boolean; hours: number }[] = userAvailabilities.map(a => ({
@@ -518,7 +457,6 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
             }
           : null,
         isOnLeave: onLeave || isUnavailable,
-        meetingCount: dayMeetings.length,
         totalHours: Math.round(totalHours * 100) / 100,
       }
     }

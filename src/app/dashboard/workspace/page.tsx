@@ -537,6 +537,82 @@ export default function TrishulWorkspacePage() {
     return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
   };
 
+  /* ═══════════════════════════════════════
+     LIVE OPERATIONS — real data from /api/workspace/live-ops
+     Polls every 10s for active users (clocked-in TimeEntries) and
+     recently-active projects. The "time" state already drives a 1s
+     re-render, so the per-user elapsed display updates naturally.
+     ═══════════════════════════════════════ */
+  type LiveUser = {
+    userId: string;
+    name: string;
+    projectId: string | null;
+    projectName: string | null;
+    clockInAt: string;
+    elapsedSec: number;
+  };
+  type LiveProject = {
+    projectId: string;
+    name: string;
+    progress: number;
+    status: string;
+    activeUserCount: number;
+    isActive: boolean;
+  };
+
+  const [liveUsers, setLiveUsers] = useState<LiveUser[]>([]);
+  const [liveProjects, setLiveProjects] = useState<LiveProject[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchLiveOps = async () => {
+      try {
+        const res = await fetch("/api/workspace/live-ops", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        setLiveUsers(Array.isArray(data.activeUsers) ? data.activeUsers : []);
+        setLiveProjects(Array.isArray(data.liveProjects) ? data.liveProjects : []);
+      } catch {
+        /* silent — keep last known state */
+      }
+    };
+    fetchLiveOps();
+    const id = setInterval(fetchLiveOps, 10000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+
+  /* Helper: format seconds → "Xh Ym" (e.g. 5400s → "1h 30m") */
+  const formatElapsedHm = (sec: number) => {
+    const safe = Math.max(0, Math.floor(sec));
+    const h = Math.floor(safe / 3600);
+    const m = Math.floor((safe % 3600) / 60);
+    return `${h}h ${m.toString().padStart(2, "0")}m`;
+  };
+
+  /* Helper: format ISO → HH:MM:SS (24h) for feed timestamps */
+  const formatClockInTime = (iso: string) => {
+    try {
+      return new Date(iso).toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+      });
+    } catch {
+      return "--:--:--";
+    }
+  };
+
+  /* Whether the currently-logged-in user is clocked in */
+  const currentUserId = session?.user?.id;
+  const currentUserIsLive = Boolean(
+    currentUserId && liveUsers.some((u) => u.userId === currentUserId)
+  );
+
   /* ── Bar positions for smooth reordering (absolute positioning) ── */
   const statusBarsRef = useRef<HTMLDivElement>(null);
   const [barStep, setBarStep] = useState(28); // px — will be measured
@@ -618,6 +694,13 @@ export default function TrishulWorkspacePage() {
                   <span className={`ws-name-highlight ws-name-highlight--${mode}`}>
                     {userName}
                   </span>
+                  {currentUserIsLive && (
+                    <span
+                      className="ws-live-user-dot ws-live-user-dot--lg"
+                      aria-label="You are clocked in"
+                      title="You are clocked in"
+                    />
+                  )}
                 </h1>
                 <div className={`ws-tagline ws-tagline--${mode}`}>
                   <span className="ws-tagline-bar" />
@@ -735,38 +818,44 @@ export default function TrishulWorkspacePage() {
                 </div>
               </div>
               <div ref={feedRef} className="ws-feed-scroll">
-                {aiLogs.map((line, i) => (
-                  <div key={i} className={`ws-feed-line ws-feed-line--enter`}>
-                    <span className={`ws-feed-time ws-feed-time--${mode}`}>
-                      {new Date(Date.now() - (aiLogs.length - 1 - i) * 3000)
-                        .toLocaleTimeString("en-US", {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                          second: "2-digit",
-                          hour12: false,
-                        })}
+                {liveUsers.length === 0 ? (
+                  <div className="ws-feed-line ws-feed-line--empty">
+                    <span className={`ws-feed-msg ws-feed-msg--${mode} ws-feed-msg--idle`}>
+                      No one is currently working
                     </span>
-                    <span className={`ws-feed-prefix ws-feed-prefix--${line.type}`}>
-                      [{line.prefix}]
-                    </span>
-                    <span className={`ws-feed-msg ws-feed-msg--${mode}`}>
-                      {line.msg}
-                    </span>
-                    {line.type === "success" && (
-                      <span className="ws-feed-check">&#10003;</span>
-                    )}
-                    {line.type === "warn" && (
-                      <span className="ws-feed-warn">&#9888;</span>
-                    )}
-                    {line.type === "idle" && (
-                      <span className="ws-feed-idle">···</span>
-                    )}
                   </div>
-                ))}
-                {aiLogs.length > 0 && (
-                  <div className="ws-feed-line ws-feed-line--cursor">
-                    <span className="ws-feed-blink">&#9608;</span>
-                  </div>
+                ) : (
+                  liveUsers.map((u, i) => {
+                    const elapsed =
+                      Math.max(
+                        0,
+                        Math.floor(
+                          (Date.now() - new Date(u.clockInAt).getTime()) / 1000
+                        )
+                      ) || u.elapsedSec;
+                    return (
+                      <div
+                        key={`${u.userId}-${i}`}
+                        className="ws-feed-line ws-feed-line--enter"
+                      >
+                        <span className={`ws-feed-time ws-feed-time--${mode}`}>
+                          {formatClockInTime(u.clockInAt)}
+                        </span>
+                        <span className="ws-feed-prefix ws-feed-prefix--info">
+                          {u.name}
+                        </span>
+                        <span
+                          className="ws-live-user-dot"
+                          aria-hidden
+                          title="Clocked in"
+                        />
+                        <span className={`ws-feed-msg ws-feed-msg--${mode}`}>
+                          working on {u.projectName ?? "no project"} (
+                          {formatElapsedHm(elapsed)})
+                        </span>
+                      </div>
+                    );
+                  })
                 )}
               </div>
             </div>
@@ -821,45 +910,48 @@ export default function TrishulWorkspacePage() {
                     8hr Horizon
                   </h3>
                 </div>
-                <span className={`ws-horizon-count ws-horizon-count--${mode}`}>2 tasks</span>
+                <span className={`ws-horizon-count ws-horizon-count--${mode}`}>
+                  {liveProjects.length} {liveProjects.length === 1 ? "project" : "projects"}
+                </span>
               </div>
               <div className="ws-horizon-list">
-                <div className="ws-horizon-task">
-                  <div className="ws-horizon-task-top">
-                    <span className="ws-horizon-task-prefix">[ZAI]</span>
-                    <span className={`ws-horizon-task-name ws-horizon-task-name--${mode}`}>
-                      Full-stack e-commerce build
+                {liveProjects.length === 0 ? (
+                  <div className="ws-horizon-task ws-horizon-task--empty">
+                    <span className={`ws-horizon-task-name ws-horizon-task-name--${mode} ws-feed-msg--idle`}>
+                      No active projects
                     </span>
                   </div>
-                  <div className="ws-horizon-task-meta">
-                    <span className="ws-horizon-timer">{horizonElapsed}</span>
-                    <span className="ws-horizon-badge">RUNNING</span>
-                    <span className={`ws-horizon-progress-label ws-horizon-progress-label--${mode}`}>
-                      step 18/42
-                    </span>
-                  </div>
-                  <div className={`ws-horizon-progress-track ws-horizon-progress-track--${mode}`}>
-                    <div className="ws-horizon-progress-fill" style={{ width: "43%" }} />
-                  </div>
-                </div>
-                <div className="ws-horizon-task">
-                  <div className="ws-horizon-task-top">
-                    <span className="ws-horizon-task-prefix">[BLUEPRINT]</span>
-                    <span className={`ws-horizon-task-name ws-horizon-task-name--${mode}`}>
-                      SaaS dashboard + auth flow
-                    </span>
-                  </div>
-                  <div className="ws-horizon-task-meta">
-                    <span className="ws-horizon-timer">{horizonElapsed2}</span>
-                    <span className="ws-horizon-badge">RUNNING</span>
-                    <span className={`ws-horizon-progress-label ws-horizon-progress-label--${mode}`}>
-                      step 7/28
-                    </span>
-                  </div>
-                  <div className={`ws-horizon-progress-track ws-horizon-progress-track--${mode}`}>
-                    <div className="ws-horizon-progress-fill" style={{ width: "25%" }} />
-                  </div>
-                </div>
+                ) : (
+                  liveProjects.slice(0, 3).map((p) => (
+                    <div className="ws-horizon-task" key={p.projectId}>
+                      <div className="ws-horizon-task-top">
+                        <span className={`ws-horizon-task-name ws-horizon-task-name--${mode}`}>
+                          {p.name}
+                        </span>
+                      </div>
+                      <div className="ws-horizon-task-meta">
+                        <span
+                          className={`ws-horizon-badge ${
+                            p.isActive ? "" : "ws-horizon-badge--paused"
+                          }`}
+                        >
+                          {p.isActive ? "RUNNING" : "PAUSED"}
+                        </span>
+                        {p.isActive && (
+                          <span className={`ws-horizon-progress-label ws-horizon-progress-label--${mode}`}>
+                            {p.activeUserCount} {p.activeUserCount === 1 ? "user" : "users"} active
+                          </span>
+                        )}
+                        <span className={`ws-horizon-progress-label ws-horizon-progress-label--${mode}`} style={{ marginLeft: p.isActive ? undefined : "auto" }}>
+                          {p.progress}%
+                        </span>
+                      </div>
+                      <div className={`ws-horizon-progress-track ws-horizon-progress-track--${mode}`}>
+                        <div className="ws-horizon-progress-fill" style={{ width: `${Math.min(100, Math.max(0, p.progress))}%` }} />
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
 
@@ -1604,6 +1696,39 @@ export default function TrishulWorkspacePage() {
           animation: ws-blink 1s step-end infinite;
         }
 
+        /* Empty-state line for the Live Operations feed */
+        .ws-feed-line--empty {
+          padding: 0.6rem 1rem;
+          justify-content: center;
+          opacity: 0.85;
+        }
+        .ws-feed-msg--idle {
+          font-style: italic;
+          opacity: 0.65;
+        }
+
+        /* Red blinking dot — indicates a user is currently clocked in.
+           Uses the existing @keyframes ws-blink (defined near .ws-cursor--blink). */
+        .ws-live-user-dot {
+          display: inline-block;
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: #ef4444;
+          box-shadow: 0 0 6px #ef4444;
+          animation: ws-blink 1s step-end infinite;
+          margin-left: 4px;
+          vertical-align: middle;
+          flex-shrink: 0;
+        }
+        /* Larger variant used next to the user's name in the workspace header */
+        .ws-live-user-dot--lg {
+          width: 9px;
+          height: 9px;
+          margin-left: 8px;
+          vertical-align: middle;
+        }
+
         /* 8hr Horizon Card */
         .ws-horizon-card { padding: 0; grid-column: 1 / -1; }
         @media (min-width: 1024px) {
@@ -1673,6 +1798,17 @@ export default function TrishulWorkspacePage() {
           border-radius: 4px;
           flex-shrink: 0;
           animation: ws-horizon-pulse 2s ease-in-out infinite;
+        }
+        /* PAUSED variant — gray, static (no pulse) for projects with no active users */
+        .ws-horizon-badge--paused {
+          color: var(--ws-text-dim);
+          background: rgba(128,128,128,0.12);
+          animation: none;
+        }
+        .ws-horizon-task--empty {
+          padding: 1rem;
+          justify-content: center;
+          text-align: center;
         }
         @keyframes ws-horizon-pulse {
           0%, 100% { opacity: 1; }

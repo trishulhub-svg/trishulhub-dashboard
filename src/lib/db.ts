@@ -65,64 +65,6 @@ export const db = new Proxy({} as PrismaClient, {
   },
 })
 
-// ── Auto-migration: Create timetable tables if they don't exist ──
-// This ensures the PersonalTimetableTask and TimetableSettings tables
-// are available even if Prisma migrations haven't been applied yet.
-let _timetableEnsured = false
-
-export async function ensureTimetableTables(): Promise<void> {
-  if (_timetableEnsured) return
-  try {
-    await db.$executeRawUnsafe(`
-      CREATE TABLE IF NOT EXISTS "PersonalTimetableTask" (
-        "id" TEXT NOT NULL PRIMARY KEY,
-        "userId" TEXT NOT NULL,
-        "title" TEXT NOT NULL,
-        "description" TEXT,
-        "startTime" DATETIME NOT NULL,
-        "endTime" DATETIME NOT NULL,
-        "date" DATETIME NOT NULL,
-        "priority" TEXT NOT NULL DEFAULT 'MEDIUM',
-        "status" TEXT NOT NULL DEFAULT 'PENDING',
-        "category" TEXT NOT NULL DEFAULT 'PERSONAL',
-        "completedAt" DATETIME,
-        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        "updatedAt" DATETIME NOT NULL
-      );
-    `)
-    await db.$executeRawUnsafe(`
-      CREATE TABLE IF NOT EXISTS "TimetableSettings" (
-        "id" TEXT NOT NULL PRIMARY KEY,
-        "userId" TEXT NOT NULL UNIQUE,
-        "sleepHours" REAL NOT NULL DEFAULT 8,
-        "workSplitPercent" REAL NOT NULL DEFAULT 60,
-        "weekStartsOn" TEXT NOT NULL DEFAULT 'MONDAY',
-        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        "updatedAt" DATETIME NOT NULL
-      );
-    `)
-    // Create indexes for performance
-    await db.$executeRawUnsafe(`
-      CREATE INDEX IF NOT EXISTS "idx_PersonalTimetableTask_userId_date" ON "PersonalTimetableTask"("userId", "date");
-    `)
-    await db.$executeRawUnsafe(`
-      CREATE INDEX IF NOT EXISTS "idx_PersonalTimetableTask_userId_status" ON "PersonalTimetableTask"("userId", "status");
-    `)
-    await db.$executeRawUnsafe(`
-      CREATE INDEX IF NOT EXISTS "idx_PersonalTimetableTask_date" ON "PersonalTimetableTask"("date");
-    `)
-    _timetableEnsured = true
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error)
-    if (msg.includes('already exists')) {
-      _timetableEnsured = true // Tables exist, no need to retry
-    } else {
-      console.error('[db] Failed to ensure timetable tables:', msg)
-      // Do NOT set _timetableEnsured — allow retry on next call
-    }
-  }
-}
-
 // ── Auto-migration: Ensure ProjectCredential table exists with correct schema ──
 // prisma db push is NOT run during Vercel build, so we must create tables manually.
 // Handles: table missing, table exists with missing columns (schema drift).

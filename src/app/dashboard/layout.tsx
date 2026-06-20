@@ -33,10 +33,8 @@ import {
   Eye,
   Briefcase,
   Clock,
-  Video,
   GraduationCap,
   BookOpen,
-  CalendarRange,
   KeyRound,
   ScrollText,
   FlaskConical,
@@ -114,8 +112,6 @@ const navGroups: NavGroup[] = [
     items: [
       { title: "Team", href: "/dashboard/team", icon: Users, roles: ["SUPER_ADMIN", "ADMIN"] },
       { title: "Time Tracking", href: "/dashboard/time-tracking", icon: Clock, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
-      { title: "Time Table", href: "/dashboard/timetable", icon: CalendarRange, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
-      { title: "Meetings", href: "/dashboard/meetings", icon: Video, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
     ],
   },
   {

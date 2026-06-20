@@ -30,8 +30,6 @@ const ALLOWED_TABLE_NAMES = new Set([
   "TimeEntry",
   "Attendance",
   "Notification",
-  "Meeting",
-  "MeetingAttendee",
   "Expense",
   "Subscription",
   "SmtpConfig",

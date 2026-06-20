@@ -6,8 +6,8 @@ import { useRouter } from "next/navigation";
 import { safeArray, safeText } from "@/lib/utils";
 import {
   Clock, Plus, Trash2, CalendarDays, AlertCircle, ChevronLeft, ChevronRight,
-  CheckCircle2, Circle, CalendarClock, Edit3, X, RefreshCw,
-  Users, BarChart3, Timer, Target, Video, FileText, Eye,
+  CalendarClock, Edit3, X, RefreshCw,
+  Users, BarChart3, Timer, FileText, Eye,
   MoreHorizontal, LayoutGrid, List, Copy, Filter,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -18,7 +18,6 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -116,9 +115,6 @@ interface WeekDayData {
   availability: { id: string; startTime: string; endTime: string; isAvailable: boolean; hours: number }[];
   override: { id: string; date: string; startTime: string | null; endTime: string | null; isAvailable: boolean; reason: string | null } | null;
   isOnLeave: boolean;
-  taskCount: number;
-  doneTaskCount: number;
-  meetingCount: number;
   totalHours: number;
 }
 
@@ -142,12 +138,9 @@ interface DailySchedule {
   overrides: { id: string; date: string; startTime: string | null; endTime: string | null; isAvailable: boolean; reason: string | null }[];
   isOnLeave: boolean;
   leaveInfo: unknown;
-  tasks: { id: string; title: string; status: string; priority: string; deadline: string; projectName: string | null; projectStatus: string | null }[];
   timeEntries: { id: string; description: string; clockIn: string; clockOut: string; totalHours: number; status: string; projectName: string | null }[];
-  meetings: { id: string; title: string; startTime: string; endTime: string; meetingType: string; status: string }[];
   totalScheduledHours: number;
   totalWorkedHours: number;
-  taskSummary: { total: number; done: number; inProgress: number; todo: number };
 }
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
@@ -194,25 +187,6 @@ function timeToMinutes(time: string): number {
   return h * 60 + m;
 }
 
-
-// ─── Task status config ───────────────────────────────────────────────────────
-
-const TASK_STATUS_STYLES: Record<string, { color: string; bg: string; darkBg: string; label: string }> = {
-  DONE: { color: "text-green-700", bg: "bg-green-100", darkBg: "dark:bg-green-900/30", label: "Done" },
-  IN_PROGRESS: { color: "text-sky-700", bg: "bg-sky-100", darkBg: "dark:bg-sky-900/30", label: "In Progress" },
-  TODO: { color: "text-gray-600", bg: "bg-gray-100", darkBg: "dark:bg-gray-800/50", label: "To Do" },
-  REVIEW: { color: "text-amber-700", bg: "bg-amber-100", darkBg: "dark:bg-amber-900/30", label: "Review" },
-  AWAITING_APPROVAL: { color: "text-purple-700", bg: "bg-purple-100", darkBg: "dark:bg-purple-900/30", label: "Awaiting" },
-};
-
-// ─── Priority config ───────────────────────────────────────────────────────────
-
-const PRIORITY_STYLES: Record<string, { color: string; label: string }> = {
-  CRITICAL: { color: "text-red-600", label: "Critical" },
-  HIGH: { color: "text-orange-600", label: "High" },
-  MEDIUM: { color: "text-yellow-600", label: "Medium" },
-  LOW: { color: "text-green-600", label: "Low" },
-};
 
 // ─── Main Component ────────────────────────────────────────────────────────────
 
@@ -1371,20 +1345,6 @@ export default function AvailabilityPage() {
                                         <span className="text-[10px] text-muted-foreground">Not Set</span>
                                       </div>
                                     )}
-                                    <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-auto pt-1 border-t border-border/50">
-                                      {(dayData.taskCount > 0 || dayData.doneTaskCount > 0) && (
-                                        <span className="flex items-center gap-0.5">
-                                          <CheckCircle2 className="h-2.5 w-2.5 text-green-500" />
-                                          {dayData.doneTaskCount}/{dayData.taskCount}
-                                        </span>
-                                      )}
-                                      {dayData.meetingCount > 0 && (
-                                        <span className="flex items-center gap-0.5">
-                                          <Video className="h-2.5 w-2.5 text-sky-500" />
-                                          {dayData.meetingCount}
-                                        </span>
-                                      )}
-                                    </div>
                                   </div>
                                 </TooltipTrigger>
                                 <TooltipContent side="bottom" className="max-w-[260px]">
@@ -1415,10 +1375,6 @@ export default function AvailabilityPage() {
                                         {dayData.override.reason && ` — ${dayData.override.reason}`}
                                       </div>
                                     )}
-                                    <div className="text-[10px] text-muted-foreground">
-                                      Tasks: {dayData.doneTaskCount}/{dayData.taskCount} done
-                                      {dayData.meetingCount > 0 && ` | Meetings: ${dayData.meetingCount}`}
-                                    </div>
                                   </div>
                                 </TooltipContent>
                               </Tooltip>
@@ -1532,7 +1488,7 @@ export default function AvailabilityPage() {
               )}
 
               {/* Stats cards */}
-              <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
+              <div className="grid gap-3 grid-cols-2">
                 <Card className="py-3 px-3 sm:px-4">
                   <div className="flex items-center gap-2 sm:gap-3">
                     <div className="h-8 w-8 sm:h-10 sm:w-10 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center shrink-0">
@@ -1555,60 +1511,10 @@ export default function AvailabilityPage() {
                     </div>
                   </div>
                 </Card>
-                <Card className="py-3 px-3 sm:px-4">
-                  <div className="flex items-center gap-2 sm:gap-3">
-                    <div className="h-8 w-8 sm:h-10 sm:w-10 rounded-lg bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center shrink-0">
-                      <Target className="h-4 w-4 text-violet-600 dark:text-violet-400" />
-                    </div>
-                    <div>
-                      <div className="text-xl sm:text-2xl font-bold">
-                        {dailySchedule.taskSummary.done}/{dailySchedule.taskSummary.total}
-                      </div>
-                      <div className="text-[10px] sm:text-xs text-muted-foreground">Tasks Done</div>
-                    </div>
-                  </div>
-                </Card>
-                <Card className="py-3 px-3 sm:px-4">
-                  <div className="flex items-center gap-2 sm:gap-3">
-                    <div className="h-8 w-8 sm:h-10 sm:w-10 rounded-lg bg-rose-100 dark:bg-rose-900/30 flex items-center justify-center shrink-0">
-                      <Video className="h-4 w-4 text-rose-600 dark:text-rose-400" />
-                    </div>
-                    <div>
-                      <div className="text-xl sm:text-2xl font-bold">{dailySchedule.meetings.length}</div>
-                      <div className="text-[10px] sm:text-xs text-muted-foreground">Meetings</div>
-                    </div>
-                  </div>
-                </Card>
               </div>
 
-              {/* Task completion progress */}
-              {dailySchedule.taskSummary.total > 0 && (
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium">Task Completion</span>
-                      <span className="text-sm text-muted-foreground">
-                        {Math.round((dailySchedule.taskSummary.done / dailySchedule.taskSummary.total) * 100)}%
-                      </span>
-                    </div>
-                    <Progress value={(dailySchedule.taskSummary.done / dailySchedule.taskSummary.total) * 100} className="h-2.5" />
-                    <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1">
-                        <CheckCircle2 className="h-3 w-3 text-green-500" /> {dailySchedule.taskSummary.done} done
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Circle className="h-3 w-3 text-sky-500" /> {dailySchedule.taskSummary.inProgress} in progress
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Circle className="h-3 w-3 text-gray-400" /> {dailySchedule.taskSummary.todo} to do
-                      </span>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
               {/* Timeline Area */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4">
                 {/* Left: Availability timeline */}
                 <Card>
                   <CardHeader className="pb-3">
@@ -1692,85 +1598,6 @@ export default function AvailabilityPage() {
                         ))}
                       </div>
                     )}
-                  </CardContent>
-                </Card>
-
-                {/* Right: Tasks & Meetings timeline */}
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                      <Target className="h-4 w-4 text-violet-500" />
-                      Tasks & Meetings
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <ScrollArea className="max-h-[400px]">
-                      <div className="space-y-2">
-                        {dailySchedule.tasks.length === 0 && dailySchedule.meetings.length === 0 && (
-                          <div className="text-center py-6 text-muted-foreground text-sm">
-                            <FileText className="h-8 w-8 mx-auto opacity-30 mb-2" />
-                            No tasks or meetings for this day
-                          </div>
-                        )}
-
-                        {dailySchedule.tasks.map((task) => {
-                          const statusStyle = TASK_STATUS_STYLES[task.status] || TASK_STATUS_STYLES.TODO;
-                          const priorityStyle = PRIORITY_STYLES[task.priority] || PRIORITY_STYLES.MEDIUM;
-                          return (
-                            <div
-                              key={task.id}
-                              className={`p-2.5 rounded-md border ${statusStyle.bg} ${statusStyle.darkBg} transition-colors`}
-                            >
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="min-w-0 flex-1">
-                                  <div className={`text-sm font-medium ${task.status === "DONE" ? "line-through text-muted-foreground" : ""}`}>
-                                    {safeText(task.title, "Untitled Task")}
-                                  </div>
-                                  <div className="flex items-center gap-2 mt-1">
-                                    <Badge className={`text-[9px] px-1.5 py-0 ${statusStyle.bg} ${statusStyle.darkBg} ${statusStyle.color} border-0`}>
-                                      {statusStyle.label}
-                                    </Badge>
-                                    <Badge className={`text-[9px] px-1.5 py-0 bg-transparent border-0 ${priorityStyle.color}`}>
-                                      {priorityStyle.label}
-                                    </Badge>
-                                    {task.projectName && (
-                                      <span className="text-[10px] text-muted-foreground truncate">
-                                        {safeText(task.projectName)}
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                                {task.status === "DONE" && (
-                                  <CheckCircle2 className="h-4 w-4 text-green-500 flex-shrink-0 mt-0.5" />
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-
-                        {dailySchedule.meetings.map((meeting) => (
-                          <div
-                            key={meeting.id}
-                            className="p-2.5 rounded-md border bg-sky-50 dark:bg-sky-900/20 border-sky-200 dark:border-sky-800"
-                          >
-                            <div className="flex items-start gap-2">
-                              <Video className="h-4 w-4 text-sky-500 flex-shrink-0 mt-0.5" />
-                              <div className="min-w-0">
-                                <div className="text-sm font-medium">{safeText(meeting.title, "Meeting")}</div>
-                                <div className="text-xs text-muted-foreground mt-0.5">
-                                  {safeText(meeting.startTime)} – {safeText(meeting.endTime)}
-                                  {meeting.meetingType && (
-                                    <Badge className="ml-2 text-[9px] px-1.5 py-0 bg-sky-100 text-sky-600 dark:bg-sky-900/40 dark:text-sky-300 border-0">
-                                      {safeText(meeting.meetingType)}
-                                    </Badge>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </ScrollArea>
                   </CardContent>
                 </Card>
               </div>
@@ -2144,21 +1971,10 @@ export default function AvailabilityPage() {
               )}
 
               {/* Stats row */}
-              <div className="grid grid-cols-3 gap-3">
-                <div className="text-center p-2.5 rounded-lg bg-muted/30">
-                  <div className="text-lg font-bold">{selectedDayDetail.dayData.doneTaskCount}<span className="text-muted-foreground font-normal">/{selectedDayDetail.dayData.taskCount}</span></div>
-                  <div className="text-[10px] text-muted-foreground">Tasks</div>
-                  {selectedDayDetail.dayData.taskCount > 0 && (
-                    <Progress value={(selectedDayDetail.dayData.doneTaskCount / selectedDayDetail.dayData.taskCount) * 100} className="h-1 mt-1" />
-                  )}
-                </div>
+              <div className="grid grid-cols-1 gap-3">
                 <div className="text-center p-2.5 rounded-lg bg-muted/30">
                   <div className="text-lg font-bold">{selectedDayDetail.dayData.totalHours}h</div>
                   <div className="text-[10px] text-muted-foreground">Scheduled</div>
-                </div>
-                <div className="text-center p-2.5 rounded-lg bg-muted/30">
-                  <div className="text-lg font-bold">{selectedDayDetail.dayData.meetingCount}</div>
-                  <div className="text-[10px] text-muted-foreground">Meetings</div>
                 </div>
               </div>
 

@@ -2087,7 +2087,7 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Project</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete this project and ALL related data including tasks, team members, time entries, meetings, expenses, and invoices. This action cannot be undone.
+              This will permanently delete this project and ALL related data including tasks, team members, time entries, expenses, and invoices. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -1240,7 +1240,6 @@ export default function SettingsPage() {
                 {[
                   { key: "emailNotifications", label: "Email Notifications", desc: "Receive email for important updates" },
                   { key: "budgetAlerts", label: "Budget Alerts", desc: "Get notified when expenses approach budget limits" },
-                  { key: "meetingReminders", label: "Meeting Reminders", desc: "Reminders before scheduled meetings" },
                   { key: "taskReminders", label: "Task Updates", desc: "Notifications when tasks are assigned or updated" },
                   { key: "approvalAlerts", label: "Approval Requests", desc: "Alerts when approvals are pending" },
                   { key: "invoiceReminders", label: "Invoice Updates", desc: "Notifications for invoice status changes" },

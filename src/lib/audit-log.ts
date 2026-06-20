@@ -10,7 +10,7 @@ import { db } from "@/lib/db"
 // ── Department Mapping ──
 export const AUDIT_DEPARTMENTS = {
   BUSINESS: { label: "Business", pages: ["invoices", "clients", "leads", "contacts", "deals", "contracts", "subscriptions", "expenses", "finance"] },
-  TEAM_WORK: { label: "Team & Work", pages: ["projects", "tasks", "time-tracking", "meetings", "approvals"] },
+  TEAM_WORK: { label: "Team & Work", pages: ["projects", "tasks", "time-tracking", "approvals"] },
   HR_PEOPLE: { label: "HR & People", pages: ["team", "leaves", "availability"] },
   LEARNING: { label: "Learning", pages: ["training", "my-training"] },
   SYSTEM: { label: "System", pages: ["settings", "api-keys", "workspace", "access-hub", "files", "protocol", "credentials", "notifications"] },

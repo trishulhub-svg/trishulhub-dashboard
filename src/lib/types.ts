@@ -187,10 +187,6 @@ export type LegacyLeaveType = "CASUAL" | "SICK" | "PAID";
 
 export type AttendanceStatus = "PRESENT" | "ABSENT" | "HALF_DAY" | "LEAVE" | "NO_SCHEDULE";
 
-export type MeetingStatus = "SCHEDULED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
-export type MeetingType = "VIRTUAL" | "IN_PERSON" | "PHONE";
-export type RsvpStatus = "PENDING" | "ACCEPTED" | "DECLINED";
-
 export type TrainingTestLevel = "LOW" | "MEDIUM" | "HIGH";
 export type TrainingDocumentStatus = "DRAFT" | "READY" | "ARCHIVED";
 export type AssignmentStatus = "ASSIGNED" | "READ" | "TEST_STARTED" | "COMPLETED" | "PASSED" | "FAILED";

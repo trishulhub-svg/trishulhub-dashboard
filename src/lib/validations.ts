@@ -261,80 +261,6 @@ export const updateTimeEntrySchema = z.object({
   status: z.enum(["ACTIVE", "COMPLETED"]).optional(),
 })
 
-// W32: Time format validation regex (HH:mm with proper hour/minute ranges)
-const timeFormat = z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Time must be in HH:mm format (00:00–23:59)")
-
-export const createMeetingSchema = z.object({
-  title: z.string().min(1, "Meeting title is required").max(200),
-  description: z.string().max(2000).optional(),
-  date: z.string().min(1, "Date is required"),
-  startTime: timeFormat.min(1, "Start time is required"),
-  endTime: timeFormat.optional(),
-  meetingType: z.enum(["VIRTUAL", "IN_PERSON", "PHONE"]).optional(),
-  meetingLink: z.string()
-    .max(2048)
-    .url("Must be a valid URL")
-    .refine((url) => /^https?:\/\//.test(url), { message: "Must use http:// or https://" })
-    .optional()
-    .or(z.literal("")),
-  projectId: z.string().optional(),
-  attendeeIds: z.array(z.string().min(1)).max(50, "Maximum 50 attendees per meeting").optional(),
-  externalAttendeeEmails: z.array(z.string().email("Invalid email address")).max(20, "Maximum 20 external attendees").optional(),
-  notes: z.string().max(2000).optional(),
-}).refine(
-  (data) => {
-    if (data.startTime && data.endTime) {
-      const [startH, startM] = data.startTime.split(":").map(Number)
-      const [endH, endM] = data.endTime.split(":").map(Number)
-      const startMinutes = startH * 60 + startM
-      const endMinutes = endH * 60 + endM
-      // If end time is less than start time, it means the meeting goes past midnight (overnight)
-      if (endMinutes <= startMinutes) {
-        return endMinutes !== startMinutes // valid as long as not the exact same time (0 min duration)
-      }
-      return true
-    }
-    return true
-  },
-  { message: "End time must be after start time", path: ["endTime"] }
-)
-
-export const updateMeetingSchema = z.object({
-  id: z.string().min(1),
-  title: z.string().min(1).max(200).optional(),
-  description: z.string().max(2000).optional(),
-  date: z.string().optional(),
-  startTime: timeFormat.optional(),
-  endTime: timeFormat.optional(),
-  meetingType: z.enum(["VIRTUAL", "IN_PERSON", "PHONE"]).optional(),
-  meetingLink: z.string()
-    .max(2048)
-    .url("Must be a valid URL")
-    .refine((url) => /^https?:\/\//.test(url), { message: "Must use http:// or https://" })
-    .optional()
-    .or(z.literal("")),
-  projectId: z.string().optional(),
-  status: z.enum(["SCHEDULED", "IN_PROGRESS", "COMPLETED", "CANCELLED"]).optional(),
-  attendeeIds: z.array(z.string().min(1)).max(50, "Maximum 50 attendees per meeting").optional(),
-  notes: z.string().max(2000).optional(),
-}).refine(
-  (data) => {
-    if (data.startTime && data.endTime) {
-      const [startH, startM] = data.startTime.split(":").map(Number)
-      const [endH, endM] = data.endTime.split(":").map(Number)
-      const startMinutes = startH * 60 + startM
-      const endMinutes = endH * 60 + endM
-      // If end time is less than start time, it means the meeting goes past midnight (overnight)
-      if (endMinutes <= startMinutes) {
-        return endMinutes !== startMinutes // valid as long as not the exact same time (0 min duration)
-      }
-      return true
-    }
-    return true
-  },
-  { message: "End time must be after start time", path: ["endTime"] }
-)
-
 // ━━ Subscriptions ━━
 export const createSubscriptionSchema = z.object({
   service: z.string().min(1, "Service name is required").max(200),
@@ -631,13 +557,6 @@ export const submitTestAttemptSchema = z.object({
   assignmentId: z.string().min(1),
   answers: z.array(z.number().int().min(0)),
   timeTaken: z.number().min(0).optional(),
-});
-
-export const VALID_RSVPS = ["PENDING", "ACCEPTED", "DECLINED"] as const;
-
-export const rsvpSchema = z.object({
-  // TODO: Field name 'status' in schema vs 'rsvpStatus' in route — should be unified
-  status: z.enum(VALID_RSVPS),
 });
 
 // === Phase 8 Validation Schemas ===

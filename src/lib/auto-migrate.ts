@@ -243,26 +243,6 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
       FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
     )`
   },
-  // Personal Timetable (matching Prisma schema)
-  {
-    name: "PersonalTimetableTask",
-    sql: `CREATE TABLE IF NOT EXISTS "PersonalTimetableTask" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "userId" TEXT NOT NULL,
-      "title" TEXT NOT NULL,
-      "description" TEXT,
-      "startTime" DATETIME NOT NULL,
-      "endTime" DATETIME NOT NULL,
-      "date" DATETIME NOT NULL,
-      "priority" TEXT NOT NULL DEFAULT 'MEDIUM',
-      "status" TEXT NOT NULL DEFAULT 'PENDING',
-      "category" TEXT NOT NULL DEFAULT 'PERSONAL',
-      "completedAt" DATETIME,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL,
-      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
-    )`
-  },
   // HR Tables
   {
     name: "Leave",
@@ -312,31 +292,6 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
       CONSTRAINT "AvailabilityOverride_userId_date_key" UNIQUE ("userId", "date")
     )`
   },
-  {
-    name: "MeetingAttendee",
-    sql: `CREATE TABLE IF NOT EXISTS "MeetingAttendee" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "meetingId" TEXT NOT NULL,
-      "userId" TEXT NOT NULL,
-      "rsvpStatus" TEXT NOT NULL DEFAULT 'PENDING',
-      FOREIGN KEY ("meetingId") REFERENCES "Meeting"("id") ON DELETE CASCADE,
-      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE,
-      CONSTRAINT "MeetingAttendee_meetingId_userId_key" UNIQUE ("meetingId", "userId")
-    )`
-  },
-  {
-    name: "TimetableSettings",
-    sql: `CREATE TABLE IF NOT EXISTS "TimetableSettings" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "userId" TEXT NOT NULL UNIQUE,
-      "sleepHours" REAL NOT NULL DEFAULT 8,
-      "workSplitPercent" REAL NOT NULL DEFAULT 60,
-      "weekStartsOn" TEXT NOT NULL DEFAULT 'MONDAY',
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL,
-      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
-    )`
-  },
   // HR — LeaveRequest (legacy)
   {
     name: "LeaveRequest",
@@ -370,28 +325,6 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
       "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE,
       CONSTRAINT "Attendance_userId_date_key" UNIQUE ("userId", "date")
-    )`
-  },
-  // HR — Meeting
-  {
-    name: "Meeting",
-    sql: `CREATE TABLE IF NOT EXISTS "Meeting" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "title" TEXT NOT NULL,
-      "description" TEXT,
-      "date" DATETIME NOT NULL,
-      "startTime" TEXT NOT NULL,
-      "endTime" TEXT,
-      "organizerId" TEXT NOT NULL,
-      "meetingType" TEXT NOT NULL DEFAULT 'VIRTUAL',
-      "meetingLink" TEXT,
-      "projectId" TEXT,
-      "status" TEXT NOT NULL DEFAULT 'SCHEDULED',
-      "notes" TEXT,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY ("organizerId") REFERENCES "User"("id") ON DELETE CASCADE,
-      FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE CASCADE
     )`
   },
   // Audit Log (Department-Wise) — standalone table, no FK to User
@@ -647,35 +580,6 @@ export async function ensureAllTables(): Promise<void> {
         console.warn(`[auto-migrate] ProjectInfrastructure_projectId_index: ${getErrMsg(err)}`)
       }
     }
-    // PersonalTimetableTask indexes
-    try {
-      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PersonalTimetableTask_userId_index" ON "PersonalTimetableTask"("userId")`)
-    } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes('already exists')) {
-        console.warn(`[auto-migrate] PersonalTimetableTask_userId_index: ${getErrMsg(err)}`)
-      }
-    }
-    try {
-      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PersonalTimetableTask_userId_date_index" ON "PersonalTimetableTask"("userId", "date")`)
-    } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes('already exists')) {
-        console.warn(`[auto-migrate] PersonalTimetableTask_userId_date_index: ${getErrMsg(err)}`)
-      }
-    }
-    try {
-      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PersonalTimetableTask_userId_status_index" ON "PersonalTimetableTask"("userId", "status")`)
-    } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes('already exists')) {
-        console.warn(`[auto-migrate] PersonalTimetableTask_userId_status_index: ${getErrMsg(err)}`)
-      }
-    }
-    try {
-      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PersonalTimetableTask_date_index" ON "PersonalTimetableTask"("date")`)
-    } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes('already exists')) {
-        console.warn(`[auto-migrate] PersonalTimetableTask_date_index: ${getErrMsg(err)}`)
-      }
-    }
     // EmailLog indexes
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "EmailLog_type_index" ON "EmailLog"("type")`)
@@ -836,13 +740,6 @@ export async function ensureAllTables(): Promise<void> {
         console.warn(`[auto-migrate] Attendance_userId_status_idx: ${getErrMsg(err)}`)
       }
     }
-    try {
-      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Meeting_status_idx" ON "Meeting"("status")`)
-    } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes('already exists')) {
-        console.warn(`[auto-migrate] Meeting_status_idx: ${getErrMsg(err)}`)
-      }
-    }
 
     // AuditLog indexes
     try {
@@ -909,13 +806,6 @@ export async function ensureAllTables(): Promise<void> {
       }
     }
 
-    try {
-      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "MeetingAttendee_userId_idx" ON "MeetingAttendee"("userId")`)
-    } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes('already exists')) {
-        console.warn(`[auto-migrate] MeetingAttendee_userId_idx: ${getErrMsg(err)}`)
-      }
-    }
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "TestAttempt_assignmentId_idx" ON "TestAttempt"("assignmentId")`)
     } catch (err: unknown) {
@@ -1014,14 +904,6 @@ export async function ensureAllTables(): Promise<void> {
     } catch (err: unknown) {
       if (!getErrMsg(err)?.includes('already exists')) {
         console.warn(`[auto-migrate] idx_availability_userId_dayOfWeek: ${getErrMsg(err)}`)
-      }
-    }
-    // MeetingAttendee index (meetingId)
-    try {
-      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_meetingattendee_meetingId" ON "MeetingAttendee"("meetingId")`)
-    } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes('already exists')) {
-        console.warn(`[auto-migrate] idx_meetingattendee_meetingId: ${getErrMsg(err)}`)
       }
     }
 
