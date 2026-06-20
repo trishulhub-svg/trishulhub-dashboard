@@ -240,27 +240,6 @@ export async function ensureProtocolTables(): Promise<void> {
     }
   }
 
-  // ── WorkspaceConfig (workspace-level tokens, e.g. ZAI workspace token) ──
-  if (!(await tableExists("WorkspaceConfig"))) {
-    console.log("[protocol] WorkspaceConfig table missing, creating...");
-    try {
-      await db.$executeRawUnsafe(`
-        CREATE TABLE "WorkspaceConfig" (
-          "id" TEXT PRIMARY KEY NOT NULL,
-          "configToken" TEXT NOT NULL DEFAULT '',
-          "configTokenLabel" TEXT NOT NULL DEFAULT 'Workspace Token',
-          "updatedBy" TEXT NOT NULL DEFAULT '',
-          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-      console.log("[protocol] WorkspaceConfig table created.");
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error("[protocol] Failed to create WorkspaceConfig:", msg);
-    }
-  }
-
   // All migrations completed successfully — mark as ensured
   ensured = true;
 }

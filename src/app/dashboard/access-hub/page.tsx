@@ -7,7 +7,7 @@ import {
   FileText, Upload, Download, Trash2, Loader2,
   FileUp, CheckCircle2, AlertCircle, Clock,
   Shield, Ban, Save, Eye, EyeOff,
-  Copy, Check, KeyRound, Info,
+  Copy, Check, KeyRound,
   Users, RefreshCw, Settings,
   Plus, Edit3, Globe, Search, Key,
   Link2, Unlink, ArrowRightLeft, Zap, XCircle,
@@ -24,7 +24,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
-import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
@@ -61,14 +60,6 @@ interface ProtocolFile {
   uploadedAt: string;
   uploadedBy: string;
   downloadEnabled: boolean;
-}
-
-interface WorkspaceConfigState {
-  id: string | null;
-  configToken: string;
-  configTokenMasked: string;
-  configTokenLabel: string;
-  hasToken: boolean;
 }
 
 interface Credential {
@@ -139,16 +130,6 @@ function AccessHubContent() {
   const [hasCredEncKey, setHasCredEncKey] = useState(false);
   const [credEncKeyMasked, setCredEncKeyMasked] = useState("");
 
-  // ── Workspace Config Token state ──
-  const [wsConfig, setWsConfig] = useState<WorkspaceConfigState | null>(null);
-  const [wsTokenForm, setWsTokenForm] = useState("");
-  const [wsLabelForm, setWsLabelForm] = useState("");
-  const [wsSaving, setWsSaving] = useState(false);
-  const [showWsToken, setShowWsToken] = useState(false);
-
-  // ── Copied states ──
-  const [copiedWsToken, setCopiedWsToken] = useState(false);
-
   // ── Credentials state ──
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [credsLoading, setCredsLoading] = useState(true);
@@ -188,10 +169,6 @@ function AccessHubContent() {
           setDownloadEnabled(data.protocol.downloadEnabled !== false);
         } else {
           setDownloadEnabled(true);
-        }
-        if (data.wsConfig) {
-          setWsConfig(data.wsConfig);
-          if (data.wsConfig.configTokenLabel) setWsLabelForm(data.wsConfig.configTokenLabel);
         }
         fetchCredEncKeyStatus();
       })
@@ -372,39 +349,6 @@ function AccessHubContent() {
   };
 
   /* ═══════════════════════════════════════════════════════════════
-     WORKSPACE TOKEN HANDLERS
-     ═══════════════════════════════════════════════════════════════ */
-
-  const handleSaveWsConfig = async () => {
-    if (!wsTokenForm.trim() && !wsLabelForm.trim()) { toast.error("Enter a token or label to save"); return; }
-    setWsSaving(true);
-    try {
-      const body: Record<string, string> = {};
-      if (wsTokenForm.trim()) body.configToken = wsTokenForm.trim();
-      if (wsLabelForm.trim()) body.configTokenLabel = wsLabelForm.trim();
-      const res = await authFetch("/api/workspace-config", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (res.ok) { toast.success("Workspace config updated"); setWsTokenForm(""); await refetchWsConfig(); }
-      else { const data = await res.json(); toast.error(safeText(data.error, "Failed to update")); }
-    } catch { toast.error("Failed to update"); }
-    setWsSaving(false);
-  };
-
-  const handleCopyWsToken = async () => {
-    const tokenToCopy = wsConfig?.configToken || null;
-    if (!tokenToCopy) { toast.error("Token not available to copy"); return; }
-    try {
-      await navigator.clipboard.writeText(tokenToCopy);
-      setCopiedWsToken(true);
-      toast.success("Token copied to clipboard");
-      setTimeout(() => setCopiedWsToken(false), 2000);
-    } catch { toast.error("Failed to copy"); }
-  };
-
-  /* ═══════════════════════════════════════════════════════════════
      CREDENTIALS HANDLERS
      ═══════════════════════════════════════════════════════════════ */
 
@@ -507,13 +451,6 @@ function AccessHubContent() {
         if (data?.id) { setProtocol(data); setDownloadEnabled(data.downloadEnabled !== false); }
         else { setProtocol(null); setDownloadEnabled(true); }
       }
-    } catch { /* silent */ }
-  }, []);
-
-  const refetchWsConfig = useCallback(async () => {
-    try {
-      const res = await authFetch("/api/workspace-config");
-      if (res.ok) { const data = await res.json(); setWsConfig(data); if (data.configTokenLabel) setWsLabelForm(data.configTokenLabel); }
     } catch { /* silent */ }
   }, []);
 
@@ -638,56 +575,6 @@ function AccessHubContent() {
     </Card>
   );
 
-  // Workspace Token card (all users can view/copy)
-  const WorkspaceTokenCard = ({ canManage }: { canManage?: boolean }) => (
-    <Card className="overflow-hidden border-border/60">
-      <div className="h-1 bg-gradient-to-r from-violet-500 via-purple-500 to-fuchsia-500" />
-      <CardHeader className="pb-3">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center">
-            <KeyRound className="h-4 w-4 text-violet-600 dark:text-violet-400" />
-          </div>
-          <div>
-            <CardTitle className="text-sm">{safeText(wsConfig?.configTokenLabel, "Workspace Token")}</CardTitle>
-            <CardDescription className="text-xs">Shared workspace configuration token</CardDescription>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="pt-0 space-y-3">
-        {wsConfig?.hasToken ? (
-          <div className="space-y-2">
-            <div className="relative">
-              <Input
-                type={showWsToken ? "text" : "password"}
-                value={showWsToken ? (wsConfig?.configToken || "") : (wsConfig?.configTokenMasked || "••••••••")}
-                readOnly
-                className="pr-20 font-mono text-xs bg-muted/50"
-              />
-              <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
-                <button type="button" onClick={() => setShowWsToken(!showWsToken)} aria-label={showWsToken ? "Hide workspace token" : "Show workspace token"} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-                  {showWsToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                </button>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button type="button" onClick={handleCopyWsToken} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-                      {copiedWsToken ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>Copy token</TooltipContent>
-                </Tooltip>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg">
-            <Info className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="text-xs text-muted-foreground">No workspace token configured yet.</span>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-
   /* ═══════════════════════════════════════════════════════════════
      MAIN RENDER
      ═══════════════════════════════════════════════════════════════ */
@@ -696,7 +583,7 @@ function AccessHubContent() {
     <div className="space-y-6 max-w-5xl mx-auto px-3 sm:px-4 lg:px-0">
       <PageHeader
         title="Access Hub"
-        description="Credentials, protocol documents, workspace tokens, and system configuration."
+        description="Credentials, protocol documents, and system configuration."
       />
 
       {isAdmin ? (
@@ -1013,61 +900,6 @@ function AccessHubContent() {
                 )}
               </CardContent>
             </Card>
-
-            {/* Workspace Config Token Management (admin) */}
-            <Card className="overflow-hidden border-border/60 shadow-sm">
-              <div className="h-1 bg-gradient-to-r from-violet-500 via-purple-500 to-fuchsia-500" />
-              <CardHeader className="pb-3">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center">
-                    <KeyRound className="h-4 w-4 text-violet-600 dark:text-violet-400" />
-                  </div>
-                  <div className="flex-1">
-                    <CardTitle className="text-sm">Workspace Config Token</CardTitle>
-                    <CardDescription className="text-xs">Set a shared workspace token visible to all team members</CardDescription>
-                  </div>
-                  {wsConfig?.hasToken && (
-                    <Badge variant="outline" className="text-xs text-violet-600 border-violet-200 dark:border-violet-800 dark:text-violet-400 flex-shrink-0">
-                      <CheckCircle2 className="h-3 w-3 mr-1" /> Active
-                    </Badge>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="space-y-2">
-                  <Label htmlFor="ws-token-label" className="text-xs">Token Label</Label>
-                  <Input id="ws-token-label" placeholder="e.g. ZAI Workspace Token" value={wsLabelForm} onChange={(e) => setWsLabelForm(e.target.value)} className="text-sm" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="ws-token-value" className="text-xs">Token Value</Label>
-                  <div className="relative">
-                    <Input id="ws-token-value" type={showWsToken ? "text" : "password"} placeholder={wsConfig?.configTokenMasked || "Enter workspace token..."} value={wsTokenForm} onChange={(e) => setWsTokenForm(e.target.value)} className="pr-20 font-mono text-xs" />
-                    <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
-                      <button type="button" onClick={() => setShowWsToken(!showWsToken)} aria-label={showWsToken ? "Hide workspace token" : "Show workspace token"} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-                        {showWsToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                      </button>
-                      {isAdmin && wsConfig?.configToken && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button type="button" onClick={handleCopyWsToken} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-                              {copiedWsToken ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent>Copy token</TooltipContent>
-                        </Tooltip>
-                      )}
-                    </div>
-                  </div>
-                  {wsConfig?.configTokenMasked && !wsTokenForm && (
-                    <p className="text-xs text-muted-foreground">Leave blank to keep the existing token</p>
-                  )}
-                </div>
-                <Button onClick={handleSaveWsConfig} disabled={wsSaving || (!wsTokenForm.trim() && !wsLabelForm.trim())} className="w-full" size="sm">
-                  {wsSaving ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
-                  Save Configuration
-                </Button>
-              </CardContent>
-            </Card>
           </TabsContent>
 
           {/* ═══════════ TAB 4: SYSTEM CONFIG (SUPER_ADMIN only) ═══════════ */}
@@ -1268,12 +1100,6 @@ function AccessHubContent() {
             <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Protocol</h2>
             <ProtocolPdfCard />
           </div>
-
-          {/* Workspace Token */}
-          <div className="space-y-3">
-            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Workspace Token</h2>
-            <WorkspaceTokenCard />
-          </div>
         </div>
       )}
 
@@ -1331,17 +1157,21 @@ function AccessHubContent() {
             )}
             <div className="space-y-2">
               <Label>Label</Label>
-              <Select value={formLabel} onValueChange={setFormLabel}>
-                <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Workspace">Workspace</SelectItem>
-                  <SelectItem value="Email">Email</SelectItem>
-                  <SelectItem value="Portal">Portal</SelectItem>
-                  <SelectItem value="Hosting">Hosting</SelectItem>
-                  <SelectItem value="API">API</SelectItem>
-                  <SelectItem value="Database">Database</SelectItem>
-                </SelectContent>
-              </Select>
+              <Input
+                value={formLabel}
+                onChange={(e) => setFormLabel(e.target.value)}
+                placeholder="e.g. Workspace, Email, Vault, AWS Console..."
+                className="h-9 text-sm"
+                list="credential-label-suggestions"
+              />
+              <datalist id="credential-label-suggestions">
+                <option value="Workspace" />
+                <option value="Email" />
+                <option value="Portal" />
+                <option value="Hosting" />
+                <option value="API" />
+                <option value="Database" />
+              </datalist>
             </div>
             <div className="space-y-2">
               <Label>ID / Username</Label>

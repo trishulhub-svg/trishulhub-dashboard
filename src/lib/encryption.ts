@@ -212,7 +212,7 @@ export function decryptCredential(encrypted: string, iv: string, tag: string, db
 // ━━ JSON-envelope helpers ━━
 // These wrap encrypt()/decrypt() (and encryptCredential()/decryptCredential())
 // so the encrypted payload (enc + iv + tag) can be stored in a single DB column
-// as a JSON string. This avoids needing schema migrations for keyValue / configToken.
+// as a JSON string. This avoids needing schema migrations for keyValue.
 //
 // Stored format: `{"enc":"...","iv":"...","tag":"..."}`
 //
@@ -256,14 +256,26 @@ export function encryptToJson(plaintext: string): string {
  */
 export function decryptFromJson(stored: string): string {
   if (!stored) return "";
+  let parsed: unknown;
   try {
-    const parsed: unknown = JSON.parse(stored);
-    if (isEncryptedEnvelope(parsed)) {
-      return decrypt(parsed.enc, parsed.iv, parsed.tag);
-    }
+    parsed = JSON.parse(stored);
   } catch {
-    // Not JSON — fall through and return as-is (legacy plaintext)
+    // Not JSON — it's a legacy plaintext value, return as-is
+    return stored;
   }
+  // It IS valid JSON — check if it's an encrypted envelope
+  if (isEncryptedEnvelope(parsed)) {
+    // It's an encrypted envelope — decrypt it
+    // If decryption fails, return empty string (NOT the raw envelope)
+    // because sending the raw envelope as an API key would cause auth failures
+    try {
+      return decrypt((parsed as { enc: string; iv: string; tag: string }).enc, (parsed as { enc: string; iv: string; tag: string }).iv, (parsed as { enc: string; iv: string; tag: string }).tag);
+    } catch (e) {
+      console.error("[encryption] decryptFromJson: decryption failed — returning empty string to avoid sending garbage as API key:", e instanceof Error ? e.message : e);
+      return "";
+    }
+  }
+  // Valid JSON but not an envelope — treat as legacy plaintext
   return stored;
 }
 
@@ -283,13 +295,20 @@ export function encryptCredentialToJson(plaintext: string, dbKey?: string): stri
  */
 export function decryptCredentialFromJson(stored: string, dbKey?: string): string {
   if (!stored) return "";
+  let parsed: unknown;
   try {
-    const parsed: unknown = JSON.parse(stored);
-    if (isEncryptedEnvelope(parsed)) {
-      return decryptCredential(parsed.enc, parsed.iv, parsed.tag, dbKey);
-    }
+    parsed = JSON.parse(stored);
   } catch {
-    // Not JSON — fall through and return as-is (legacy plaintext)
+    // Not JSON — it's a legacy plaintext value, return as-is
+    return stored;
+  }
+  if (isEncryptedEnvelope(parsed)) {
+    try {
+      return decryptCredential((parsed as { enc: string; iv: string; tag: string }).enc, (parsed as { enc: string; iv: string; tag: string }).iv, (parsed as { enc: string; iv: string; tag: string }).tag, dbKey);
+    } catch (e) {
+      console.error("[encryption] decryptCredentialFromJson: decryption failed — returning empty string:", e instanceof Error ? e.message : e);
+      return "";
+    }
   }
   return stored;
 }

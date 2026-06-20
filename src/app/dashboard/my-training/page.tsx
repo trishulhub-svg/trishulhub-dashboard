@@ -67,7 +67,10 @@ export default function MyTrainingPage() {
   const fetchAssignments = useCallback(async () => {
     try {
       const res = await fetch("/api/training/assignments", { credentials: "include" })
-      if (res.ok) setAssignments(safeArray<Assignment>(await res.json()))
+      if (res.ok) {
+        const data = await res.json()
+        setAssignments(safeArray<Assignment>(data.assignments))
+      }
     } catch (_e) {
       toast.error("Failed to load assignments")
     } finally {

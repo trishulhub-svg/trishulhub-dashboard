@@ -38,6 +38,7 @@ import {
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { toast } from "sonner";
 import { cn, safeText, deepSanitize, safeNumber, safeDate } from "@/lib/utils";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 // TODO: Make configurable per project/client
 const CURRENCY_SYMBOL = "₹";
@@ -819,6 +820,9 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [updating, setUpdating] = useState(false);
   const [viewMode, setViewMode] = useState<"board" | "list">("board");
+  const isMobile = useIsMobile();
+  // Force "list" view on mobile; respect user preference on desktop.
+  const effectiveView: "board" | "list" = isMobile ? "list" : viewMode;
 
   // Read saved view mode from localStorage after hydration
   useEffect(() => {
@@ -1521,22 +1525,24 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
               </button>
             )}
           </div>
-          {/* View Toggle */}
-          <ToggleGroup
-            type="single"
-            value={viewMode}
-            onValueChange={(val) => { if (val) handleViewModeChange(val as "board" | "list"); }}
-            className="bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border border-gray-200/80 dark:border-gray-700/50"
-          >
-            <ToggleGroupItem value="board" className="h-8 gap-1.5 text-xs px-3 data-[state=on]:bg-primary/10 data-[state=on]:text-primary" aria-label="Board view">
-              <LayoutGrid className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Board</span>
-            </ToggleGroupItem>
-            <ToggleGroupItem value="list" className="h-8 gap-1.5 text-xs px-3 data-[state=on]:bg-primary/10 data-[state=on]:text-primary" aria-label="List view">
-              <List className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">List</span>
-            </ToggleGroupItem>
-          </ToggleGroup>
+          {/* View Toggle — only shown on desktop (>= 768px). Mobile always uses list view. */}
+          {!isMobile && (
+            <ToggleGroup
+              type="single"
+              value={viewMode}
+              onValueChange={(val) => { if (val) handleViewModeChange(val as "board" | "list"); }}
+              className="bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border border-gray-200/80 dark:border-gray-700/50"
+            >
+              <ToggleGroupItem value="board" className="h-8 gap-1.5 text-xs px-3 data-[state=on]:bg-primary/10 data-[state=on]:text-primary" aria-label="Board view">
+                <LayoutGrid className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Board</span>
+              </ToggleGroupItem>
+              <ToggleGroupItem value="list" className="h-8 gap-1.5 text-xs px-3 data-[state=on]:bg-primary/10 data-[state=on]:text-primary" aria-label="List view">
+                <List className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">List</span>
+              </ToggleGroupItem>
+            </ToggleGroup>
+          )}
           {/* My Todos — ghost variant */}
           <Button
             variant="ghost"
@@ -1640,7 +1646,7 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
             </Button>
           )}
         </div>
-      ) : viewMode === "board" ? (
+      ) : effectiveView === "board" ? (
         /* ━━ Kanban Board View ━━ */
         <DndContext
           sensors={sensors}
