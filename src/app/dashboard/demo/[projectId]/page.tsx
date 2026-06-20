@@ -1,22 +1,17 @@
 "use client";
 
-import { useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
+// Demo project detail page — renders the SAME full project detail page as
+// /dashboard/projects/[projectId], but served from /dashboard/demo/[projectId].
+//
+// This ensures demo projects are fully managed from the demo section without
+// redirecting to /dashboard/projects. The detail page detects isDemo from
+// the project data and shows the "DEMO PROJECT" banner.
+//
+// All capabilities are identical: credentials, infrastructure, tokens,
+// members, websites, etc.
 
-// Demo project detail — redirects to the main project detail page.
-// Demo projects use the same infrastructure, members, and credentials systems
-// as regular projects, so we reuse /dashboard/projects/[projectId] for the
-// detail view (which renders a "DEMO PROJECT" banner when isDemo is true).
+import ProjectDetailPage from "@/app/dashboard/projects/[projectId]/page";
+
 export default function DemoProjectDetailPage() {
-  const params = useParams<{ projectId: string }>();
-  const router = useRouter();
-
-  useEffect(() => {
-    const projectId = typeof params?.projectId === "string" ? params.projectId : "";
-    if (projectId) {
-      router.replace(`/dashboard/projects/${projectId}`);
-    }
-  }, [params?.projectId, router]);
-
-  return null;
+  return <ProjectDetailPage />;
 }

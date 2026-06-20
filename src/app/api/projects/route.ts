@@ -392,18 +392,22 @@ export async function DELETE(req: NextRequest) {
 
     // C4: Use $transaction for atomic deletion of all related records
     await db.$transaction(async (tx) => {
-      // M-PRJ-9 FIX: Explicitly delete attachments and credentials before project
+      // Delete all child records explicitly (relationMode = "prisma" doesn't cascade at DB level)
       await tx.projectAttachment.deleteMany({ where: { projectId: id } })
       await tx.projectCredential.deleteMany({ where: { projectId: id } })
-      // Delete project members
       await tx.projectMember.deleteMany({ where: { projectId: id } })
-      // Delete time entries
+      await tx.projectWebsite.deleteMany({ where: { projectId: id } })
+      await tx.projectInfrastructure.deleteMany({ where: { projectId: id } })
       await tx.timeEntry.deleteMany({ where: { projectId: id } })
-      // Delete expenses and subscriptions
       await tx.expense.deleteMany({ where: { projectId: id } })
       await tx.subscription.deleteMany({ where: { projectId: id } })
-      // Delete invoices
       await tx.invoice.deleteMany({ where: { projectId: id } })
+      // Remove project-method associations (implicit many-to-many join table)
+      try {
+        await tx.$executeRawUnsafe(`DELETE FROM "_ProjectMethodToProject" WHERE "B" = ?`, id)
+      } catch {
+        // Join table might not exist or might be empty — non-fatal
+      }
       // Delete the project itself
       await tx.project.delete({ where: { id } })
     })

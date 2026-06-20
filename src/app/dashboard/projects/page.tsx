@@ -1655,7 +1655,8 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
                   isAdminUser={isAdminUser}
                   onCardClick={(project) => {
                     const pId = safeText(project.id, "");
-                    router.push(`/dashboard/projects/${pId}`);
+                    // Demo projects manage from /dashboard/demo, regular from /dashboard/projects
+                    router.push(isDemoView ? `/dashboard/demo/${pId}` : `/dashboard/projects/${pId}`);
                   }}
                   onEdit={openEditDialog}
                   onDelete={openDeleteDialog}
@@ -1699,13 +1700,13 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
                 isAdminUser={isAdminUser}
                 onView={() => {
                   handlePrefetchProject(pId);
-                  router.push(`/dashboard/projects/${pId}`);
+                  router.push(isDemoView ? `/dashboard/demo/${pId}` : `/dashboard/projects/${pId}`);
                 }}
                 onEdit={isAdminUser ? openEditDialog : undefined}
                 onDelete={isAdminUser ? openDeleteDialog : undefined}
                 onPendingClick={() => {
                   handlePrefetchProject(pId);
-                  router.push(`/dashboard/projects/${pId}`);
+                  router.push(isDemoView ? `/dashboard/demo/${pId}` : `/dashboard/projects/${pId}`);
                 }}
               />
             );
