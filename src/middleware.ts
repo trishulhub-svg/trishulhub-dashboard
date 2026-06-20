@@ -86,6 +86,7 @@ export async function middleware(request: NextRequest) {
       "/dashboard/crm",
       "/dashboard/clients",
       "/dashboard/projects",
+      "/dashboard/demo",
       "/dashboard/availability",
       "/dashboard/team",
       "/dashboard/training",

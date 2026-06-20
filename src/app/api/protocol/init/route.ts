@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
-import { db } from "@/lib/db";
+import { db, getAppSetting } from "@/lib/db";
 import { ensureProtocolTables } from "@/lib/ensure-protocol-tables";
-import { JwtToken, getTokenUserId } from "@/types/jwt";
+import { JwtToken } from "@/types/jwt";
+import { decryptCredentialFromJson } from "@/lib/encryption";
 
 /**
  * GET /api/protocol/init
@@ -10,8 +11,8 @@ import { JwtToken, getTokenUserId } from "@/types/jwt";
  * Single-batch endpoint that returns ALL data the protocol page needs
  * in one request. Replaces 5 separate API calls → 1 request.
  *
- * Returns: { protocol, wsConfig, myUserCode, gitConfig?, allUserCodes? }
- * Admin-only fields (gitConfig, allUserCodes) are included only for SUPER_ADMIN.
+ * Returns: { protocol, wsConfig, gitConfig? }
+ * Admin-only field (gitConfig) is included only for SUPER_ADMIN.
  */
 export async function GET(request: NextRequest) {
   try {
@@ -21,7 +22,6 @@ export async function GET(request: NextRequest) {
     }
 
     const isAdmin = token.role === "SUPER_ADMIN";
-    const userId = getTokenUserId(token);
 
     // ONE call to ensure tables — shared across all data fetches
     await ensureProtocolTables();
@@ -30,7 +30,6 @@ export async function GET(request: NextRequest) {
     const [
       protocolResult,
       wsConfigResult,
-      myCodeResult,
       ...adminResults
     ] = await Promise.all([
       // 1. Protocol PDF metadata
@@ -60,6 +59,10 @@ export async function GET(request: NextRequest) {
       })(),
 
       // 2. Workspace config token
+      // Phase A8: configToken is now stored encrypted (JSON envelope). Decrypt
+      // here and return plaintext ONLY to SUPER_ADMIN — everyone else gets a
+      // masked value. Use POST /api/workspace-config/reveal (ADMIN+) to view
+      // the plaintext.
       (async () => {
         try {
           const rows: any[] = await db.$queryRawUnsafe(`SELECT * FROM "WorkspaceConfig" LIMIT 1`);
@@ -67,32 +70,31 @@ export async function GET(request: NextRequest) {
             return { id: null, configToken: "", configTokenMasked: "", configTokenLabel: "Workspace Token", hasToken: false };
           }
           const row = rows[0];
-          const tk = row.configToken || "";
-          // Return full configToken to all authenticated users so they can copy & use it
+          const stored = row.configToken || "";
+          const credDbKey = await getAppSetting("credentialEncryptionKey").catch(() => "");
+          // decryptCredentialFromJson returns legacy plaintext values as-is
+          let plaintext = "";
+          try {
+            plaintext = decryptCredentialFromJson(stored, credDbKey || undefined);
+          } catch {
+            plaintext = "";
+          }
+          const masked = plaintext.length <= 12
+            ? (plaintext ? "••••••••" : "")
+            : plaintext.slice(0, 4) + "••••••••" + plaintext.slice(-4);
+          // Only SUPER_ADMIN sees the plaintext token here
+          const visibleToken = isAdmin ? plaintext : "";
           return {
             id: row.id,
-            configToken: tk,
-            configTokenMasked: tk.length <= 12 ? "••••••••" : tk.slice(0, 4) + "••••••••" + tk.slice(-4),
+            configToken: visibleToken,
+            configTokenMasked: masked,
             configTokenLabel: row.configTokenLabel || "Workspace Token",
-            hasToken: !!tk,
+            hasToken: !!plaintext,
           };
         } catch { return { id: null, configToken: "", configTokenMasked: "", configTokenLabel: "Workspace Token", hasToken: false }; }
       })(),
 
-      // 3. Current user's code
-      (async () => {
-        try {
-          const rows: any[] = await db.$queryRawUnsafe(
-            `SELECT "code", "updatedAt" FROM "UserCode" WHERE "userId" = ?`, userId
-          );
-          if (!rows.length) return { hasCode: false, code: "", codeMasked: "" };
-          const code = rows[0].code || "";
-          // Return the full code to the owning user so they can copy & use it
-          return { hasCode: !!code, code: code, codeMasked: code ? (code.length <= 8 ? "••••••••" : code.slice(0, 3) + "••••" + code.slice(-3)) : "", updatedAt: rows[0].updatedAt || null };
-        } catch { return { hasCode: false, code: "", codeMasked: "" }; }
-      })(),
-
-      // 4. Admin-only: Git config (with stale PENDING reset)
+      // 3. Admin-only: Git config (with stale PENDING reset)
       isAdmin
         ? (async () => {
             try {
@@ -124,45 +126,12 @@ export async function GET(request: NextRequest) {
             } catch { return null; }
           })()
         : Promise.resolve(null),
-
-      // 5. Admin-only: All user codes
-      isAdmin
-        ? (async () => {
-            try {
-              const coded: any[] = await db.$queryRawUnsafe(`
-                SELECT uc.id, uc."userId", uc.code, uc."createdAt", uc."updatedAt",
-                       u.name, u.email, u.role
-                FROM "UserCode" uc LEFT JOIN "User" u ON uc."userId" = u.id
-                WHERE u.role != 'CLIENT'
-                ORDER BY u.name ASC
-              `);
-              const allUsers: any[] = await db.$queryRawUnsafe(
-                `SELECT id, name, email, role FROM "User" WHERE role != 'CLIENT' ORDER BY name ASC`
-              );
-              const codedIds = new Set(coded.map((r: any) => r.userId));
-              const userCodes = coded.map((r: any) => ({
-                id: r.id, userId: r.userId, userName: r.name || "Unknown",
-                userEmail: r.email || "", userRole: r.role || "",
-                codeMasked: r.code ? "••••••••" : "", hasCode: !!r.code, updatedAt: r.updatedAt || null,
-              }));
-              const withoutCode = allUsers
-                .filter((u: any) => !codedIds.has(u.id))
-                .map((u: any) => ({
-                  id: null, userId: u.id, userName: u.name || "Unknown",
-                  userEmail: u.email || "", userRole: u.role || "",
-                  codeMasked: "", hasCode: false, updatedAt: null,
-                }));
-              return [...userCodes, ...withoutCode];
-            } catch { return []; }
-          })()
-        : Promise.resolve(null),
     ]);
 
     return NextResponse.json({
       protocol: protocolResult,
       wsConfig: wsConfigResult,
-      myUserCode: myCodeResult,
-      ...(isAdmin ? { gitConfig: adminResults[0], allUserCodes: adminResults[1] } : {}),
+      ...(isAdmin ? { gitConfig: adminResults[0] } : {}),
     });
   } catch (error: unknown) {
     console.error("[protocol/init] GET error:", error instanceof Error ? error.message : String(error));

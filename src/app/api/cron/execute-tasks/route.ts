@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { runAgentLoop } from "@/lib/ai/agent-loop"
 import { getToolsForAgentType } from "@/lib/ai/agent-tools"
+import { decryptFromJson } from "@/lib/encryption"
 
 // Maximum number of retry attempts before permanently failing a task
 const MAX_TASK_RETRIES = 3
@@ -129,7 +130,10 @@ async function executeSingleTask(taskId: string, executionSource: string): Promi
 
     // Execute via agent loop
     const key = eligibleKeys[0]
-    const agentResult = await runAgentLoop(taskPrompt, [], key.keyValue, task.agent.model, {
+    // Phase A8: keyValue is stored encrypted (JSON envelope) — decrypt before use.
+    // decryptFromJson gracefully handles legacy plaintext values (returns as-is).
+    const plainKeyValue = decryptFromJson(key.keyValue)
+    const agentResult = await runAgentLoop(taskPrompt, [], plainKeyValue, task.agent.model, {
       maxSteps: 15,
       maxTokens: 4096,
       agentType: task.agent.type,

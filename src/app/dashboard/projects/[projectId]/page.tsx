@@ -8,7 +8,7 @@ import {
   ArrowLeft, Plus, Bot, User, Clock, Trash2, Users, UserPlus, X, CalendarDays, Tag,
   CheckCircle2, ShieldCheck, Activity, Gauge, CircleDot, FolderKanban,
   ChevronRight, ExternalLink, Settings, Globe, Star, Pencil, Trash2 as Trash2Icon, Loader2,
-  Github, Database, Server, Eye, EyeOff, Copy, Save, Key, Link2,
+  Github, Database, Server, Eye, EyeOff, Copy, Save, Key, Link2, FlaskConical,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator, } from "@/components/ui/dropdown-menu";
 import { Card, CardContent } from "@/components/ui/card";
@@ -473,6 +473,28 @@ export default function ProjectDetailPage() {
 
   return (
     <div className="space-y-5" style={{ animation: "fade-in 0.35s ease-out both", padding: isInIframe ? "8px" : undefined }}>
+      {/* ═══════ DEMO PROJECT banner (shown only when isDemo is true) ═══════ */}
+      {project?.isDemo === true && (
+        <div
+          className="flex items-center gap-2.5 rounded-xl border border-violet-300/50 dark:border-violet-500/30 bg-gradient-to-r from-violet-50 to-fuchsia-50 dark:from-violet-950/40 dark:to-fuchsia-950/30 px-3.5 py-2.5 shadow-sm"
+          role="status"
+          aria-label="Demo project"
+        >
+          <FlaskConical className="h-4 w-4 text-violet-600 dark:text-violet-300 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-bold tracking-wider text-violet-700 dark:text-violet-200 uppercase">
+              Demo Project
+            </p>
+            <p className="text-[11px] text-violet-600/80 dark:text-violet-300/70 mt-0.5">
+              This is a demo project — it works exactly like a regular project (members, credentials, infrastructure) but is grouped under Demo Projects for walkthroughs.
+            </p>
+          </div>
+          <Badge className="text-[10px] font-bold tracking-wider px-2 py-0.5 bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white shrink-0">
+            DEMO
+          </Badge>
+        </div>
+      )}
+
       {/* ═══════ Compact Header ═══════ */}
       <div className="flex items-start gap-3" style={{ animation: "card-enter 0.4s ease-out both", animationDelay: "50ms" }}>
         {!isInIframe && (

@@ -7,8 +7,8 @@ import {
   FileText, Upload, Download, Trash2, Loader2,
   FileUp, CheckCircle2, AlertCircle, Clock,
   Shield, Ban, Save, Eye, EyeOff,
-  Copy, Check, KeyRound, UserCog, Info,
-  Users, Fingerprint, RefreshCw, Settings, GitBranch, FileLock2,
+  Copy, Check, KeyRound, Info,
+  Users, RefreshCw, Settings, GitBranch, FileLock2,
   Plus, Edit3, Globe, Search, Key,
   Link2, Unlink, ArrowRightLeft, Zap, XCircle,
   CheckCircle2 as CheckCircleIcon,
@@ -23,7 +23,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
@@ -79,24 +78,6 @@ interface WorkspaceConfigState {
   configTokenMasked: string;
   configTokenLabel: string;
   hasToken: boolean;
-}
-
-interface UserCodeEntry {
-  id: string | null;
-  userId: string;
-  userName: string;
-  userEmail: string;
-  userRole: string;
-  codeMasked: string;
-  hasCode: boolean;
-  updatedAt: string | null;
-}
-
-interface MyUserCode {
-  hasCode: boolean;
-  code: string;
-  codeMasked: string;
-  updatedAt: string | null;
 }
 
 interface Credential {
@@ -187,21 +168,8 @@ function AccessHubContent() {
   const [wsSaving, setWsSaving] = useState(false);
   const [showWsToken, setShowWsToken] = useState(false);
 
-  // ── User Code state (admin) ──
-  const [allUserCodes, setAllUserCodes] = useState<UserCodeEntry[]>([]);
-  const [userCodesLoading, setUserCodesLoading] = useState(false);
-  const [setCodeDialogOpen, setSetCodeDialogOpen] = useState(false);
-  const [setCodeTarget, setSetCodeTarget] = useState<UserCodeEntry | null>(null);
-  const [setCodeValue, setSetCodeValue] = useState("");
-  const [setCodeSaving, setSetCodeSaving] = useState(false);
-
-  // ── User Code state (self) ──
-  const [myUserCode, setMyUserCode] = useState<MyUserCode | null>(null);
-  const [showMyCode, setShowMyCode] = useState(false);
-
   // ── Copied states ──
   const [copiedWsToken, setCopiedWsToken] = useState(false);
-  const [copiedMyCode, setCopiedMyCode] = useState(false);
 
   // ── Credentials state ──
   const [credentials, setCredentials] = useState<Credential[]>([]);
@@ -247,13 +215,11 @@ function AccessHubContent() {
           setWsConfig(data.wsConfig);
           if (data.wsConfig.configTokenLabel) setWsLabelForm(data.wsConfig.configTokenLabel);
         }
-        if (data.myUserCode) setMyUserCode(data.myUserCode);
         if (data.gitConfig) {
           setGitConfig(data.gitConfig);
           setHasEncryptionKey(!!data.gitConfig.hasEncryptionKey);
           setGitForm({ repoUrl: data.gitConfig.repoUrl || "", token: "" });
         }
-        if (data.allUserCodes) setAllUserCodes(data.allUserCodes);
         fetchCredEncKeyStatus();
       })
       .catch(() => { /* silent */ })
@@ -571,45 +537,6 @@ function AccessHubContent() {
   };
 
   /* ═══════════════════════════════════════════════════════════════
-     USER CODE HANDLERS
-     ═══════════════════════════════════════════════════════════════ */
-
-  const handleOpenSetCodeDialog = (user: UserCodeEntry) => {
-    setSetCodeTarget(user);
-    setSetCodeValue("");
-    setSetCodeDialogOpen(true);
-  };
-
-  const handleSaveUserCode = async () => {
-    if (!setCodeTarget || !setCodeValue.trim()) { toast.error("Code is required"); return; }
-    setSetCodeSaving(true);
-    try {
-      const res = await authFetch("/api/user-code", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: setCodeTarget.userId, code: setCodeValue.trim() }),
-      });
-      if (res.ok) {
-        toast.success(`Code set for ${setCodeTarget.userName}`);
-        setSetCodeDialogOpen(false);
-        await refetchAllUserCodes();
-        await refetchMyUserCode();
-      } else { const data = await res.json(); toast.error(safeText(data.error, "Failed to set code")); }
-    } catch { toast.error("Failed to set code"); }
-    setSetCodeSaving(false);
-  };
-
-  const handleCopyMyCode = async () => {
-    if (!myUserCode?.code) { toast.error("No code available"); return; }
-    try {
-      await navigator.clipboard.writeText(myUserCode.code);
-      setCopiedMyCode(true);
-      toast.success("Code copied to clipboard");
-      setTimeout(() => setCopiedMyCode(false), 2000);
-    } catch { toast.error("Failed to copy"); }
-  };
-
-  /* ═══════════════════════════════════════════════════════════════
      CREDENTIALS HANDLERS
      ═══════════════════════════════════════════════════════════════ */
 
@@ -733,23 +660,6 @@ function AccessHubContent() {
     try {
       const res = await authFetch("/api/workspace-config");
       if (res.ok) { const data = await res.json(); setWsConfig(data); if (data.configTokenLabel) setWsLabelForm(data.configTokenLabel); }
-    } catch { /* silent */ }
-  }, []);
-
-  const refetchAllUserCodes = useCallback(async () => {
-    if (!isSuperAdmin) return;
-    setUserCodesLoading(true);
-    try {
-      const res = await authFetch("/api/user-code/all");
-      if (res.ok) { const data = await res.json(); setAllUserCodes(data.userCodes || []); }
-    } catch { /* silent */ }
-    setUserCodesLoading(false);
-  }, [isSuperAdmin]);
-
-  const refetchMyUserCode = useCallback(async () => {
-    try {
-      const res = await authFetch("/api/user-code");
-      if (res.ok) setMyUserCode(await res.json());
     } catch { /* silent */ }
   }, []);
 
@@ -918,59 +828,6 @@ function AccessHubContent() {
           <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg">
             <Info className="h-3.5 w-3.5 text-muted-foreground" />
             <span className="text-xs text-muted-foreground">No workspace token configured yet.</span>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-
-  // My Code card (read-only)
-  const MyCodeCard = () => (
-    <Card className="overflow-hidden border-border/60">
-      <div className="h-1 bg-gradient-to-r from-amber-500 via-orange-500 to-yellow-500" />
-      <CardHeader className="pb-3">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
-            <Fingerprint className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-          </div>
-          <div>
-            <CardTitle className="text-sm">Your Code</CardTitle>
-            <CardDescription className="text-xs">Your personal access code assigned by admin</CardDescription>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="pt-0 space-y-3">
-        {myUserCode?.hasCode ? (
-          <div className="space-y-2">
-            <div className="relative">
-              <Input
-                type={showMyCode ? "text" : "password"}
-                value={showMyCode ? (myUserCode.code || "") : (myUserCode.codeMasked || "••••••••")}
-                readOnly
-                className="pr-20 font-mono text-xs bg-muted/50"
-              />
-              <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
-                <button type="button" onClick={() => setShowMyCode(!showMyCode)} aria-label={showMyCode ? "Hide your code" : "Show your code"} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-                  {showMyCode ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                </button>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button type="button" onClick={handleCopyMyCode} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-                      {copiedMyCode ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>Copy code</TooltipContent>
-                </Tooltip>
-              </div>
-            </div>
-            {myUserCode.updatedAt && (
-              <p className="text-xs text-muted-foreground">Last updated: {safeDate(myUserCode.updatedAt)}</p>
-            )}
-          </div>
-        ) : (
-          <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg">
-            <Info className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="text-xs text-muted-foreground">No code assigned yet. Your admin will assign one.</span>
           </div>
         )}
       </CardContent>
@@ -1286,66 +1143,6 @@ function AccessHubContent() {
                 </Button>
               </CardContent>
             </Card>
-
-            {/* User Codes Management (admin) */}
-            <Card className="overflow-hidden border-border/60 shadow-sm">
-              <div className="h-1 bg-gradient-to-r from-amber-500 via-orange-500 to-yellow-500" />
-              <CardHeader className="pb-3">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
-                    <UserCog className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-                  </div>
-                  <div className="flex-1">
-                    <CardTitle className="text-sm">User Codes</CardTitle>
-                    <CardDescription className="text-xs">Assign unique access codes to each team member</CardDescription>
-                  </div>
-                  <Badge variant="outline" className="text-xs flex-shrink-0">
-                    {allUserCodes.filter((u) => u.hasCode).length}/{allUserCodes.length} assigned
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="pt-0">
-                {userCodesLoading ? (
-                  <div className="flex items-center justify-center py-6">
-                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                  </div>
-                ) : allUserCodes.length > 0 ? (
-                  <ScrollArea className="max-h-72">
-                    <div className="space-y-1.5">
-                      {allUserCodes.map((user) => (
-                        <div key={user.userId} className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-muted/50 transition-colors group">
-                          <div className="w-7 h-7 rounded-full bg-gradient-to-br from-slate-200 to-slate-300 dark:from-slate-700 dark:to-slate-600 flex items-center justify-center flex-shrink-0 text-xs font-semibold text-slate-600 dark:text-slate-300">
-                            {user.userName.charAt(0).toUpperCase()}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">{safeText(user.userName)}</p>
-                            <p className="text-xs text-muted-foreground truncate">{safeText(user.userEmail)}</p>
-                          </div>
-                          <div className="flex items-center gap-2 flex-shrink-0">
-                            {user.hasCode ? (
-                              <Badge variant="secondary" className="text-xs bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400 border-0">
-                                <CheckCircle2 className="h-3 w-3 mr-1" /> Set
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline" className="text-xs text-muted-foreground">Not set</Badge>
-                            )}
-                            <Button variant="ghost" size="sm" onClick={() => handleOpenSetCodeDialog(user)} className="h-7 px-2 text-xs opacity-100 transition-opacity">
-                              <Settings className="h-3 w-3 mr-1" />
-                              {user.hasCode ? "Edit" : "Set"}
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </ScrollArea>
-                ) : (
-                  <div className="flex items-center gap-2 p-4 bg-muted/50 rounded-lg">
-                    <Info className="h-3.5 w-3.5 text-muted-foreground" />
-                    <span className="text-xs text-muted-foreground">No users found.</span>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
           </TabsContent>
 
           {/* ═══════════ TAB 4: SYSTEM CONFIG (SUPER_ADMIN only) ═══════════ */}
@@ -1643,12 +1440,6 @@ function AccessHubContent() {
             <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Workspace Token</h2>
             <WorkspaceTokenCard />
           </div>
-
-          {/* Your Code */}
-          <div className="space-y-3">
-            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Your Access Code</h2>
-            <MyCodeCard />
-          </div>
         </div>
       )}
 
@@ -1674,42 +1465,6 @@ function AccessHubContent() {
           </div>
         </div>
       )}
-
-      {/* Set User Code Dialog */}
-      <Dialog open={setCodeDialogOpen} onOpenChange={setSetCodeDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {setCodeTarget?.hasCode ? "Edit Code" : "Set Code"} for {safeText(setCodeTarget?.userName)}
-            </DialogTitle>
-            <DialogDescription>
-              Assign a unique access code for {safeText(setCodeTarget?.userEmail)}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="user-code-input">Access Code</Label>
-              <Input
-                id="user-code-input"
-                placeholder="Enter access code..."
-                value={setCodeValue}
-                onChange={(e) => setSetCodeValue(e.target.value)}
-                className="font-mono text-sm"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !setCodeSaving && setCodeValue.trim()) handleSaveUserCode();
-                }}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setSetCodeDialogOpen(false)} disabled={setCodeSaving}>Cancel</Button>
-            <Button onClick={handleSaveUserCode} disabled={setCodeSaving || !setCodeValue.trim()}>
-              {setCodeSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
-              {setCodeTarget?.hasCode ? "Update Code" : "Set Code"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Add/Edit Credential Dialog */}
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>

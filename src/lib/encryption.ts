@@ -208,3 +208,88 @@ export function decryptCredential(encrypted: string, iv: string, tag: string, db
   tagBuffer.fill(0);
   return decrypted;
 }
+
+// ━━ JSON-envelope helpers ━━
+// These wrap encrypt()/decrypt() (and encryptCredential()/decryptCredential())
+// so the encrypted payload (enc + iv + tag) can be stored in a single DB column
+// as a JSON string. This avoids needing schema migrations for keyValue / configToken.
+//
+// Stored format: `{"enc":"...","iv":"...","tag":"..."}`
+//
+// Backward compat: decryptFromJson() and decryptCredentialFromJson() gracefully
+// handle legacy plaintext values — if the stored string is not valid JSON in
+// the envelope shape, it is returned as-is.
+
+interface EncryptedEnvelope {
+  enc: string;
+  iv: string;
+  tag: string;
+}
+
+function isEncryptedEnvelope(value: unknown): value is EncryptedEnvelope {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as EncryptedEnvelope).enc === "string" &&
+    typeof (value as EncryptedEnvelope).iv === "string" &&
+    typeof (value as EncryptedEnvelope).tag === "string"
+  );
+}
+
+/**
+ * Encrypt plaintext and return a JSON envelope string `{"enc","iv","tag"}`.
+ * Uses the general ENCRYPTION_KEY env var (via encrypt()).
+ * Store this string directly in a DB text column.
+ */
+export function encryptToJson(plaintext: string): string {
+  const { encrypted, iv, tag } = encrypt(plaintext);
+  return JSON.stringify({ enc: encrypted, iv, tag });
+}
+
+/**
+ * Decrypt a value that may be in JSON envelope form (encrypted with encryptToJson)
+ * OR a legacy plaintext string. Returns the plaintext.
+ *
+ * - Empty string → empty string
+ * - JSON envelope `{"enc","iv","tag"}` → decrypted plaintext
+ * - Anything else (legacy plaintext) → returned as-is
+ */
+export function decryptFromJson(stored: string): string {
+  if (!stored) return "";
+  try {
+    const parsed: unknown = JSON.parse(stored);
+    if (isEncryptedEnvelope(parsed)) {
+      return decrypt(parsed.enc, parsed.iv, parsed.tag);
+    }
+  } catch {
+    // Not JSON — fall through and return as-is (legacy plaintext)
+  }
+  return stored;
+}
+
+/**
+ * Encrypt plaintext using the credential key (CREDENTIAL_ENCRYPTION_KEY env or
+ * DB-stored key) and return a JSON envelope string.
+ */
+export function encryptCredentialToJson(plaintext: string, dbKey?: string): string {
+  const { encrypted, iv, tag } = encryptCredential(plaintext, dbKey);
+  return JSON.stringify({ enc: encrypted, iv, tag });
+}
+
+/**
+ * Decrypt a value that may be in JSON envelope form (encrypted with
+ * encryptCredentialToJson) OR a legacy plaintext string.
+ * Uses the credential key.
+ */
+export function decryptCredentialFromJson(stored: string, dbKey?: string): string {
+  if (!stored) return "";
+  try {
+    const parsed: unknown = JSON.parse(stored);
+    if (isEncryptedEnvelope(parsed)) {
+      return decryptCredential(parsed.enc, parsed.iv, parsed.tag, dbKey);
+    }
+  } catch {
+    // Not JSON — fall through and return as-is (legacy plaintext)
+  }
+  return stored;
+}

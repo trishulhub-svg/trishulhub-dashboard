@@ -304,28 +304,6 @@ export async function ensureProtocolTables(): Promise<void> {
     }
   }
 
-  // ── UserCode (unique code per user, set by SUPER_ADMIN) ──
-  if (!(await tableExists("UserCode"))) {
-    console.log("[protocol] UserCode table missing, creating...");
-    try {
-      await db.$executeRawUnsafe(`
-        CREATE TABLE "UserCode" (
-          "id" TEXT PRIMARY KEY NOT NULL,
-          "userId" TEXT NOT NULL,
-          "code" TEXT NOT NULL DEFAULT '',
-          "updatedBy" TEXT NOT NULL DEFAULT '',
-          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          CONSTRAINT "UserCode_userId_key" UNIQUE ("userId")
-        )
-      `);
-      console.log("[protocol] UserCode table created.");
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error("[protocol] Failed to create UserCode:", msg);
-    }
-  }
-
   // All migrations completed successfully — mark as ensured
   ensured = true;
 }

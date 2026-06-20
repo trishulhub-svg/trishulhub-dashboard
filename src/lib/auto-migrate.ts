@@ -62,6 +62,8 @@ const CRITICAL_COLUMNS: Array<{ table: string; column: string; sql: string }> = 
   { table: "Invoice", column: "sentById", sql: `ALTER TABLE "Invoice" ADD COLUMN "sentById" TEXT` },
   // Project start date (moved from Client to Project)
   { table: "Project", column: "startDate", sql: "ALTER TABLE Project ADD COLUMN startDate DATETIME" },
+  // Project isDemo flag — demo projects get their own page at /dashboard/demo with a DEMO badge
+  { table: "Project", column: "isDemo", sql: "ALTER TABLE Project ADD COLUMN isDemo BOOLEAN NOT NULL DEFAULT 0" },
   // Attendance — updatedAt column (added in schema but missing from older DBs)
   { table: "Attendance", column: "updatedAt", sql: `ALTER TABLE "Attendance" ADD COLUMN "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP` },
 ]

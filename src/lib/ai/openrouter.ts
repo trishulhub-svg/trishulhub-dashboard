@@ -5,6 +5,7 @@
 
 import { OPENROUTER_API_URL, ZAI_API_URL, GOOGLE_AI_API_URL, NVIDIA_API_URL } from "./endpoints"
 import { generateZaiToken } from "./jwt-utils"
+import { decryptFromJson } from "@/lib/encryption"
 
 interface ChatMessage {
   role: "system" | "user" | "assistant"
@@ -588,7 +589,10 @@ export async function callAIWithFailover(
     }
 
     try {
-      const result = await callAI(messages, model, key.keyValue, key.provider, options)
+      // Phase A8: keyValue is stored encrypted (JSON envelope) — decrypt before use.
+      // decryptFromJson gracefully handles legacy plaintext values (returns as-is).
+      const plainKeyValue = decryptFromJson(key.keyValue)
+      const result = await callAI(messages, model, plainKeyValue, key.provider, options)
 
       return {
         ...result,

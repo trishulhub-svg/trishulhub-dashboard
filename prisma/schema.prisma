@@ -414,6 +414,7 @@ model Project {
   clientId    String?
   status      String   @default("PLANNING") // PLANNING, IN_PROGRESS, REVIEW, APPROVAL, DEPLOYED, COMPLETED
   progress    Int      @default(0) // 0-100 (validated at application level)
+  isDemo      Boolean  @default(false) // Demo projects appear on /dashboard/demo with a DEMO badge
   // TODO: Add unique constraint on name or composite @@unique([name, clientId]) after data cleanup
   startDate   DateTime?
   deadline    DateTime?

@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { callAI, getModelForProvider, APIKeyInvalidError, APIKeyExhaustedError, translateZaiError } from "@/lib/ai/openrouter"
 import { rateLimit } from "@/lib/rate-limit"
+import { decryptFromJson } from "@/lib/encryption"
 
 // GET /api/api-keys/test?id=xxx — Test an API key by making a small AI call
 export async function GET(req: NextRequest) {
@@ -48,13 +49,17 @@ export async function GET(req: NextRequest) {
 
     console.log(`[api-keys/test] Testing key "${apiKey.keyName}" (${provider}) with model: ${testModel}`)
 
+    // Phase A8: keyValue is stored encrypted (JSON envelope) — decrypt before use.
+    // decryptFromJson gracefully handles legacy plaintext values (returns as-is).
+    const plainKeyValue = decryptFromJson(apiKey.keyValue)
+
     // Make a minimal AI call to test the key
     const result = await callAI(
       [
         { role: "user", content: "Say hello in one word." }
       ],
       testModel,
-      apiKey.keyValue,
+      plainKeyValue,
       provider,
       { maxTokens: 10, temperature: 0.1 }
     )

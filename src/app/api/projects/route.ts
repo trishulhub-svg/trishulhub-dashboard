@@ -63,6 +63,13 @@ export async function GET(req: NextRequest) {
     // W5: Add offset pagination parameter
     const offset = Math.max(Number(searchParams.get("offset")) || 0, 0)
 
+    // isDemo filter: "true" → only demo projects, "false" → only non-demo,
+    // omitted → return all projects (demo + non-demo). The main projects list
+    // shows everything with a DEMO badge; /dashboard/demo filters to isDemo=true.
+    const isDemoParam = searchParams.get("isDemo")
+    const isDemoFilter: boolean | undefined =
+      isDemoParam === "true" ? true : isDemoParam === "false" ? false : undefined
+
     // CLIENT users can only see their own projects
     if (userRole === "CLIENT") {
       const client = await db.client.findFirst({ where: { userId } })
@@ -73,6 +80,7 @@ export async function GET(req: NextRequest) {
         where: {
           clientId: client.id,
           ...(projectId ? { id: projectId } : {}),
+          ...(isDemoFilter !== undefined ? { isDemo: isDemoFilter } : {}),
         },
         include: { ...(projectId ? {} : { client: true }) },
         orderBy: { createdAt: "desc" },
@@ -97,6 +105,10 @@ export async function GET(req: NextRequest) {
         return NextResponse.json([])
       }
       where.id = projectId
+    }
+    // isDemo filter (optional) — supports /dashboard/demo?isDemo=true view
+    if (isDemoFilter !== undefined) {
+      where.isDemo = isDemoFilter
     }
 
     // For developers: don't expose budget info
@@ -220,6 +232,8 @@ export async function POST(req: NextRequest) {
         // M-PRJ-1 FIX: Use ?? instead of || so budget: 0 is preserved
         budget: validated.budget ?? null,
         deadline: validated.deadline ? new Date(validated.deadline) : null,
+        // Demo flag — defaults to false; set to true when creating from /dashboard/demo
+        isDemo: validated.isDemo === true,
       },
     })
     // Background: sync project data to Git (fire-and-forget)
@@ -306,6 +320,9 @@ export async function PUT(req: NextRequest) {
     }
     if (validated.budget !== undefined) {
       sanitizedData.budget = validated.budget
+    }
+    if (validated.isDemo !== undefined) {
+      sanitizedData.isDemo = validated.isDemo
     }
 
     const project = await db.project.update({ where: { id: projectId }, data: sanitizedData })

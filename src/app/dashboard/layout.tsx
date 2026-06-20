@@ -39,6 +39,7 @@ import {
   CalendarRange,
   KeyRound,
   ScrollText,
+  FlaskConical,
 
   FileText,
   ChevronRight,
@@ -104,6 +105,7 @@ const navGroups: NavGroup[] = [
       { title: "CRM", href: "/dashboard/crm", icon: Crosshair, roles: ["SUPER_ADMIN", "ADMIN"] },
       { title: "Clients", href: "/dashboard/clients", icon: Briefcase, roles: ["SUPER_ADMIN", "ADMIN"] },
       { title: "Projects", href: "/dashboard/projects", icon: FolderKanban, roles: ["SUPER_ADMIN", "ADMIN"] },
+      { title: "Demo Projects", href: "/dashboard/demo", icon: FlaskConical, roles: ["SUPER_ADMIN", "ADMIN"] },
       { title: "Finance", href: "/dashboard/finance", icon: DollarSign, roles: ["SUPER_ADMIN", "ADMIN"] },
     ],
   },

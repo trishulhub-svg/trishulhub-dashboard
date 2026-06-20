@@ -76,6 +76,12 @@ export default function ApiKeysPage() {
   const [testResult, setTestResult] = useState<Record<string, { valid: boolean; error?: string; hint?: string } | undefined>>({});
   const [saving, setSaving] = useState(false);
   const [showKeyValues, setShowKeyValues] = useState<Record<string, boolean>>({});
+  // Phase A8: Plaintext key values are no longer returned by GET /api/api-keys
+  // (only masked). When the user clicks the "eye" or "copy" button, we fetch
+  // the plaintext via POST /api/api-keys/reveal (rate-limited, audit-logged)
+  // and cache it here so repeat clicks don't re-trigger the reveal.
+  const [revealedKeyValues, setRevealedKeyValues] = useState<Record<string, string>>({});
+  const [revealingKey, setRevealingKey] = useState<string | null>(null);
 
   // Form state
   const [formProvider, setFormProvider] = useState("ZAI");
@@ -290,6 +296,62 @@ export default function ApiKeysPage() {
     return key.substring(0, 4) + "••••" + key.substring(key.length - 4);
   };
 
+  // Phase A8: Fetch the plaintext key value via the rate-limited, audit-logged
+  // reveal endpoint. Caches the result so subsequent calls don't re-hit the API.
+  const revealKeyValue = useCallback(async (keyId: string): Promise<string | null> => {
+    if (revealedKeyValues[keyId]) return revealedKeyValues[keyId];
+    setRevealingKey(keyId);
+    try {
+      const res = await fetch("/api/api-keys/reveal", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: keyId }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ error: "Failed to reveal key" }));
+        toast.error(errData.error || "Failed to reveal key");
+        return null;
+      }
+      const data = await res.json();
+      const plain = data.keyValue as string;
+      setRevealedKeyValues(prev => ({ ...prev, [keyId]: plain }));
+      return plain;
+    } catch {
+      toast.error("Failed to reveal key");
+      return null;
+    } finally {
+      setRevealingKey(null);
+    }
+  }, [revealedKeyValues]);
+
+  // Toggle visibility — fetches plaintext on first reveal
+  const handleToggleKeyVisibility = useCallback(async (keyId: string) => {
+    setShowKeyValues(prev => {
+      const next = { ...prev, [keyId]: !prev[keyId] };
+      return next;
+    });
+    // If turning visibility ON and we don't have the plaintext cached, fetch it
+    if (!showKeyValues[keyId] && !revealedKeyValues[keyId]) {
+      await revealKeyValue(keyId);
+    }
+  }, [showKeyValues, revealedKeyValues, revealKeyValue]);
+
+  // Copy plaintext to clipboard — fetches via reveal if not cached
+  const handleCopyKeyValue = useCallback(async (key: ApiKeyData) => {
+    let plain: string | null = revealedKeyValues[key.id] || null;
+    if (!plain) {
+      plain = await revealKeyValue(key.id);
+    }
+    if (!plain) return;
+    try {
+      await navigator.clipboard.writeText(plain);
+      toast.success("Key copied to clipboard");
+    } catch {
+      toast.error("Failed to copy to clipboard");
+    }
+  }, [revealedKeyValues, revealKeyValue]);
+
   // Summary stats
   const totalSpend = keys.reduce((sum, k) => sum + (Number(k.currentSpend) || 0), 0);
   const totalBudget = keys.reduce((sum, k) => sum + (Number(k.monthlyBudget) || 0), 0);
@@ -472,13 +534,16 @@ export default function ApiKeysPage() {
                       </div>
                       <div className="flex items-center gap-1 mt-1">
                         <span className="text-xs text-muted-foreground font-mono">
-                          {showKeyValues[key.id] ? key.keyValue : maskKeyValue(key.keyValue)}
+                          {showKeyValues[key.id]
+                            ? (revealedKeyValues[key.id] || (revealingKey === key.id ? "Loading…" : key.keyValue))
+                            : maskKeyValue(key.keyValue)}
                         </span>
                         <Button
                           variant="ghost"
                           size="icon"
                           className="h-5 w-5"
-                          onClick={() => setShowKeyValues(prev => ({ ...prev, [key.id]: !prev[key.id] }))}
+                          onClick={() => handleToggleKeyVisibility(key.id)}
+                          disabled={revealingKey === key.id}
                           aria-label="Toggle API key visibility"
                         >
                           {showKeyValues[key.id] ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
@@ -487,14 +552,7 @@ export default function ApiKeysPage() {
                           variant="ghost"
                           size="icon"
                           className="h-5 w-5"
-                          onClick={() => {
-                            try {
-                              navigator.clipboard.writeText(key.keyValue);
-                              toast.success("Key copied to clipboard");
-                            } catch {
-                              toast.error("Failed to copy to clipboard");
-                            }
-                          }}
+                          onClick={() => handleCopyKeyValue(key)}
                           aria-label="Copy API key"
                         >
                           <Copy className="h-3 w-3" />

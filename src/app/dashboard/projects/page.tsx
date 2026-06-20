@@ -203,6 +203,11 @@ function KanbanProjectCard({
         <Badge className={`text-[10px] px-1.5 py-0 leading-4 font-medium ${statusColors[pStatus] || ""}`}>
           {pStatus.replace("_", " ")}
         </Badge>
+        {project.isDemo === true && (
+          <Badge className="text-[9px] px-1.5 py-0 leading-3 font-bold tracking-wider bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white" title="Demo project">
+            DEMO
+          </Badge>
+        )}
         <span className="text-[11px] text-muted-foreground truncate max-w-[140px]">
           {pClientName}
         </span>
@@ -503,10 +508,15 @@ function ListViewRow({
       </div>
 
       {/* Status Badge */}
-      <div className="hidden sm:block shrink-0">
+      <div className="hidden sm:flex items-center gap-1.5 shrink-0">
         <Badge className={`text-[10px] px-2 py-0.5 font-medium ${statusColors[pStatus] || ""}`}>
           {pStatus.replace("_", " ")}
         </Badge>
+        {project.isDemo === true && (
+          <Badge className="text-[9px] px-1.5 py-0 leading-3 font-bold tracking-wider bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white" title="Demo project">
+            DEMO
+          </Badge>
+        )}
       </div>
 
       {/* Pending Tasks Badge */}
@@ -789,6 +799,14 @@ function CreateProjectForm({ onSubmit, clients }: {
 }
 
 export default function ProjectsPage() {
+  return <ProjectsBoard />;
+}
+
+// ━━ ProjectsBoard ━━
+// Shared board implementation used by both /dashboard/projects (isDemoView=false)
+// and /dashboard/demo (isDemoView=true). Demo view filters to isDemo projects,
+// shows a DEMO badge in the header, and defaults new projects to isDemo=true.
+export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) {
   const router = useRouter();
   const { data: session, status: sessionStatus } = useSession();
   const queryClient = useQueryClient();
@@ -814,10 +832,17 @@ export default function ProjectsPage() {
   }, []);
 
   // ━━ React Query — cached fetch with stale-while-revalidate ━━
+  // Query key includes isDemoView so the two views maintain independent caches;
+  // mutations invalidate with the root ["projects"] key to refresh both.
+  const projectsQueryKey = useMemo(
+    () => ["projects", { demo: isDemoView }] as const,
+    [isDemoView]
+  );
   const { data: projectsData = [], isLoading: projectsLoading } = useQuery({
-    queryKey: ["projects"],
+    queryKey: projectsQueryKey,
     queryFn: async () => {
-      const res = await fetch("/api/projects", { credentials: "include" });
+      const url = isDemoView ? "/api/projects?isDemo=true" : "/api/projects";
+      const res = await fetch(url, { credentials: "include" });
       if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
       if (!res.ok) throw new Error("Failed to load projects");
       const data = await res.json();
@@ -1058,6 +1083,8 @@ export default function ProjectsPage() {
       budget: parseFloat(form.get("budget") as string) || null,
       startDate: form.get("startDate") as string || null,
       deadline: form.get("deadline") as string || null,
+      // Demo view: new projects default to isDemo=true so they appear on /dashboard/demo
+      ...(isDemoView ? { isDemo: true } : {}),
     };
     const liveUrl = (form.get("liveUrl") as string)?.trim();
 
@@ -1183,7 +1210,7 @@ export default function ProjectsPage() {
       });
       if (res.ok) {
         toast.success("Project deleted successfully");
-        queryClient.setQueryData(["projects"], (old: unknown[]) =>
+        queryClient.setQueryData(projectsQueryKey, (old: unknown[]) =>
           (old || []).filter((p: any) => p.id !== deleteId)
         );
       } else {
@@ -1341,7 +1368,7 @@ export default function ProjectsPage() {
     const prevProjects = projects;
 
     setUpdating(true);
-    queryClient.setQueryData(["projects"], (old: unknown[]) =>
+    queryClient.setQueryData(projectsQueryKey, (old: unknown[]) =>
       (old || []).map((p) =>
         safeText((p as Record<string, unknown>).id, "") === projectId
           ? { ...(p as Record<string, unknown>), status: newStatus }
@@ -1357,18 +1384,18 @@ export default function ProjectsPage() {
         body: JSON.stringify({ id: projectId, status: newStatus }),
       });
       if (handle401(res)) {
-        queryClient.setQueryData(["projects"], prevProjects);
+        queryClient.setQueryData(projectsQueryKey, prevProjects);
         return;
       }
       if (!res.ok) {
-        queryClient.setQueryData(["projects"], prevProjects);
+        queryClient.setQueryData(projectsQueryKey, prevProjects);
         const data = await res.json().catch(() => ({}));
         toast.error((data as Record<string, string>).error?.slice(0, 100) || "Failed to move project");
       } else {
         toast.success(`Project moved to ${newStatus.replace("_", " ")}`);
       }
     } catch {
-      queryClient.setQueryData(["projects"], prevProjects);
+      queryClient.setQueryData(projectsQueryKey, prevProjects);
       toast.error("Failed to move project");
     } finally {
       setUpdating(false);
@@ -1464,7 +1491,14 @@ export default function ProjectsPage() {
           <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
             <LayoutGrid className="h-4.5 w-4.5 text-primary" />
           </div>
-          <h1 className="text-lg sm:text-xl font-bold tracking-tight">Projects</h1>
+          <h1 className="text-lg sm:text-xl font-bold tracking-tight">
+            {isDemoView ? "Demo Projects" : "Projects"}
+          </h1>
+          {isDemoView && (
+            <Badge className="ml-1 text-[10px] font-bold tracking-wider px-2 py-0.5 bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white shadow-sm" title="Demo projects are full-fledged projects used for walkthroughs and demos">
+              DEMO
+            </Badge>
+          )}
         </div>
         <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
           {/* Inline Search */}
@@ -1591,14 +1625,18 @@ export default function ProjectsPage() {
             <FolderKanban className="h-8 w-8 text-primary/40" />
           </div>
           <p className="text-lg font-bold text-foreground/80">
-            {projects.length === 0 ? "No projects yet" : "No projects match your search"}
+            {projects.length === 0
+              ? (isDemoView ? "No demo projects yet" : "No projects yet")
+              : "No projects match your search"}
           </p>
           <p className="text-sm text-muted-foreground/60 mt-1.5 max-w-sm mx-auto">
-            {projects.length === 0 ? "Get started by creating your first project" : "Try adjusting your search or filter criteria"}
+            {projects.length === 0
+              ? (isDemoView ? "Create a demo project to showcase walkthroughs and examples" : "Get started by creating your first project")
+              : "Try adjusting your search or filter criteria"}
           </p>
           {projects.length === 0 && isAdminUser && (
             <Button variant="outline" className="mt-5 gap-2 shadow-sm" onClick={() => setAddOpen(true)}>
-              <Plus className="h-4 w-4" /> Create your first project
+              <Plus className="h-4 w-4" /> {isDemoView ? "Create your first demo project" : "Create your first project"}
             </Button>
           )}
         </div>

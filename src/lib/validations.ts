@@ -23,6 +23,7 @@ export const createProjectSchema = z.object({
   clientId: z.string().min(1).optional().or(z.literal(null).optional()),
   status: z.enum(["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"]).optional(),
   progress: z.number().int().min(0).max(100).optional(),
+  isDemo: z.boolean().optional(),
   deadline: z.string().optional(),
   budget: z.number().min(0).optional().nullable(),
   websites: z.array(z.object({
@@ -38,6 +39,7 @@ export const updateProjectSchema = z.object({
   description: z.string().max(2000).optional(),
   status: z.enum(["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"]).optional(),
   progress: z.number().int().min(0).max(100).optional(),
+  isDemo: z.boolean().optional(),
   deadline: z.string().optional(),
   budget: z.number().min(0).optional().nullable(),
 })
