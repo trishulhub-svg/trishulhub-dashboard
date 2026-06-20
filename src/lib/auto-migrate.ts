@@ -24,9 +24,6 @@ let syncDone = false
 
 /** Columns to add if missing: uses "try ALTER, catch duplicate" approach */
 const CRITICAL_COLUMNS: Array<{ table: string; column: string; sql: string }> = [
-  { table: "Task", column: "approvedBy", sql: "ALTER TABLE Task ADD COLUMN approvedBy TEXT" },
-  { table: "Task", column: "approvedAt", sql: "ALTER TABLE Task ADD COLUMN approvedAt DATETIME" },
-  { table: "Task", column: "assigneeType", sql: "ALTER TABLE Task ADD COLUMN assigneeType TEXT NOT NULL DEFAULT 'HUMAN'" },
   { table: "CrossAgentMessage", column: "linkedChatId", sql: "ALTER TABLE CrossAgentMessage ADD COLUMN linkedChatId TEXT" },
   { table: "CrossAgentMessage", column: "shareFullChat", sql: "ALTER TABLE CrossAgentMessage ADD COLUMN shareFullChat INTEGER DEFAULT 0" },
   { table: "Chat", column: "lockedBy", sql: "ALTER TABLE Chat ADD COLUMN lockedBy TEXT" },
@@ -48,9 +45,6 @@ const CRITICAL_COLUMNS: Array<{ table: string; column: string; sql: string }> = 
   { table: "Invoice", column: "notes", sql: "ALTER TABLE Invoice ADD COLUMN notes TEXT" },
   { table: "Invoice", column: "paymentStatus", sql: "ALTER TABLE Invoice ADD COLUMN paymentStatus TEXT NOT NULL DEFAULT 'UNPAID'" },
   { table: "Invoice", column: "sentById", sql: `ALTER TABLE "Invoice" ADD COLUMN "sentById" TEXT` },
-  // Standalone task support
-  { table: "Task", column: "createdBy", sql: "ALTER TABLE Task ADD COLUMN createdBy TEXT" },
-  { table: "Task", column: "category", sql: "ALTER TABLE Task ADD COLUMN category TEXT NOT NULL DEFAULT 'GENERAL'" },
   // Project start date (moved from Client to Project)
   { table: "Project", column: "startDate", sql: "ALTER TABLE Project ADD COLUMN startDate DATETIME" },
   // Attendance — updatedAt column (added in schema but missing from older DBs)
@@ -399,50 +393,6 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
       "ipAddress" TEXT,
       "userAgent" TEXT,
       "status" TEXT NOT NULL DEFAULT 'SUCCESS',
-      "metadata" TEXT,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )`
-  },
-  // ━━ Lark Integration Tables ━━
-  {
-    name: "LarkUserMapping",
-    sql: `CREATE TABLE IF NOT EXISTS "LarkUserMapping" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "userId" TEXT NOT NULL,
-      "larkOpenId" TEXT NOT NULL,
-      "larkName" TEXT NOT NULL DEFAULT '',
-      "larkEmail" TEXT NOT NULL DEFAULT '',
-      "matchedBy" TEXT NOT NULL DEFAULT 'manual',
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE("userId"),
-      UNIQUE("larkOpenId")
-    )`
-  },
-  {
-    name: "LarkTaskMapping",
-    sql: `CREATE TABLE IF NOT EXISTS "LarkTaskMapping" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "taskId" TEXT NOT NULL,
-      "larkTaskId" TEXT NOT NULL,
-      "larkTaskListId" TEXT NOT NULL,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE("taskId"),
-      UNIQUE("larkTaskId")
-    )`
-  },
-  {
-    name: "LarkSyncLog",
-    sql: `CREATE TABLE IF NOT EXISTS "LarkSyncLog" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "direction" TEXT NOT NULL,
-      "action" TEXT NOT NULL,
-      "status" TEXT NOT NULL,
-      "taskId" TEXT,
-      "larkTaskId" TEXT,
-      "larkTaskListId" TEXT,
-      "projectId" TEXT,
-      "userId" TEXT,
-      "error" TEXT,
       "metadata" TEXT,
       "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`
@@ -1083,64 +1033,6 @@ export async function ensureAllTables(): Promise<void> {
     }
 
     // Mark as done ONLY after all migrations succeed
-    // Lark integration indexes
-    try {
-      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "LarkUserMapping_userId_index" ON "LarkUserMapping"("userId")`)
-    } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes('already exists')) {
-        console.warn(`[auto-migrate] LarkUserMapping_userId_index: ${getErrMsg(err)}`)
-      }
-    }
-    try {
-      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "LarkUserMapping_larkOpenId_index" ON "LarkUserMapping"("larkOpenId")`)
-    } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes('already exists')) {
-        console.warn(`[auto-migrate] LarkUserMapping_larkOpenId_index: ${getErrMsg(err)}`)
-      }
-    }
-    try {
-      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "LarkTaskMapping_taskId_index" ON "LarkTaskMapping"("taskId")`)
-    } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes('already exists')) {
-        console.warn(`[auto-migrate] LarkTaskMapping_taskId_index: ${getErrMsg(err)}`)
-      }
-    }
-    try {
-      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "LarkTaskMapping_larkTaskId_index" ON "LarkTaskMapping"("larkTaskId")`)
-    } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes('already exists')) {
-        console.warn(`[auto-migrate] LarkTaskMapping_larkTaskId_index: ${getErrMsg(err)}`)
-      }
-    }
-    try {
-      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "LarkSyncLog_direction_index" ON "LarkSyncLog"("direction")`)
-    } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes('already exists')) {
-        console.warn(`[auto-migrate] LarkSyncLog_direction_index: ${getErrMsg(err)}`)
-      }
-    }
-    try {
-      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "LarkSyncLog_status_index" ON "LarkSyncLog"("status")`)
-    } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes('already exists')) {
-        console.warn(`[auto-migrate] LarkSyncLog_status_index: ${getErrMsg(err)}`)
-      }
-    }
-    try {
-      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "LarkSyncLog_createdAt_index" ON "LarkSyncLog"("createdAt")`)
-    } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes('already exists')) {
-        console.warn(`[auto-migrate] LarkSyncLog_createdAt_index: ${getErrMsg(err)}`)
-      }
-    }
-    try {
-      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "LarkSyncLog_taskId_index" ON "LarkSyncLog"("taskId")`)
-    } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes('already exists')) {
-        console.warn(`[auto-migrate] LarkSyncLog_taskId_index: ${getErrMsg(err)}`)
-      }
-    }
-
     syncDone = true
   } catch (err: unknown) {
     console.error("[auto-migrate] Schema check error (non-fatal):", getErrMsg(err))

@@ -1,32 +1,6 @@
 import { z } from "zod"
 import { VALID_LEAVE_TYPES, type LeaveType } from "@/lib/types"
 
-// ━━ Task Schemas ━━
-export const createTaskSchema = z.object({
-  title: z.string().min(1, "Title is required").max(500),
-  description: z.string().max(50000).optional(),
-  projectId: z.string().min(1, "Project ID is required").optional(),
-  assignedTo: z.string().optional(),
-  assigneeType: z.enum(["HUMAN", "AI"]).optional(),
-  status: z.enum(["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL", "DONE"]).optional(),
-  priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(),
-  deadline: z.string().optional(),
-  category: z.enum(["GENERAL", "MEETING", "FOLLOW_UP", "UPGRADE", "CUSTOMER", "INTERNAL"]).optional(),
-})
-
-export const updateTaskSchema = z.object({
-  id: z.string().min(1, "Task ID is required"),
-  title: z.string().min(1).max(500).optional(),
-  description: z.string().max(50000).optional(),
-  projectId: z.string().min(1).nullable().optional(),
-  assignedTo: z.string().nullable().optional(),
-  assigneeType: z.enum(["HUMAN", "AI"]).optional(),
-  status: z.enum(["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL", "DONE"]).optional(),
-  priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(),
-  deadline: z.string().nullable().optional(),
-  category: z.enum(["GENERAL", "MEETING", "FOLLOW_UP", "UPGRADE", "CUSTOMER", "INTERNAL"]).optional(),
-})
-
 // ━━ Project Member Schema ━━
 export const createProjectMemberSchema = z.object({
   userId: z.string().min(1, "User ID is required"),

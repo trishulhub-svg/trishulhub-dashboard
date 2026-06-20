@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
   Rocket, DollarSign, FolderKanban, TrendingUp, AlertCircle,
-  Clock, ArrowRight, Plus, Send, Shield,
-  ClipboardList, IndianRupee, Wallet, ChevronDown,
+  Clock, ArrowRight, Plus, Send,
+  IndianRupee, Wallet, ChevronDown,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -125,7 +125,6 @@ export default function DashboardPage() {
     newLeadsCount: safeNumber(rawStats.newLeadsCount),
     activeProjects: safeNumber(rawStats.activeProjects),
     openTickets: safeNumber(rawStats.openTickets),
-    pendingTasks: safeNumber(rawStats.pendingTasks),
     totalClients: safeNumber(rawStats.totalClients),
     totalLeads: safeNumber(rawStats.totalLeads),
   };
@@ -133,8 +132,6 @@ export default function DashboardPage() {
   const projects = safeArray<{ id: string; name: string; status: string; progress: number; deadline: string | null; client: { name: string } }>(data.projects);
   const invoices = safeArray<{ id: string; invoiceNumber: string; status: string; total: number; client: { name: string }; dueDate: string }>(data.invoices);
   const apiKeys = safeArray<{ id: string; keyName: string; currentSpend: number; monthlyBudget: number }>(data.apiKeys);
-  // DASH-005: Extract tasks data for developer "My Tasks" section
-  const tasks = safeArray<{ id: string; title: string; status: string; priority: string; project: { name: string } }>(data.tasks);
 
   // W9: Extract frequently-used stats to local variables to avoid redundant safeNumber() calls
   const budget = stats.monthlyBudget;
@@ -148,7 +145,6 @@ export default function DashboardPage() {
   const newLeadsCount = stats.newLeadsCount;
   const totalLeads = stats.totalLeads;
   const openTickets = stats.openTickets;
-  const pendingTasks = stats.pendingTasks;
 
   const formatCurrency = (n: number) => `₹${n.toLocaleString("en-IN")}`;
 
@@ -252,24 +248,6 @@ export default function DashboardPage() {
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-muted-foreground">My Tasks</p>
-                    <p className="text-2xl font-bold">{pendingTasks}</p>
-                  </div>
-                  <div className="h-10 w-10 rounded-full bg-yellow-100 dark:bg-yellow-900/30 flex items-center justify-center">
-                    <ClipboardList className="h-5 w-5 text-yellow-600" />
-                  </div>
-                </div>
-                <p className="text-xs text-muted-foreground mt-2">Pending tasks in your projects</p>
-              </CardContent>
-            </Card>
-
-            <Card
-              onClick={() => router.push("/dashboard/projects")}
-              className="cursor-pointer hover:shadow-md transition-shadow liquid-glass-card"
-            >
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
                     <p className="text-sm text-muted-foreground">Open Tickets</p>
                     <p className="text-2xl font-bold">{openTickets}</p>
                   </div>
@@ -282,24 +260,6 @@ export default function DashboardPage() {
             </Card>
           </>
         )}
-
-        <Card
-          onClick={() => router.push("/dashboard/projects")}
-          className="cursor-pointer hover:shadow-md transition-shadow liquid-glass-card"
-        >
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">{isAdminUser ? "Pending Tasks" : "Team Tasks"}</p>
-                <p className="text-2xl font-bold">{pendingTasks}</p>
-              </div>
-              <div className="h-10 w-10 rounded-full bg-yellow-100 dark:bg-yellow-900/30 flex items-center justify-center">
-                <Shield className="h-5 w-5 text-yellow-600" />
-              </div>
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">{openTickets} open tickets</p>
-          </CardContent>
-        </Card>
       </div>
 
       {/* ── Earnings / Salary Card ── */}
@@ -489,48 +449,6 @@ export default function DashboardPage() {
       {/* Developer-specific bottom section */}
       {!isAdminUser && (
         <div className="grid gap-4 md:grid-cols-2">
-          {/* My Tasks Quick View */}
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">My Tasks</CardTitle>
-                <Button variant="ghost" size="sm" onClick={() => router.push("/dashboard/projects")}>
-                  View All <ArrowRight className="h-3 w-3 ml-1" />
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {/* DASH-005: Real task data from API instead of static placeholder */}
-              <div className="space-y-2 max-h-48 sm:max-h-64 overflow-y-auto custom-scrollbar">
-                {tasks.length === 0 ? (
-                  <div className="text-center py-8 text-sm text-muted-foreground">
-                    <ClipboardList className="h-10 w-10 mx-auto mb-3 text-muted-foreground/50" />
-                    <p>No pending tasks</p>
-                    <Button variant="outline" size="sm" className="mt-3" onClick={() => router.push("/dashboard/projects")}>
-                      Go to Projects
-                    </Button>
-                  </div>
-                ) : (
-                  tasks.slice(0, 5).map((task) => (
-                    <div key={safeText(task.id, "")} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50">
-                      <div className={cn(
-                        "h-2 w-2 rounded-full shrink-0",
-                        task.status === "DONE" ? "bg-green-500" :
-                        task.status === "IN_PROGRESS" ? "bg-blue-500" :
-                        task.status === "REVIEW" ? "bg-yellow-500" : "bg-gray-400"
-                      )} />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{safeText(task.title, "Untitled Task")}</p>
-                        <p className="text-xs text-muted-foreground">{task.project ? safeText(task.project.name, "") : ""}</p>
-                      </div>
-                      <Badge variant="outline" className="text-[10px] shrink-0">{safeText(task.status, "")}</Badge>
-                    </div>
-                  ))
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
           {/* Quick Actions */}
           <Card>
             <CardHeader className="pb-3">

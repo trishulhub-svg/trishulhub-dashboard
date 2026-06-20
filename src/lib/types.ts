@@ -11,9 +11,6 @@ export type AgentType =
 
 export type AgentStatus = "IDLE" | "RUNNING" | "WAITING_APPROVAL" | "ERROR";
 
-export type TaskStatus = "TODO" | "IN_PROGRESS" | "REVIEW" | "AWAITING_APPROVAL" | "DONE";
-export type TaskPriority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
-
 export type ProjectStatus =
   | "PLANNING"
   | "IN_PROGRESS"
@@ -145,8 +142,6 @@ export const LEAD_COLUMNS: LeadStatus[] = [
   "WON",
   "LOST",
 ];
-
-export const TASK_COLUMNS: TaskStatus[] = ["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL", "DONE"];
 
 // ━━ Department Options ━━
 // Keep in sync with Prisma schema User model comment

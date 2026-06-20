@@ -20,15 +20,8 @@ import {
   FileText,
   AlertTriangle,
   Calendar,
-  ArrowRightLeft,
-  ArrowLeft,
-  ArrowRight,
-  CheckCircle2,
-  XCircle,
-  MinusCircle,
-  RefreshCw,
 } from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -103,22 +96,6 @@ interface StatsData {
   recentActivity: { id: string; department: string; page: string; action: string; description: string; userName: string; createdAt: string }[]
 }
 
-// ── Lark Sync Log types ──
-interface LarkSyncLogEntry {
-  id: string
-  direction: string
-  action: string
-  status: string
-  taskId: string | null
-  larkTaskId: string | null
-  larkTaskListId: string | null
-  projectId: string | null
-  userId: string | null
-  error: string | null
-  metadata: string | null
-  createdAt: string
-}
-
 function formatRelativeTime(dateStr: string | null | undefined): string {
   if (!dateStr) return "N/A"
   const date = new Date(dateStr)
@@ -146,42 +123,6 @@ function getInitials(userName: string | null | undefined): string {
 function formatRole(role: string | null | undefined): string {
   if (!role) return "—"
   return role.replace(/_/g, " ")
-}
-
-/** Badge color for Lark sync direction */
-function directionBadge(direction: string): string {
-  if (direction === "TO_LARK") return "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400"
-  if (direction === "FROM_LARK") return "bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-400"
-  return "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"
-}
-
-/** Badge color for Lark sync status */
-function syncStatusBadge(status: string): string {
-  if (status === "SUCCESS") return "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
-  if (status === "FAILED") return "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
-  if (status === "SKIPPED") return "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400"
-  return "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"
-}
-
-/** Text color for Lark sync status */
-function syncStatusTextColor(status: string): string {
-  if (status === "SUCCESS") return "text-green-700 dark:text-green-400"
-  if (status === "FAILED") return "text-red-700 dark:text-red-400"
-  return "text-amber-700 dark:text-amber-400"
-}
-
-/** Icon for Lark sync status */
-function SyncStatusIcon({ status }: { status: string }) {
-  if (status === "SUCCESS") return <CheckCircle2 className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-  if (status === "FAILED") return <XCircle className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
-  return <MinusCircle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
-}
-
-/** Icon for Lark sync direction */
-function DirectionIcon({ direction }: { direction: string }) {
-  if (direction === "TO_LARK") return <ArrowRight className="h-3 w-3" />
-  if (direction === "FROM_LARK") return <ArrowLeft className="h-3 w-3" />
-  return <ArrowRightLeft className="h-3 w-3" />
 }
 
 // ── Mobile Card Components ──
@@ -246,92 +187,6 @@ function AuditLogCard({ log }: { log: AuditLogEntry }) {
   )
 }
 
-/** Mobile card for a single Lark sync log entry */
-function SyncLogCard({ log }: { log: LarkSyncLogEntry }) {
-  return (
-    <Card className="p-3 space-y-2">
-      {/* Direction badge + Action badge */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <Badge
-          variant="secondary"
-          className={cn("text-[10px] font-semibold flex items-center gap-1", directionBadge(log.direction))}
-        >
-          <DirectionIcon direction={log.direction} />
-          {log.direction === "TO_LARK" ? "To Lark" : log.direction === "FROM_LARK" ? "From Lark" : log.direction}
-        </Badge>
-        <Badge
-          variant="secondary"
-          className={cn("text-[10px] font-semibold", ACTION_COLORS[log.action] || ACTION_COLORS.UPDATE)}
-        >
-          {log.action}
-        </Badge>
-      </div>
-
-      {/* Status with icon */}
-      <div className="flex items-center gap-1.5">
-        <SyncStatusIcon status={log.status} />
-        <span className={cn("text-xs font-semibold", syncStatusTextColor(log.status))}>
-          {log.status}
-        </span>
-      </div>
-
-      {/* Task ID and Lark Task ID */}
-      <div className="space-y-1">
-        {log.taskId && (
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-muted-foreground shrink-0">Task:</span>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="font-mono truncate cursor-help">{log.taskId}</span>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p className="text-[10px] font-mono">{log.taskId}</p>
-              </TooltipContent>
-            </Tooltip>
-          </div>
-        )}
-        {log.larkTaskId && (
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-muted-foreground shrink-0">Lark:</span>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="font-mono truncate cursor-help">{log.larkTaskId}</span>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p className="text-[10px] font-mono">{log.larkTaskId}</p>
-              </TooltipContent>
-            </Tooltip>
-          </div>
-        )}
-      </div>
-
-      {/* Error message */}
-      {log.error && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <p className="text-xs text-red-600 dark:text-red-400 line-clamp-2 cursor-help">
-              {log.error}
-            </p>
-          </TooltipTrigger>
-          <TooltipContent className="max-w-xs">
-            <p className="text-xs">{log.error}</p>
-          </TooltipContent>
-        </Tooltip>
-      )}
-
-      {/* Relative time */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <p className="text-xs text-muted-foreground cursor-help">{formatRelativeTime(log.createdAt)}</p>
-        </TooltipTrigger>
-        <TooltipContent>
-          <p className="text-xs">{formatDateTime(log.createdAt)}</p>
-        </TooltipContent>
-      </Tooltip>
-    </Card>
-  )
-}
-
 /**
  * Local error boundary for the Audit Trail page.
  * Catches render-time errors so they show a useful message
@@ -392,7 +247,6 @@ class AuditTrailErrorBoundary extends React.Component<
 
 export default function AuditTrailPage() {
   const { data: session, status: sessionStatus } = useSession()
-  const [activeView, setActiveView] = useState<"audit" | "lark-sync">("audit")
 
   // ── Audit Trail State ──
   const [logs, setLogs] = useState<AuditLogEntry[]>([])
@@ -422,19 +276,6 @@ export default function AuditTrailPage() {
   }, [])
 
   const isExportVisible = ["SUPER_ADMIN", "ADMIN"].includes(userRole)
-  const isAdmin = ["SUPER_ADMIN", "ADMIN"].includes(userRole)
-
-  // ── Lark Sync State ──
-  const [syncLogs, setSyncLogs] = useState<LarkSyncLogEntry[]>([])
-  const [syncLoading, setSyncLoading] = useState(false)
-  const [syncLoadingMore, setSyncLoadingMore] = useState(false)
-  const [syncError, setSyncError] = useState<string | null>(null)
-  const [syncDirectionFilter, setSyncDirectionFilter] = useState<string>("")
-  const [syncStatusFilter, setSyncStatusFilter] = useState<string>("")
-  const [syncSearch, setSyncSearch] = useState("")
-  const [syncOffset, setSyncOffset] = useState(0)
-  const [syncHasMore, setSyncHasMore] = useState(false)
-  const [larkEnabled, setLarkEnabled] = useState(false)
 
   // Fetch stats
   useEffect(() => {
@@ -521,89 +362,6 @@ export default function AuditTrailPage() {
     if (nextCursor) fetchLogs(nextCursor)
   }
 
-  // ── Fetch Lark Sync Logs ──
-  const fetchSyncLogs = useCallback(async () => {
-    setSyncLoading(true)
-    setSyncError(null)
-    setSyncOffset(0)
-    try {
-      const params = new URLSearchParams()
-      params.set("limit", "10")
-      params.set("offset", "0")
-      if (syncDirectionFilter) params.set("direction", syncDirectionFilter)
-      if (syncStatusFilter) params.set("status", syncStatusFilter)
-
-      const res = await fetch(`/api/lark/sync?${params.toString()}`, { credentials: "include" })
-      if (res.ok) {
-        const data = await res.json()
-        const items: LarkSyncLogEntry[] = Array.isArray(data?.logs) ? data.logs : []
-        setSyncLogs(items)
-        setSyncOffset(10)
-        setSyncHasMore(items.length >= 10)
-        setLarkEnabled(data?.config?.enabled === true)
-      } else if (res.status === 403) {
-        setSyncLogs([])
-        setSyncError("Admin access required to view Lark sync logs")
-      } else {
-        setSyncError(`Failed to load sync logs (HTTP ${res.status})`)
-      }
-    } catch (err) {
-      setSyncError("Network error loading Lark sync logs")
-      console.error("Failed to fetch Lark sync logs:", err)
-    } finally {
-      setSyncLoading(false)
-    }
-  }, [syncDirectionFilter, syncStatusFilter])
-
-  // Load more sync logs (append)
-  const loadMoreSyncLogs = async () => {
-    if (syncLoadingMore) return
-    setSyncLoadingMore(true)
-    setSyncError(null)
-    try {
-      const params = new URLSearchParams()
-      params.set("limit", "10")
-      params.set("offset", String(syncOffset))
-      if (syncDirectionFilter) params.set("direction", syncDirectionFilter)
-      if (syncStatusFilter) params.set("status", syncStatusFilter)
-
-      const res = await fetch(`/api/lark/sync?${params.toString()}`, { credentials: "include" })
-      if (res.ok) {
-        const data = await res.json()
-        const items: LarkSyncLogEntry[] = Array.isArray(data?.logs) ? data.logs : []
-        setSyncLogs(prev => [...prev, ...items])
-        setSyncOffset(prev => prev + 10)
-        setSyncHasMore(items.length >= 10)
-      } else {
-        setSyncError(`Failed to load more sync logs (HTTP ${res.status})`)
-      }
-    } catch (err) {
-      setSyncError("Network error loading more Lark sync logs")
-    } finally {
-      setSyncLoadingMore(false)
-    }
-  }
-
-  // Fetch sync logs when switching to lark-sync tab or filters change
-  useEffect(() => {
-    if (activeView === "lark-sync" && isAdmin) {
-      fetchSyncLogs()
-    }
-  }, [activeView, fetchSyncLogs, isAdmin])
-
-  // Client-side filtered sync logs (by search)
-  const filteredSyncLogs = useMemo(() => {
-    if (!syncSearch.trim()) return syncLogs
-    const q = syncSearch.toLowerCase()
-    return syncLogs.filter(log =>
-      (log.error && log.error.toLowerCase().includes(q)) ||
-      (log.taskId && log.taskId.toLowerCase().includes(q)) ||
-      (log.larkTaskId && log.larkTaskId.toLowerCase().includes(q)) ||
-      (log.action && log.action.toLowerCase().includes(q)) ||
-      (log.status && log.status.toLowerCase().includes(q))
-    )
-  }, [syncLogs, syncSearch])
-
   // Department counts from stats
   const deptCounts = useMemo(() => {
     const counts: Record<string, number> = {}
@@ -627,16 +385,6 @@ export default function AuditTrailPage() {
     if (total === 0) return "—"
     return `${Math.round(((success?.count || 0) / total) * 100)}%`
   }, [stats])
-
-  // ── Lark Sync summary stats ──
-  const syncStats = useMemo(() => {
-    const total = syncLogs.length
-    const success = syncLogs.filter(l => l.status === "SUCCESS").length
-    const failed = syncLogs.filter(l => l.status === "FAILED").length
-    const toLark = syncLogs.filter(l => l.direction === "TO_LARK").length
-    const fromLark = syncLogs.filter(l => l.direction === "FROM_LARK").length
-    return { total, success, failed, toLark, fromLark }
-  }, [syncLogs])
 
   const exportCsv = async () => {
     setExporting(true)
@@ -703,53 +451,7 @@ export default function AuditTrailPage() {
     <AuditTrailErrorBoundary>
     <TooltipProvider>
     <div className="space-y-6">
-      {/* View Toggle Tabs */}
-      <div className="flex items-center gap-3 overflow-x-auto pb-1">
-        <div className="flex bg-muted rounded-lg p-1 shrink-0">
-          <button
-            onClick={() => setActiveView("audit")}
-            className={cn(
-              "px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap",
-              activeView === "audit"
-                ? "bg-background shadow-sm text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <Shield className="h-4 w-4" />
-            Audit Logs
-          </button>
-          {isAdmin && (
-            <button
-              onClick={() => setActiveView("lark-sync")}
-              className={cn(
-                "px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap",
-                activeView === "lark-sync"
-                  ? "bg-background shadow-sm text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <ArrowRightLeft className="h-4 w-4" />
-              Lark Sync
-              {!larkEnabled && activeView !== "lark-sync" && (
-                <span className="h-2 w-2 rounded-full bg-amber-400" />
-              )}
-            </button>
-          )}
-        </div>
-        {activeView === "lark-sync" && (
-          <Badge variant={larkEnabled ? "default" : "secondary"} className="text-xs shrink-0">
-            {larkEnabled ? (
-              <><CheckCircle2 className="h-3 w-3 mr-1" /> Sync Active</>
-            ) : (
-              <><XCircle className="h-3 w-3 mr-1" /> Sync Inactive</>
-            )}
-          </Badge>
-        )}
-      </div>
-
-      {/* ═══════════════ AUDIT LOGS VIEW ═══════════════ */}
-      {activeView === "audit" && (
-        <>
+      <>
           {/* Stats Cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {statsLoading ? (
@@ -1188,337 +890,6 @@ export default function AuditTrailPage() {
             </div>
           </div>
         </>
-      )}
-
-      {/* ═══════════════ LARK SYNC VIEW ═══════════════ */}
-      {activeView === "lark-sync" && isAdmin && (
-        <div className="space-y-6">
-          {/* Lark Sync Stats Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
-            {syncLoading && syncOffset === 0 ? (
-              <>
-                {[...Array(5)].map((_, i) => (
-                  <Card key={i}>
-                    <CardContent className="p-4">
-                      <Skeleton className="h-4 w-20 mb-2" />
-                      <Skeleton className="h-7 w-12" />
-                    </CardContent>
-                  </Card>
-                ))}
-              </>
-            ) : (
-              <>
-                <Card>
-                  <CardContent className="p-4">
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Total Syncs</p>
-                    <p className="text-xl md:text-2xl font-bold tabular-nums">{syncStats.total.toLocaleString()}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <p className="text-xs font-medium text-green-600 dark:text-green-400 uppercase tracking-wide">Successful</p>
-                    <p className="text-xl md:text-2xl font-bold tabular-nums text-green-700 dark:text-green-400">{syncStats.success}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <p className="text-xs font-medium text-red-600 dark:text-red-400 uppercase tracking-wide">Failed</p>
-                    <p className="text-xl md:text-2xl font-bold tabular-nums text-red-700 dark:text-red-400">{syncStats.failed}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <p className="text-xs font-medium text-blue-600 dark:text-blue-400 uppercase tracking-wide">To Lark</p>
-                    <div className="flex items-center gap-1.5">
-                      <ArrowRight className="h-4 w-4 text-blue-500" />
-                      <p className="text-xl md:text-2xl font-bold tabular-nums">{syncStats.toLark}</p>
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <p className="text-xs font-medium text-violet-600 dark:text-violet-400 uppercase tracking-wide">From Lark</p>
-                    <div className="flex items-center gap-1.5">
-                      <ArrowLeft className="h-4 w-4 text-violet-500" />
-                      <p className="text-xl md:text-2xl font-bold tabular-nums">{syncStats.fromLark}</p>
-                    </div>
-                  </CardContent>
-                </Card>
-              </>
-            )}
-          </div>
-
-          {/* Sync Logs Section */}
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex flex-col gap-3">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <CardTitle className="text-base">Sync Operations</CardTitle>
-                    <Badge variant="outline" className="text-xs font-mono">
-                      LarkSyncLog
-                    </Badge>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Select value={syncDirectionFilter} onValueChange={(v) => setSyncDirectionFilter(v === "ALL" ? "" : v)}>
-                      <SelectTrigger className="w-auto min-w-[120px] h-9 text-xs">
-                        <ArrowRightLeft className="h-3.5 w-3.5 mr-1.5 shrink-0" />
-                        <SelectValue placeholder="Direction" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="ALL">All Directions</SelectItem>
-                        <SelectItem value="TO_LARK">To Lark</SelectItem>
-                        <SelectItem value="FROM_LARK">From Lark</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Select value={syncStatusFilter} onValueChange={(v) => setSyncStatusFilter(v === "ALL" ? "" : v)}>
-                      <SelectTrigger className="w-auto min-w-[100px] h-9 text-xs">
-                        <SelectValue placeholder="Status" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="ALL">All Status</SelectItem>
-                        <SelectItem value="SUCCESS">Success</SelectItem>
-                        <SelectItem value="FAILED">Failed</SelectItem>
-                        <SelectItem value="SKIPPED">Skipped</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Button variant="outline" size="sm" className="h-9" onClick={fetchSyncLogs} disabled={syncLoading}>
-                      <RefreshCw className={cn("h-3.5 w-3.5 mr-1.5", syncLoading && "animate-spin")} />
-                      Refresh
-                    </Button>
-                  </div>
-                </div>
-                {/* Search bar for Lark Sync */}
-                <div className="relative w-full sm:max-w-xs">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search sync logs..."
-                    className="pl-10 h-9 text-sm"
-                    value={syncSearch}
-                    onChange={(e) => setSyncSearch(e.target.value)}
-                  />
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              {/* Error Display */}
-              {syncError && (
-                <div className="p-4 border-b border-red-200 dark:border-red-900/50 flex items-center gap-3">
-                  <AlertTriangle className="h-5 w-5 text-red-500 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-red-600 dark:text-red-400">{syncError}</p>
-                  </div>
-                  <Button variant="outline" size="sm" onClick={fetchSyncLogs} className="shrink-0">
-                    <RotateCcw className="h-3.5 w-3.5 mr-1.5" /> Retry
-                  </Button>
-                </div>
-              )}
-
-              {/* Mobile Sync Log Cards */}
-              <div className="md:hidden p-3 space-y-3">
-                {syncLoading && syncOffset === 0 ? (
-                  <>
-                    {[...Array(5)].map((_, i) => (
-                      <Card key={i} className="p-3 space-y-2">
-                        <div className="flex gap-2">
-                          <Skeleton className="h-5 w-16" />
-                          <Skeleton className="h-5 w-12" />
-                        </div>
-                        <Skeleton className="h-3 w-16" />
-                        <Skeleton className="h-3 w-full" />
-                        <Skeleton className="h-3 w-24" />
-                      </Card>
-                    ))}
-                  </>
-                ) : filteredSyncLogs.length === 0 ? (
-                  <Card className="p-8">
-                    <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                      <ArrowRightLeft className="h-8 w-8 opacity-20" />
-                      <p className="text-sm">
-                        {syncSearch ? "No sync logs match your search" : "No Lark sync logs found"}
-                      </p>
-                      <p className="text-xs">Sync logs appear here when tasks are created, updated, or synced between TrishulHub and Lark.</p>
-                    </div>
-                  </Card>
-                ) : (
-                  filteredSyncLogs.map((log) => (
-                    <SyncLogCard key={log.id} log={log} />
-                  ))
-                )}
-              </div>
-
-              {/* Desktop Sync Log Table */}
-              <div className="hidden md:block overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-[140px]">Time</TableHead>
-                      <TableHead className="w-[90px]">Direction</TableHead>
-                      <TableHead className="w-[80px]">Action</TableHead>
-                      <TableHead className="w-[80px]">Status</TableHead>
-                      <TableHead>Task ID</TableHead>
-                      <TableHead>Lark Task ID</TableHead>
-                      <TableHead className="max-w-[200px]">Error</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {syncLoading && syncOffset === 0 ? (
-                      <>
-                        {[...Array(10)].map((_, i) => (
-                          <TableRow key={i}>
-                            <TableCell><Skeleton className="h-4 w-[120px]" /></TableCell>
-                            <TableCell><Skeleton className="h-5 w-[70px]" /></TableCell>
-                            <TableCell><Skeleton className="h-5 w-[60px]" /></TableCell>
-                            <TableCell><Skeleton className="h-5 w-[60px]" /></TableCell>
-                            <TableCell><Skeleton className="h-4 w-[80px]" /></TableCell>
-                            <TableCell><Skeleton className="h-4 w-[80px]" /></TableCell>
-                            <TableCell><Skeleton className="h-4 w-full" /></TableCell>
-                          </TableRow>
-                        ))}
-                      </>
-                    ) : filteredSyncLogs.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={7} className="h-32 text-center">
-                          <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                            <ArrowRightLeft className="h-8 w-8 opacity-20" />
-                            <p className="text-sm">
-                              {syncSearch ? "No sync logs match your search" : "No Lark sync logs found"}
-                            </p>
-                            <p className="text-xs">Sync logs appear here when tasks are created, updated, or synced between TrishulHub and Lark.</p>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      filteredSyncLogs.map((log) => (
-                        <TableRow key={log.id} className="hover:bg-muted/50">
-                          <TableCell className="text-xs">
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className="cursor-help">{formatRelativeTime(log.createdAt)}</span>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p className="text-xs">{formatDateTime(log.createdAt)}</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TableCell>
-                          <TableCell>
-                            <Badge
-                              variant="secondary"
-                              className={cn("text-[10px] font-semibold flex items-center gap-1 w-fit", directionBadge(log.direction))}
-                            >
-                              <DirectionIcon direction={log.direction} />
-                              {log.direction === "TO_LARK" ? "To Lark" : "From Lark"}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Badge
-                              variant="secondary"
-                              className={cn("text-[10px] font-semibold", ACTION_COLORS[log.action] || ACTION_COLORS.UPDATE)}
-                            >
-                              {log.action}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-1.5">
-                              <SyncStatusIcon status={log.status} />
-                              <span className={cn("text-[10px] font-semibold", syncStatusTextColor(log.status))}>
-                                {log.status}
-                              </span>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            {log.taskId ? (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <span className="text-[11px] font-mono text-muted-foreground cursor-help hover:text-foreground">
-                                    {log.taskId.slice(0, 8)}...
-                                  </span>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p className="text-[10px] font-mono">{log.taskId}</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            ) : (
-                              <span className="text-xs text-muted-foreground">—</span>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {log.larkTaskId ? (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <span className="text-[11px] font-mono text-muted-foreground cursor-help hover:text-foreground">
-                                    {log.larkTaskId.slice(0, 8)}...
-                                  </span>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p className="text-[10px] font-mono">{log.larkTaskId}</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            ) : (
-                              <span className="text-xs text-muted-foreground">—</span>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {log.error ? (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <p className="text-[11px] text-red-600 dark:text-red-400 truncate max-w-[200px] cursor-help">
-                                    {log.error}
-                                  </p>
-                                </TooltipTrigger>
-                                <TooltipContent className="max-w-xs">
-                                  <p className="text-xs">{log.error}</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            ) : (
-                              <span className="text-xs text-muted-foreground">—</span>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-
-              {/* Load More — Sync Logs */}
-              {syncHasMore && (
-                <div className="flex justify-center p-4 border-t">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={loadMoreSyncLogs}
-                    disabled={syncLoadingMore}
-                  >
-                    {syncLoadingMore ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : (
-                      <ChevronDown className="h-4 w-4 mr-2" />
-                    )}
-                    Load More
-                  </Button>
-                </div>
-              )}
-
-              {/* Sync logs footer */}
-              {syncLogs.length > 0 && (
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 border-t text-xs text-muted-foreground gap-2">
-                  <span>
-                    Showing {filteredSyncLogs.length} of {syncLogs.length} sync operations
-                    {syncDirectionFilter && <> — filtered by {syncDirectionFilter === "TO_LARK" ? "To Lark" : "From Lark"}</>}
-                    {syncStatusFilter && <> — {syncStatusFilter}</>}
-                    {syncSearch && <> — search: &quot;{syncSearch}&quot;</>}
-                  </span>
-                  <span className="flex items-center gap-1 shrink-0">
-                    <Clock className="h-3.5 w-3.5" />
-                    Last refreshed just now
-                  </span>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      )}
     </div>
     </TooltipProvider>
     </AuditTrailErrorBoundary>

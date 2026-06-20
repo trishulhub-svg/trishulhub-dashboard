@@ -19,7 +19,6 @@ const ALLOWED_TABLE_NAMES = new Set([
   "Client",
   "Project",
   "ProjectMember",
-  "Task",
   "Invoice",
   "Lead",
   "LeadEmail",
@@ -94,10 +93,6 @@ export async function PATCH() {
       { table: "Chat", column: "lockedBy", type: "TEXT", sql: "ALTER TABLE Chat ADD COLUMN lockedBy TEXT" },
       { table: "Chat", column: "lockedAt", type: "TEXT", sql: "ALTER TABLE Chat ADD COLUMN lockedAt TEXT" },
       { table: "Chat", column: "lockedByName", type: "TEXT", sql: "ALTER TABLE Chat ADD COLUMN lockedByName TEXT" },
-      // Task approval columns (added in task approval system)
-      { table: "Task", column: "approvedBy", type: "TEXT", sql: "ALTER TABLE Task ADD COLUMN approvedBy TEXT" },
-      { table: "Task", column: "approvedAt", type: "DATETIME", sql: "ALTER TABLE Task ADD COLUMN approvedAt DATETIME" },
-      { table: "Task", column: "assigneeType", type: "TEXT", sql: "ALTER TABLE Task ADD COLUMN assigneeType TEXT NOT NULL DEFAULT 'HUMAN'" },
     ]
 
     for (const migration of migrations) {
@@ -150,7 +145,7 @@ export async function PATCH() {
           FOREIGN KEY (userId) REFERENCES User(id) ON DELETE CASCADE
         )`
       },
-      // Task approval & protocol tables
+      // Protocol tables
       {
         name: "ClientWebsite",
         sql: `CREATE TABLE IF NOT EXISTS "ClientWebsite" (

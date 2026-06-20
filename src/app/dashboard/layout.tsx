@@ -2,9 +2,6 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { FloatingBoardProvider } from "@/components/providers/floating-board-provider";
-import { FloatingBoardRenderer } from "@/components/floating-task-board";
-import { useFloatingBoards } from "@/components/providers/floating-board-provider";
 import {
   LayoutDashboard,
   Bot,
@@ -40,11 +37,9 @@ import {
   GraduationCap,
   BookOpen,
   CalendarRange,
-  ClipboardCheck,
   KeyRound,
   ScrollText,
-  Kanban,
-  Bird,
+
   FileText,
   ChevronRight,
 } from "lucide-react";
@@ -113,13 +108,6 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
-    label: "Tasks",
-    items: [
-      { title: "My Todos", href: "/dashboard/projects/todos", icon: ClipboardCheck, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
-      { title: "Task Board", href: "/dashboard/tasks", icon: Kanban, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
-    ],
-  },
-  {
     label: "Team & Work",
     items: [
       { title: "Team", href: "/dashboard/team", icon: Users, roles: ["SUPER_ADMIN", "ADMIN"] },
@@ -156,7 +144,6 @@ const navGroups: NavGroup[] = [
         children: [
           { title: "Credentials", href: "/dashboard/access-hub?tab=credentials", icon: Shield, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
           { title: "Protocol", href: "/dashboard/access-hub?tab=protocol", icon: FileText, roles: ["SUPER_ADMIN", "ADMIN"] },
-          { title: "User Mapping", href: "/dashboard/access-hub?tab=lark-users", icon: Bird, roles: ["SUPER_ADMIN", "ADMIN"] },
           { title: "System Config", href: "/dashboard/access-hub?tab=system", icon: Settings, roles: ["SUPER_ADMIN", "ADMIN"] },
         ],
       },
@@ -173,7 +160,7 @@ const allNavItems = navGroups.flatMap((g) =>
 interface PendingCounts {
   approvals: number;
   leaveRequests: number;
-  tasksAwaitingApproval: number;
+
   total: number;
 }
 
@@ -524,7 +511,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [mobileOpen, setMobileOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [notifOpen, setNotifOpen] = useState(false);
-  const [pendingCounts, setPendingCounts] = useState<PendingCounts>({ approvals: 0, leaveRequests: 0, tasksAwaitingApproval: 0, total: 0 });
+  const [pendingCounts, setPendingCounts] = useState<PendingCounts>({ approvals: 0, leaveRequests: 0, total: 0 });
   const [navBadgeData, setNavBadgeData] = useState<NavBadgeMap>({});
 
   const VALID_ROLES = ["SUPER_ADMIN", "ADMIN", "DEVELOPER", "VIEWER", "CLIENT"] as const;
@@ -565,7 +552,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           setPendingCounts({
             approvals: (data["/dashboard/approvals"] || 0) as number,
             leaveRequests: (data["/dashboard/team"] || 0) as number,
-            tasksAwaitingApproval: (data["/dashboard/projects"] || 0) as number,
+
             total: Object.values(data).reduce((sum: number, v) => sum + (v as number), 0),
           });
         }
@@ -705,20 +692,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // W3: Prevent CLIENT users from seeing any dashboard content before redirect
   if (userRole === "CLIENT") return null;
 
-  // Embed mode: render ONLY the page content with no sidebar/header/floating boards
+  // Embed mode: render ONLY the page content with no sidebar/header
   if (isEmbed) {
     return (
-      <FloatingBoardProvider>
-        <div className="h-screen w-full overflow-auto bg-background">
-          {children}
-        </div>
-      </FloatingBoardProvider>
+      <div className="h-screen w-full overflow-auto bg-background">
+        {children}
+      </div>
     );
   }
 
   return (
-    <FloatingBoardProvider>
-    <LogoutBridge />
     <div className="min-h-screen flex bg-background">
       {/* Desktop Sidebar - wider and more spacious */}
       <aside
@@ -944,7 +927,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={async () => {
                   // Auto-minimize all floating boards before logout
-                  window.dispatchEvent(new CustomEvent("trishulhub:logout"));
+                  // (floating board system removed — logout proceeds directly)
                   await signOut({ redirect: false });
                   router.push("/login");
                 }}>
@@ -961,21 +944,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Agentation — visual feedback tool (all users) */}
       <Agentation />
-
-      {/* Floating Task Boards — accessible from all dashboard pages */}
-      <FloatingBoardRenderer />
     </div>
-    </FloatingBoardProvider>
   );
-}
-
-// ─── Bridge: Listens for logout event to auto-minimize floating boards ──
-function LogoutBridge() {
-  const { signalLogout } = useFloatingBoards();
-  useEffect(() => {
-    const handler = () => signalLogout();
-    window.addEventListener("trishulhub:logout", handler);
-    return () => window.removeEventListener("trishulhub:logout", handler);
-  }, [signalLogout]);
-  return null;
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, User, Bot, AlertCircle } from "lucide-react";
+import { ArrowLeft, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,13 +10,6 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { safeText, deepClone, safeNumber, safeDate } from "@/lib/utils";
 import { extractArray } from "@/lib/api-helpers";
-
-const taskStatusColors: Record<string, string> = {
-  TODO: "bg-gray-200 text-gray-800",
-  IN_PROGRESS: "bg-blue-100 text-blue-800",
-  REVIEW: "bg-yellow-100 text-yellow-800",
-  DONE: "bg-green-100 text-green-800",
-};
 
 const projectStatusColors: Record<string, string> = {
   PLANNING: "bg-blue-100 text-blue-800",
@@ -39,16 +32,12 @@ export default function PortalProjectDetailPage() {
       : '';
 
   const [project, setProject] = useState<Record<string, unknown> | null>(null);
-  const [tasks, setTasks] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
-      const [projRes, taskRes] = await Promise.all([
-        fetch(`/api/projects?projectId=${projectId}`, { credentials: 'include' }),
-        fetch(`/api/tasks?projectId=${projectId}`, { credentials: 'include' }),
-      ]);
+      const projRes = await fetch(`/api/projects?projectId=${projectId}`, { credentials: 'include' });
       if (projRes.ok) {
         const projData = await projRes.json();
         // ZAI FIX #310: Deep clone before storing in state
@@ -62,13 +51,6 @@ export default function PortalProjectDetailPage() {
         if (raw) setProject(deepClone(raw as Record<string, unknown>));
       } else {
         setError("Failed to load project details. Please try again.");
-      }
-      if (taskRes.ok) {
-        const taskData = await taskRes.json();
-        const raw = extractArray<Record<string, unknown>>(taskData);
-        setTasks(deepClone<Record<string, unknown>[]>(raw));
-      } else {
-        setError("Failed to load tasks. Please try again.");
       }
     } catch (err) {
       console.error("[portal/project-detail] Failed to load data:", err);
@@ -152,27 +134,6 @@ export default function PortalProjectDetailPage() {
             </p>
           </CardContent>
         </Card>
-      </div>
-
-      <h2 className="text-lg font-semibold mt-4">Tasks</h2>
-      <div className="space-y-2">
-        {(tasks as Record<string, unknown>[]).map((task) => (
-          <Card key={safeText(task.id, "")}>
-            <CardContent className="p-3 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Badge className={`text-[10px] ${taskStatusColors[safeText(task.status, "")] || ""}`}>
-                  {safeText(task.status, "UNKNOWN").replace("_", " ")}
-                </Badge>
-                <span className="text-sm">{safeText(task.title, "Untitled")}</span>
-              </div>
-              <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                {/* L-PRJ-4 FIX: Show actual assignee name instead of hardcoded "Unassigned" */}
-                {safeText(task.assigneeType, "HUMAN") === "AI" ? <Bot className="h-3 w-3" /> : <User className="h-3 w-3" />}
-                <span>{safeText(task.assignedToName) || (safeText(task.assignedTo) ? safeText(task.assignedTo).slice(0, 8) + "..." : "Unassigned")}</span>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
       </div>
     </div>
   );

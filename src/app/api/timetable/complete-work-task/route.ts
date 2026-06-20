@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { isAdmin } from "@/lib/rbac";
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 
 // POST /api/timetable/complete-work-task — Mark a work task as completed
@@ -36,104 +35,8 @@ export async function POST(req: NextRequest) {
     }
 
     const userId = session.user.id;
-    const userRole = session.user.role;
 
     switch (sourceType) {
-      case "PROJECT_TASK": {
-        const task = await db.task.findUnique({ where: { id: taskId as string } });
-        if (!task) {
-          return NextResponse.json({ error: "Task not found" }, { status: 404 });
-        }
-
-        // Idempotent: if already DONE, return success
-        if (task.status === "DONE") {
-          return NextResponse.json({ success: true, task });
-        }
-
-        // C21: Approval workflow — use transaction to prevent TOCTOU race condition
-        if (task.status === "AWAITING_APPROVAL") {
-          // Approval case: only admin/superadmin can approve (not necessarily the assignee)
-          if (!isAdmin(userRole)) {
-            return NextResponse.json({ error: "Forbidden: Only admin or superadmin can approve tasks" }, { status: 403 });
-          }
-          // Self-approval prevention: ADMIN cannot approve tasks assigned to themselves
-          if (userRole === "ADMIN" && task.assignedTo === userId) {
-            return NextResponse.json({ error: "Forbidden: You cannot approve your own task" }, { status: 403 });
-          }
-          let updated;
-          try {
-            updated = await db.$transaction(async (tx) => {
-              const recheck = await tx.task.findUnique({ where: { id: taskId as string } });
-              if (!recheck) throw new Error("NOT_FOUND");
-              if (recheck.status !== "AWAITING_APPROVAL") throw new Error("NOT_IN_APPROVAL_STATE");
-              return tx.task.update({
-                where: { id: taskId as string },
-                data: {
-                  status: "DONE",
-                  completedAt: new Date(),
-                  approvedBy: userId,
-                  approvedAt: new Date(),
-                },
-              });
-            });
-          } catch (txErr: unknown) {
-            const msg = txErr instanceof Error ? txErr.message : "";
-            if (msg === "NOT_FOUND") return NextResponse.json({ error: "Task not found" }, { status: 404 });
-            if (msg === "NOT_IN_APPROVAL_STATE") return NextResponse.json({ error: "Task is no longer awaiting approval" }, { status: 409 });
-            throw txErr;
-          }
-          return NextResponse.json({ success: true, task: updated });
-        }
-
-        // Submit for completion: must be the assignee
-        if (task.assignedTo !== userId) {
-          return NextResponse.json({ error: "Task not found or unauthorized" }, { status: 404 });
-        }
-
-        // SUPER_ADMIN can directly mark as DONE; others go to AWAITING_APPROVAL
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const updateData: Record<string, any> = {};
-        if (userRole === "SUPER_ADMIN") {
-          updateData.status = "DONE";
-          updateData.completedAt = new Date();
-          updateData.approvedBy = userId;
-          updateData.approvedAt = new Date();
-        } else {
-          updateData.status = "AWAITING_APPROVAL";
-        }
-
-        const updated = await db.task.update({
-          where: { id: taskId as string },
-          data: updateData,
-        });
-
-        // Notify admins about the approval request
-        if (updateData.status === "AWAITING_APPROVAL") {
-          try {
-            const admins = await db.user.findMany({
-              where: { role: { in: ["SUPER_ADMIN", "ADMIN"] }, isActive: true },
-              select: { id: true, name: true },
-            });
-            if (admins.length > 0) {
-              await db.notification.createMany({
-                data: admins.map(admin => ({
-                  userId: admin.id,
-                  title: `Task approval needed: ${task.title}`,
-                  message: `Task "${task.title}" submitted for review`,
-                  type: "TASK",
-                  link: `/dashboard/todos`,
-                  isRead: false,
-                })),
-              });
-            }
-          } catch (err) {
-            console.error("[complete-work-task] Failed to send notification:", err);
-          }
-        }
-
-        return NextResponse.json({ success: true, task: updated });
-      }
-
       case "TRAINING": {
         const assignment = await db.trainingAssignment.findUnique({ where: { id: taskId as string } });
         if (!assignment || assignment.assignedTo !== userId) {

@@ -422,7 +422,6 @@ model Project {
   updatedAt   DateTime @updatedAt
 
   client       Client?       @relation(fields: [clientId], references: [id])
-  tasks        Task[]
   invoices     Invoice[]
   timeEntries  TimeEntry[]
   meetings     Meeting[]
@@ -497,43 +496,6 @@ model ProjectMember {
   @@unique([userId, projectId])
   @@index([userId])
   @@index([projectId])
-}
-
-// ━━ Tasks ━━
-model Task {
-  id          String   @id @default(cuid())
-  title       String
-  description String?
-  projectId   String?
-  assignedTo  String?  // userId or agentId
-  assigneeType String  @default("HUMAN") // HUMAN, AI
-  status      String   @default("TODO") // TODO, IN_PROGRESS, REVIEW, AWAITING_APPROVAL, DONE
-  priority    String   @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
-  deadline    DateTime?
-  completedAt DateTime?
-  approvedBy  String?  // userId of admin/superadmin who approved
-  approvedAt  DateTime? // when the task was approved
-  createdBy   String?  // userId who created the task
-  category    String   @default("GENERAL") // GENERAL, MEETING, FOLLOW_UP, UPGRADE, CUSTOMER, INTERNAL
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  project     Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
-
-  @@index([projectId, status])
-  @@index([assignedTo, status])
-  @@index([createdBy])
-  @@index([status, createdAt])
-  @@index([category])
-}
-
-// ━━ Lark Integration ━━
-model LarkTaskMapping {
-  id             String   @id @default(cuid())
-  taskId         String   @unique
-  larkTaskId     String   @unique
-  larkTaskListId String
-  createdAt      DateTime @default(now())
 }
 
 // ━━ Invoices ━━

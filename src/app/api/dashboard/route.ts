@@ -39,7 +39,6 @@ export async function GET() {
     // Build where clauses based on role
     const projectWhere = assignedProjectIds ? { id: { in: assignedProjectIds } } : {}
     const clientWhere = assignedClientIds ? { id: { in: assignedClientIds } } : {}
-    const taskWhere = assignedProjectIds ? { projectId: { in: assignedProjectIds } } : {}
     const invoiceWhere = assignedClientIds ? { clientId: { in: assignedClientIds } } : {}
     const expenseWhere = assignedProjectIds ? { projectId: { in: assignedProjectIds } } : {}
     const ticketWhere = assignedClientIds ? { clientId: { in: assignedClientIds } } : {}
@@ -52,12 +51,10 @@ export async function GET() {
       expenses,
       apiKeys,
       supportTickets,
-      tasks,
       leads,
       newLeadsCount,
       activeProjects,
       openTickets,
-      pendingTasks,
       totalLeadsCount,
       totalClientCount,
       totalRevenue,
@@ -67,7 +64,7 @@ export async function GET() {
     ] = await Promise.all([
       db.project.findMany({
         where: projectWhere,
-        select: { id: true, name: true, status: true, progress: true, deadline: true, client: { select: { name: true } }, _count: { select: { tasks: true } } },
+        select: { id: true, name: true, status: true, progress: true, deadline: true, client: { select: { name: true } } },
         take: 10,
         orderBy: { updatedAt: "desc" },
       }),
@@ -82,7 +79,6 @@ export async function GET() {
           : Promise.resolve([] as unknown[]),
       // Usage logs removed from dashboard — not displayed, saves a query
       db.supportTicket.findMany({ where: ticketWhere, take: 5, include: { client: { select: { name: true } } }, orderBy: { createdAt: "desc" } }),
-      db.task.findMany({ where: taskWhere, take: 10, orderBy: { createdAt: "desc" }, select: { id: true, title: true, status: true, priority: true, deadline: true, assignedTo: true, project: { select: { name: true } } } }),
       // PERF: Leads query moved into Promise.all (was sequential before)
       admin ? db.lead.findMany({ where: { status: "NEW" }, take: 10 }) : Promise.resolve([] as unknown[]),
       // Counts
@@ -90,14 +86,12 @@ export async function GET() {
         db.lead.count({ where: { status: "NEW" } }),
         db.project.count({ where: { ...projectWhere, status: { notIn: ["COMPLETED", "DEPLOYED"] } } }),
         db.supportTicket.count({ where: { ...ticketWhere, status: "OPEN" } }),
-        db.task.count({ where: { ...taskWhere, status: { not: "DONE" } } }),
         db.lead.count(),
         db.client.count({ where: clientWhere }),
       ] : [
         Promise.resolve(0), // leads not shown to developers
         db.project.count({ where: { ...projectWhere, status: { notIn: ["COMPLETED", "DEPLOYED"] } } }),
         db.supportTicket.count({ where: { ...ticketWhere, status: "OPEN" } }),
-        db.task.count({ where: { ...taskWhere, status: { not: "DONE" } } }),
         Promise.resolve(0),
         Promise.resolve(0),
       ]),
@@ -131,7 +125,6 @@ export async function GET() {
       expenses: admin ? expenses : [],
       apiKeys: safeApiKeys,
       supportTickets: admin ? supportTickets : [],
-      tasks,
       stats: {
         totalRevenue,
         pendingAmount,
@@ -142,7 +135,6 @@ export async function GET() {
         newLeadsCount,
         activeProjects,
         openTickets,
-        pendingTasks,
         totalClients: admin ? totalClientCount : 0,
         totalLeads,
       },

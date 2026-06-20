@@ -64,23 +64,9 @@ export async function GET(req: NextRequest) {
       end.setDate(start.getDate() + 1);
     }
 
-    // I17: Run all 5 DB queries in parallel using Promise.all
-    const [projectTasks, trainingAssignments, meetingAttendees, leaves, approvals] = await Promise.all([
-      // 1. Project Tasks
-      db.task.findMany({
-        where: {
-          assignedTo: userId,
-          deadline: { gte: start, lt: end },
-          status: { notIn: ["DONE"] },
-        },
-        include: {
-          project: { select: { id: true, name: true } },
-        },
-        orderBy: { deadline: "asc" },
-        take: 100, // W51: Cap results
-      }),
-
-      // 2. Training Assignments
+    // I17: Run all DB queries in parallel using Promise.all
+    const [trainingAssignments, meetingAttendees, leaves, approvals] = await Promise.all([
+      // 1. Training Assignments
       db.trainingAssignment.findMany({
         where: {
           assignedTo: userId,
@@ -98,7 +84,7 @@ export async function GET(req: NextRequest) {
         take: 100, // W51: Cap results
       }),
 
-      // 3. Meetings (via MeetingAttendee)
+      // 2. Meetings (via MeetingAttendee)
       db.meetingAttendee.findMany({
         where: {
           userId,
@@ -118,7 +104,7 @@ export async function GET(req: NextRequest) {
         take: 100, // W51: Cap results
       }),
 
-      // 4. Leaves
+      // 3. Leaves
       db.leave.findMany({
         where: {
           userId,
@@ -130,7 +116,7 @@ export async function GET(req: NextRequest) {
         take: 100, // W51: Cap results
       }),
 
-      // 5. Approvals (where user is requester or approver)
+      // 4. Approvals (where user is requester or approver)
       db.approval.findMany({
         where: {
           AND: [
@@ -151,20 +137,6 @@ export async function GET(req: NextRequest) {
     ]);
 
     const results: Array<Record<string, unknown>> = [];
-
-    for (const t of projectTasks) {
-      results.push({
-        id: t.id,
-        sourceType: "PROJECT_TASK",
-        sourceLabel: "Project Task",
-        title: t.title,
-        description: t.description,
-        priority: t.priority,
-        status: t.status,
-        dueDate: t.deadline?.toISOString(),
-        projectName: t.project?.name,
-      });
-    }
 
     for (const t of trainingAssignments) {
       results.push({

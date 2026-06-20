@@ -38,7 +38,6 @@ import {
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { toast } from "sonner";
 import { cn, safeText, deepSanitize, safeNumber, safeDate } from "@/lib/utils";
-import { useFloatingBoards } from "@/components/floating-task-board";
 
 // TODO: Make configurable per project/client
 const CURRENCY_SYMBOL = "₹";
@@ -362,7 +361,6 @@ function DroppableKanbanColumn({
   isDimmed,
   activeId,
   onHover,
-  pendingTaskCounts,
 }: {
   col: typeof KANBAN_COLUMNS[number];
   projects: Record<string, unknown>[];
@@ -373,7 +371,6 @@ function DroppableKanbanColumn({
   isDimmed: boolean;
   activeId: string | null;
   onHover?: (pid: string) => void;
-  pendingTaskCounts?: Record<string, number>;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: col.key });
 
@@ -438,7 +435,6 @@ function DroppableKanbanColumn({
                 onEdit={onEdit}
                 onDelete={onDelete}
                 onHover={() => onHover && onHover(pId)}
-                pendingCount={pendingTaskCounts?.[pId]}
                 onPendingClick={() => onCardClick(project)}
               />
             );
@@ -849,32 +845,10 @@ export default function ProjectsPage() {
     retry: 1,
   });
 
-  // ━━ Pending task counts per project (lightweight count endpoint) ━━
-  const { data: taskCountsData } = useQuery({
-    queryKey: ["task-counts"],
-    queryFn: async () => {
-      const res = await fetch("/api/tasks/counts", { credentials: "include" });
-      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
-      if (!res.ok) throw new Error("Failed to load task counts");
-      const data = await res.json();
-      return data as Record<string, number>;
-    },
-    staleTime: 30 * 1000,
-    gcTime: 5 * 60 * 1000,
-    refetchOnWindowFocus: false,
-    retry: 1,
-  });
-
   const projects = projectsData;
   const clients = clientsData;
-  const pendingTaskCounts = taskCountsData || {};
 
   const isAdminUser = session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN";
-
-  // ━━ Floating Task Board Windows (from context — rendered in layout) ━━
-  const {
-    openBoard: openFloatingBoard,
-  } = useFloatingBoards();
 
   // Feature 3: Credentials state
   const [credentials, setCredentials] = useState<{ id: string; title: string; username: string; password: string }[]>([]);
@@ -1113,7 +1087,6 @@ export default function ProjectsPage() {
         toast.success("Project created");
         setAddOpen(false);
         queryClient.invalidateQueries({ queryKey: ["projects"] });
-        queryClient.invalidateQueries({ queryKey: ["task-counts"] });
       } else {
         if (handle401(res)) return;
         const errData = await res.json().catch(() => null);
@@ -1191,7 +1164,6 @@ export default function ProjectsPage() {
         setEditOpen(false);
         setEditProject(null);
         queryClient.invalidateQueries({ queryKey: ["projects"] });
-        queryClient.invalidateQueries({ queryKey: ["task-counts"] });
       } else {
         if (handle401(res)) return;
         const errData = await res.json().catch(() => null);
@@ -1255,16 +1227,6 @@ export default function ProjectsPage() {
         if (Array.isArray(raw) && raw.length > 0) return raw[0];
         if (raw && typeof raw === "object" && raw.id) return raw;
         return null;
-      },
-      staleTime: 30 * 1000,
-    });
-    queryClient.prefetchQuery({
-      queryKey: ["project-tasks", pid],
-      queryFn: async () => {
-        const res = await fetch(`/api/tasks?projectId=${pid}`, { credentials: "include" });
-        if (!res.ok) throw new Error("Failed to load tasks");
-        const td = await res.json();
-        return Array.isArray((td as Record<string, unknown>)?.tasks) ? (td as Record<string, unknown>).tasks as unknown[] : Array.isArray(td) ? td : (Array.isArray((td as Record<string, unknown>)?.data) ? (td as Record<string, unknown>).data as unknown[] : []);
       },
       staleTime: 30 * 1000,
     });
@@ -1658,19 +1620,14 @@ export default function ProjectsPage() {
                   projects={col.projects}
                   isAdminUser={isAdminUser}
                   onCardClick={(project) => {
-                    if (isAdminUser) {
-                      openFloatingBoard(safeText(project.id, ""), safeText(project.name, "Project"));
-                    } else {
-                      const pId = safeText(project.id, "");
-                      router.push(`/dashboard/projects/${pId}`);
-                    }
+                    const pId = safeText(project.id, "");
+                    router.push(`/dashboard/projects/${pId}`);
                   }}
                   onEdit={openEditDialog}
                   onDelete={openDeleteDialog}
                   isDimmed={isDimmed}
                   activeId={activeId}
                   onHover={handlePrefetchProject}
-                  pendingTaskCounts={pendingTaskCounts}
                 />
               );
             })}
@@ -1687,7 +1644,6 @@ export default function ProjectsPage() {
                   onClick={() => {}}
                   isAdminUser={false}
                   isDragging={true}
-                  pendingCount={pendingTaskCounts[safeText(project.id, "")]}
                 />
               ) : null;
             })() : null}
@@ -1708,23 +1664,14 @@ export default function ProjectsPage() {
                 project={project}
                 isAdminUser={isAdminUser}
                 onView={() => {
-                  if (isAdminUser) {
-                    openFloatingBoard(pId, safeText(project.name, "Project"));
-                  } else {
-                    handlePrefetchProject(pId);
-                    router.push(`/dashboard/projects/${pId}`);
-                  }
+                  handlePrefetchProject(pId);
+                  router.push(`/dashboard/projects/${pId}`);
                 }}
                 onEdit={isAdminUser ? openEditDialog : undefined}
                 onDelete={isAdminUser ? openDeleteDialog : undefined}
-                pendingCount={pendingTaskCounts[pId]}
                 onPendingClick={() => {
-                  if (isAdminUser) {
-                    openFloatingBoard(pId, safeText(project.name, "Project"));
-                  } else {
-                    handlePrefetchProject(pId);
-                    router.push(`/dashboard/projects/${pId}`);
-                  }
+                  handlePrefetchProject(pId);
+                  router.push(`/dashboard/projects/${pId}`);
                 }}
               />
             );

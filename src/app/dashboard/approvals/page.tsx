@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
   CheckCircle2, XCircle, Clock, Bot, MessageSquare, RefreshCw,
-  AlertTriangle, Trash2, User, AlertCircle, Calendar, ClipboardList,
-  ShieldCheck, HourglassIcon, ListChecks, RotateCcw,
+  AlertTriangle, Trash2, User, AlertCircle, Calendar,
+  ShieldCheck, HourglassIcon,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -65,30 +65,9 @@ interface LeaveRequest {
   user?: { id: string; name: string; email: string; role: string; avatar: string | null } | null;
 }
 
-interface TaskItem {
-  id: string;
-  title: string;
-  description: string | null;
-  projectId: string;
-  assignedTo: string | null;
-  assigneeType: string;
-  status: string;
-  priority: string;
-  deadline: string | null;
-  completedAt: string | null;
-  approvedBy: string | null;
-  approvedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-  assignedToName: string | null;
-  approvedByName: string | null;
-  project?: { id: string; name: string } | null;
-}
-
 interface PendingCounts {
   approvals: number;
   leaveRequests: number;
-  tasksAwaitingApproval: number;
   total: number;
 }
 
@@ -140,23 +119,11 @@ const leaveTypeBadge: Record<string, string> = {
   PAID: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
 };
 
-const priorityBadge: Record<string, string> = {
-  LOW: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
-  MEDIUM: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300",
-  HIGH: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
-  URGENT: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
-};
-
 const sourceTypeConfig: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
   LEAVE: {
     label: "Leave Request",
     color: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300",
     icon: <Calendar className="h-4 w-4" />,
-  },
-  TASK: {
-    label: "Task Approval",
-    color: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
-    icon: <ClipboardList className="h-4 w-4" />,
   },
   AI: {
     label: "System",
@@ -185,13 +152,13 @@ function getInitials(name: string): string {
 
 interface UnifiedPendingItem {
   id: string;
-  source: "LEAVE" | "TASK" | "AI";
+  source: "LEAVE" | "AI";
   title: string;
   description: string | null;
   requesterName: string;
   requesterAvatar: string | null;
   createdAt: string;
-  raw: Approval | LeaveRequest | TaskItem;
+  raw: Approval | LeaveRequest;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -200,7 +167,7 @@ interface UnifiedPendingItem {
 
 interface HistoryEntry {
   id: string;
-  source: "AI" | "TASK" | "LEAVE";
+  source: "AI" | "LEAVE";
   title: string;
   status: string;
   statusLabel: string;
@@ -211,8 +178,6 @@ interface HistoryEntry {
   agent?: { id: string; name: string; type: string } | null;
   requesterType?: string;
   description?: string | null;
-  priority?: string;
-  assigneeName?: string | null;
   userName?: string | null;
   leaveType?: string;
   startDate?: string;
@@ -237,9 +202,7 @@ export default function ApprovalsPage() {
   // Data states
   const [aiApprovals, setAiApprovals] = useState<Approval[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
-  const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [historyItems, setHistoryItems] = useState<Approval[]>([]);
-  const [taskHistory, setTaskHistory] = useState<TaskItem[]>([]);
   const [leaveHistory, setLeaveHistory] = useState<LeaveRequest[]>([]);
 
   // UI states
@@ -251,25 +214,19 @@ export default function ApprovalsPage() {
   // Computed counts (memoized)
   const pendingAiApprovals = useMemo(() => aiApprovals.filter((a) => a.status === "PENDING"), [aiApprovals]);
   const pendingLeaves = useMemo(() => leaveRequests.filter((l) => l.status === "PENDING"), [leaveRequests]);
-  const pendingTasks = useMemo(() => tasks.filter((t) => t.status === "AWAITING_APPROVAL"), [tasks]);
 
   // Role-based filtering: admins see all, developers see only their own
   const myLeaves = isAdminUser ? leaveRequests : leaveRequests.filter((l) => l.userId === userId);
-  const myTasks = isAdminUser ? tasks : tasks.filter((t) => t.assignedTo === userId);
   const myPendingLeaves = myLeaves.filter((l) => l.status === "PENDING");
-  const myPendingTasks = myTasks.filter((t) => t.status === "AWAITING_APPROVAL");
-  const myActiveTasks = myTasks.filter((t) => ["TODO", "IN_PROGRESS", "REVIEW", "AWAITING_APPROVAL"].includes(t.status));
 
   const counts: PendingCounts = isAdminUser ? {
     approvals: pendingAiApprovals.length,
     leaveRequests: pendingLeaves.length,
-    tasksAwaitingApproval: pendingTasks.length,
-    total: pendingAiApprovals.length + pendingLeaves.length + pendingTasks.length,
+    total: pendingAiApprovals.length + pendingLeaves.length,
   } : {
-    approvals: myPendingTasks.length,
+    approvals: 0,
     leaveRequests: myPendingLeaves.length,
-    tasksAwaitingApproval: myActiveTasks.length,
-    total: myPendingLeaves.length + myPendingTasks.length + myActiveTasks.filter((t) => t.status !== "AWAITING_APPROVAL").length,
+    total: myPendingLeaves.length,
   };
 
   // Unified pending queue (memoized)
@@ -284,16 +241,6 @@ export default function ApprovalsPage() {
       createdAt: l.createdAt,
       raw: l,
     })),
-    ...(isAdminUser ? pendingTasks : myPendingTasks).map((t) => ({
-      id: t.id,
-      source: "TASK" as const,
-      title: t.title,
-      description: t.description || `Priority: ${t.priority}`,
-      requesterName: safeText(t.assignedToName, "Unassigned"),
-      requesterAvatar: null,
-      createdAt: t.updatedAt,
-      raw: t,
-    })),
     ...(isAdminUser ? pendingAiApprovals : []).map((a) => ({
       id: a.id,
       source: "AI" as const,
@@ -304,7 +251,7 @@ export default function ApprovalsPage() {
       createdAt: a.createdAt,
       raw: a,
     })),
-  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()), [isAdminUser, pendingLeaves, myPendingLeaves, pendingTasks, myPendingTasks, pendingAiApprovals]);
+  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()), [isAdminUser, pendingLeaves, myPendingLeaves, pendingAiApprovals]);
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // Data Fetching
@@ -315,8 +262,8 @@ export default function ApprovalsPage() {
     setError(null);
 
     try {
-      // I7: Optimization opportunity — 6 parallel API calls are acceptable here
-      // because each serves a distinct data domain (approvals, leaves, tasks).
+      // I7: Optimization opportunity — parallel API calls are acceptable here
+      // because each serves a distinct data domain (approvals, leaves).
       // Could be consolidated into a single batched endpoint if needed in future.
       const [
         approvalsRes,
@@ -324,14 +271,12 @@ export default function ApprovalsPage() {
         rejectedRes,
         needsImprovementRes,
         leavesRes,
-        tasksRes,
       ] = await Promise.allSettled([
         fetch("/api/approvals?status=PENDING", { credentials: "include" }),
         fetch("/api/approvals?status=APPROVED", { credentials: "include" }),
         fetch("/api/approvals?status=REJECTED", { credentials: "include" }),
         fetch("/api/approvals?status=NEEDS_IMPROVEMENT", { credentials: "include" }),
         fetch("/api/team?type=leaves", { credentials: "include" }),
-        fetch("/api/tasks", { credentials: "include" }),
       ]);
 
       // Handle approvals
@@ -368,21 +313,6 @@ export default function ApprovalsPage() {
           .sort((a: LeaveRequest, b: LeaveRequest) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       );
 
-      // Handle tasks — use for both pending list and history
-      let rawTasks: TaskItem[] = [];
-      if (tasksRes.status === "fulfilled" && tasksRes.value.ok) {
-        const raw: Record<string, unknown> = await tasksRes.value.json();
-        const tasksArr = Array.isArray(raw.tasks) ? raw.tasks : Array.isArray(raw) ? raw : (Array.isArray(raw.data) ? raw.data : []);
-        rawTasks = safeArray<TaskItem>(tasksArr);
-        setTasks(rawTasks);
-      }
-
-      // Build task history: approved (DONE with approvedAt) tasks
-      setTaskHistory(
-        rawTasks
-          .filter((t: TaskItem) => t.status === "DONE" && t.approvedAt)
-          .sort((a: TaskItem, b: TaskItem) => new Date(b.approvedAt!).getTime() - new Date(a.approvedAt!).getTime())
-      );
     } catch (err) {
       console.error("[approvals] fetchAllData Error:", err);
       setError("Failed to load data");
@@ -469,48 +399,6 @@ export default function ApprovalsPage() {
       }
     } catch {
       toast.error("Failed to process leave request");
-    } finally {
-      setActionLoadingState(id, false);
-    }
-  };
-
-  const handleTaskAction = async (id: string, action: "approve" | "reject") => {
-    setActionLoadingState(id, true);
-    try {
-      const feedback = feedbackTexts[id] || undefined;
-      const body: Record<string, unknown> = { id };
-
-      if (action === "approve") {
-        body.status = "DONE";
-      } else {
-        body.status = "IN_PROGRESS";
-        // W48: Send feedback in task rejection body
-        if (feedback) body.feedback = feedback;
-      }
-
-      const res = await fetch("/api/tasks", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(body),
-      });
-
-      if (res.ok) {
-        toast.success(action === "approve" ? "Task approved!" : "Task sent back for revision");
-        setFeedbackTexts((prev) => {
-          const next = { ...prev };
-          delete next[id];
-          return next;
-        });
-        fetchAllData();
-      } else {
-        // W47: Wrap res.json() in try/catch to handle non-JSON error responses
-        let err: Record<string, unknown> = {};
-        try { err = await res.json(); } catch { err = {}; }
-        toast.error((err as { error?: string }).error || "Failed to process task");
-      }
-    } catch {
-      toast.error("Failed to process task");
     } finally {
       setActionLoadingState(id, false);
     }
@@ -762,93 +650,10 @@ export default function ApprovalsPage() {
     );
   };
 
-  const renderTaskCard = (task: TaskItem, showActions: boolean = true) => {
-    const isAwaiting = task.status === "AWAITING_APPROVAL";
-    return (
-      <Card key={task.id} className={`border ${statusColors[task.status] || ""}`}>
-        <CardContent className="p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${priorityBadge[task.priority] || "bg-muted"}`}>
-                <ClipboardList className="h-5 w-5" />
-              </div>
-              <div>
-                <p className="text-sm font-medium">{safeText(task.title, "Untitled Task")}</p>
-                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                  <Badge variant="secondary" className={`text-[10px] ${priorityBadge[task.priority] || ""}`}>
-                    {task.priority}
-                  </Badge>
-                  {task.assignedToName && (
-                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <User className="h-3 w-3" />
-                      <span>{safeText(task.assignedToName, "")}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-            <div className="text-right">
-              <Badge variant={statusBadgeVariant[task.status] || "secondary"} className="text-xs">
-                {task.status.replace(/_/g, " ")}
-              </Badge>
-              <p className="text-xs text-muted-foreground mt-1">
-                {new Date(task.updatedAt).toLocaleString()}
-              </p>
-            </div>
-          </div>
-
-          {task.description && (
-            <p className="text-sm text-muted-foreground">{safeText(task.description, "")}</p>
-          )}
-
-          {task.deadline && (
-            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-              <Clock className="h-3 w-3" />
-              <span>Deadline: {new Date(task.deadline).toLocaleDateString()}</span>
-            </div>
-          )}
-
-          {isAwaiting && showActions && (
-            <div className="space-y-2 pt-2 border-t">
-              <Textarea
-                placeholder="Feedback for rejection (optional)..."
-                className="text-xs min-h-[44px]"
-                rows={2}
-                value={feedbackTexts[task.id] || ""}
-                onChange={(e) => setFeedbackTexts((prev) => ({ ...prev, [task.id]: e.target.value }))}
-                aria-label="Task feedback"
-              />
-              <div className="flex gap-2">
-                <Button
-                  className="bg-green-600 hover:bg-green-700 flex-1"
-                  disabled={actionLoading[task.id]}
-                  onClick={() => handleTaskAction(task.id, "approve")}
-                >
-                  <CheckCircle2 className="h-4 w-4 mr-1" /> Approve
-                </Button>
-                <Button
-                  variant="outline"
-                  className="border-orange-400 text-orange-600 hover:bg-orange-50 flex-1"
-                  disabled={actionLoading[task.id]}
-                  onClick={() => handleTaskAction(task.id, "reject")}
-                >
-                  <RotateCcw className="h-4 w-4 mr-1" /> Send Back
-                </Button>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    );
-  };
-
   const renderUnifiedCard = (item: UnifiedPendingItem) => {
     const src = sourceTypeConfig[item.source] || sourceTypeConfig.AI;
     if (item.source === "LEAVE") {
       return renderLeaveCard(item.raw as LeaveRequest, isAdminUser);
-    }
-    if (item.source === "TASK") {
-      return renderTaskCard(item.raw as TaskItem, isAdminUser);
     }
     // AI approval — render inline with source badge
     const approval = item.raw as Approval;
@@ -982,19 +787,6 @@ export default function ApprovalsPage() {
       requesterType: a.requesterType,
       description: a.description,
     })),
-    ...taskHistory.map((t) => ({
-      id: t.id,
-      source: "TASK" as const,
-      title: safeText(t.title, "Untitled Task"),
-      status: "APPROVED",
-      statusLabel: "Approved",
-      updatedAt: t.approvedAt || t.updatedAt,
-      feedback: null,
-      approvedByName: t.approvedByName || null,
-      description: t.description,
-      priority: t.priority,
-      assigneeName: t.assignedToName,
-    })),
     ...leaveHistory.map((l) => ({
       id: l.id,
       source: "LEAVE" as const,
@@ -1010,15 +802,13 @@ export default function ApprovalsPage() {
       endDate: l.endDate,
     })),
   ].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()),
-    [historyItems, taskHistory, leaveHistory]);
+    [historyItems, leaveHistory]);
 
   // History card (unified for all types, no actions)
   const renderHistoryCard = (item: HistoryEntry) => {
     const src = item.source === "AI"
       ? sourceTypeConfig.AI
-      : item.source === "TASK"
-        ? sourceTypeConfig.TASK
-        : sourceTypeConfig.LEAVE;
+      : sourceTypeConfig.LEAVE;
 
     return (
       <Card key={item.id} className={`border ${statusColors[item.status] || ""}`}>
@@ -1034,11 +824,6 @@ export default function ApprovalsPage() {
                   <Badge variant="secondary" className={`text-[10px] ${src.color}`}>
                     {src.label}
                   </Badge>
-                  {item.source === "TASK" && item.priority && (
-                    <Badge variant="secondary" className={`text-[10px] ${priorityBadge[item.priority] || ""}`}>
-                      {item.priority}
-                    </Badge>
-                  )}
                 </div>
                 <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                   {item.source === "AI" && item.type && (
@@ -1048,12 +833,6 @@ export default function ApprovalsPage() {
                   )}
                   {item.source === "AI" && item.agent && (
                     <span className="text-xs text-muted-foreground">{safeText(item.agent.name, "AI")}</span>
-                  )}
-                  {item.source === "TASK" && item.assigneeName && (
-                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <User className="h-3 w-3" />
-                      <span>{safeText(item.assigneeName, "")}</span>
-                    </div>
                   )}
                   {item.source === "LEAVE" && item.startDate && item.endDate && (
                     <div className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -1073,9 +852,6 @@ export default function ApprovalsPage() {
               </p>
             </div>
           </div>
-          {item.description && item.source === "TASK" && (
-            <p className="mt-2 text-sm text-muted-foreground">{safeText(item.description, "")}</p>
-          )}
           {item.feedback && (
             <div className="mt-2 text-xs text-muted-foreground bg-muted rounded p-2">
               <span className="font-medium">Feedback: </span>
@@ -1116,28 +892,7 @@ export default function ApprovalsPage() {
       color: "text-sky-600 dark:text-sky-400",
       bg: "bg-sky-50 dark:bg-sky-900/20",
     },
-    {
-      label: "Task Approvals",
-      value: counts.tasksAwaitingApproval,
-      icon: <ListChecks className="h-5 w-5" />,
-      color: "text-blue-600 dark:text-blue-400",
-      bg: "bg-blue-50 dark:bg-blue-900/20",
-    },
   ] : [
-    {
-      label: "My Active Tasks",
-      value: myActiveTasks.length,
-      icon: <ClipboardList className="h-5 w-5" />,
-      color: "text-blue-600 dark:text-blue-400",
-      bg: "bg-blue-50 dark:bg-blue-900/20",
-    },
-    {
-      label: "Awaiting Approval",
-      value: myPendingTasks.length,
-      icon: <HourglassIcon className="h-5 w-5" />,
-      color: "text-amber-600 dark:text-amber-400",
-      bg: "bg-amber-50 dark:bg-amber-900/20",
-    },
     {
       label: "My Leave Requests",
       value: myPendingLeaves.length,
@@ -1194,14 +949,6 @@ export default function ApprovalsPage() {
               </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="tasks">
-            {isAdminUser ? "Task Approvals" : "My Tasks"}
-            {(isAdminUser ? counts.tasksAwaitingApproval : myActiveTasks.length) > 0 && (
-              <Badge variant="destructive" className="ml-1.5 h-5 min-w-5 px-1 text-[10px]">
-                {isAdminUser ? counts.tasksAwaitingApproval : myActiveTasks.length}
-              </Badge>
-            )}
-          </TabsTrigger>
           <TabsTrigger value="leaves">
             {isAdminUser ? "Leave Requests" : "My Leaves"}
             {counts.leaveRequests > 0 && (
@@ -1225,19 +972,6 @@ export default function ApprovalsPage() {
           ) : (
             <div className="space-y-3">
               {unifiedPending.map((item) => renderUnifiedCard(item))}
-            </div>
-          )}
-        </TabsContent>
-
-        {/* ── Tab 2: Task Approvals / My Tasks ── */}
-        <TabsContent value="tasks" className="mt-4">
-          {loading ? (
-            renderLoading()
-          ) : (isAdminUser ? pendingTasks : myActiveTasks).length === 0 ? (
-            renderEmpty(isAdminUser ? "No tasks awaiting approval." : "No active tasks assigned to you.")
-          ) : (
-            <div className="space-y-3">
-              {(isAdminUser ? pendingTasks : myActiveTasks).map((task) => renderTaskCard(task, isAdminUser))}
             </div>
           )}
         </TabsContent>

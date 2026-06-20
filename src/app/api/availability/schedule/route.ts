@@ -134,7 +134,6 @@ async function handleDailyView(dateStr: string, dateObj: Date, userId: string) {
   const [
     availabilities,
     overrides,
-    tasks,
     timeEntries,
     leaves,
     leaveRequests,
@@ -155,20 +154,7 @@ async function handleDailyView(dateStr: string, dateObj: Date, userId: string) {
       orderBy: { startTime: "asc" },
     }),
 
-    // 3. Tasks assigned to user with deadline on this date
-    db.task.findMany({
-      where: {
-        assignedTo: userId,
-        assigneeType: "HUMAN",
-        deadline: { gte: startOfDay, lte: endOfDay },
-      },
-      include: {
-        project: { select: { id: true, name: true, status: true } },
-      },
-      orderBy: { priority: "desc" },
-    }),
-
-    // 4. Time entries for this user on this date
+    // 3. Time entries for this user on this date
     db.timeEntry.findMany({
       where: {
         userId,
@@ -180,7 +166,7 @@ async function handleDailyView(dateStr: string, dateObj: Date, userId: string) {
       orderBy: { clockIn: "asc" },
     }),
 
-    // 5. Approved leave overlapping this date
+    // 4. Approved leave overlapping this date
     db.leave.findMany({
       where: {
         userId,
@@ -190,7 +176,7 @@ async function handleDailyView(dateStr: string, dateObj: Date, userId: string) {
       },
     }),
 
-    // 6. Leave requests for this user (all statuses for context)
+    // 5. Leave requests for this user (all statuses for context)
     db.leaveRequest.findMany({
       where: {
         userId,
@@ -200,7 +186,7 @@ async function handleDailyView(dateStr: string, dateObj: Date, userId: string) {
       orderBy: { createdAt: "desc" },
     }),
 
-    // 7. Meetings the user is attending on this date
+    // 6. Meetings the user is attending on this date
     db.meetingAttendee.findMany({
       where: {
         userId,
@@ -263,14 +249,6 @@ async function handleDailyView(dateStr: string, dateObj: Date, userId: string) {
   // Calculate total worked hours
   const totalWorkedHours = timeEntries.reduce((sum, te) => sum + (te.totalHours || 0), 0)
 
-  // Task summary
-  const taskSummary = {
-    total: tasks.length,
-    done: tasks.filter(t => t.status === "DONE").length,
-    inProgress: tasks.filter(t => t.status === "IN_PROGRESS").length,
-    todo: tasks.filter(t => t.status === "TODO").length,
-  }
-
   // Build response
   const response = {
     date: dateStr,
@@ -303,15 +281,6 @@ async function handleDailyView(dateStr: string, dateObj: Date, userId: string) {
     leaveInfo: isOnLeave ? leaveInfo : unavailableOverride
       ? { reason: unavailableOverride.reason || "Availability override — unavailable", type: "override" }
       : null,
-    tasks: tasks.map(t => ({
-      id: t.id,
-      title: t.title,
-      status: t.status,
-      priority: t.priority,
-      deadline: t.deadline,
-      projectName: t.project?.name || null,
-      projectStatus: t.project?.status || null,
-    })),
     timeEntries: timeEntries.map(te => ({
       id: te.id,
       description: te.description,
@@ -331,7 +300,6 @@ async function handleDailyView(dateStr: string, dateObj: Date, userId: string) {
     })),
     totalScheduledHours,
     totalWorkedHours: Math.round(totalWorkedHours * 100) / 100,
-    taskSummary,
   }
 
   return NextResponse.json(response)
@@ -393,7 +361,6 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
   const [
     allAvailabilities,
     allOverrides,
-    allTasks,
     allMeetingAttendees,
     allLeaves,
   ] = await Promise.all([
@@ -414,22 +381,6 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
         date: { gte: weekStart, lte: weekEnd },
       },
       orderBy: [{ userId: "asc" }, { date: "asc" }],
-    }),
-
-    // Tasks with deadlines in the week
-    db.task.findMany({
-      where: {
-        assignedTo: { in: userIds },
-        assigneeType: "HUMAN",
-        deadline: { gte: weekStart, lte: weekEnd },
-      },
-      select: {
-        id: true,
-        assignedTo: true,
-        status: true,
-        deadline: true,
-      },
-      orderBy: { deadline: "asc" },
     }),
 
     // Meeting attendees for meetings within the week
@@ -473,15 +424,6 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
       return [`${o.userId}:${formatDateOnly(overrideDate)}`, o]
     })
   )
-  const tasksByUserAndDay = new Map<string, typeof allTasks>()
-  for (const t of allTasks) {
-    if (!t.deadline) continue
-    const tDeadline = t.deadline instanceof Date ? t.deadline : new Date(t.deadline)
-    const key = `${t.assignedTo}:${formatDateOnly(tDeadline)}`
-    const arr = tasksByUserAndDay.get(key) || []
-    arr.push(t)
-    tasksByUserAndDay.set(key, arr)
-  }
   const meetingsByUserAndDay = new Map<string, typeof allMeetingAttendees>()
   for (const ma of allMeetingAttendees) {
     const mDate = ma.meeting.date instanceof Date ? ma.meeting.date : new Date(ma.meeting.date)
@@ -523,9 +465,6 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
         const lEnd = l.endDate instanceof Date ? l.endDate : new Date(l.endDate)
         return lStart <= dayEnd && lEnd >= dayStart
       })
-
-      // Tasks due on this day using pre-built map
-      const dayTasks = (tasksByUserAndDay.get(`${user.id}:${dayStr}`) || []).filter(Boolean)
 
       // Meetings on this day using pre-built map
       const dayMeetings = (meetingsByUserAndDay.get(`${user.id}:${dayStr}`) || []).filter(Boolean)
@@ -579,8 +518,6 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
             }
           : null,
         isOnLeave: onLeave || isUnavailable,
-        taskCount: dayTasks.length,
-        doneTaskCount: dayTasks.filter(t => t.status === "DONE").length,
         meetingCount: dayMeetings.length,
         totalHours: Math.round(totalHours * 100) / 100,
       }

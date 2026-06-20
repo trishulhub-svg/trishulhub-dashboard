@@ -74,7 +74,7 @@ export async function GET(req: NextRequest) {
           clientId: client.id,
           ...(projectId ? { id: projectId } : {}),
         },
-        include: { ...(projectId ? {} : { client: true, tasks: true }) },
+        include: { ...(projectId ? {} : { client: true }) },
         orderBy: { createdAt: "desc" },
         take: limit,
         skip: offset,
@@ -110,7 +110,6 @@ export async function GET(req: NextRequest) {
       where,
       include: {
         ...(projectId ? {} : { client: true }),
-        ...(projectId ? {} : { tasks: true }),
         ...(projectId ? {} : { members: { include: { user: { select: { id: true, name: true, email: true, role: true } } } } }),
         // Only include websites for detail view — avoids breaking listing if table doesn't exist
         ...(projectId ? { websites: true } : {}),
@@ -147,7 +146,7 @@ export async function GET(req: NextRequest) {
 
     // For developers: hide budget and client financial details
     if (!includeBudget) {
-      const filtered = projectsWithMethods.map(({ budget, client, tasks: _t, members: _m, ...rest }) => ({
+      const filtered = projectsWithMethods.map(({ budget, client, members: _m, ...rest }) => ({
         ...rest,
         budget: undefined,
         client: client ? { id: client.id, name: client.name, company: client.company } : undefined,
@@ -350,8 +349,6 @@ export async function DELETE(req: NextRequest) {
       await tx.projectCredential.deleteMany({ where: { projectId: id } })
       // Delete project members
       await tx.projectMember.deleteMany({ where: { projectId: id } })
-      // Delete tasks
-      await tx.task.deleteMany({ where: { projectId: id } })
       // Delete time entries
       await tx.timeEntry.deleteMany({ where: { projectId: id } })
       // Delete meetings + attendees
