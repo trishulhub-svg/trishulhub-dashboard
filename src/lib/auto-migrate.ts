@@ -39,6 +39,10 @@ function setSyncDone(value: boolean) {
 
 /** Columns to add if missing: uses "try ALTER, catch duplicate" approach */
 const CRITICAL_COLUMNS: Array<{ table: string; column: string; sql: string }> = [
+  { table: "TimeEntry", column: "source", sql: "ALTER TABLE TimeEntry ADD COLUMN source TEXT NOT NULL DEFAULT 'MANUAL'" },
+  { table: "TimeEntry", column: "agentSessionId", sql: "ALTER TABLE TimeEntry ADD COLUMN agentSessionId TEXT" },
+  { table: "TimeEntry", column: "clockInMethod", sql: "ALTER TABLE TimeEntry ADD COLUMN clockInMethod TEXT" },
+  { table: "TimeEntry", column: "clockOutMethod", sql: "ALTER TABLE TimeEntry ADD COLUMN clockOutMethod TEXT" },
   { table: "CrossAgentMessage", column: "linkedChatId", sql: "ALTER TABLE CrossAgentMessage ADD COLUMN linkedChatId TEXT" },
   { table: "CrossAgentMessage", column: "shareFullChat", sql: "ALTER TABLE CrossAgentMessage ADD COLUMN shareFullChat INTEGER DEFAULT 0" },
   { table: "Chat", column: "lockedBy", sql: "ALTER TABLE Chat ADD COLUMN lockedBy TEXT" },

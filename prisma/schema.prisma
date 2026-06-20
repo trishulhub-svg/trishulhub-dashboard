@@ -727,6 +727,16 @@ model TimeEntry {
   totalHours  Float?   // Computed on clock out: (clockOut - clockIn) in hours
   date        DateTime @default(now()) // The date this entry belongs to (for grouping)
 
+  // ── Agent attendance tracking (Phase A3) ──
+  // Source of the entry — MANUAL (legacy/admin), AGENT_OTP (auto from OTP login), ADMIN_OVERRIDE
+  source         String   @default("MANUAL") // MANUAL, AGENT_OTP, ADMIN_OVERRIDE
+  // Links to the agent JWT session ID (jti) — useful for tying a TimeEntry to a specific auth session
+  agentSessionId String?
+  // How the user clocked in: OTP, MANUAL, ADMIN
+  clockInMethod  String?
+  // How the user clocked out: END_COMMAND, MANUAL, ADMIN_OVERRIDE, AUTO_MISSED
+  clockOutMethod String?
+
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   project     Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
@@ -735,6 +745,8 @@ model TimeEntry {
   @@index([userId, status])
   @@index([projectId])
   @@index([date])
+  @@index([agentSessionId])
+  @@index([source])
 
   @@map("TimeEntry")
 }

@@ -62,6 +62,11 @@ interface TimeEntry {
   clockOut: string | null;
   totalHours: number | null;
   date: string;
+  // ── Phase A3: agent attendance fields ──
+  source?: string | null; // MANUAL, AGENT_OTP, ADMIN_OVERRIDE
+  agentSessionId?: string | null;
+  clockInMethod?: string | null; // OTP, MANUAL, ADMIN
+  clockOutMethod?: string | null; // END_COMMAND, MANUAL, ADMIN_OVERRIDE, AUTO_MISSED
   user?: { id: string; name: string; email: string; avatar?: string | null; role?: string };
   project?: { id: string; name: string } | null;
 }
@@ -224,6 +229,10 @@ export default function TimeTrackingPage() {
 
   // Delete confirmation
   const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  // Admin: End running session (admin override on /api/time-tracking/[id]/admin-end)
+  const [endingEntryId, setEndingEntryId] = useState<string | null>(null);
+  const [endSessionConfirmId, setEndSessionConfirmId] = useState<string | null>(null);
 
   // Team users
   const [teamUsers, setTeamUsers] = useState<Array<{ id: string; name: string }>>([]);
@@ -605,6 +614,34 @@ export default function TimeTrackingPage() {
     }
   }, [deleteId, activeTab, fetchEntries, fetchTeamLogs]);
 
+  // ── Admin: End running session (admin override) ──
+  // Calls /api/time-tracking/[id]/admin-end to force-clock-out a user who forgot.
+  const handleAdminEndSession = useCallback(async (entryId: string) => {
+    setEndingEntryId(entryId);
+    try {
+      const res = await fetch(`/api/time-tracking/${entryId}/admin-end`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({}),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.success) {
+        const hours = typeof data.totalHours === "number" ? data.totalHours.toFixed(2) : "?";
+        toast.success(`Session ended. Total: ${hours}h`);
+        fetchEntries();
+        if (activeTab === "team") fetchTeamLogs();
+      } else {
+        toast.error(data?.error || "Failed to end session");
+      }
+    } catch {
+      toast.error("Failed to end session");
+    } finally {
+      setEndingEntryId(null);
+      setEndSessionConfirmId(null);
+    }
+  }, [activeTab, fetchEntries, fetchTeamLogs]);
+
   useEffect(() => {
     if (activeTab === "team" && isAdminUser) {
       const controller = new AbortController();
@@ -876,7 +913,7 @@ export default function TimeTrackingPage() {
         </Card>
       </div>
 
-      {/* Who's Online - Admin Only */}
+      {/* Running Sessions - Admin Only (Phase A3) */}
       {isAdminUser && activeEntries && activeEntries.length > 0 && (
         <Card className="border-l-4 border-l-green-500">
           <CardHeader className="pb-3">
@@ -884,36 +921,75 @@ export default function TimeTrackingPage() {
               <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
               <CardTitle className="text-base flex items-center gap-2">
                 <UserCheck className="h-4 w-4 text-green-600" />
-                Currently Working
+                Running Sessions
               </CardTitle>
               <Badge variant="outline" className="bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800">
                 {activeEntries.length} active
               </Badge>
             </div>
+            <CardDescription className="text-xs">
+              Users currently clocked in. Use &ldquo;End Session&rdquo; to force clock-out a user who forgot.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {activeEntries.map((entry) => (
-                <div key={entry.id} className="flex items-center justify-between p-2 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors">
-                  <div className="flex items-center gap-3">
-                    <Avatar className="h-8 w-8">
-                      <AvatarImage src={entry.user?.avatar || ""} alt={entry.user?.name || ""} />
-                      <AvatarFallback className="text-xs">
-                        {entry.user?.name?.charAt(0)?.toUpperCase() || "?"}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <p className="text-sm font-medium">{entry.user?.name || "Unknown"}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {entry.project?.name || "No project"} &bull; Since {new Date(entry.clockIn).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
-                      </p>
+              {activeEntries.map((entry) => {
+                const isEnding = endingEntryId === entry.id;
+                const sourceLabel =
+                  entry.source === "AGENT_OTP" ? "OTP"
+                  : entry.source === "ADMIN_OVERRIDE" ? "Admin"
+                  : entry.clockInMethod === "OTP" ? "OTP"
+                  : "Manual";
+                const sourceBadgeClass =
+                  entry.source === "AGENT_OTP" || entry.clockInMethod === "OTP"
+                    ? "bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 border-violet-200 dark:border-violet-800"
+                    : "bg-slate-50 text-slate-700 dark:bg-slate-900/30 dark:text-slate-300 border-slate-200 dark:border-slate-800";
+                return (
+                  <div
+                    key={entry.id}
+                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <Avatar className="h-8 w-8 shrink-0">
+                        <AvatarImage src={entry.user?.avatar || ""} alt={entry.user?.name || ""} />
+                        <AvatarFallback className="text-xs">
+                          {entry.user?.name?.charAt(0)?.toUpperCase() || "?"}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-medium truncate">{entry.user?.name || "Unknown"}</p>
+                          <Badge variant="outline" className={`text-[10px] ${sourceBadgeClass}`}>
+                            {sourceLabel}
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {entry.project?.name || "No project"} &bull; Since {new Date(entry.clockIn).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 justify-end shrink-0">
+                      <Badge variant="outline" className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 text-[10px] tabular-nums font-mono">
+                        {formatDuration(activeElapsedMap[entry.id] || 0)}
+                      </Badge>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        className="h-7 text-xs"
+                        disabled={isEnding}
+                        onClick={() => setEndSessionConfirmId(entry.id)}
+                        aria-label={`End session for ${entry.user?.name || "user"}`}
+                      >
+                        {isEnding ? (
+                          <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Ending...</>
+                        ) : (
+                          <><StopCircle className="h-3 w-3 mr-1" />End Session</>
+                        )}
+                      </Button>
                     </div>
                   </div>
-                  <Badge variant="outline" className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 text-[10px] tabular-nums font-mono shrink-0">
-                    {formatDuration(activeElapsedMap[entry.id] || 0)}
-                  </Badge>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </CardContent>
         </Card>
@@ -1503,6 +1579,37 @@ export default function TimeTrackingPage() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* End Session Confirmation Dialog (Admin Override) — Phase A3 */}
+      <AlertDialog
+        open={!!endSessionConfirmId}
+        onOpenChange={(open) => !open && setEndSessionConfirmId(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>End Running Session?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will force clock-out the user now and mark the entry as completed with
+              method <span className="font-medium">ADMIN_OVERRIDE</span>. The user&rsquo;s
+              session will be terminated. This action is audit-logged.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={!!endingEntryId}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => endSessionConfirmId && handleAdminEndSession(endSessionConfirmId)}
+              disabled={!!endingEntryId}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {endingEntryId ? (
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Ending...</>
+              ) : (
+                <><StopCircle className="h-4 w-4 mr-2" />End Session</>
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
