@@ -20,7 +20,22 @@ function getErrMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
-let syncDone = false
+// Use globalThis to persist the syncDone flag across hot reloads in dev
+// and across serverless function warm invocations in production.
+// This prevents ensureAllTables() from running the full migration check
+// on every single API request.
+declare global {
+  // eslint-disable-next-line no-var
+  var __trishulAutoMigrateSyncDone: boolean | undefined
+}
+
+function isSyncDone(): boolean {
+  return globalThis.__trishulAutoMigrateSyncDone === true
+}
+
+function setSyncDone(value: boolean) {
+  globalThis.__trishulAutoMigrateSyncDone = value
+}
 
 /** Columns to add if missing: uses "try ALTER, catch duplicate" approach */
 const CRITICAL_COLUMNS: Array<{ table: string; column: string; sql: string }> = [
@@ -418,12 +433,13 @@ async function columnExists(table: string, column: string): Promise<boolean> {
 /**
  * Compare schema with DB and auto-fix any missing tables or columns.
  * Safe to call multiple times — skips if already synced in this process.
+ * Uses globalThis flag to persist across serverless warm invocations.
  */
 export async function ensureAllTables(): Promise<void> {
-  if (syncDone) return
+  if (isSyncDone()) return
 
   try {
-    // Quick DB connectivity check
+    // Quick DB connectivity check (single round-trip)
     await db.$queryRawUnsafe("SELECT 1")
   } catch (err: unknown) {
     console.error("[auto-migrate] Database connection failed:", getErrMsg(err))
@@ -1033,7 +1049,7 @@ export async function ensureAllTables(): Promise<void> {
     }
 
     // Mark as done ONLY after all migrations succeed
-    syncDone = true
+    setSyncDone(true)
   } catch (err: unknown) {
     console.error("[auto-migrate] Schema check error (non-fatal):", getErrMsg(err))
   }

@@ -155,6 +155,7 @@ export default function ProjectDetailPage() {
     retry: 1,
   });
 
+  // Lazy load team users only when add member dialog opens (not on page load)
   const { data: teamUsersData = [] } = useQuery({
     queryKey: ["team-users"],
     queryFn: async () => {
@@ -164,8 +165,8 @@ export default function ProjectDetailPage() {
       const ud = deepSanitize(await res.json());
       return Array.isArray(ud) ? ud : (Array.isArray((ud as Record<string, unknown>)?.data) ? (ud as Record<string, unknown>).data as unknown[] : []);
     },
-    enabled: !isInIframe && isAdminUser,
-    staleTime: 60 * 1000,
+    enabled: !isInIframe && isAdminUser && addMemberOpen,
+    staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
     refetchOnWindowFocus: false,
     retry: 1,

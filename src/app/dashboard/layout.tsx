@@ -660,16 +660,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     setMobileOpen(false);
   };
 
-  // Safety timeout for session loading — show fallback after 15s
+  // Safety timeout for session loading — show fallback after 5s (reduced from 15s)
   const [sessionTimedOut, setSessionTimedOut] = useState(false);
   useEffect(() => {
     if (status !== "loading") return;
-    const t = setTimeout(() => setSessionTimedOut(true), 15000);
+    const t = setTimeout(() => setSessionTimedOut(true), 5000);
     return () => clearTimeout(t);
   }, [status]);
 
   if (status === "loading" && !sessionTimedOut) {
-    return <LoadingScreen />;
+    return <LoadingScreen message="Loading workspace..." />;
   }
 
   if (sessionTimedOut && status === "loading") {

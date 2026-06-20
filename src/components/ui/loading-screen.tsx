@@ -47,7 +47,7 @@ export function LoadingScreen({ message }: LoadingScreenProps) {
               key={i}
               className="h-1.5 w-1.5 rounded-full bg-primary/60"
               style={{
-                animation: `loading-dot-pulse 1.4s ease-in-out ${i * 180}ms infinite`,
+                animation: `loading-dot-pulse 1s ease-in-out ${i * 120}ms infinite`,
               }}
             />
           ))}
@@ -93,11 +93,11 @@ export function LoadingScreen({ message }: LoadingScreenProps) {
         }
 
         .animate-loading-fade-in {
-          animation: loading-fade-in 0.6s ease-out both;
+          animation: loading-fade-in 0.3s ease-out both;
         }
 
         .animate-logo-glow {
-          animation: logo-glow 2.4s ease-in-out 0.3s infinite;
+          animation: logo-glow 1.6s ease-in-out 0.2s infinite;
         }
       `}</style>
     </div>
