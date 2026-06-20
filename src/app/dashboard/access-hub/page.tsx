@@ -8,10 +8,11 @@ import {
   FileUp, CheckCircle2, AlertCircle, Clock,
   Shield, Ban, Save, Eye, EyeOff,
   Copy, Check, KeyRound, Info,
-  Users, RefreshCw, Settings, GitBranch, FileLock2,
+  Users, RefreshCw, Settings,
   Plus, Edit3, Globe, Search, Key,
   Link2, Unlink, ArrowRightLeft, Zap, XCircle,
   CheckCircle2 as CheckCircleIcon,
+  Activity, Wifi,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardDescription, CardTitle } from "@/components/ui/card";
@@ -60,16 +61,6 @@ interface ProtocolFile {
   uploadedAt: string;
   uploadedBy: string;
   downloadEnabled: boolean;
-}
-
-interface GitConfigState {
-  repoUrl: string;
-  tokenMasked: string;
-  branch: string;
-  isEnabled: boolean;
-  lastSyncAt: string | null;
-  lastSyncStatus: string | null;
-  lastSyncError: string | null;
 }
 
 interface WorkspaceConfigState {
@@ -141,19 +132,6 @@ function AccessHubContent() {
   const [dragOver, setDragOver] = useState(false);
   const [downloadEnabled, setDownloadEnabled] = useState(true);
 
-  // ── Git config state ──
-  const [gitConfig, setGitConfig] = useState<GitConfigState | null>(null);
-  const [gitForm, setGitForm] = useState({ repoUrl: "", token: "" });
-  const [gitSaving, setGitSaving] = useState(false);
-  const [gitSyncing, setGitSyncing] = useState(false);
-  const [showToken, setShowToken] = useState(false);
-
-  // ── Encryption key state ──
-  const [encKeyForm, setEncKeyForm] = useState("");
-  const [showEncKey, setShowEncKey] = useState(false);
-  const [encKeySaving, setEncKeySaving] = useState(false);
-  const [hasEncryptionKey, setHasEncryptionKey] = useState(false);
-
   // ── Credential encryption key state ──
   const [credEncKeyForm, setCredEncKeyForm] = useState("");
   const [showCredEncKey, setShowCredEncKey] = useState(false);
@@ -214,11 +192,6 @@ function AccessHubContent() {
         if (data.wsConfig) {
           setWsConfig(data.wsConfig);
           if (data.wsConfig.configTokenLabel) setWsLabelForm(data.wsConfig.configTokenLabel);
-        }
-        if (data.gitConfig) {
-          setGitConfig(data.gitConfig);
-          setHasEncryptionKey(!!data.gitConfig.hasEncryptionKey);
-          setGitForm({ repoUrl: data.gitConfig.repoUrl || "", token: "" });
         }
         fetchCredEncKeyStatus();
       })
@@ -353,111 +326,6 @@ function AccessHubContent() {
         toast.success(!downloadEnabled ? "Downloads enabled" : "Downloads disabled");
       } else { toast.error("Failed to toggle download"); }
     } catch { toast.error("Failed to toggle download"); }
-  };
-
-  /* ═══════════════════════════════════════════════════════════════
-     GIT CONFIG HANDLERS
-     ═══════════════════════════════════════════════════════════════ */
-
-  const handleSaveGitConfig = async () => {
-    if (!gitForm.repoUrl.trim()) { toast.error("Repository URL is required"); return; }
-    if (!gitForm.token.trim()) { toast.error("Access token is required"); return; }
-    setGitSaving(true);
-    try {
-      const res = await authFetch("/api/task-git-config", {
-        method: gitConfig ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repoUrl: gitForm.repoUrl.trim(), token: gitForm.token, isEnabled: gitConfig?.isEnabled ?? false }),
-      });
-      if (res.ok) {
-        toast.success("Git configuration saved");
-        await refetchGitConfig();
-        setGitForm((prev) => ({ ...prev, token: "" }));
-      } else { const data = await res.json(); toast.error(safeText(data.error, "Failed to save configuration")); }
-    } catch { toast.error("Failed to save configuration"); }
-    setGitSaving(false);
-  };
-
-  const handleToggleGitSync = async () => {
-    if (!gitConfig) return;
-    const newValue = !gitConfig.isEnabled;
-    try {
-      const res = await authFetch("/api/task-git-config", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ isEnabled: newValue }),
-      });
-      if (res.ok) {
-        setGitConfig({ ...gitConfig, isEnabled: newValue });
-        toast.success(newValue ? "Auto-sync enabled — syncing now..." : "Auto-sync disabled");
-        if (newValue) {
-          setGitSyncing(true);
-          authFetch("/api/task-git-sync", { method: "POST", headers: { "Content-Type": "application/json" } })
-            .then(async (syncRes) => {
-              setGitSyncing(false);
-              if (syncRes.ok) {
-                const syncData = await syncRes.json();
-                if (syncData.success) toast.success(`Sync completed — ${syncData.filesUpdated} file(s) updated`);
-                else toast.error("Sync failed: " + (syncData.error || "Unknown error"));
-              } else { toast.error("Sync request failed"); }
-              await refetchGitConfig();
-            })
-            .catch(() => { setGitSyncing(false); toast.error("Sync request failed"); });
-        }
-      } else { toast.error("Failed to toggle git sync"); }
-    } catch { toast.error("Failed to toggle git sync"); }
-  };
-
-  const handleManualSync = async () => {
-    setGitSyncing(true);
-    try {
-      const res = await authFetch("/api/task-git-sync", { method: "POST", headers: { "Content-Type": "application/json" } });
-      if (res.ok) {
-        const data = await res.json();
-        setGitSyncing(false);
-        if (data.success) toast.success(`Sync completed — ${data.filesUpdated} file(s) updated`);
-        else toast.error("Sync failed: " + (data.error || "Unknown error"));
-        await refetchGitConfig();
-      } else {
-        const errData = await res.json().catch(() => ({ error: "Request failed" }));
-        toast.error(errData.error || "Failed to trigger sync");
-        setGitSyncing(false);
-      }
-    } catch { toast.error("Failed to trigger sync"); setGitSyncing(false); }
-  };
-
-  /* ═══════════════════════════════════════════════════════════════
-     ENCRYPTION KEY HANDLERS
-     ═══════════════════════════════════════════════════════════════ */
-
-  const handleSaveEncKey = async () => {
-    const key = encKeyForm.trim();
-    if (!key || key.length !== 64 || !/^[0-9a-fA-F]{64}$/.test(key)) {
-      toast.error("Encryption key must be a 64-character hex string");
-      return;
-    }
-    setEncKeySaving(true);
-    try {
-      const res = await authFetch("/api/task-git-config", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ encryptionKey: key }),
-      });
-      if (res.ok) {
-        toast.success("Encryption key updated. Make sure to set the same key in Vercel environment variables.");
-        setEncKeyForm("");
-        setHasEncryptionKey(true);
-      } else { const data = await res.json(); toast.error(safeText(data.error, "Failed to update encryption key")); }
-    } catch { toast.error("Failed to update encryption key"); }
-    setEncKeySaving(false);
-  };
-
-  const handleGenerateKey = () => {
-    const array = new Uint8Array(32);
-    crypto.getRandomValues(array);
-    const hex = Array.from(array, (b) => b.toString(16).padStart(2, "0")).join("");
-    setEncKeyForm(hex);
-    toast.success("New key generated. Click 'Save Key' to apply.");
   };
 
   /* ═══════════════════════════════════════════════════════════════
@@ -641,20 +509,6 @@ function AccessHubContent() {
       }
     } catch { /* silent */ }
   }, []);
-
-  const refetchGitConfig = useCallback(async () => {
-    if (!isSuperAdmin) return;
-    try {
-      const res = await authFetch("/api/task-git-config");
-      if (res.ok) {
-        const data = await res.json();
-        setGitConfig(data);
-        setHasEncryptionKey(!!data.hasEncryptionKey);
-        setGitForm({ repoUrl: data.repoUrl || "", token: "" });
-      }
-    } catch { /* silent */ }
-    fetchCredEncKeyStatus();
-  }, [isSuperAdmin]);
 
   const refetchWsConfig = useCallback(async () => {
     try {
@@ -1158,152 +1012,61 @@ function AccessHubContent() {
               </Card>
             ) : (
               <>
-                {/* Save Task System - Git Config */}
-                <Card className="overflow-hidden border-border/60 shadow-sm">
-                  <div className="h-1 bg-gradient-to-r from-sky-500 via-blue-500 to-indigo-500" />
+                {/* Workspace Sync Status — live connection to Protocol v12 + Agent API */}
+                <Card className="bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
                   <CardHeader className="pb-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-lg bg-sky-100 dark:bg-sky-900/30 flex items-center justify-center">
-                        <GitBranch className="h-4 w-4 text-sky-600 dark:text-sky-400" />
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2">
+                        <Activity className="h-4 w-4 text-primary" />
+                        <CardTitle className="text-sm">Workspace Sync Status</CardTitle>
                       </div>
-                      <div className="flex-1">
-                        <CardTitle className="text-sm">Save Task System</CardTitle>
-                        <CardDescription className="text-xs">Bind a Git repository for automatic task sync</CardDescription>
-                      </div>
-                      {gitConfig?.isEnabled && (
-                        <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-200 dark:border-emerald-800 dark:text-emerald-400 flex-shrink-0">
-                          <CheckCircle2 className="h-3 w-3 mr-1" /> Syncing
-                        </Badge>
-                      )}
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="git-repo-url" className="text-xs">Repository URL</Label>
-                      <Input id="git-repo-url" type="url" placeholder="https://github.com/owner/repo" value={gitForm.repoUrl} onChange={(e) => setGitForm((prev) => ({ ...prev, repoUrl: e.target.value }))} className="text-sm" />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="git-token" className="text-xs">Access Token</Label>
-                      <div className="relative">
-                        <Input id="git-token" type={showToken ? "text" : "password"} placeholder={gitConfig?.tokenMasked || "ghp_xxxxxxxxxxxx"} value={gitForm.token} onChange={(e) => setGitForm((prev) => ({ ...prev, token: e.target.value }))} className="pr-10 font-mono text-xs" />
-                        <button type="button" onClick={() => setShowToken(!showToken)} aria-label={showToken ? "Hide access token" : "Show access token"} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
-                          {showToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                        </button>
-                      </div>
-                      {gitConfig?.tokenMasked && !gitForm.token && (
-                        <p className="text-xs text-muted-foreground">Leave blank to keep the existing token</p>
-                      )}
-                    </div>
-                    <Button onClick={handleSaveGitConfig} disabled={gitSaving || !gitForm.repoUrl.trim() || (!gitForm.token && !gitConfig?.tokenMasked)} className="w-full" size="sm">
-                      {gitSaving ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
-                      Save Configuration
-                    </Button>
-                    {gitConfig?.repoUrl && (
-                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <GitBranch className="h-3 w-3" />
-                        <span>Branch: <span className="font-medium text-foreground">{gitConfig.branch || "main"}</span> (auto-detected)</span>
-                      </div>
-                    )}
-                    {gitConfig && (
-                      <div className="pt-3 border-t border-border/50 space-y-2.5">
-                        <div className="flex items-center justify-between gap-2 flex-wrap">
-                          <div className="flex items-center gap-2">
-                            <Switch checked={gitConfig.isEnabled} onCheckedChange={handleToggleGitSync} disabled={!gitConfig.repoUrl} />
-                            <span className="text-sm font-medium">Auto-sync</span>
-                          </div>
-                          <Button variant="outline" size="sm" onClick={handleManualSync} disabled={gitSyncing || !gitConfig.repoUrl} className="shrink-0">
-                            {gitSyncing ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
-                            Sync Now
-                          </Button>
-                        </div>
-                        {gitConfig.lastSyncStatus && (
-                          <div className="flex items-center gap-2">
-                            {gitConfig.lastSyncStatus === "SUCCESS" || gitConfig.lastSyncStatus === "NO_CHANGES" ? (
-                              <>
-                                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                                <span className="text-xs text-emerald-600 dark:text-emerald-400">
-                                  {gitConfig.lastSyncStatus === "SUCCESS" ? "Last sync successful" : "No changes since last sync"}
-                                </span>
-                              </>
-                            ) : gitConfig.lastSyncStatus === "ERROR" || gitConfig.lastSyncStatus === "FAILED" || gitConfig.lastSyncStatus === "PARTIAL" ? (
-                              <>
-                                <AlertCircle className="h-3.5 w-3.5 text-red-500" />
-                                <span className="text-xs text-red-600 dark:text-red-400">
-                                  Last sync {gitConfig.lastSyncStatus.toLowerCase()}{gitConfig.lastSyncError ? `: ${gitConfig.lastSyncError}` : ""}
-                                </span>
-                              </>
-                            ) : gitConfig.lastSyncStatus === "PENDING" ? (
-                              <>
-                                <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-500" />
-                                <span className="text-xs text-amber-600 dark:text-amber-400">Sync in progress...</span>
-                              </>
-                            ) : null}
-                          </div>
-                        )}
-                        {gitConfig.lastSyncAt && (
-                          <p className="text-xs text-muted-foreground">
-                            Last synced: {formatRelativeTime(gitConfig.lastSyncAt)}
-                            {gitConfig.lastSyncAt && (<> ({safeDate(gitConfig.lastSyncAt)})</>)}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-
-                {/* Encryption Key Management */}
-                <Card className="overflow-hidden border-border/60 shadow-sm">
-                  <div className="h-1 bg-gradient-to-r from-slate-500 via-gray-500 to-zinc-500" />
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
-                        <FileLock2 className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                      </div>
-                      <div className="flex-1">
-                        <CardTitle className="text-sm">Encryption Key</CardTitle>
-                        <CardDescription className="text-xs">AES-256-GCM key for encrypting sensitive data (git tokens)</CardDescription>
-                      </div>
-                      <Badge variant={hasEncryptionKey ? "outline" : "secondary"} className={`text-xs flex-shrink-0 ${hasEncryptionKey ? "text-emerald-600 border-emerald-200 dark:border-emerald-800 dark:text-emerald-400" : "text-amber-600 bg-amber-50 dark:bg-amber-900/20 dark:text-amber-400"}`}>
-                        {hasEncryptionKey ? "Configured" : "Not set"}
+                      <Badge variant="default" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20">
+                        <Wifi className="h-3 w-3 mr-1" /> Live
                       </Badge>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      {hasEncryptionKey ? (
-                        <>
-                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                          <span className="text-xs text-emerald-600 dark:text-emerald-400">Encryption key is configured</span>
-                        </>
-                      ) : (
-                        <>
-                          <AlertCircle className="h-3.5 w-3.5 text-amber-500" />
-                          <span className="text-xs text-amber-600 dark:text-amber-400">No encryption key set — using environment variable</span>
-                        </>
-                      )}
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="enc-key" className="text-xs">New Encryption Key (64-char hex)</Label>
-                      <div className="relative">
-                        <Input id="enc-key" type={showEncKey ? "text" : "password"} placeholder="64-character hex string" value={encKeyForm} onChange={(e) => setEncKeyForm(e.target.value)} className="pr-20 font-mono text-xs" />
-                        <button type="button" onClick={() => setShowEncKey(!showEncKey)} aria-label={showEncKey ? "Hide encryption key" : "Show encryption key"} className="absolute right-10 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
-                          {showEncKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                        </button>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button type="button" onClick={handleGenerateKey} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-primary transition-colors">
-                              <RefreshCw className="h-3.5 w-3.5" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent>Generate random key</TooltipContent>
-                        </Tooltip>
+                    <p className="text-xs text-muted-foreground">
+                      The dashboard is the source of truth for all workspace data. GLM sessions authenticate via OTP and read project/infrastructure data in real time — no manual sync needed.
+                    </p>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="flex items-center gap-1.5 p-2 rounded-md bg-muted/50">
+                        <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+                        <div>
+                          <p className="font-semibold">Agent API</p>
+                          <p className="text-[10px] text-muted-foreground">/api/agent/* active</p>
+                        </div>
                       </div>
-                      <p className="text-xs text-muted-foreground">Click the refresh icon to generate a new key.</p>
+                      <div className="flex items-center gap-1.5 p-2 rounded-md bg-muted/50">
+                        <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+                        <div>
+                          <p className="font-semibold">OTP Auth</p>
+                          <p className="text-[10px] text-muted-foreground">/api/agent-auth/* active</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 p-2 rounded-md bg-muted/50">
+                        <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+                        <div>
+                          <p className="font-semibold">Auto Attendance</p>
+                          <p className="text-[10px] text-muted-foreground">Clock-in/out via OTP</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 p-2 rounded-md bg-muted/50">
+                        <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+                        <div>
+                          <p className="font-semibold">UK Timezone</p>
+                          <p className="text-[10px] text-muted-foreground">All times UK (Europe/London)</p>
+                        </div>
+                      </div>
                     </div>
-                    <Button onClick={handleSaveEncKey} disabled={encKeySaving || !encKeyForm.trim()} variant="outline" className="w-full" size="sm">
-                      {encKeySaving ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
-                      Save Key
-                    </Button>
+                    <div className="pt-2 border-t border-border/50">
+                      <p className="text-[10px] text-muted-foreground">
+                        Protocol v12: <code className="font-mono text-primary">trishulhub-svg/trishul-protocol-v12</code>
+                      </p>
+                      <p className="text-[10px] text-muted-foreground mt-1">
+                        Tasks managed in Lark. Devs see tasks in Lark app. Admins use chat.z.ai Connect IM for task queries.
+                      </p>
+                    </div>
                   </CardContent>
                 </Card>
 

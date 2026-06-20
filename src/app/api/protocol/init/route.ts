@@ -11,8 +11,7 @@ import { decryptCredentialFromJson } from "@/lib/encryption";
  * Single-batch endpoint that returns ALL data the protocol page needs
  * in one request. Replaces 5 separate API calls → 1 request.
  *
- * Returns: { protocol, wsConfig, gitConfig? }
- * Admin-only field (gitConfig) is included only for SUPER_ADMIN.
+ * Returns: { protocol, wsConfig }
  */
 export async function GET(request: NextRequest) {
   try {
@@ -30,7 +29,6 @@ export async function GET(request: NextRequest) {
     const [
       protocolResult,
       wsConfigResult,
-      ...adminResults
     ] = await Promise.all([
       // 1. Protocol PDF metadata
       (async () => {
@@ -93,45 +91,11 @@ export async function GET(request: NextRequest) {
           };
         } catch { return { id: null, configToken: "", configTokenMasked: "", configTokenLabel: "Workspace Token", hasToken: false }; }
       })(),
-
-      // 3. Admin-only: Git config (with stale PENDING reset)
-      isAdmin
-        ? (async () => {
-            try {
-              // Auto-reset stale PENDING
-              await db.$executeRawUnsafe(
-                `UPDATE "TaskGitConfig" SET "lastSyncStatus" = 'ERROR',
-                  "lastSyncError" = 'Sync timed out.', "updatedAt" = CURRENT_TIMESTAMP
-                 WHERE "lastSyncStatus" = 'PENDING' AND "updatedAt" < datetime('now', '-45 seconds')`
-              ).catch(() => {});
-
-              const rows: any[] = await db.$queryRawUnsafe(
-                `SELECT "repoUrl", "branch", "isEnabled", "lastSyncAt", "lastSyncStatus", "lastSyncError", "encryptionKey"
-                 FROM "TaskGitConfig" LIMIT 1`
-              );
-              if (!rows.length) {
-                return { repoUrl: "", tokenMasked: "", branch: "main", isEnabled: false, lastSyncAt: null, lastSyncStatus: null, lastSyncError: null, hasEncryptionKey: !!process.env.ENCRYPTION_KEY };
-              }
-              const r = rows[0];
-              return {
-                repoUrl: r.repoUrl || "",
-                tokenMasked: "••••••••",
-                branch: r.branch || "main",
-                isEnabled: !!r.isEnabled,
-                lastSyncAt: r.lastSyncAt || null,
-                lastSyncStatus: r.lastSyncStatus || null,
-                lastSyncError: r.lastSyncError || null,
-                hasEncryptionKey: !!(r.encryptionKey || process.env.ENCRYPTION_KEY),
-              };
-            } catch { return null; }
-          })()
-        : Promise.resolve(null),
     ]);
 
     return NextResponse.json({
       protocol: protocolResult,
       wsConfig: wsConfigResult,
-      ...(isAdmin ? { gitConfig: adminResults[0] } : {}),
     });
   } catch (error: unknown) {
     console.error("[protocol/init] GET error:", error instanceof Error ? error.message : String(error));

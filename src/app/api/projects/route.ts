@@ -6,7 +6,6 @@ import { Prisma } from "@prisma/client"
 import { isAdmin, getAssignedProjectIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
-import { syncTasksToGit } from "@/lib/git-sync"
 import { createProjectSchema, updateProjectSchema } from "@/lib/validations"
 import { logAudit, getIpAddress, getUserAgent, buildDescription } from "@/lib/audit-log"
 
@@ -236,8 +235,6 @@ export async function POST(req: NextRequest) {
         isDemo: validated.isDemo === true,
       },
     })
-    // Background: sync project data to Git (fire-and-forget)
-    syncTasksToGit().catch((err) => console.error("[git-sync] Failed:", err))
     // I1: Targeted Date serialization
     void logAudit({
       userId: session.user.id, userName: session.user.name || "unknown", userRole,

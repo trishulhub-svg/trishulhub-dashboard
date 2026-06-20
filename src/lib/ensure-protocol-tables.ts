@@ -240,49 +240,6 @@ export async function ensureProtocolTables(): Promise<void> {
     }
   }
 
-  // ── TaskGitConfig ──
-  if (!(await tableExists("TaskGitConfig"))) {
-    console.log("[protocol] TaskGitConfig table missing, creating...");
-    try {
-      await db.$executeRawUnsafe(`
-        CREATE TABLE "TaskGitConfig" (
-          "id" TEXT PRIMARY KEY NOT NULL,
-          "repoUrl" TEXT NOT NULL DEFAULT '',
-          "repoOwner" TEXT NOT NULL DEFAULT '',
-          "repoName" TEXT NOT NULL DEFAULT '',
-          "branch" TEXT NOT NULL DEFAULT 'main',
-          "tokenEncrypted" TEXT NOT NULL DEFAULT '',
-          "tokenIv" TEXT NOT NULL DEFAULT '',
-          "tokenTag" TEXT NOT NULL DEFAULT '',
-          "encryptionKey" TEXT NOT NULL DEFAULT '',
-          "isEnabled" BOOLEAN NOT NULL DEFAULT false,
-          "lastSyncAt" DATETIME,
-          "lastSyncStatus" TEXT,
-          "lastSyncError" TEXT,
-          "createdBy" TEXT NOT NULL,
-          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-      console.log("[protocol] TaskGitConfig table created.");
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error("[protocol] Failed to create TaskGitConfig:", msg);
-    }
-  }
-
-  // ── Add encryptionKey column to TaskGitConfig ──
-  if (await tableExists("TaskGitConfig") && !(await columnExists("TaskGitConfig", "encryptionKey"))) {
-    console.log("[protocol] TaskGitConfig missing 'encryptionKey' column, adding...");
-    try {
-      await db.$executeRawUnsafe(`ALTER TABLE "TaskGitConfig" ADD COLUMN "encryptionKey" TEXT NOT NULL DEFAULT ''`);
-      console.log("[protocol] TaskGitConfig 'encryptionKey' column added.");
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error("[protocol] Failed to add encryptionKey column:", msg);
-    }
-  }
-
   // ── WorkspaceConfig (workspace-level tokens, e.g. ZAI workspace token) ──
   if (!(await tableExists("WorkspaceConfig"))) {
     console.log("[protocol] WorkspaceConfig table missing, creating...");

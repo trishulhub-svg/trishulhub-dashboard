@@ -1,4 +1,4 @@
-// TODO: Implement AES-256-GCM encryption at rest for passwords (similar to task-git-config token encryption)
+// TODO: Implement AES-256-GCM encryption at rest for passwords (similar to project infrastructure token encryption)
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";

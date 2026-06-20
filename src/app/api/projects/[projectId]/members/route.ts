@@ -5,7 +5,6 @@ import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
-import { syncTasksToGit } from "@/lib/git-sync"
 
 // GET /api/projects/[projectId]/members - List project members
 export async function GET(
@@ -119,9 +118,6 @@ export async function POST(
       },
     })
 
-    // W9: Log errors from syncTasksToGit instead of swallowing them
-    syncTasksToGit().catch((err) => console.error("[git-sync] Failed:", err))
-
     // Notify the user about project assignment
     try {
       await db.notification.create({
@@ -184,9 +180,6 @@ export async function DELETE(
     if (result.count === 0) {
       return NextResponse.json({ error: "User is not a member of this project" }, { status: 404 })
     }
-
-    // W9: Log errors from syncTasksToGit instead of swallowing them
-    syncTasksToGit().catch((err) => console.error("[git-sync] Failed:", err))
 
     return NextResponse.json({ success: true })
   } catch (error: unknown) {
