@@ -6,6 +6,7 @@ import {
   Clock, Play, Square, Timer, TrendingUp, Users, BarChart3,
   Download, Trash2, StopCircle, CalendarDays, FolderKanban,
   RefreshCw, AlertCircle, Loader2, UserCheck, Pencil, Plus, Eye,
+  ArrowLeft,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -266,6 +267,29 @@ export default function TimeTrackingPage() {
   // View description dialog
   const [viewDescriptionEntry, setViewDescriptionEntry] = useState<TimeEntry | null>(null);
 
+  // Deep-link + redirect popup state
+  const [showRedirectPopup, setShowRedirectPopup] = useState(false);
+  const [fromWorkspace, setFromWorkspace] = useState(false);
+  const timerCardRef = useRef<HTMLDivElement>(null);
+
+  // ── Deep-link: check for ?action=start param and scroll to timer ──
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("action") === "start") {
+      setFromWorkspace(true);
+      // Wait for page to render, then scroll to timer card
+      setTimeout(() => {
+        timerCardRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+        timerCardRef.current?.classList.add("ring-2", "ring-green-400", "ring-offset-2");
+        // Remove highlight after 3 seconds
+        setTimeout(() => {
+          timerCardRef.current?.classList.remove("ring-2", "ring-green-400", "ring-offset-2");
+        }, 3000);
+      }, 500);
+    }
+  }, [loading]);
+
   // ── Fetch entries ──
   const fetchEntries = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -413,6 +437,10 @@ export default function TimeTrackingPage() {
         setActiveEntry(entry);
         toast.success("Timer started!");
         fetchEntries();
+        // If user came from workspace, show redirect popup
+        if (fromWorkspace) {
+          setShowRedirectPopup(true);
+        }
       } else {
         const err = await res.json();
         toast.error(err.error || "Failed to start timer");
@@ -422,7 +450,7 @@ export default function TimeTrackingPage() {
     } finally {
       setStarting(false);
     }
-  }, [selectedProject, timerDescription, fetchEntries]);
+  }, [selectedProject, timerDescription, fetchEntries, fromWorkspace]);
 
   // ── Clock-out dialog handlers ──
   const handleClockOutClick = useCallback(() => {
@@ -784,23 +812,23 @@ export default function TimeTrackingPage() {
   // [FIX C2: Show loading skeleton during session loading or data loading]
   if (sessionStatus === "loading" || loading) {
     return (
-      <div className="space-y-6">
-        <h1 className="text-2xl font-bold">Time Tracking</h1>
-        <div className="grid gap-4 md:grid-cols-4">
+      <div className="space-y-4 sm:space-y-6">
+        <h1 className="text-xl sm:text-2xl font-bold">Time Tracking</h1>
+        <div className="grid gap-3 sm:gap-4 grid-cols-2 lg:grid-cols-4">
           {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="h-28 bg-muted animate-pulse rounded-lg" />
+            <div key={i} className="h-24 sm:h-28 bg-muted animate-pulse rounded-lg" />
           ))}
         </div>
-        <div className="h-64 bg-muted animate-pulse rounded-lg" />
+        <div className="h-48 sm:h-64 bg-muted animate-pulse rounded-lg" />
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
-        <AlertCircle className="h-12 w-12 text-destructive" />
-        <p className="text-muted-foreground">{error}</p>
+      <div className="flex flex-col items-center justify-center min-h-[300px] sm:min-h-[400px] gap-3 sm:gap-4 px-4">
+        <AlertCircle className="h-10 w-10 sm:h-12 sm:w-12 text-destructive" />
+        <p className="text-sm sm:text-base text-muted-foreground text-center">{error}</p>
         <Button variant="outline" onClick={() => { setError(null); setLoading(true); fetchEntries(); }}>
           Try Again
         </Button>
@@ -810,44 +838,44 @@ export default function TimeTrackingPage() {
 
   // ── Render ──
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Header */}
       <PageHeader title="Time Tracking" description="Track your work hours and manage time entries">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {isAdminUser && (
             <Button size="sm" onClick={() => setAddEntryOpen(true)} className="bg-green-600 hover:bg-green-700 text-white">
-              <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Entry
+              <Plus className="h-3.5 w-3.5 mr-1.5" /> <span className="hidden sm:inline">Add Entry</span><span className="sm:hidden">Add</span>
             </Button>
           )}
           {/* [FIX M7: Add refresh button] */}
           <Button variant="outline" size="sm" onClick={() => { setLoading(true); fetchEntries(); }}>
-            <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${loading ? "animate-spin" : ""}`} /> Refresh
+            <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${loading ? "animate-spin" : ""}`} /> <span className="hidden sm:inline">Refresh</span>
           </Button>
 
-          {/* Active Timer Status */}
+          {/* Active Timer Status — compact on mobile */}
           {activeEntry && (
-            <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
-              <div className="flex items-center gap-2">
-                <span className="relative flex h-3 w-3">
+            <div className="flex items-center gap-2 sm:gap-3 px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+              <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+                <span className="relative flex h-2.5 w-2.5 sm:h-3 sm:w-3 shrink-0">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500" />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 sm:h-3 sm:w-3 bg-green-500" />
                 </span>
-                <span className="text-sm font-medium text-green-700 dark:text-green-300">
+                <span className="text-xs sm:text-sm font-medium text-green-700 dark:text-green-300 truncate max-w-[80px] sm:max-w-none">
                   {activeEntry.project?.name || "Working"}
                 </span>
               </div>
-              <span className="text-lg font-bold text-green-700 dark:text-green-300 tabular-nums tracking-wider">
+              <span className="text-sm sm:text-lg font-bold text-green-700 dark:text-green-300 tabular-nums tracking-wider">
                 {formatDuration(elapsed)}
               </span>
               <Button
                 size="sm"
                 variant="destructive"
-                className="h-8"
+                className="h-7 sm:h-8 px-2 sm:px-3"
                 onClick={handleClockOutClick}
                 disabled={stopping}
               >
-                <Square className="h-3.5 w-3.5 mr-1.5" />
-                {stopping ? "Stopping..." : "CLOCK OUT"}
+                <Square className="h-3 w-3 sm:h-3.5 sm:w-3.5 sm:mr-1.5" />
+                <span className="hidden sm:inline">{stopping ? "Stopping..." : "CLOCK OUT"}</span>
               </Button>
             </div>
           )}
@@ -855,59 +883,59 @@ export default function TimeTrackingPage() {
       </PageHeader>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:gap-4 grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription className="text-xs">Today&apos;s Hours</CardDescription>
+            <CardDescription className="text-[10px] sm:text-xs">Today&apos;s Hours</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-                <Timer className="h-5 w-5 text-green-600 dark:text-green-400" />
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="h-8 w-8 sm:h-10 sm:w-10 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center shrink-0">
+                <Timer className="h-4 w-4 sm:h-5 sm:w-5 text-green-600 dark:text-green-400" />
               </div>
-              <span className="text-2xl font-bold tabular-nums">{formatHours(todayTotal)}</span>
+              <span className="text-xl sm:text-2xl font-bold tabular-nums">{formatHours(todayTotal)}</span>
             </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription className="text-xs">This Week</CardDescription>
+            <CardDescription className="text-[10px] sm:text-xs">This Week</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                <TrendingUp className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="h-8 w-8 sm:h-10 sm:w-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
+                <TrendingUp className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600 dark:text-blue-400" />
               </div>
-              <span className="text-2xl font-bold tabular-nums">{formatHours(weekTotal)}</span>
+              <span className="text-xl sm:text-2xl font-bold tabular-nums">{formatHours(weekTotal)}</span>
             </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription className="text-xs">Active Projects</CardDescription>
+            <CardDescription className="text-[10px] sm:text-xs">Active Projects</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
-                <FolderKanban className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="h-8 w-8 sm:h-10 sm:w-10 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center shrink-0">
+                <FolderKanban className="h-4 w-4 sm:h-5 sm:w-5 text-purple-600 dark:text-purple-400" />
               </div>
-              <span className="text-2xl font-bold">{activeProjectIds.size}</span>
+              <span className="text-xl sm:text-2xl font-bold">{activeProjectIds.size}</span>
             </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription className="text-xs">{isAdminUser ? "Team Entries" : "My Entries"}</CardDescription>
+            <CardDescription className="text-[10px] sm:text-xs">{isAdminUser ? "Team Entries" : "My Entries"}</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
-                <Users className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="h-8 w-8 sm:h-10 sm:w-10 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
+                <Users className="h-4 w-4 sm:h-5 sm:w-5 text-amber-600 dark:text-amber-400" />
               </div>
-              <span className="text-2xl font-bold">{completedEntries.length}</span>
+              <span className="text-xl sm:text-2xl font-bold">{completedEntries.length}</span>
             </div>
           </CardContent>
         </Card>
@@ -998,42 +1026,47 @@ export default function TimeTrackingPage() {
       {/* Main Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="w-full sm:w-auto">
-          <TabsTrigger value="my-time">My Time</TabsTrigger>
-          {isAdminUser && <TabsTrigger value="team">Team Logs</TabsTrigger>}
-          <TabsTrigger value="analytics">Analytics</TabsTrigger>
+          <TabsTrigger value="my-time" className="text-xs sm:text-sm">My Time</TabsTrigger>
+          {isAdminUser && <TabsTrigger value="team" className="text-xs sm:text-sm">Team Logs</TabsTrigger>}
+          <TabsTrigger value="analytics" className="text-xs sm:text-sm">Analytics</TabsTrigger>
         </TabsList>
 
         {/* ── Tab 1: My Time ── */}
         <TabsContent value="my-time" className="space-y-6 mt-4">
           {/* Timer Control */}
-          <Card className={activeEntry ? "border-green-200 dark:border-green-800" : ""}>
+          <Card ref={timerCardRef as any} className={activeEntry ? "border-green-200 dark:border-green-800 transition-shadow" : "transition-shadow"}>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base flex items-center gap-2">
+              <CardTitle className="text-sm sm:text-base flex items-center gap-2">
                 <Timer className="h-4 w-4" />
                 {activeEntry ? "Timer Running" : "Start Timer"}
+                {fromWorkspace && !activeEntry && (
+                  <Badge variant="default" className="text-[10px] bg-green-500/10 text-green-600 border-green-500/20 ml-auto">
+                    Clock in to continue
+                  </Badge>
+                )}
               </CardTitle>
             </CardHeader>
             <CardContent>
               {activeEntry ? (
                 <div className="space-y-4">
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                    <div className="space-y-1.5">
-                      <div className="flex items-center gap-3">
-                        <span className="relative flex h-2.5 w-2.5">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
+                    <div className="space-y-1.5 w-full">
+                      <div className="flex items-center gap-2 sm:gap-3">
+                        <span className="relative flex h-2.5 w-2.5 shrink-0">
                           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
                           <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500" />
                         </span>
-                        <Badge variant="outline" className="bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800">
+                        <Badge variant="outline" className="bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800 text-xs">
                           {activeEntry.project?.name || "No Project"}
                         </Badge>
                       </div>
-                      <p className="text-4xl font-bold tabular-nums text-green-600 dark:text-green-400 tracking-wide pl-5">
+                      <p className="text-3xl sm:text-4xl font-bold tabular-nums text-green-600 dark:text-green-400 tracking-wide pl-5">
                         {formatDuration(elapsed)}
                       </p>
                       {activeEntry.description && (
-                        <p className="text-sm text-muted-foreground pl-5">{activeEntry.description}</p>
+                        <p className="text-xs sm:text-sm text-muted-foreground pl-5">{activeEntry.description}</p>
                       )}
-                      <p className="text-xs text-muted-foreground pl-5">
+                      <p className="text-[10px] sm:text-xs text-muted-foreground pl-5">
                         Started at {formatTime(activeEntry.clockIn)} &bull;{" "}
                         {formatDurationShort(elapsed)} elapsed
                       </p>
@@ -1041,22 +1074,22 @@ export default function TimeTrackingPage() {
                     <Button
                       size="lg"
                       variant="destructive"
-                      className="h-12 px-8 text-base font-semibold"
+                      className="h-10 sm:h-12 px-6 sm:px-8 text-sm sm:text-base font-semibold w-full sm:w-auto"
                       onClick={handleClockOutClick}
                       disabled={stopping}
                     >
-                      <StopCircle className="h-5 w-5 mr-2" />
+                      <StopCircle className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
                       {stopping ? "Stopping..." : "CLOCK OUT"}
                     </Button>
                   </div>
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                     <div>
-                      <Label className="text-sm mb-1.5 block">Project (optional)</Label>
+                      <Label className="text-xs sm:text-sm mb-1.5 block">Project (optional)</Label>
                       <Select value={selectedProject} onValueChange={setSelectedProject}>
-                        <SelectTrigger>
+                        <SelectTrigger className="h-9 sm:h-10">
                           <SelectValue placeholder="Select a project..." />
                         </SelectTrigger>
                         <SelectContent>
@@ -1070,21 +1103,22 @@ export default function TimeTrackingPage() {
                       </Select>
                     </div>
                     <div>
-                      <Label className="text-sm mb-1.5 block">Description (optional)</Label>
+                      <Label className="text-xs sm:text-sm mb-1.5 block">Description (optional)</Label>
                       <Input
                         placeholder="What are you working on?"
                         value={timerDescription}
                         onChange={(e) => setTimerDescription(e.target.value)}
+                        className="h-9 sm:h-10 text-sm"
                       />
                     </div>
                   </div>
                   <Button
                     size="lg"
-                    className="h-12 px-8 text-base font-semibold bg-green-600 hover:bg-green-700 text-white"
+                    className="h-10 sm:h-12 px-6 sm:px-8 text-sm sm:text-base font-semibold bg-green-600 hover:bg-green-700 text-white w-full sm:w-auto"
                     onClick={handleStart}
                     disabled={starting}
                   >
-                    <Play className="h-5 w-5 mr-2" />
+                    <Play className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
                     {starting ? "Starting..." : "START"}
                   </Button>
                 </div>
@@ -1095,18 +1129,18 @@ export default function TimeTrackingPage() {
           {/* Weekly Timesheet Grid */}
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base flex items-center gap-2">
+              <CardTitle className="text-sm sm:text-base flex items-center gap-2">
                 <CalendarDays className="h-4 w-4" />
                 Weekly Overview
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-7 gap-2">
+              <div className="grid grid-cols-7 gap-1 sm:gap-2">
                 {weeklyGrid.map(({ day, total, isToday }, i) => {
                   return (
                     <div
-                      key={day.toISOString()} // [FIX M1: Use stable key instead of array index]
-                      className={`text-center p-3 rounded-lg border transition-colors ${
+                      key={day.toISOString()}
+                      className={`text-center p-1.5 sm:p-3 rounded-lg border transition-colors ${
                         isToday
                           ? "bg-primary/5 border-primary/30"
                           : total > 0
@@ -1114,13 +1148,13 @@ export default function TimeTrackingPage() {
                           : ""
                       }`}
                     >
-                      <div className={`text-xs font-medium ${isToday ? "text-primary" : "text-muted-foreground"}`}>
+                      <div className={`text-[9px] sm:text-xs font-medium ${isToday ? "text-primary" : "text-muted-foreground"}`}>
                         {DAY_NAMES[i]}
                       </div>
-                      <div className="text-xs text-muted-foreground mt-0.5">
+                      <div className="text-[9px] sm:text-xs text-muted-foreground mt-0.5">
                         {day.getDate()}
                       </div>
-                      <div className={`text-sm font-bold mt-1 ${total > 0 ? "text-foreground" : "text-muted-foreground"}`}>
+                      <div className={`text-[10px] sm:text-sm font-bold mt-1 ${total > 0 ? "text-foreground" : "text-muted-foreground"}`}>
                         {total > 0 ? formatHours(total) : "\u2014"}
                       </div>
                     </div>
@@ -1128,8 +1162,8 @@ export default function TimeTrackingPage() {
                 })}
               </div>
               <div className="mt-3 pt-3 border-t flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Week Total</span>
-                <span className="text-sm font-bold">{formatHours(weekTotal)}</span>
+                <span className="text-xs sm:text-sm text-muted-foreground">Week Total</span>
+                <span className="text-xs sm:text-sm font-bold">{formatHours(weekTotal)}</span>
               </div>
             </CardContent>
           </Card>
@@ -1228,7 +1262,7 @@ export default function TimeTrackingPage() {
                 <CardTitle className="text-base">Filters</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
                   <div>
                     <Label className="text-xs mb-1.5 block">Employee</Label>
                     <Select value={teamFilterUser} onValueChange={setTeamFilterUser}>
@@ -1863,6 +1897,51 @@ export default function TimeTrackingPage() {
               className="bg-green-600 hover:bg-green-700 text-white"
             >
               {addEntrySaving ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Creating...</> : <><Plus className="h-4 w-4 mr-2" />Create Entry</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Redirect to Workspace Popup — shown after clock-in from workspace deep-link */}
+      <Dialog open={showRedirectPopup} onOpenChange={setShowRedirectPopup}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <ArrowLeft className="h-5 w-5 text-primary" />
+              Ready to Work!
+            </DialogTitle>
+            <DialogDescription>
+              You&apos;re now clocked in. Would you like to go back to the workspace to start your AI session?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center gap-3 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500" />
+              </span>
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-green-700 dark:text-green-300">Timer Running</p>
+              <p className="text-xs text-green-600 dark:text-green-400">
+                {activeEntry?.project?.name || "No project"} &bull; {formatDuration(elapsed)}
+              </p>
+            </div>
+          </div>
+          <DialogFooter className="flex gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setShowRedirectPopup(false)}>
+              Stay Here
+            </Button>
+            <Button
+              onClick={() => {
+                setShowRedirectPopup(false);
+                // Navigate to workspace — the page will refresh and detect the user is now clocked in
+                window.location.href = "/dashboard/workspace";
+              }}
+              className="bg-primary hover:bg-primary/90"
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Go to Workspace
             </Button>
           </DialogFooter>
         </DialogContent>

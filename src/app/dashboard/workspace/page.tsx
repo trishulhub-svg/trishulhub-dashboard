@@ -618,7 +618,8 @@ export default function TrishulWorkspacePage() {
     if (currentUserIsLive) {
       window.open("https://chat.z.ai", "_blank", "noopener,noreferrer");
     } else {
-      router.push("/dashboard/time-tracking");
+      // Deep-link to time tracking with action=start so it scrolls directly to the timer
+      router.push("/dashboard/time-tracking?action=start");
     }
   }, [currentUserIsLive, router]);
 
