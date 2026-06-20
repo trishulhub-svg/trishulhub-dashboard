@@ -35,6 +35,54 @@ export async function GET() {
     const assignedClientIds = await getAssignedClientIds(userId, role)
     const invoiceWhere = assignedClientIds ? { clientId: { in: assignedClientIds } } : {}
 
+    // Phase 7c: Pre-compute last 6 months of revenue + expense data so the finance
+    // Overview chart renders accurate monthly totals. The previous approach fetched
+    // only the 10 most recent invoices + 50 most recent expenses, which silently
+    // undercounted any month with more activity than the cap.
+    //
+    // Run all 12 monthly aggregate queries in parallel for speed (2 queries × 6 months).
+    const now = new Date()
+    const monthBoundaries: Array<{ start: Date; end: Date; label: string }> = []
+    for (let i = 5; i >= 0; i--) {
+      const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 1)
+      const monthLabel = monthStart.toLocaleString("default", { month: "short" })
+      monthBoundaries.push({ start: monthStart, end: monthEnd, label: monthLabel })
+    }
+
+    const monthlyAggResults = await Promise.all(
+      monthBoundaries.map(async ({ start, end, label }) => {
+        const [revAgg, expAgg] = await Promise.all([
+          admin
+            ? db.invoice.aggregate({
+                where: {
+                  ...invoiceWhere,
+                  status: "PAID",
+                  OR: [
+                    { paidAt: { gte: start, lt: end } },
+                    {
+                      paidAt: null,
+                      updatedAt: { gte: start, lt: end },
+                      status: "PAID",
+                    },
+                  ],
+                },
+                _sum: { total: true },
+              }).then((r) => r._sum.total || 0)
+            : Promise.resolve(0),
+          // INTENTIONAL: Global aggregate for admin reporting — matches the existing
+          // totalExpenses behavior. Non-admin users get 0 (finance page is admin-only).
+          admin
+            ? db.expense.aggregate({
+                where: { date: { gte: start, lt: end } },
+                _sum: { amount: true },
+              }).then((r) => r._sum.amount || 0)
+            : Promise.resolve(0),
+        ])
+        return { month: label, revenue: revAgg, expenses: expAgg }
+      })
+    )
+
     // All 7 queries run in parallel (vs 19 in full dashboard endpoint)
     const [
       totalRevenue,
@@ -73,6 +121,8 @@ export async function GET() {
           })
         : Promise.resolve([] as unknown[]),
       // Recent expenses for chart data (50 records, select-only)
+      // NOTE: Kept for backward compatibility with any callers that read `data.expenses`.
+      // The Overview tab now uses `monthlyAggregates` for accurate chart data.
       admin
         ? db.expense.findMany({
             take: 50,
@@ -84,7 +134,13 @@ export async function GET() {
 
     const stats = { totalRevenue, pendingAmount, overdueAmount, totalExpenses, totalApiSpend }
 
-    return NextResponse.json(sanitizeForJson({ stats, invoices, expenses: recentExpenses }))
+    return NextResponse.json(sanitizeForJson({
+      stats,
+      invoices,
+      expenses: recentExpenses,
+      // Phase 7c: Accurate monthly revenue + expense aggregates for the Overview chart.
+      monthlyAggregates: monthlyAggResults,
+    }))
   } catch (error: unknown) {
     console.error("[dashboard/stats] GET error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "Failed to load finance stats" }, { status: 500 })

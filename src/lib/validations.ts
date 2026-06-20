@@ -265,6 +265,13 @@ export const updateTimeEntrySchema = z.object({
 })
 
 // ━━ Subscriptions ━━
+// Phase 7c: Subscription category must match the same enum used for expenses
+// to prevent arbitrary strings from polluting the category badge UI.
+export const SUBSCRIPTION_CATEGORIES = [
+  "HOSTING", "DOMAINS", "API_COSTS", "TOOLS", "MARKETING",
+  "SALARY", "SOFTWARE", "OTHER",
+] as const
+
 export const createSubscriptionSchema = z.object({
   service: z.string().min(1, "Service name is required").max(200),
   amount: z.number().min(0, "Amount must be positive").max(99_999_999).finite(),
@@ -272,8 +279,8 @@ export const createSubscriptionSchema = z.object({
   exchangeRate: z.number().min(0).optional(),
   frequency: z.enum(["MONTHLY", "YEARLY", "ONE_TIME"]).optional(),
   status: z.enum(["ACTIVE", "STOPPED", "COMPLETED", "EXPIRED", "PAUSED"]).optional(),
-  category: z.string().optional(),
-  projectId: z.string().optional(),
+  category: z.enum(SUBSCRIPTION_CATEGORIES).optional().nullable(),
+  projectId: z.string().max(100).optional().nullable(),
   startDate: z.string().optional(),
   endDate: z.string().optional(),
   notes: z.string().max(2000).optional(),
@@ -287,10 +294,11 @@ export const updateSubscriptionSchema = z.object({
   exchangeRate: z.number().min(0).optional(),
   frequency: z.enum(["MONTHLY", "YEARLY", "ONE_TIME"]).optional(),
   status: z.enum(["ACTIVE", "STOPPED", "COMPLETED", "EXPIRED", "PAUSED"]).optional(),
-  category: z.string().optional(),
-  projectId: z.string().optional(),
-  endDate: z.string().optional(),
-  notes: z.string().max(2000).optional(),
+  category: z.enum(SUBSCRIPTION_CATEGORIES).optional().nullable(),
+  projectId: z.string().max(100).optional().nullable(),
+  startDate: z.string().optional(),
+  endDate: z.string().nullable().optional(),
+  notes: z.string().max(2000).nullable().optional(),
 }).refine(hasAtLeastOneField, { message: "At least one field must be provided" })
 
 /**

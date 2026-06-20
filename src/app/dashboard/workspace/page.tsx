@@ -610,6 +610,18 @@ export default function TrishulWorkspacePage() {
     currentUserId && liveUsers.some((u) => u.userId === currentUserId)
   );
 
+  /* ── START handler ──
+     If the user is clocked in (has an active TimeEntry / appears in
+     liveUsers), redirect to chat.z.ai. Otherwise, send them to the
+     time-tracking page so they can clock in first. */
+  const handleStart = useCallback(() => {
+    if (currentUserIsLive) {
+      window.open("https://chat.z.ai", "_blank", "noopener,noreferrer");
+    } else {
+      router.push("/dashboard/time-tracking");
+    }
+  }, [currentUserIsLive, router]);
+
   /* ── Bar positions for smooth reordering (absolute positioning) ── */
   const statusBarsRef = useRef<HTMLDivElement>(null);
   const [barStep, setBarStep] = useState(28); // px — will be measured
@@ -707,16 +719,21 @@ export default function TrishulWorkspacePage() {
                   />
                 </div>
                 <div className="ws-hero-actions">
-                <a
-                    href="https://chat.z.ai"
-                    target="_blank"
-                    rel="noopener noreferrer"
+                <button
+                    type="button"
+                    onClick={handleStart}
                     className={`ws-btn-primary ws-btn-primary--${mode}`}
+                    aria-label={currentUserIsLive ? "Start working — open chat.z.ai" : "Start session — clock in first"}
+                    title={currentUserIsLive ? "Start Working — open chat.z.ai" : "Start Session — clock in first"}
                   >
-                    <Zap size={16} strokeWidth={2.5} />
-                    <span>START</span>
+                    {currentUserIsLive ? (
+                      <Zap size={16} strokeWidth={2.5} />
+                    ) : (
+                      <Clock size={16} strokeWidth={2.5} />
+                    )}
+                    <span>{currentUserIsLive ? "Start Working" : "Start Session"}</span>
                     <ArrowUpRight size={14} />
-                  </a>
+                  </button>
                   <button
                     onClick={handleCredentials}
                     className={`ws-btn-ghost ws-btn-ghost--${mode}`}
@@ -959,31 +976,33 @@ export default function TrishulWorkspacePage() {
               className={`ws-card ws-start-card ${entered ? "ws-in" : ""}`}
               style={{ transitionDelay: "0.4s" }}
             >
-              <a
-                href="https://chat.z.ai"
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                type="button"
+                onClick={handleStart}
                 className="ws-start-card-inner"
-                aria-label="Launch AI Workspace"
+                aria-label={currentUserIsLive ? "Launch AI Workspace" : "Start your session — clock in first"}
+                title={currentUserIsLive ? "Open chat.z.ai" : "Clock in first"}
               >
                 <div className="ws-start-left">
                   <div className={`ws-start-icon-box ws-start-icon-box--${mode}`}>
-                    <Zap size={20} />
+                    {currentUserIsLive ? <Zap size={20} /> : <Clock size={20} />}
                   </div>
                   <div>
                     <h3 className={`ws-start-heading ws-start-heading--${mode}`}>
-                      Launch Workspace
+                      {currentUserIsLive ? "Launch Workspace" : "Start Session"}
                     </h3>
                     <p className={`ws-start-sub ws-start-sub--${mode}`}>
-                      Full AI workspace environment
+                      {currentUserIsLive
+                        ? "Full AI workspace environment"
+                        : "Clock in to begin working"}
                     </p>
                   </div>
                 </div>
                 <div className={`ws-start-badge ws-start-badge--${mode}`}>
-                  <span>Open</span>
+                  <span>{currentUserIsLive ? "Open" : "Clock In"}</span>
                   <ArrowUpRight size={14} />
                 </div>
-              </a>
+              </button>
               <div className="ws-start-accent" />
             </div>
 

@@ -298,6 +298,11 @@ export default function InvoicesPage() {
   const [editNotes, setEditNotes] = useState<string>("");
   const [editClientId, setEditClientId] = useState<string>("");
   const [editProjectId, setEditProjectId] = useState<string>("");
+  // P7A: Allow editing status (even on PAID invoices) and invoice number — user must
+  // be able to edit ANY field on ANY invoice regardless of status.
+  const [editStatus, setEditStatus] = useState<string>("DRAFT");
+  const [editInvoiceNumber, setEditInvoiceNumber] = useState<string>("");
+  const [sendingInvoiceId, setSendingInvoiceId] = useState<string | null>(null);
   const [editDueDate, setEditDueDate] = useState<string>("");
 
   // ━━ Searchable combobox state (create) ━━
@@ -447,7 +452,11 @@ export default function InvoicesPage() {
           : (form.get("projectId") as string) || null,
       items: JSON.stringify(items),
       subtotal,
-      tax: gstAmount,
+      // P7A: This system uses GST as its only tax line. Sending tax: 0 (not
+      // gstAmount) prevents the totals from being double-counted — the backend
+      // recomputes total = subtotal + tax + gst, and validation requires
+      // total === subtotal + tax + gst, so tax MUST be 0 here.
+      tax: 0,
       total: totalAmount,
       dueDate: (form.get("dueDate") as string) || null,
       gstPercent,
@@ -561,6 +570,37 @@ export default function InvoicesPage() {
     }
   };
 
+  // ━━ Send Invoice Email ━━
+  // Calls /api/invoices/send which delivers the invoice to the client's email via
+  // the configured SMTP servers (with failover) AND marks the invoice as SENT.
+  // The user must be able to email ANY invoice regardless of current status
+  // (e.g., to resend a paid invoice as a receipt).
+  const handleSendInvoiceEmail = async (inv: Invoice) => {
+    if (sendingInvoiceId) return; // Prevent double-clicks
+    setSendingInvoiceId(inv.id);
+    try {
+      const res = await fetch("/api/invoices/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ invoiceId: inv.id }),
+      });
+      if (handleFetchError(res, router)) return;
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast.success(safeText(data.message, "Invoice emailed to client"));
+        fetchData();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(safeText(data.error, "Failed to send invoice email"));
+      }
+    } catch {
+      toast.error("Failed to send invoice email");
+    } finally {
+      setSendingInvoiceId(null);
+    }
+  };
+
   // ━━ Edit Invoice ━━
   const openEditDialog = (inv: Invoice) => {
     let items: LineItem[];
@@ -579,13 +619,16 @@ export default function InvoicesPage() {
     setEditPaymentMethod(inv.paymentMethod || "");
     setEditPaymentStatus(inv.paymentStatus || "UNPAID");
     setEditNotes(inv.notes || "");
-    setEditClientId(inv.client?.id || inv.client?.name || "");
+    setEditClientId(inv.client?.id || "");
     setEditClientSearch(inv.client?.name || "");
     setEditProjectId(inv.project?.id || "");
     setEditProjectSearch(inv.project?.name || "");
     setEditDueDate(
       inv.dueDate ? new Date(inv.dueDate).toISOString().split("T")[0] : ""
     );
+    // P7A: Initialize status + invoice number so they're editable for ALL invoices
+    setEditStatus(inv.status || "DRAFT");
+    setEditInvoiceNumber(inv.invoiceNumber || "");
   };
 
   const editSubtotal = editLineItems.reduce(
@@ -604,6 +647,14 @@ export default function InvoicesPage() {
       toast.error("At least one line item with a description is required");
       return;
     }
+    if (!editClientId) {
+      toast.error("Please select a client");
+      return;
+    }
+    if (!editInvoiceNumber.trim()) {
+      toast.error("Invoice number is required");
+      return;
+    }
 
     try {
       const res = await fetch("/api/invoices", {
@@ -612,8 +663,10 @@ export default function InvoicesPage() {
         credentials: "include",
         body: JSON.stringify({
           id: editInvoice.id,
+          invoiceNumber: editInvoiceNumber.trim(),
+          status: editStatus,
           clientId: editClientId,
-          projectId: editProjectId || null,
+          projectId: editProjectId === "NONE" ? null : (editProjectId || null),
           items: JSON.stringify(
             validItems.map((item) => ({
               description: item.description,
@@ -623,7 +676,11 @@ export default function InvoicesPage() {
             }))
           ),
           subtotal: editSubtotal,
-          tax: editGstAmount,
+          // P7A: This system uses GST as its only tax line. Sending tax: 0 (not
+          // gstAmount) prevents the totals from being double-counted — the backend
+          // recomputes total = subtotal + tax + gst, and validation requires
+          // total === subtotal + tax + gst, so tax MUST be 0 here.
+          tax: 0,
           total: editTotalAmount,
           gstPercent: editGstPercent,
           gst: editGstAmount,
@@ -1257,19 +1314,18 @@ export default function InvoicesPage() {
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
-                      {inv.status === "DRAFT" && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8"
-                          onClick={() =>
-                            handleUpdateStatus(inv.id, "SENT")
-                          }
-                        >
-                          <Send className="h-3.5 w-3.5 mr-1" /> Send
-                        </Button>
-                      )}
-                      {inv.status === "SENT" && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8"
+                        disabled={sendingInvoiceId === inv.id}
+                        onClick={() => handleSendInvoiceEmail(inv)}
+                        title="Email this invoice to the client"
+                      >
+                        <Send className="h-3.5 w-3.5 mr-1" />
+                        {sendingInvoiceId === inv.id ? "Sending…" : "Send"}
+                      </Button>
+                      {inv.status !== "PAID" && (
                         <Button
                           variant="ghost"
                           size="sm"
@@ -1572,6 +1628,31 @@ export default function InvoicesPage() {
             <DialogDescription>Modify invoice details.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            {/* P7A: Invoice Number + Status — editable for ALL invoices (incl. PAID) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Invoice Number *</Label>
+                <Input
+                  value={editInvoiceNumber}
+                  onChange={(e) => setEditInvoiceNumber(e.target.value)}
+                  placeholder="INV-XXXX"
+                  required
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Status</Label>
+                <select
+                  value={editStatus}
+                  onChange={(e) => setEditStatus(e.target.value)}
+                  className="border rounded px-3 py-2 text-sm bg-background w-full"
+                >
+                  <option value="DRAFT">Draft</option>
+                  <option value="SENT">Sent</option>
+                  <option value="PAID">Paid</option>
+                  <option value="OVERDUE">Overdue</option>
+                </select>
+              </div>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs">Client *</Label>

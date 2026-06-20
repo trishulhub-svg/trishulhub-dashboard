@@ -22,23 +22,34 @@ interface SubscriptionExpiryCheckerProps {
  *
  * Uses sessionStorage to ensure each notification is only sent once per day
  * to avoid spamming on every page load / re-render.
+ *
+ * Phase 7c: Previously a `hasChecked` ref blocked re-evaluation when the
+ * `subscriptions` array reference changed (e.g., after adding a new subscription).
+ * The ref is now keyed off the actual subscription IDs seen so that legitimate
+ * new subscriptions trigger their expiry notification, while the sessionStorage
+ * dedup still prevents spamming the same notification twice in one day.
  */
 export function SubscriptionExpiryChecker({
   subscriptions,
 }: SubscriptionExpiryCheckerProps) {
-  const hasChecked = useRef(false);
+  // Track which subscription IDs have already been processed in this component
+  // instance. New IDs (added later via subscription creation) will trigger a
+  // fresh check. sessionStorage handles same-day dedup so the notification
+  // fires at most once per subscription per day.
+  const checkedIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    // Guard against double-invocation in Strict Mode
-    if (hasChecked.current) return;
-    hasChecked.current = true;
-
     if (!subscriptions.length) return;
 
     const today = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
 
     const checkAndNotify = async () => {
       const promises = subscriptions.map(async (sub) => {
+        // Skip already-checked IDs (this session) — sessionStorage handles same-day dedup
+        if (checkedIdsRef.current.has(sub.id)) return;
+        // Mark as checked NOW so concurrent renders don't double-fire
+        checkedIdsRef.current.add(sub.id);
+
         // Only consider active subscriptions with an end date
         if (sub.status !== "ACTIVE" || !sub.endDate) return;
 
@@ -53,7 +64,7 @@ export function SubscriptionExpiryChecker({
         // Only notify when within 30 days (including today)
         if (daysRemaining > 30 || daysRemaining < 0) return;
 
-        // Check sessionStorage flag to avoid duplicate notifications
+        // Check sessionStorage flag to avoid duplicate notifications across reloads
         const storageKey = `trishulhub_sub_expiry_notif_sent_${sub.id}_${today}`;
         try {
           if (sessionStorage.getItem(storageKey)) return;
@@ -78,6 +89,7 @@ export function SubscriptionExpiryChecker({
           const res = await fetch("/api/notifications", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            credentials: "include",
             body: JSON.stringify({
               title,
               message,

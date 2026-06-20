@@ -670,7 +670,7 @@ export default function LeaveManagementPage() {
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
-                          {isUserAdmin && leave.status === "PENDING" && (
+                          {isUserAdmin && leave.status === "PENDING" && leave.userId !== session?.user?.id && (
                             <>
                               <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-green-600" title="Approve" aria-label="Approve leave" onClick={() => handleStatusChange(leave.id, "APPROVED")}>
                                 <CheckCircle2 className="h-3.5 w-3.5" />
@@ -691,7 +691,7 @@ export default function LeaveManagementPage() {
                             </Button>
                           )}
                           {!isUserAdmin && leave.userId === session?.user?.id && leave.status === "PENDING" && (
-                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400" onClick={() => setDeleteLeaveId(leave.id)} title="Cancel" aria-label="Cancel leave">
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400" onClick={() => setDeleteLeaveId(leave.id)} title="Delete" aria-label="Delete leave">
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           )}

@@ -170,6 +170,11 @@ export async function POST(req: NextRequest) {
       if (txError instanceof Error && txError.message === "DUPLICATE_INVOICE_NUMBER") {
         return NextResponse.json({ error: "Invoice number already exists" }, { status: 409 })
       }
+      // P2002 = Prisma unique constraint violation (race condition: two concurrent
+      // inserts picked the same invoice number). Surface a friendly 409 to the user.
+      if (txError && typeof txError === "object" && "code" in txError && (txError as { code?: string }).code === "P2002") {
+        return NextResponse.json({ error: "Invoice number already exists. Please try again." }, { status: 409 })
+      }
       throw txError
     }
     // Audit: log invoice creation (fire-and-forget)
@@ -241,7 +246,9 @@ export async function PATCH(req: NextRequest) {
         } else if (key === "dueDate" || key === "paidAt") {
           sanitizedData[key] = data[key] ? new Date(data[key] as string) : null
         } else if (key === "notes") {
-          sanitizedData[key] = typeof data[key] === "string" ? deepSanitize(data[key]) : data[key]
+          // Phase 7c: Defensive length slice (zod schema enforces max 5000, but explicit guard
+          // protects against any future schema drift and ensures we never store oversized notes).
+          sanitizedData[key] = typeof data[key] === "string" ? deepSanitize(data[key]).slice(0, 5000) : data[key]
         } else if (key === "invoiceNumber") {
           sanitizedData[key] = typeof data[key] === "string" ? deepSanitize(data[key]) : data[key]
         } else {
@@ -250,52 +257,49 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
-    // If marking as PAID, set paidAt automatically
-    if (data.status === "PAID" && !data.paidAt) {
-      sanitizedData.paidAt = new Date()
-    }
-    // If marking as PAID, also set paymentStatus
+    // If marking as PAID, set paidAt + paymentStatus automatically (unless caller explicitly set them)
     if (data.status === "PAID") {
-      sanitizedData.paymentStatus = "PAID"
+      if (!data.paidAt && sanitizedData.paidAt === undefined) {
+        sanitizedData.paidAt = new Date()
+      }
+      if (data.paymentStatus === undefined) {
+        sanitizedData.paymentStatus = "PAID"
+      }
     }
+
+    // Requirement: the user MUST be able to edit ANY invoice regardless of status,
+    // including changing status from PAID back to DRAFT / SENT / OVERDUE. Therefore
+    // no status-transition guard and no paymentStatus-vs-status mismatch guard is
+    // enforced. The only side-effect we apply is below (inside the transaction):
+    // transitioning FROM PAID → non-PAID clears paidAt + resets paymentStatus
+    // (unless the caller explicitly set those fields).
 
     // P11-INTEG-04: Wrap all DB operations in a transaction to prevent TOCTOU races
     // Use a sentinel to distinguish validation errors from the successful invoice result
     const TX_ERR = Symbol("TX_ERR")
-    // Fetch previous state BEFORE the transaction so it's available for the audit log
-    const previousInvoice = await db.invoice.findUnique({ where: { id }, select: { status: true, invoiceNumber: true } })
+    // Phase 7c: Fetch previous state INSIDE the transaction so the audit log
+    // captures the true pre-update status (avoids stale reads from a separate
+    // pre-transaction query that races with concurrent updates).
     const result = await db.$transaction(async (tx) => {
-      // Fetch existing invoice for status transition validation & total recompute
+      // Fetch existing invoice for status-aware side-effects & total recompute
       const existing = await tx.invoice.findUnique({ where: { id } })
       if (!existing) {
         return { kind: TX_ERR, code: "NOT_FOUND" as const }
       }
 
-      // Validate status transitions
-      if (data.status) {
-        const validTransitions: Record<string, string[]> = {
-          DRAFT: ["SENT", "OVERDUE"],
-          SENT: ["PAID", "OVERDUE", "DRAFT"],
-          OVERDUE: ["PAID", "SENT", "DRAFT"],
-          PAID: [], // No transitions from PAID (locked)
+      // Side-effect: transitioning away from PAID should reset paidAt + paymentStatus
+      // (unless the caller explicitly set these fields in the request body).
+      if (data.status && data.status !== "PAID" && existing.status === "PAID") {
+        if (data.paidAt === undefined) {
+          sanitizedData.paidAt = null
         }
-        const currentStatus = existing.status
-        const allowed = validTransitions[currentStatus] || []
-        if (!allowed.includes(data.status)) {
-          return { kind: TX_ERR, code: "INVALID_TRANSITION" as const, from: currentStatus, to: data.status }
+        if (data.paymentStatus === undefined) {
+          sanitizedData.paymentStatus = "UNPAID"
         }
       }
 
-      // Guard: paymentStatus PAID requires status PAID
-      if (data.paymentStatus === "PAID" && data.status !== "PAID" && existing.status !== "PAID") {
-        return { kind: TX_ERR, code: "PAID_STATUS_MISMATCH" as const }
-      }
-      // M-FIN-4: Block setting paymentStatus to UNPAID when invoice status is PAID
-      if (data.paymentStatus === "UNPAID" && (data.status === "PAID" || existing.status === "PAID")) {
-        return { kind: TX_ERR, code: "UNPAID_PAID_BLOCKED" as const }
-      }
-
-      // Recompute total from subtotal + tax + gst to ensure consistency
+      // Recompute total from subtotal + tax + gst to ensure consistency.
+      // Use existing values as fallback for any field the caller didn't provide.
       const bodyFields = body as Record<string, unknown>
       const needsRecompute = ["subtotal", "tax", "gst", "gstPercent"].some(f => bodyFields[f] !== undefined)
       if (needsRecompute || bodyFields.total !== undefined) {
@@ -310,7 +314,14 @@ export async function PATCH(req: NextRequest) {
         data: sanitizedData,
         include: { client: true, project: true },
       })
-      return { kind: Symbol("OK"), invoice }
+      // Return previous status + invoiceNumber captured atomically alongside the update
+      // so the audit log accurately reflects the state transition that just occurred.
+      return {
+        kind: Symbol("OK"),
+        invoice,
+        prevStatus: existing.status,
+        prevInvoiceNumber: existing.invoiceNumber,
+      }
     })
 
     // Handle transaction-internal validation errors
@@ -318,22 +329,15 @@ export async function PATCH(req: NextRequest) {
       if (result.code === "NOT_FOUND") {
         return NextResponse.json({ error: "Invoice not found" }, { status: 404 })
       }
-      if (result.code === "INVALID_TRANSITION") {
-        return NextResponse.json({ error: `Cannot change status from ${result.from} to ${result.to}` }, { status: 400 })
-      }
-      if (result.code === "PAID_STATUS_MISMATCH") {
-        return NextResponse.json({ error: "Cannot set payment to PAID when invoice status is not PAID" }, { status: 400 })
-      }
-      if (result.code === "UNPAID_PAID_BLOCKED") {
-        return NextResponse.json({ error: "Cannot set payment to UNPAID when invoice status is PAID" }, { status: 400 })
-      }
+      // Defensive: unknown error code — return generic 400 instead of silently returning null
+      return NextResponse.json({ error: "Invoice update failed validation" }, { status: 400 })
     }
 
     // Audit: log invoice update — use STATUS_CHANGE when the status field was the primary change
     const updatedInvoice = result.invoice
     if (updatedInvoice) {
       const statusChanged = data.status !== undefined
-      const prevStatus = previousInvoice?.status || "unknown"
+      const prevStatus = result.prevStatus || "unknown"
       void logAudit({
         userId: session.user.id, userName: session.user.name || "unknown", userRole,
         department: "BUSINESS", page: "invoices",
@@ -351,6 +355,10 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json(result.invoice)
   } catch (error: unknown) {
     console.error("[invoices] PATCH error:", error instanceof Error ? error.message : error)
+    // P2002 = unique constraint violation (e.g., user changed invoiceNumber to one that already exists)
+    if (error && typeof error === "object" && "code" in error && (error as { code?: string }).code === "P2002") {
+      return NextResponse.json({ error: "Invoice number already exists" }, { status: 409 })
+    }
     return NextResponse.json({ error: "Invoice update failed" }, { status: 500 })
   }
 }
@@ -403,6 +411,16 @@ export async function DELETE(req: NextRequest) {
 
     // P11-SEC-01: Block deletion of PAID invoices — financial records must be preserved
     if (existing.status === "PAID") {
+      // Phase 7c: Audit log the rejected deletion attempt so admins can review
+      // suspicious or accidental attempts to delete paid financial records.
+      void logAudit({
+        userId: session.user.id, userName: session.user.name || "unknown", userRole,
+        department: "BUSINESS", page: "invoices", action: "DELETE",
+        entityType: "Invoice", entityId: invoiceId,
+        description: `Blocked deletion of PAID invoice: ${existing.invoiceNumber}`,
+        status: "FAILURE",
+        ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+      })
       return NextResponse.json({ error: "Cannot delete a paid invoice. Financial records must be preserved." }, { status: 403 })
     }
 

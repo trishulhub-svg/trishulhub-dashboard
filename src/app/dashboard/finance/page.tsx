@@ -48,6 +48,12 @@ import { SubscriptionExpiryBadge } from "@/components/dashboard/finance/subscrip
 import { SubscriptionExpiryChecker } from "@/components/dashboard/finance/subscription-expiry-checker";
 
 // ─── Types ───────────────────────────────────────────────────────────
+interface MonthlyAggregate {
+  month: string;
+  revenue: number;
+  expenses: number;
+}
+
 interface DashboardData {
   stats: {
     totalRevenue: number;
@@ -62,6 +68,8 @@ interface DashboardData {
     client: { name: string }; dueDate: string; paidAt?: string; createdAt?: string;
   }[];
   expenses: { id: string; category: string; description: string; amount: number; date: string; project?: { id: string; name: string } }[];
+  // Phase 7c: Server-computed monthly aggregates for accurate Overview charts.
+  monthlyAggregates?: MonthlyAggregate[];
 }
 
 interface Subscription {
@@ -115,6 +123,11 @@ interface EmployeeOption {
 // Safety limit for client-side expense aggregation
 const MAX_EXPENSE_FETCH = 10000;
 
+// Task 12: Max records to load into the visible "All Expenses" table. Higher than
+// the API's default (50) so admins see a meaningful slice; lower than MAX_EXPENSE_FETCH
+// to avoid overloading the table DOM. The total count + amount come from the stats API.
+const EXPENSE_TABLE_LIMIT = 500;
+
 // Fallback exchange rates to INR (used when live rates unavailable)
 const DEFAULT_EXCHANGE_RATES: Record<string, number> = { INR: 1, USD: 83.5, GBP: 105.5 };
 
@@ -165,6 +178,13 @@ export default function FinancePage() {
   const [subDialogOpen, setSubDialogOpen] = useState(false);
   const [editingSub, setEditingSub] = useState<Subscription | null>(null);
 
+  // Fix (Task 11): Subscription smart search + date filters — previously the
+  // subscriptions tab had NO search and ignored the global date range, so users
+  // couldn't find subscriptions by name and date filters didn't narrow them.
+  const [subSearch, setSubSearch] = useState("");
+  const [subSearchDebounced, setSubSearchDebounced] = useState("");
+  const subSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Live exchange rates (fetched from API, falls back to defaults)
   const [liveRates, setLiveRates] = useState<Record<string, number>>(DEFAULT_EXCHANGE_RATES);
   const [ratesLoaded, setRatesLoaded] = useState(false);
@@ -202,6 +222,9 @@ export default function FinancePage() {
   const [categoryStats, setCategoryStats] = useState<CategoryStat[]>([]);
   const [projectStats, setProjectStats] = useState<ProjectStat[]>([]);
   const [statsTotal, setStatsTotal] = useState(0);
+  // Task 12: Track total entries from stats API so the "N expense(s) found" count
+  // stays accurate even when the visible table is capped by pagination.
+  const [statsTotalEntries, setStatsTotalEntries] = useState(0);
 
   // Projects (for dropdown)
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
@@ -259,11 +282,17 @@ export default function FinancePage() {
     }
   }, [router]);
 
-  // ─── Fetch subscriptions ────
+  // ─── Fetch subscriptions (Task 11: pass search + date filters) ────
   const fetchSubscriptions = useCallback(async (signal?: AbortSignal) => {
     try {
       setSubLoading(true);
-      const res = await fetch("/api/subscriptions", { credentials: "include", signal });
+      const params = new URLSearchParams();
+      if (subSearchDebounced) params.set("search", subSearchDebounced);
+      if (expStartDate) params.set("startDate", expStartDate);
+      if (expEndDate) params.set("endDate", expEndDate);
+      // Request a larger page so the UI can display all matching subs in one shot.
+      params.set("limit", "200");
+      const res = await fetch(`/api/subscriptions?${params.toString()}`, { credentials: "include", signal });
       if (handleFetchError(res, router)) return;
       if (res.ok) {
         const raw = await res.json();
@@ -280,7 +309,7 @@ export default function FinancePage() {
     } finally {
       setSubLoading(false);
     }
-  }, [router]);
+  }, [router, subSearchDebounced, expStartDate, expEndDate]);
 
   // ─── Fetch ALL expenses with only date filters (Bug B: for category/project detail views) ────
   const fetchAllExpenses = useCallback(async (signal?: AbortSignal) => {
@@ -304,6 +333,8 @@ export default function FinancePage() {
   }, [expStartDate, expEndDate, router]);
 
   // ─── Fetch expenses with filters (Fix 5: proper response parsing) ────
+  // Task 12: Pass an explicit limit so the table can show more than the API's default
+  // (50) without being silently capped by the previous 200-record ceiling.
   const fetchExpenses = useCallback(async (signal?: AbortSignal) => {
     try {
       setExpLoading(true);
@@ -312,6 +343,7 @@ export default function FinancePage() {
       if (expStartDate) params.set("startDate", expStartDate);
       if (expEndDate) params.set("endDate", expEndDate);
       if (expCategory && expCategory !== "ALL") params.set("category", expCategory);
+      params.set("limit", String(EXPENSE_TABLE_LIMIT));
       const res = await fetch(`/api/expenses?${params.toString()}`, { credentials: "include", signal });
       if (handleFetchError(res, router)) return;
       if (res.ok) {
@@ -328,12 +360,14 @@ export default function FinancePage() {
     }
   }, [expSearchDebounced, expStartDate, expEndDate, expCategory, router]);
 
-  // ─── Fetch expense stats ────
+  // ─── Fetch expense stats (Task 12: pass search + category filters so stats match the table) ────
   const fetchStats = useCallback(async (signal?: AbortSignal) => {
     try {
       const params = new URLSearchParams();
+      if (expSearchDebounced) params.set("search", expSearchDebounced);
       if (expStartDate) params.set("startDate", expStartDate);
       if (expEndDate) params.set("endDate", expEndDate);
+      if (expCategory && expCategory !== "ALL") params.set("category", expCategory);
       const res = await fetch(`/api/expenses/stats?${params.toString()}`, { credentials: "include", signal });
       if (handleFetchError(res, router)) return;
       if (res.ok) {
@@ -341,12 +375,13 @@ export default function FinancePage() {
         setCategoryStats(json.byCategory || []);
         setProjectStats(json.byProject || []);
         setStatsTotal(json.totalExpenses || 0);
+        setStatsTotalEntries(typeof json.totalEntries === "number" ? json.totalEntries : 0);
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
       console.error(err);
     }
-  }, [expStartDate, expEndDate, router]);
+  }, [expSearchDebounced, expStartDate, expEndDate, expCategory, router]);
 
   // ─── Fetch projects for dropdowns ────
   const fetchProjects = useCallback(async (signal?: AbortSignal) => {
@@ -385,7 +420,7 @@ export default function FinancePage() {
     }
   }, [router]);
 
-  // Fix 6: Debounced search (300ms)
+  // Fix 6: Debounced expense search (300ms)
   useEffect(() => {
     if (searchTimerRef.current) {
       clearTimeout(searchTimerRef.current);
@@ -398,6 +433,19 @@ export default function FinancePage() {
     };
   }, [expSearch]);
 
+  // Task 11: Debounced subscription search (300ms) — independent timer from expense search
+  useEffect(() => {
+    if (subSearchTimerRef.current) {
+      clearTimeout(subSearchTimerRef.current);
+    }
+    subSearchTimerRef.current = setTimeout(() => {
+      setSubSearchDebounced(subSearch);
+    }, 300);
+    return () => {
+      if (subSearchTimerRef.current) clearTimeout(subSearchTimerRef.current);
+    };
+  }, [subSearch]);
+
   // Pre-fetch overview stats on mount so data is ready when user clicks Overview tab
   useEffect(() => {
     fetchData();
@@ -405,25 +453,31 @@ export default function FinancePage() {
   }, []);
 
   // Initial data load (runs once) — fetch core data only.
-  // Expenses/stats are handled by the filter effect below (avoids double-fetch on mount).
+  // Expenses/stats/subscriptions are handled by the filter effect below (avoids double-fetch on mount).
   useEffect(() => {
     const controller = new AbortController();
     const signal = controller.signal;
-    fetchSubscriptions(signal);
     fetchProjects(signal);
     fetchEmployees(signal);
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Re-fetch expenses and stats when date/category filters change (not search — that uses debounce)
+  // Re-fetch expenses and stats when date/category/search filters change
   useEffect(() => {
     const controller = new AbortController();
     fetchAllExpenses(controller.signal);
     fetchExpenses(controller.signal);
     fetchStats(controller.signal);
     return () => controller.abort();
-  }, [expStartDate, expEndDate, expCategory, fetchAllExpenses, fetchExpenses, fetchStats]);
+  }, [expStartDate, expEndDate, expCategory, expSearchDebounced, fetchAllExpenses, fetchExpenses, fetchStats]);
+
+  // Task 11: Re-fetch subscriptions when subscription search or shared date filters change
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchSubscriptions(controller.signal);
+    return () => controller.abort();
+  }, [subSearchDebounced, expStartDate, expEndDate, fetchSubscriptions]);
 
   // Fetch live exchange rates
   useEffect(() => {
@@ -736,36 +790,51 @@ export default function FinancePage() {
   const { recentInvoices, revenueData, expenseData } = useMemo(() => {
     if (!data) return { recentInvoices: [] as typeof invoices, revenueData: [] as { month: string; revenue: number; expenses: number }[], expenseData: [] as { name: string; value: number; color: string }[] };
     const inv = invoices.slice(0, 5);
-    const now = new Date();
-    const months: string[] = [];
-    const revenueByMonth: Record<string, number> = {};
-    const expenseByMonth: Record<string, number> = {};
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-      months.push(d.toLocaleString("default", { month: "short" }));
-      revenueByMonth[key] = 0;
-      expenseByMonth[key] = 0;
+
+    // Phase 7c: Prefer server-computed monthlyAggregates (accurate — uses full-table aggregates).
+    // Fall back to the legacy in-memory computation only if the API didn't return the field.
+    let revData: { month: string; revenue: number; expenses: number }[];
+    if (data.monthlyAggregates && data.monthlyAggregates.length > 0) {
+      revData = data.monthlyAggregates.map((m) => ({
+        month: m.month,
+        revenue: safeNumber(m.revenue),
+        expenses: safeNumber(m.expenses),
+      }));
+    } else {
+      // Legacy fallback: derive from the limited recent-invoices + recent-expenses sample.
+      // NOTE: This undercounts any month with more activity than the sample size.
+      const now = new Date();
+      const months: string[] = [];
+      const revenueByMonth: Record<string, number> = {};
+      const expenseByMonth: Record<string, number> = {};
+      for (let i = 5; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        months.push(d.toLocaleString("default", { month: "short" }));
+        revenueByMonth[key] = 0;
+        expenseByMonth[key] = 0;
+      }
+      for (const invoice of invoices) {
+        const invDate = new Date(invoice.paidAt || invoice.createdAt || invoice.dueDate);
+        const key = `${invDate.getFullYear()}-${String(invDate.getMonth() + 1).padStart(2, "0")}`;
+        if (key in revenueByMonth && invoice.status === "PAID") revenueByMonth[key] += invoice.total;
+      }
+      const expItems = data.expenses || [];
+      for (const exp of expItems) {
+        const expDate = new Date(exp.date);
+        const key = `${expDate.getFullYear()}-${String(expDate.getMonth() + 1).padStart(2, "0")}`;
+        if (key in expenseByMonth) expenseByMonth[key] += exp.amount;
+      }
+      const currentKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+      if (revenueByMonth[currentKey] === 0 && stats.totalRevenue > 0) revenueByMonth[currentKey] = stats.totalRevenue;
+      if (expenseByMonth[currentKey] === 0 && stats.totalExpenses > 0) expenseByMonth[currentKey] = stats.totalExpenses;
+      revData = months.map((month, i) => {
+        const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+        const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        return { month, revenue: revenueByMonth[k] || 0, expenses: expenseByMonth[k] || 0 };
+      });
     }
-    for (const invoice of invoices) {
-      const invDate = new Date(invoice.paidAt || invoice.createdAt || invoice.dueDate);
-      const key = `${invDate.getFullYear()}-${String(invDate.getMonth() + 1).padStart(2, "0")}`;
-      if (key in revenueByMonth && invoice.status === "PAID") revenueByMonth[key] += invoice.total;
-    }
-    const expItems = data.expenses || [];
-    for (const exp of expItems) {
-      const expDate = new Date(exp.date);
-      const key = `${expDate.getFullYear()}-${String(expDate.getMonth() + 1).padStart(2, "0")}`;
-      if (key in expenseByMonth) expenseByMonth[key] += exp.amount;
-    }
-    const currentKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-    if (revenueByMonth[currentKey] === 0 && stats.totalRevenue > 0) revenueByMonth[currentKey] = stats.totalRevenue;
-    if (expenseByMonth[currentKey] === 0 && stats.totalExpenses > 0) expenseByMonth[currentKey] = stats.totalExpenses;
-    const revData = months.map((month, i) => {
-      const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
-      const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-      return { month, revenue: revenueByMonth[k] || 0, expenses: expenseByMonth[k] || 0 };
-    });
+
     const expData = [
       { name: "Subscriptions", value: totalSubscriptionMonthly, color: "#f97316" },
       { name: "Manual Expenses", value: stats.totalExpenses, color: "#f59e0b" },
@@ -983,18 +1052,57 @@ export default function FinancePage() {
           </div>
         </TabsContent>
         <TabsContent value="subscriptions" className="space-y-4">
+          {/* Task 11: Subscription search + filter bar (previously missing — subscriptions
+              couldn't be searched, and date filters in the expenses tab silently didn't apply here). */}
+          <Card>
+            <CardContent className="p-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="sm:col-span-2 lg:col-span-2">
+                  <Label className="text-xs mb-1 block">Search Subscriptions</Label>
+                  <div className="relative">
+                    <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search by service, category, project, notes..."
+                      className="pl-8"
+                      value={subSearch}
+                      onChange={(e) => setSubSearch(e.target.value)}
+                      aria-label="Search subscriptions"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs mb-1 block">Start Date</Label>
+                  <Input type="date" value={expStartDate} onChange={(e) => setExpStartDate(e.target.value)} aria-label="Subscription start date filter" />
+                </div>
+                <div>
+                  <Label className="text-xs mb-1 block">End Date</Label>
+                  <Input type="date" value={expEndDate} onChange={(e) => setExpEndDate(e.target.value)} aria-label="Subscription end date filter" />
+                </div>
+                <div className="flex gap-2 sm:col-span-2 lg:col-span-4">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => { setSubSearch(""); setExpStartDate(""); setExpEndDate(""); setExpCategory(""); setExpSearch(""); }}
+                  >
+                    Clear All Filters
+                  </Button>
+                  <Button size="sm" onClick={() => openSubDialog(null)}>
+                    <Plus className="h-4 w-4 mr-1" /> Add Subscription
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-muted-foreground">
-                {subscriptions.filter((s) => s.status === "ACTIVE").length} active of {subscriptions.length} total
+                {subscriptions.filter((s) => s.status === "ACTIVE").length} active of {subscriptions.length} shown
+                {(subSearchDebounced || expStartDate || expEndDate) && (
+                  <span className="ml-1 text-xs">(filtered)</span>
+                )}
               </p>
             </div>
-            <Button
-              size="sm"
-              onClick={() => openSubDialog(null)}
-            >
-              <Plus className="h-4 w-4 mr-1" /> Add Subscription
-            </Button>
           </div>
 
           <Card>
@@ -1006,8 +1114,8 @@ export default function FinancePage() {
               ) : sortedSubscriptions.length === 0 ? (
                 <div className="p-8 text-center text-muted-foreground">
                   <CreditCard className="h-12 w-12 mx-auto mb-2 opacity-30" />
-                  <p>No subscriptions yet</p>
-                  <p className="text-xs">Add your first recurring subscription to track monthly costs</p>
+                  <p>{(subSearchDebounced || expStartDate || expEndDate) ? "No subscriptions match your filters" : "No subscriptions yet"}</p>
+                  <p className="text-xs">{(subSearchDebounced || expStartDate || expEndDate) ? "Try different keywords or clear the date filters" : "Add your first recurring subscription to track monthly costs"}</p>
                 </div>
               ) : (
                 <div className="overflow-x-auto">
@@ -1180,7 +1288,14 @@ export default function FinancePage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium">Total Displayed Expenses</p>
-                    <p className="text-xs text-muted-foreground">{expenses.length} expense(s) found</p>
+                    <p className="text-xs text-muted-foreground">
+                      {statsTotalEntries > expenses.length
+                        ? `${expenses.length} shown of ${statsTotalEntries} matching`
+                        : `${expenses.length} expense(s) found`}
+                      {(expSearchDebounced || expStartDate || expEndDate || (expCategory && expCategory !== "ALL")) && (
+                        <span className="ml-1 text-xs">(filtered)</span>
+                      )}
+                    </p>
                   </div>
                   <p className="text-xl font-bold text-red-600">{formatCurrency(safeNumber(displayedExpTotal))}</p>
                 </div>

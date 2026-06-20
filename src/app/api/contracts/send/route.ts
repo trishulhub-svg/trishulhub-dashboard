@@ -6,6 +6,7 @@ import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { sendEmailWithFailover } from "@/lib/email"
+import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
 function getCurrencySymbol(currency: string): string {
   const symbols: Record<string, string> = { USD: "$", GBP: "£", EUR: "€", INR: "₹" }
@@ -40,6 +41,16 @@ export async function POST(req: NextRequest) {
 
     const contract = await db.contract.findUnique({ where: { id: contractId } })
     if (!contract) return NextResponse.json({ error: "Contract not found" }, { status: 404 })
+
+    // Phase 7c: Only DRAFT or SENT contracts can be (re-)sent. SIGNED, EXPIRED, or CANCELLED
+    // contracts must not be re-sent because that would silently revert their terminal state.
+    const SENDABLE_STATUSES = ["DRAFT", "SENT"]
+    if (!SENDABLE_STATUSES.includes(contract.status)) {
+      return NextResponse.json(
+        { error: `Contract cannot be sent in its current status (${contract.status}). Only DRAFT or SENT contracts can be sent.` },
+        { status: 400 }
+      )
+    }
 
     // Validate client email format
     if (!contract.clientEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contract.clientEmail)) {
@@ -111,8 +122,28 @@ export async function POST(req: NextRequest) {
         where: { id: contractId }, // contractId is validated as string above
         data: { status: "SENT", sentAt: new Date(), sentVia: "email" },
       })
+      // Phase 7c: Audit log contract send (fire-and-forget)
+      void logAudit({
+        userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+        department: "BUSINESS", page: "contracts", action: "SEND",
+        entityType: "Contract", entityId: contractId,
+        description: `Sent contract: ${contract.contractNumber} to ${contract.clientEmail}`,
+        oldValue: contract.status,
+        newValue: "SENT",
+        ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+      })
       return NextResponse.json({ success: true, message: "Contract sent successfully" })
     } else {
+      // Phase 7c: Audit log failed send attempt so admins can review delivery failures
+      void logAudit({
+        userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+        department: "BUSINESS", page: "contracts", action: "SEND",
+        entityType: "Contract", entityId: contractId,
+        description: `Failed to send contract: ${contract.contractNumber} — ${result.error || "unknown error"}`,
+        oldValue: contract.status,
+        status: "FAILURE",
+        ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+      })
       return NextResponse.json({ error: result.error || "Failed to send contract" }, { status: 500 })
     }
   } catch (error: unknown) {

@@ -6,6 +6,9 @@ import { Prisma } from "@prisma/client"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 
+const VALID_CATEGORIES = ["HOSTING", "DOMAINS", "API_COSTS", "TOOLS", "MARKETING", "SALARY", "SOFTWARE", "OTHER"] as const
+type ExpenseCategory = typeof VALID_CATEGORIES[number]
+
 // GET /api/expenses/stats - Category and project-wise expense grouping
 export async function GET(req: NextRequest) {
   try {
@@ -27,68 +30,174 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const startDate = searchParams.get("startDate")
     const endDate = searchParams.get("endDate")
+    const category = searchParams.get("category")
+    const search = (searchParams.get("search") || "").trim()
 
     // Date validation
-    if (startDate && isNaN(new Date(startDate).getTime())) {
-      return NextResponse.json({ error: "Invalid startDate format" }, { status: 400 })
+    let parsedStart: Date | null = null
+    let parsedEnd: Date | null = null
+    if (startDate) {
+      parsedStart = new Date(startDate)
+      if (isNaN(parsedStart.getTime())) {
+        return NextResponse.json({ error: "Invalid startDate format" }, { status: 400 })
+      }
     }
-    if (endDate && isNaN(new Date(endDate).getTime())) {
-      return NextResponse.json({ error: "Invalid endDate format" }, { status: 400 })
+    if (endDate) {
+      // Date-only endDate gets end-of-day UTC so expenses later in the day are included
+      const endStr = /^\d{4}-\d{2}-\d{2}$/.test(endDate) ? `${endDate}T23:59:59.999Z` : endDate
+      parsedEnd = new Date(endStr)
+      if (isNaN(parsedEnd.getTime())) {
+        return NextResponse.json({ error: "Invalid endDate format" }, { status: 400 })
+      }
+    }
+
+    // Validate category filter
+    if (category && !VALID_CATEGORIES.includes(category as ExpenseCategory)) {
+      return NextResponse.json({ error: `Invalid category. Must be one of: ${VALID_CATEGORIES.join(", ")}` }, { status: 400 })
     }
 
     const where: Prisma.ExpenseWhereInput = {}
-    if (startDate || endDate) {
+    if (parsedStart || parsedEnd) {
       where.date = {}
-      if (startDate) where.date.gte = new Date(startDate)
-      if (endDate) where.date.lte = new Date(endDate)
+      if (parsedStart) where.date.gte = parsedStart
+      if (parsedEnd) where.date.lte = parsedEnd
+    }
+    if (category) where.category = category
+
+    // Apply the same smart DB-level search used by GET /api/expenses so stats
+    // respect the active search query — previously stats only respected date filters,
+    // so the "Total Displayed Expenses" summary disagreed with the filtered list.
+    if (search) {
+      const orClauses: Prisma.ExpenseWhereInput[] = [
+        { description: { contains: search } },
+        { category: { contains: search } },
+        { paymentRef: { contains: search } },
+        { project: { name: { contains: search } } },
+        { employee: { name: { contains: search } } },
+      ]
+      const searchNum = Number(search)
+      if (!isNaN(searchNum) && Number.isFinite(searchNum)) {
+        orClauses.push({ amount: { equals: searchNum } })
+      }
+      where.OR = orClauses
     }
 
-    // TODO: For production scale, consider using Prisma aggregate queries (groupBy, sum) instead of loading all rows.
-    const expenses = await db.expense.findMany({
+    // Phase 7c: Use proper aggregate queries instead of in-memory aggregation over a
+    // capped result set (previously `take: 10000` which silently produced wrong totals
+    // for any workspace with >10000 expense rows). groupBy + raw SQL scale to the full
+    // filtered table while letting SQLite/Turso do the work in a single round-trip.
+    //
+    // Note: `search` filters are translated to a Prisma `where` clause above, so all
+    // aggregations below respect the same filters as the GET /api/expenses list.
+
+    // 1) Category aggregation — no join needed, use Prisma groupBy.
+    const categoryGroups = await db.expense.groupBy({
+      by: ["category"],
       where,
-      include: {
-        project: { select: { id: true, name: true, budget: true } },
-        employee: { select: { id: true, name: true } },
-      },
-      take: 5000, // Safety limit — use aggregate queries for production scale
-      orderBy: { date: "desc" },
+      _sum: { amount: true },
+      _count: true,
     })
 
-    // Group by category
-    const byCategory: Record<string, { category: string; total: number; count: number }> = {}
-    for (const exp of expenses) {
-      const cat = exp.category || "OTHER"
-      if (!byCategory[cat]) {
-        byCategory[cat] = { category: cat, total: 0, count: 0 }
-      }
-      byCategory[cat].total += (exp.amount ?? 0)
-      byCategory[cat].count += 1
+    const byCategory = categoryGroups
+      .map((g) => ({
+        category: g.category || "OTHER",
+        total: g._sum.amount ?? 0,
+        count: g._count,
+      }))
+      .sort((a, b) => b.total - a.total)
+
+    // 2) Project aggregation — requires the project name + budget, so use raw SQL
+    //    with a LEFT JOIN so unassigned expenses (projectId IS NULL) are included.
+    //    Prisma's groupBy cannot join, so we build the query with $queryRawUnsafe
+    //    using parameterized inputs (safe against SQL injection).
+    type ProjectGroupRow = {
+      projectId: string | null
+      projectName: string | null
+      budget: number | null
+      total: number
+      count: number
     }
 
-    // Group by project
-    const byProject: Record<string, { projectId: string | null; projectName: string; total: number; count: number; budget: number | null }> = {}
-    for (const exp of expenses) {
-      const key = exp.projectId || "unassigned"
-      if (!byProject[key]) {
-        byProject[key] = {
-          projectId: exp.projectId,
-          projectName: exp.project?.name || "Unassigned",
-          total: 0,
-          count: 0,
-          budget: exp.project?.budget || null,
-        }
+    // Build the WHERE clause mirroring the Prisma `where` above:
+    // - date range (gte/lte)
+    // - exact category match
+    // - search across description/category/paymentRef/project name/employee name/amount
+    const dateClauses: string[] = []
+    const categoryClauses: string[] = []
+    const searchClauses: string[] = []
+    const sqlParams: unknown[] = []
+
+    if (parsedStart) {
+      dateClauses.push(`e.date >= ?`)
+      sqlParams.push(parsedStart)
+    }
+    if (parsedEnd) {
+      dateClauses.push(`e.date <= ?`)
+      sqlParams.push(parsedEnd)
+    }
+    if (category) {
+      categoryClauses.push(`e.category = ?`)
+      sqlParams.push(category)
+    }
+    if (search) {
+      searchClauses.push(`e.description LIKE ?`)
+      sqlParams.push(`%${search}%`)
+      searchClauses.push(`e.category LIKE ?`)
+      sqlParams.push(`%${search}%`)
+      searchClauses.push(`e.paymentRef LIKE ?`)
+      sqlParams.push(`%${search}%`)
+      searchClauses.push(`p.name LIKE ?`)
+      sqlParams.push(`%${search}%`)
+      searchClauses.push(`u.name LIKE ?`)
+      sqlParams.push(`%${search}%`)
+      const searchNum = Number(search)
+      if (!isNaN(searchNum) && Number.isFinite(searchNum)) {
+        searchClauses.push(`e.amount = ?`)
+        sqlParams.push(searchNum)
       }
-      byProject[key].total += (exp.amount ?? 0)
-      byProject[key].count += 1
     }
 
-    const totalExpenses = expenses.reduce((sum, e) => sum + (e.amount ?? 0), 0)
+    const whereParts: string[] = []
+    if (dateClauses.length) whereParts.push(dateClauses.join(" AND "))
+    if (categoryClauses.length) whereParts.push(categoryClauses.join(" AND "))
+    if (searchClauses.length) whereParts.push(`(${searchClauses.join(" OR ")})`)
+    const whereSql = whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : ""
+
+    const projectRows: ProjectGroupRow[] = await db.$queryRawUnsafe(
+      `SELECT e."projectId" AS projectId, p.name AS "projectName", p.budget AS budget,
+              COALESCE(SUM(e.amount), 0) AS total, COUNT(*) AS count
+       FROM "Expense" e
+       LEFT JOIN "Project" p ON e."projectId" = p.id
+       LEFT JOIN "User" u ON e."employeeId" = u.id
+       ${whereSql}
+       GROUP BY e."projectId"
+       ORDER BY total DESC`,
+      ...sqlParams
+    )
+
+    const byProject = projectRows.map((row) => ({
+      projectId: row.projectId,
+      projectName: row.projectName || "Unassigned",
+      total: Number(row.total) || 0,
+      count: Number(row.count) || 0,
+      budget: row.budget !== null ? Number(row.budget) : null,
+    }))
+
+    // 3) Totals via aggregate — authoritative count and sum across the full filtered set.
+    const totals = await db.expense.aggregate({
+      where,
+      _sum: { amount: true },
+      _count: true,
+    })
+
+    const totalExpenses = totals._sum.amount ?? 0
+    const totalEntries = totals._count
 
     return NextResponse.json({
-      byCategory: Object.values(byCategory).sort((a, b) => b.total - a.total),
-      byProject: Object.values(byProject).sort((a, b) => b.total - a.total),
+      byCategory,
+      byProject,
       totalExpenses,
-      totalEntries: expenses.length,
+      totalEntries,
     })
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

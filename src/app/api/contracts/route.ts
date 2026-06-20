@@ -9,6 +9,7 @@ import { callAIWithFailover } from "@/lib/ai/openrouter"
 import { after } from "next/server"
 import { deepSanitize } from "@/lib/utils"
 import { createContractSchema, updateContractSchema, validateRequest } from "@/lib/validations"
+import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
 export const maxDuration = 300
 
@@ -121,26 +122,37 @@ export async function POST(req: NextRequest) {
       generatedBy: session.user.id,
     }
 
-    return tx.contract.create({
-      data: {
-        clientId,
-        contractNumber,
-        title: sanitizedData.title ? String(sanitizedData.title) : `Service Agreement - ${client.name}`,
-        status: "DRAFT",
-        ...autoData,
-        ...(sanitizedData.scopeOfWork ? { scopeOfWork: String(sanitizedData.scopeOfWork) } : {}),
-        ...(sanitizedData.paymentTerms ? { paymentTerms: String(sanitizedData.paymentTerms) } : {}),
-        ...(sanitizedData.totalValue !== undefined ? {
-          totalValue: (() => { const v = Number(sanitizedData.totalValue); if (isNaN(v) || !isFinite(v)) return 0; return v })()
-        } : {}),
-        ...(sanitizedData.currency ? { currency: String(sanitizedData.currency) } : {}),
-        ...(sanitizedData.paymentSchedule ? { paymentSchedule: String(sanitizedData.paymentSchedule) } : {}),
-        ...(sanitizedData.startDate ? { startDate: String(sanitizedData.startDate) } : {}),
-        ...(sanitizedData.endDate ? { endDate: String(sanitizedData.endDate) } : {}),
-        ...(sanitizedData.termsAndConditions ? { termsAndConditions: String(sanitizedData.termsAndConditions) } : {}),
-        ...(templateText ? { templateText: String(templateText), templateFileName: sanitizedData.templateFileName ? String(sanitizedData.templateFileName) : "template" } : {}),
-      },
-    })
+    try {
+      return await tx.contract.create({
+        data: {
+          clientId,
+          contractNumber,
+          title: sanitizedData.title ? String(sanitizedData.title) : `Service Agreement - ${client.name}`,
+          status: "DRAFT",
+          ...autoData,
+          ...(sanitizedData.scopeOfWork ? { scopeOfWork: String(sanitizedData.scopeOfWork) } : {}),
+          ...(sanitizedData.paymentTerms ? { paymentTerms: String(sanitizedData.paymentTerms) } : {}),
+          ...(sanitizedData.totalValue !== undefined ? {
+            totalValue: (() => { const v = Number(sanitizedData.totalValue); if (isNaN(v) || !isFinite(v)) return 0; return v })()
+          } : {}),
+          ...(sanitizedData.currency ? { currency: String(sanitizedData.currency) } : {}),
+          ...(sanitizedData.paymentSchedule ? { paymentSchedule: String(sanitizedData.paymentSchedule) } : {}),
+          ...(sanitizedData.startDate ? { startDate: String(sanitizedData.startDate) } : {}),
+          ...(sanitizedData.endDate ? { endDate: String(sanitizedData.endDate) } : {}),
+          ...(sanitizedData.termsAndConditions ? { termsAndConditions: String(sanitizedData.termsAndConditions) } : {}),
+          ...(templateText ? { templateText: String(templateText), templateFileName: sanitizedData.templateFileName ? String(sanitizedData.templateFileName) : "template" } : {}),
+        },
+      })
+    } catch (txError: unknown) {
+      // Phase 7c: Surface foreign-key violations (P2003) as 400 with a clear message.
+      // Also catch P2002 (unique violation on contractNumber) and re-throw as a typed marker.
+      const prismaError = txError as { code?: string; meta?: { field_name?: string } }
+      if (prismaError?.code === "P2003") {
+        const fieldHint = prismaError.meta?.field_name || "clientId"
+        throw new Error(`INVALID_REFERENCE:${fieldHint}`)
+      }
+      throw txError
+    }
   })
 
   // If useAI, generate contract content in background
@@ -245,8 +257,25 @@ ${sanitizedTemplate ? "IMPORTANT: Base the structure and clauses on the provided
     })
   }
 
+  // Phase 7c: Audit log contract creation (fire-and-forget)
+  void logAudit({
+    userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+    department: "BUSINESS", page: "contracts", action: "CREATE",
+    entityType: "Contract", entityId: contract.id,
+    description: `Created contract: ${contract.contractNumber} for ${client.name}${useAI ? " (AI generation triggered)" : ""}`,
+    ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+  })
+
   return NextResponse.json(deepSanitize(contract), { status: 201 })
   } catch (error: unknown) {
+    // Phase 7c: Translate INVALID_REFERENCE marker into a 400 response
+    if (error instanceof Error && error.message.startsWith("INVALID_REFERENCE:")) {
+      const field = error.message.split(":")[1] || "reference"
+      return NextResponse.json(
+        { error: `Invalid ${field}: referenced record does not exist` },
+        { status: 400 }
+      )
+    }
     console.error("[contracts] POST error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "Failed to create contract" }, { status: 500 })
   }
@@ -305,6 +334,21 @@ export async function PATCH(req: NextRequest) {
         where: { id: String(id) },
         data: sanitized,
       })
+      // Phase 7c: Audit log contract update (fire-and-forget)
+      const prevStatus = existing.status
+      const statusChanged = data.status !== undefined && data.status !== prevStatus
+      void logAudit({
+        userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+        department: "BUSINESS", page: "contracts",
+        action: statusChanged ? "STATUS_CHANGE" : "UPDATE",
+        entityType: "Contract", entityId: String(id),
+        description: statusChanged
+          ? `Changed contract status: ${contract.contractNumber} (${prevStatus} → ${String(data.status)})`
+          : `Updated contract: ${contract.contractNumber}`,
+        oldValue: statusChanged ? prevStatus : undefined,
+        newValue: statusChanged ? String(data.status) : undefined,
+        ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+      })
       // Issue #14: deepSanitize on PATCH response
       return NextResponse.json(deepSanitize(contract))
     } catch (error: unknown) {
@@ -349,6 +393,14 @@ export async function DELETE(req: NextRequest) {
 
     try {
       await db.contract.delete({ where: { id: String(id) } })
+      // Phase 7c: Audit log contract deletion (fire-and-forget)
+      void logAudit({
+        userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+        department: "BUSINESS", page: "contracts", action: "DELETE",
+        entityType: "Contract", entityId: String(id),
+        description: `Deleted contract: ${existing.contractNumber}`,
+        ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+      })
       return NextResponse.json({ success: true })
     } catch (error: unknown) {
       console.error("[contracts] DELETE DB error:", error instanceof Error ? error.message : error)

@@ -33,17 +33,43 @@ async function fetchLiveRates(): Promise<Record<string, number>> {
     const data = await res.json()
     if (!data?.rates) throw new Error("Invalid response from exchange rate API")
 
-    const rates: Record<string, number> = {
-      INR: 1,
-      USD: Number((1 / data.rates.USD).toFixed(4)),
-      GBP: Number((1 / data.rates.GBP).toFixed(4)),
+    // Phase 7c: Validate each rate is a finite positive number before storing.
+    // The external API can return undefined/0/NaN for unsupported currencies,
+    // which would poison downstream currency conversions (Infinity / NaN).
+    const rawUsd = Number(data.rates.USD)
+    const rawGbp = Number(data.rates.GBP)
+
+    const rates: Record<string, number> = { INR: 1 }
+
+    if (typeof rawUsd === "number" && isFinite(rawUsd) && rawUsd > 0) {
+      const inrPerUsd = 1 / rawUsd
+      if (isFinite(inrPerUsd) && inrPerUsd > 0) {
+        rates.USD = Number(inrPerUsd.toFixed(4))
+      }
     }
 
-    // Update cache
-    cachedRates = rates
-    cacheTimestamp = Date.now()
+    if (typeof rawGbp === "number" && isFinite(rawGbp) && rawGbp > 0) {
+      const inrPerGbp = 1 / rawGbp
+      if (isFinite(inrPerGbp) && inrPerGbp > 0) {
+        rates.GBP = Number(inrPerGbp.toFixed(4))
+      }
+    }
 
-    return rates
+    // Phase 7c: If validation rejected any currency, fall back to hardcoded rates
+    // so callers always get a complete set of conversion factors.
+    const finalRates: Record<string, number> = {
+      INR: 1,
+      USD: rates.USD ?? FALLBACK_RATES.USD,
+      GBP: rates.GBP ?? FALLBACK_RATES.GBP,
+    }
+
+    // Update cache only when we have at least one live rate; otherwise keep stale cache.
+    if (rates.USD !== undefined || rates.GBP !== undefined) {
+      cachedRates = finalRates
+      cacheTimestamp = Date.now()
+    }
+
+    return finalRates
   } catch (error) {
     console.error("[exchange-rates] Live fetch failed, using fallbacks:", error instanceof Error ? error.message : error)
     return FALLBACK_RATES

@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { updateSubscriptionSchema, validateRequest } from "@/lib/validations"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
+import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
 // TODO: Extract DEFAULT_EXCHANGE_RATES to shared constants (duplicated from subscriptions/route.ts)
 const DEFAULT_EXCHANGE_RATES: Record<string, number> = {
@@ -54,16 +55,33 @@ export async function PATCH(
     const { id: _id, ...updateFields } = data
 
     const sanitizedData: Record<string, any> = {}
-    const allowedFields = ["service", "amount", "currency", "exchangeRate", "frequency", "status", "category", "projectId", "endDate", "notes"]
+    const allowedFields = ["service", "amount", "currency", "exchangeRate", "frequency", "status", "category", "projectId", "startDate", "endDate", "notes"]
 
     for (const key of allowedFields) {
       if (updateFields[key as keyof typeof updateFields] !== undefined) {
-        if (key === "endDate") {
-          sanitizedData[key] = updateFields[key] ? new Date(updateFields[key] as string) : null
-        } else if (key === "projectId" && updateFields[key] === "") {
+        if (key === "endDate" || key === "startDate") {
+          const raw = updateFields[key as keyof typeof updateFields]
+          if (raw === "" || raw === null) {
+            // Empty string or null clears the date (only valid for endDate; startDate is ignored so existing value is kept)
+            if (key === "endDate") sanitizedData[key] = null
+            // startDate === "" → do not touch startDate
+          } else {
+            const d = new Date(raw as string)
+            if (isNaN(d.getTime())) {
+              return NextResponse.json({ error: `Invalid ${key} format` }, { status: 400 })
+            }
+            sanitizedData[key] = d
+          }
+        } else if (key === "projectId" && (updateFields[key] === "" || updateFields[key] === null)) {
+          sanitizedData[key] = null
+        } else if (key === "category" && updateFields[key] === null) {
+          // Zod enum rejects empty strings, so we only need to handle null here.
           sanitizedData[key] = null
         } else if (key === "notes") {
-          sanitizedData[key] = (updateFields[key] as string).slice(0, 5000) || null
+          // Phase 7c: Defensive null/undefined check — zod schema enforces string|null|undefined,
+          // but guard against runtime type drift to prevent .slice() on non-string values.
+          const notesVal = updateFields[key]
+          sanitizedData[key] = (typeof notesVal === "string" ? notesVal.slice(0, 2000) : "") || null
         } else {
           sanitizedData[key] = updateFields[key as keyof typeof updateFields]
         }
@@ -80,6 +98,17 @@ export async function PATCH(
       const existing = await tx.subscription.findUnique({ where: { id } })
       if (!existing) {
         throw { code: "NOT_FOUND", status: 404 }
+      }
+
+      // H-FIN-5: Validate endDate > startDate using effective values (merge with existing record)
+      if (sanitizedData.startDate || sanitizedData.endDate !== undefined) {
+        const effectiveStart = sanitizedData.startDate instanceof Date ? sanitizedData.startDate : existing.startDate
+        const effectiveEnd = sanitizedData.endDate === null
+          ? null
+          : sanitizedData.endDate instanceof Date ? sanitizedData.endDate : existing.endDate
+        if (effectiveEnd && effectiveStart && effectiveEnd <= effectiveStart) {
+          throw { code: "INVALID_DATE_RANGE", status: 400 }
+        }
       }
 
       // If status changed to STOPPED, set endDate to now if not provided
@@ -102,14 +131,25 @@ export async function PATCH(
         include: { project: { select: { id: true, name: true } } },
       })
     })
+    // Phase 7c: Audit log subscription update (fire-and-forget)
+    void logAudit({
+      userId: session.user.id, userName: session.user.name || "unknown", userRole,
+      department: "BUSINESS", page: "subscriptions", action: "UPDATE",
+      entityType: "Subscription", entityId: id,
+      description: `Updated subscription: ${subscription.service} (${subscription.frequency})`,
+      ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+    })
     return NextResponse.json(subscription)
     } catch (error: unknown) {
-      const errObj = error as { code?: string; status?: number }
-      if (errObj?.code === "NOT_FOUND") {
-        return NextResponse.json({ error: "Subscription not found" }, { status: 404 })
-      }
-      console.error("[subscriptions] PATCH error:", error instanceof Error ? error.message : error)
-      return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+    const errObj = error as { code?: string; status?: number }
+    if (errObj?.code === "NOT_FOUND") {
+      return NextResponse.json({ error: "Subscription not found" }, { status: 404 })
+    }
+    if (errObj?.code === "INVALID_DATE_RANGE") {
+      return NextResponse.json({ error: "End date must be after start date" }, { status: 400 })
+    }
+    console.error("[subscriptions] PATCH error:", error instanceof Error ? error.message : error)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
     }
 }
 
@@ -137,12 +177,44 @@ export async function DELETE(
 
     const { id } = await params
 
-    const existing = await db.subscription.findUnique({ where: { id } })
-    if (!existing) {
-      return NextResponse.json({ error: "Subscription not found" }, { status: 404 })
+    // Phase 7c: Wrap existence check + delete in a transaction to handle race conditions
+    // and capture subscription info for the audit log atomically.
+    let deletedSubscription: { id: string; service: string; status: string } | null = null
+    try {
+      deletedSubscription = await db.$transaction(async (tx) => {
+        const existing = await tx.subscription.findUnique({
+          where: { id },
+          select: { id: true, service: true, status: true },
+        })
+        if (!existing) {
+          throw new Error("NOT_FOUND")
+        }
+        await tx.subscription.delete({ where: { id } })
+        return existing
+      })
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message === "NOT_FOUND") {
+        return NextResponse.json({ error: "Subscription not found" }, { status: 404 })
+      }
+      // Prisma P2025: record not found (race condition between find + delete)
+      const prismaError = error as { code?: string }
+      if (prismaError?.code === "P2025") {
+        return NextResponse.json({ error: "Subscription not found" }, { status: 404 })
+      }
+      console.error("[subscriptions] DELETE error:", error instanceof Error ? error.message : error)
+      return NextResponse.json({ error: "An error occurred" }, { status: 500 })
     }
 
-    await db.subscription.delete({ where: { id } })
+    // Phase 7c: Audit log subscription deletion (fire-and-forget)
+    if (deletedSubscription) {
+      void logAudit({
+        userId: session.user.id, userName: session.user.name || "unknown", userRole,
+        department: "BUSINESS", page: "subscriptions", action: "DELETE",
+        entityType: "Subscription", entityId: deletedSubscription.id,
+        description: `Deleted subscription: ${deletedSubscription.service} (was ${deletedSubscription.status})`,
+        ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+      })
+    }
     return NextResponse.json({ success: true })
     } catch (error: unknown) {
       console.error("[subscriptions] DELETE error:", error instanceof Error ? error.message : error)

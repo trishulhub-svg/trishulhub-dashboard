@@ -30,14 +30,22 @@ export async function GET(req: NextRequest) {
     }
 
     const { searchParams } = new URL(req.url)
-    const search = searchParams.get("search") || ""
+    const search = (searchParams.get("search") || "").trim()
     const startDate = searchParams.get("startDate")
     const endDate = searchParams.get("endDate")
     const category = searchParams.get("category")
     const projectId = searchParams.get("projectId")
     const page = Math.max(1, parseInt(searchParams.get("page") || "1") || 1)
-    const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || "50") || 50), 200)
+    // Allow up to 10000 records per request (admin-only endpoint). The previous cap of 200
+    // was silently truncating "fetch all expenses" requests from the finance UI, which
+    // expects MAX_EXPENSE_FETCH (10000) records for client-side aggregation.
+    const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || "50") || 50), 10000)
     const offset = (page - 1) * limit
+
+    // Validate category against the allowed list
+    if (category && !VALID_CATEGORIES.includes(category as ExpenseCategory)) {
+      return NextResponse.json({ error: `Invalid category. Must be one of: ${VALID_CATEGORIES.join(", ")}` }, { status: 400 })
+    }
 
     const where: Prisma.ExpenseWhereInput = {}
     const dateFilter: { gte?: Date; lte?: Date } = {}
@@ -49,7 +57,11 @@ export async function GET(req: NextRequest) {
       dateFilter.gte = d
     }
     if (endDate) {
-      const d = new Date(endDate)
+      // If date-only (YYYY-MM-DD), include the entire day by setting to end-of-day UTC.
+      // Without this, "endDate=2025-01-15" parses to midnight UTC and excludes expenses
+      // later in the day, making it look like date filtering is broken.
+      const endStr = /^\d{4}-\d{2}-\d{2}$/.test(endDate) ? `${endDate}T23:59:59.999Z` : endDate
+      const d = new Date(endStr)
       if (isNaN(d.getTime())) return NextResponse.json({ error: "Invalid endDate" }, { status: 400 })
       dateFilter.lte = d
     }
@@ -68,10 +80,27 @@ export async function GET(req: NextRequest) {
       where.projectId = projectId
     }
 
-    // NOTE: Search is applied in-memory after DB pagination. Total reflects DB count, not filtered count.
-    // For accurate pagination with search, consider SQLite FTS5 or moving search to WHERE clause.
-    // This is a known limitation — search runs across related fields (employee name, project name, etc.)
-    // which Prisma SQLite doesn't support in cross-relation OR queries.
+    // Smart multi-field DB-level search across description, category (raw + humanised),
+    // project name, employee name, payment ref, and exact amount match.
+    // Previously this was applied in-memory AFTER pagination, which caused two bugs:
+    //   1. `total` reported the unfiltered DB count, not the search-filtered count
+    //   2. Records on later pages were never searched — search only ran on the current page
+    // Prisma's `contains` on SQLite uses LIKE which is case-insensitive for ASCII.
+    if (search) {
+      const orClauses: Prisma.ExpenseWhereInput[] = [
+        { description: { contains: search } },
+        { category: { contains: search } },
+        { paymentRef: { contains: search } },
+        { project: { name: { contains: search } } },
+        { employee: { name: { contains: search } } },
+      ]
+      // Also match amount exactly if the search parses as a number
+      const searchNum = Number(search)
+      if (!isNaN(searchNum) && Number.isFinite(searchNum)) {
+        orClauses.push({ amount: { equals: searchNum } })
+      }
+      where.OR = orClauses
+    }
 
     const [expenses, total] = await Promise.all([
       db.expense.findMany({
@@ -87,26 +116,8 @@ export async function GET(req: NextRequest) {
       db.expense.count({ where }),
     ])
 
-    // Smart multi-field search: searches description, category, project name,
-    // employee name, payment reference, and amount.
-    // This runs in-memory because Prisma SQLite doesn't support cross-relation OR queries.
-    let filtered = expenses
-    if (search) {
-      const searchLower = search.toLowerCase()
-      filtered = expenses.filter(
-        (e) =>
-          e.description.toLowerCase().includes(searchLower) ||
-          (e.category || "").toLowerCase().includes(searchLower) ||
-          (e.category || "").replace(/_/g, " ").toLowerCase().includes(searchLower) ||
-          e.project?.name?.toLowerCase().includes(searchLower) ||
-          e.employee?.name?.toLowerCase().includes(searchLower) ||
-          (e.paymentRef || "").toLowerCase().includes(searchLower) ||
-          e.amount.toString().includes(search)
-      )
-    }
-
     return NextResponse.json(JSON.parse(JSON.stringify({
-      data: filtered,
+      data: expenses,
       total,
       page,
       limit,
@@ -188,6 +199,15 @@ export async function POST(req: NextRequest) {
         project: { select: { id: true, name: true } },
         employee: { select: { id: true, name: true } },
       },
+    }).catch((error: unknown) => {
+      // Phase 7c: Surface foreign-key violations (P2003) as 400 instead of 500 so
+      // callers get an actionable error message when projectId/employeeId doesn't exist.
+      const prismaError = error as { code?: string; meta?: { field_name?: string } }
+      if (prismaError?.code === "P2003") {
+        const fieldHint = prismaError.meta?.field_name || "projectId or employeeId"
+        throw new Error(`INVALID_REFERENCE:${fieldHint}`)
+      }
+      throw error
     })
     // Audit: log expense creation (fire-and-forget)
     void logAudit({
@@ -198,7 +218,15 @@ export async function POST(req: NextRequest) {
       ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
     })
     return NextResponse.json(JSON.parse(JSON.stringify(expense)))
-  } catch {
+  } catch (error: unknown) {
+    // Phase 7c: Translate INVALID_REFERENCE marker into a 400 response
+    if (error instanceof Error && error.message.startsWith("INVALID_REFERENCE:")) {
+      const field = error.message.split(":")[1] || "reference"
+      return NextResponse.json(
+        { error: `Invalid ${field}: referenced record does not exist` },
+        { status: 400 }
+      )
+    }
     return NextResponse.json({ error: "Failed to create expense" }, { status: 500 })
   }
 }
@@ -245,7 +273,16 @@ export async function PATCH(req: NextRequest) {
           }
           sanitizedData[key] = parsed
         } else if (key === "date") {
-          sanitizedData[key] = new Date(data[key] as string)
+          const dateStr = data[key] as string
+          // Empty string clears the date — reject, since date is required on Expense
+          if (dateStr === "" || dateStr === null) {
+            return NextResponse.json({ error: "Date cannot be empty" }, { status: 400 })
+          }
+          const parsedDate = new Date(dateStr)
+          if (isNaN(parsedDate.getTime())) {
+            return NextResponse.json({ error: "Invalid date format" }, { status: 400 })
+          }
+          sanitizedData[key] = parsedDate
         } else if (key === "projectId" && data[key] === "") {
           sanitizedData[key] = null
         } else if (key === "employeeId" && data[key] === "") {
@@ -368,6 +405,13 @@ export async function PUT(req: NextRequest) {
         }
       } catch {
         return NextResponse.json({ error: "Invalid receiptUrl format" }, { status: 400 })
+      }
+    }
+
+    if (date !== undefined) {
+      const parsedDate = new Date(date)
+      if (isNaN(parsedDate.getTime())) {
+        return NextResponse.json({ error: "Invalid date format" }, { status: 400 })
       }
     }
 

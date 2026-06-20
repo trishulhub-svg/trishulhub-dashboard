@@ -421,3 +421,134 @@ export async function sendPasswordResetEmail(
     triggeredBy,
   })
 }
+
+/**
+ * Send an invoice email to a client.
+ *
+ * Builds an HTML email with the invoice details (line items, subtotal, GST, total,
+ * due date, notes) and delivers it via the configured SMTP servers using the
+ * standard failover pipeline. The email event is logged to the EmailLog table
+ * with type="INVOICE" for audit trail / deliverability tracking.
+ *
+ * @returns { success, method?, error? } — same shape as sendEmailWithFailover
+ */
+export async function sendInvoiceEmail(options: {
+  to: string
+  invoice: {
+    invoiceNumber: string
+    status?: string
+    subtotal?: number | null
+    tax?: number | null
+    gst?: number | null
+    gstPercent?: number | null
+    total?: number | null
+    dueDate?: Date | string | null
+    paymentMethod?: string | null
+    paymentStatus?: string | null
+    notes?: string | null
+  }
+  client: {
+    name: string
+    company?: string | null
+  }
+  project?: {
+    name?: string | null
+  } | null
+  triggeredBy?: string
+}): Promise<{ success: boolean; method?: string; error?: string }> {
+  const esc = (s: unknown): string =>
+    String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+
+  const currencySymbol = process.env.NEXT_PUBLIC_CURRENCY_SYMBOL || "₹"
+  const companyName = process.env.NEXT_PUBLIC_COMPANY_NAME || "TrishulHub"
+  const companyTagline = process.env.NEXT_PUBLIC_COMPANY_TAGLINE || "AI-Powered Web Development"
+  const fmt = (n: number) => `${currencySymbol}${new Intl.NumberFormat("en-IN").format(n)}`
+  const fmtDate = (d: Date | string | null | undefined): string => {
+    if (!d) return "—"
+    try {
+      return new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+    } catch {
+      return "—"
+    }
+  }
+
+  const inv = options.invoice
+  const sub = Number(inv.subtotal ?? 0)
+  const tax = Number(inv.tax ?? 0)
+  const gst = Number(inv.gst ?? 0)
+  const gstPct = Number(inv.gstPercent ?? 0)
+  const total = Number(inv.total ?? sub + tax + gst)
+
+  // Build line-items table from notes (if JSON-encoded items aren't available
+  // we still render a clean summary). We use the totals block as the source of truth.
+  const showGstRow = gst > 0 || gstPct > 0
+  const showTaxRow = tax > 0
+
+  const paymentMethodLabel = inv.paymentMethod
+    ? String(inv.paymentMethod).replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())
+    : null
+
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 640px; margin: 0 auto; padding: 24px; background: #f9fafb; border-radius: 12px;">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <h1 style="color: #1f2937; font-size: 24px; margin: 0;">${esc(companyName)}</h1>
+        <p style="color: #6b7280; margin: 4px 0 0;">${esc(companyTagline)}</p>
+      </div>
+      <div style="background: white; border-radius: 8px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 16px;">
+          <div>
+            <h2 style="color: #1f2937; font-size: 20px; margin: 0 0 4px;">Invoice ${esc(inv.invoiceNumber)}</h2>
+            ${inv.status ? `<p style="color: #6b7280; margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em;">${esc(inv.status)}</p>` : ""}
+          </div>
+          <div style="text-align: right;">
+            <p style="margin: 0; color: #374151; font-size: 14px;"><strong>Due:</strong> ${esc(fmtDate(inv.dueDate))}</p>
+            ${paymentMethodLabel ? `<p style="margin: 4px 0 0; color: #6b7280; font-size: 13px;">Payment: ${esc(paymentMethodLabel)}</p>` : ""}
+          </div>
+        </div>
+        <div style="border-top: 1px solid #e5e7eb; padding-top: 16px; margin-bottom: 16px;">
+          <p style="margin: 0; color: #374151; font-size: 14px;"><strong>Bill To:</strong> ${esc(options.client.name)}${options.client.company ? ` (${esc(options.client.company)})` : ""}</p>
+          ${options.project?.name ? `<p style="margin: 4px 0 0; color: #6b7280; font-size: 13px;">Project: ${esc(options.project.name)}</p>` : ""}
+        </div>
+        <div style="border-top: 1px solid #e5e7eb; padding-top: 16px; margin-bottom: 16px;">
+          <div style="display:flex; justify-content:space-between; padding: 4px 0; color: #374151; font-size: 14px;">
+            <span>Subtotal</span><span>${esc(fmt(sub))}</span>
+          </div>
+          ${showTaxRow ? `<div style="display:flex; justify-content:space-between; padding: 4px 0; color: #374151; font-size: 14px;"><span>Tax</span><span>${esc(fmt(tax))}</span></div>` : ""}
+          ${showGstRow ? `<div style="display:flex; justify-content:space-between; padding: 4px 0; color: #374151; font-size: 14px;"><span>GST${gstPct > 0 ? ` (${gstPct}%)` : ""}</span><span>${esc(fmt(gst))}</span></div>` : ""}
+          <div style="display:flex; justify-content:space-between; padding: 12px 0 4px; border-top: 1px solid #e5e7eb; margin-top: 8px; color: #1f2937; font-size: 18px; font-weight: 700;">
+            <span>Total</span><span>${esc(fmt(total))}</span>
+          </div>
+        </div>
+        ${inv.notes ? `<div style="border-top: 1px solid #e5e7eb; padding-top: 16px; margin-bottom: 16px;"><p style="margin: 0; color: #6b7280; font-size: 12px; font-weight: 600; text-transform: uppercase;">Notes</p><p style="margin: 4px 0 0; color: #374151; font-size: 14px; white-space: pre-wrap;">${esc(inv.notes)}</p></div>` : ""}
+        <p style="color: #6b7280; font-size: 13px; margin: 16px 0 0;">Please review this invoice and remit payment by the due date. If you have any questions, reply to this email.</p>
+      </div>
+      <p style="color: #9ca3af; font-size: 12px; text-align: center; margin-top: 16px;">This invoice was sent via ${esc(companyName)} Invoice Management. Do not reply directly to this automated message.</p>
+    </div>
+  `
+
+  const text = [
+    `Invoice ${inv.invoiceNumber}`,
+    `Bill To: ${options.client.name}${options.client.company ? ` (${options.client.company})` : ""}`,
+    options.project?.name ? `Project: ${options.project.name}` : null,
+    `Due: ${fmtDate(inv.dueDate)}`,
+    paymentMethodLabel ? `Payment Method: ${paymentMethodLabel}` : null,
+    "",
+    `Subtotal: ${fmt(sub)}`,
+    showTaxRow ? `Tax: ${fmt(tax)}` : null,
+    showGstRow ? `GST${gstPct > 0 ? ` (${gstPct}%)` : ""}: ${fmt(gst)}` : null,
+    `Total: ${fmt(total)}`,
+    "",
+    inv.notes ? `Notes: ${inv.notes}` : null,
+    "",
+    `Please review this invoice and remit payment by the due date.`,
+  ].filter(Boolean).join("\n")
+
+  return sendEmailWithFailover({
+    to: options.to,
+    subject: `Invoice ${inv.invoiceNumber} from ${companyName}`,
+    html,
+    text,
+    type: "INVOICE",
+    triggeredBy: options.triggeredBy,
+  })
+}
