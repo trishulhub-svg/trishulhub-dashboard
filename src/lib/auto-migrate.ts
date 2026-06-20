@@ -292,6 +292,10 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
       CONSTRAINT "AvailabilityOverride_userId_date_key" UNIQUE ("userId", "date")
     )`
   },
+  {
+    name: "AvailabilityDateRange",
+    sql: `CREATE TABLE IF NOT EXISTS "AvailabilityDateRange" ("id" TEXT NOT NULL PRIMARY KEY, "userId" TEXT NOT NULL, "startDate" DATETIME NOT NULL, "endDate" DATETIME NOT NULL, "startTime" TEXT, "endTime" TEXT, "isAvailable" BOOLEAN NOT NULL DEFAULT 1, "reason" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL, FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE)`
+  },
   // HR — LeaveRequest (legacy)
   {
     name: "LeaveRequest",
@@ -904,6 +908,29 @@ export async function ensureAllTables(): Promise<void> {
     } catch (err: unknown) {
       if (!getErrMsg(err)?.includes('already exists')) {
         console.warn(`[auto-migrate] idx_availability_userId_dayOfWeek: ${getErrMsg(err)}`)
+      }
+    }
+
+    // AvailabilityDateRange indexes
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AvailabilityDateRange_userId_idx" ON "AvailabilityDateRange"("userId")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] AvailabilityDateRange_userId_idx: ${getErrMsg(err)}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AvailabilityDateRange_startDate_idx" ON "AvailabilityDateRange"("startDate")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] AvailabilityDateRange_startDate_idx: ${getErrMsg(err)}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AvailabilityDateRange_endDate_idx" ON "AvailabilityDateRange"("endDate")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] AvailabilityDateRange_endDate_idx: ${getErrMsg(err)}`)
       }
     }
 

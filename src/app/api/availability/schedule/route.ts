@@ -55,6 +55,7 @@ export async function GET(req: NextRequest) {
     await Promise.all([
       ensureTable("Availability"),
       ensureTable("AvailabilityOverride"),
+      ensureTable("AvailabilityDateRange"),
       ensureTable("Task"),
       ensureTable("TimeEntry"),
       ensureTable("Leave"),
@@ -132,6 +133,7 @@ async function handleDailyView(dateStr: string, dateObj: Date, userId: string) {
   const [
     availabilities,
     overrides,
+    dateRanges,
     timeEntries,
     leaves,
     leaveRequests,
@@ -151,7 +153,17 @@ async function handleDailyView(dateStr: string, dateObj: Date, userId: string) {
       orderBy: { startTime: "asc" },
     }),
 
-    // 3. Time entries for this user on this date
+    // 3. Date ranges overlapping this date (startDate <= endOfDay AND endDate >= startOfDay)
+    db.availabilityDateRange.findMany({
+      where: {
+        userId,
+        startDate: { lte: endOfDay },
+        endDate: { gte: startOfDay },
+      },
+      orderBy: { startDate: "asc" },
+    }),
+
+    // 4. Time entries for this user on this date
     db.timeEntry.findMany({
       where: {
         userId,
@@ -163,7 +175,7 @@ async function handleDailyView(dateStr: string, dateObj: Date, userId: string) {
       orderBy: { clockIn: "asc" },
     }),
 
-    // 4. Approved leave overlapping this date
+    // 5. Approved leave overlapping this date
     db.leave.findMany({
       where: {
         userId,
@@ -173,7 +185,7 @@ async function handleDailyView(dateStr: string, dateObj: Date, userId: string) {
       },
     }),
 
-    // 5. Leave requests for this user (all statuses for context)
+    // 6. Leave requests for this user (all statuses for context)
     db.leaveRequest.findMany({
       where: {
         userId,
@@ -249,6 +261,15 @@ async function handleDailyView(dateStr: string, dateObj: Date, userId: string) {
       endTime: o.endTime,
       isAvailable: o.isAvailable,
       reason: o.reason,
+    })),
+    dateRanges: dateRanges.map(dr => ({
+      id: dr.id,
+      startDate: formatDateOnly(dr.startDate instanceof Date ? dr.startDate : new Date(dr.startDate)),
+      endDate: formatDateOnly(dr.endDate instanceof Date ? dr.endDate : new Date(dr.endDate)),
+      startTime: dr.startTime,
+      endTime: dr.endTime,
+      isAvailable: dr.isAvailable,
+      reason: dr.reason,
     })),
     isOnLeave: isOnLeave || !!unavailableOverride,
     leaveInfo: isOnLeave ? leaveInfo : unavailableOverride
@@ -326,6 +347,7 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
   const [
     allAvailabilities,
     allOverrides,
+    allDateRanges,
     allLeaves,
   ] = await Promise.all([
     // Availability for all users for all days of the week
@@ -345,6 +367,16 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
         date: { gte: weekStart, lte: weekEnd },
       },
       orderBy: [{ userId: "asc" }, { date: "asc" }],
+    }),
+
+    // Date ranges overlapping the week (startDate <= weekEnd AND endDate >= weekStart)
+    db.availabilityDateRange.findMany({
+      where: {
+        userId: { in: userIds },
+        startDate: { lte: weekEnd },
+        endDate: { gte: weekStart },
+      },
+      orderBy: [{ userId: "asc" }, { startDate: "asc" }],
     }),
 
     // Approved leaves overlapping the week
@@ -481,6 +513,17 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
     totalUsers,
     ...(hitCap ? { warning: "Result capped at 200 users. Some users may not be shown." } : {}),
     users: usersSchedule,
+    // Date ranges overlapping this week (additive availability/leave spans)
+    dateRanges: allDateRanges.map(dr => ({
+      id: dr.id,
+      userId: dr.userId,
+      startDate: formatDateOnly(dr.startDate instanceof Date ? dr.startDate : new Date(dr.startDate)),
+      endDate: formatDateOnly(dr.endDate instanceof Date ? dr.endDate : new Date(dr.endDate)),
+      startTime: dr.startTime,
+      endTime: dr.endTime,
+      isAvailable: dr.isAvailable,
+      reason: dr.reason,
+    })),
   }
 
   return NextResponse.json(response)

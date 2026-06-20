@@ -8,7 +8,7 @@ import {
   Clock, Plus, Trash2, CalendarDays, AlertCircle, ChevronLeft, ChevronRight,
   CalendarClock, Edit3, X, RefreshCw,
   Users, BarChart3, Timer, FileText, Eye,
-  MoreHorizontal, LayoutGrid, List, Copy, Filter,
+  MoreHorizontal, LayoutGrid, List, Copy, Filter, CalendarRange,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -99,6 +99,20 @@ interface OverrideEntry {
   user?: { id: string; name: string; email: string; avatar: string | null };
 }
 
+interface DateRangeEntry {
+  id: string;
+  userId: string;
+  startDate: string; // YYYY-MM-DD
+  endDate: string; // YYYY-MM-DD
+  startTime: string | null; // HH:mm or null = all day
+  endTime: string | null;
+  isAvailable: boolean;
+  reason: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  user?: { id: string; name: string; email: string; avatar: string | null };
+}
+
 interface TeamUser {
   id: string;
   name: string;
@@ -123,12 +137,6 @@ interface WeekScheduleUser {
   days: Record<string, WeekDayData>;
 }
 
-interface WeekSchedule {
-  weekStart: string;
-  weekEnd: string;
-  users: WeekScheduleUser[];
-}
-
 interface DailySchedule {
   date: string;
   dayOfWeek: number;
@@ -136,11 +144,19 @@ interface DailySchedule {
   user: { id: string; name: string; email: string; role: string; department: string | null; avatar: string | null };
   availability: { id: string; startTime: string; endTime: string; isAvailable: boolean; hours: number }[];
   overrides: { id: string; date: string; startTime: string | null; endTime: string | null; isAvailable: boolean; reason: string | null }[];
+  dateRanges?: { id: string; startDate: string; endDate: string; startTime: string | null; endTime: string | null; isAvailable: boolean; reason: string | null }[];
   isOnLeave: boolean;
   leaveInfo: unknown;
   timeEntries: { id: string; description: string; clockIn: string; clockOut: string; totalHours: number; status: string; projectName: string | null }[];
   totalScheduledHours: number;
   totalWorkedHours: number;
+}
+
+interface WeekSchedule {
+  weekStart: string;
+  weekEnd: string;
+  users: WeekScheduleUser[];
+  dateRanges?: { id: string; userId: string; startDate: string; endDate: string; startTime: string | null; endTime: string | null; isAvailable: boolean; reason: string | null }[];
 }
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
@@ -201,6 +217,7 @@ export default function AvailabilityPage() {
   const [teamUsers, setTeamUsers] = useState<TeamUser[]>([]);
   const [availabilities, setAvailabilities] = useState<AvailabilityEntry[]>([]);
   const [overrides, setOverrides] = useState<OverrideEntry[]>([]);
+  const [dateRanges, setDateRanges] = useState<DateRangeEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -221,13 +238,16 @@ export default function AvailabilityPage() {
   // ── Dialog states ──
   const [availDialogOpen, setAvailDialogOpen] = useState(false);
   const [overrideDialogOpen, setOverrideDialogOpen] = useState(false);
+  const [dateRangeDialogOpen, setDateRangeDialogOpen] = useState(false);
   const [editingAvailability, setEditingAvailability] = useState<AvailabilityEntry | null>(null);
   const [editingOverride, setEditingOverride] = useState<OverrideEntry | null>(null);
+  const [editingDateRange, setEditingDateRange] = useState<DateRangeEntry | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   // ── Delete confirmation states ──
   const [deleteAvailId, setDeleteAvailId] = useState<string | null>(null);
   const [deleteOverrideId, setDeleteOverrideId] = useState<string | null>(null);
+  const [deleteDateRangeId, setDeleteDateRangeId] = useState<string | null>(null);
 
   // ── Availability form state ──
   const [formUserId, setFormUserId] = useState("");
@@ -244,9 +264,20 @@ export default function AvailabilityPage() {
   const [formOverrideIsAvailable, setFormOverrideIsAvailable] = useState(false);
   const [formOverrideReason, setFormOverrideReason] = useState("");
 
+  // ── Date range form state ──
+  const [formDateRangeUserId, setFormDateRangeUserId] = useState("");
+  const [formDateRangeStartDate, setFormDateRangeStartDate] = useState("");
+  const [formDateRangeEndDate, setFormDateRangeEndDate] = useState("");
+  const [formDateRangeStartTime, setFormDateRangeStartTime] = useState("");
+  const [formDateRangeEndTime, setFormDateRangeEndTime] = useState("");
+  const [formDateRangeIsAvailable, setFormDateRangeIsAvailable] = useState(true);
+  const [formDateRangeReason, setFormDateRangeReason] = useState("");
+
   // ── Calendar popover state ──
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [dailyCalendarOpen, setDailyCalendarOpen] = useState(false);
+  const [dateRangeStartCalOpen, setDateRangeStartCalOpen] = useState(false);
+  const [dateRangeEndCalOpen, setDateRangeEndCalOpen] = useState(false);
 
   // ── Schedules tab state ──
   const [schedUserId, setSchedUserId] = useState<string>("");
@@ -339,17 +370,22 @@ export default function AvailabilityPage() {
   // ── Data fetching ──
   const fetchCoreData = useCallback(async () => {
     try {
-      const [availRes, overrideRes, teamRes] = await Promise.all([
+      const [availRes, overrideRes, dateRangeRes, teamRes] = await Promise.all([
         fetch("/api/availability", { credentials: "include" }),
         fetch("/api/availability/overrides", { credentials: "include" }),
+        fetch("/api/availability/date-ranges", { credentials: "include" }),
         fetch("/api/team?type=users", { credentials: "include" }),
       ]);
-      if (availRes.status === 401 || overrideRes.status === 401 || teamRes.status === 401) {
+      if (availRes.status === 401 || overrideRes.status === 401 || dateRangeRes.status === 401 || teamRes.status === 401) {
         router.push("/login");
         return;
       }
       if (availRes.ok) setAvailabilities(safeArray(await availRes.json()));
       if (overrideRes.ok) setOverrides(safeArray(await overrideRes.json()));
+      if (dateRangeRes.ok) {
+        const drJson = await dateRangeRes.json();
+        setDateRanges(safeArray<DateRangeEntry>(drJson?.dateRanges ?? drJson));
+      }
       if (teamRes.ok) {
         const users = safeArray<TeamUser>(await teamRes.json());
         setTeamUsers(users);
@@ -462,6 +498,17 @@ export default function AvailabilityPage() {
     setEditingOverride(null);
   };
 
+  const resetDateRangeForm = () => {
+    setFormDateRangeUserId("");
+    setFormDateRangeStartDate("");
+    setFormDateRangeEndDate("");
+    setFormDateRangeStartTime("");
+    setFormDateRangeEndTime("");
+    setFormDateRangeIsAvailable(true);
+    setFormDateRangeReason("");
+    setEditingDateRange(null);
+  };
+
   const openEditAvailability = (entry: AvailabilityEntry) => {
     setEditingAvailability(entry);
     setFormUserId(entry.userId);
@@ -481,6 +528,18 @@ export default function AvailabilityPage() {
     setFormOverrideIsAvailable(override.isAvailable);
     setFormOverrideReason(override.reason || "");
     setOverrideDialogOpen(true);
+  };
+
+  const openEditDateRange = (range: DateRangeEntry) => {
+    setEditingDateRange(range);
+    setFormDateRangeUserId(range.userId);
+    setFormDateRangeStartDate(range.startDate);
+    setFormDateRangeEndDate(range.endDate);
+    setFormDateRangeStartTime(range.startTime || "");
+    setFormDateRangeEndTime(range.endTime || "");
+    setFormDateRangeIsAvailable(range.isAvailable);
+    setFormDateRangeReason(range.reason || "");
+    setDateRangeDialogOpen(true);
   };
 
   // ── CRUD handlers ──
@@ -633,6 +692,95 @@ export default function AvailabilityPage() {
       toast.error("Failed to delete");
     } finally {
       setDeleteOverrideId(null);
+    }
+  };
+
+  const handleSaveDateRange = async () => {
+    if (!formDateRangeUserId || !formDateRangeStartDate || !formDateRangeEndDate) {
+      toast.error("Please fill in all required fields");
+      return;
+    }
+    if (formDateRangeStartDate > formDateRangeEndDate) {
+      toast.error("Start date must be on or before end date");
+      return;
+    }
+    // Time validation: if one is set, both must be set; start < end
+    if (
+      (formDateRangeStartTime && !formDateRangeEndTime) ||
+      (!formDateRangeStartTime && formDateRangeEndTime)
+    ) {
+      toast.error("Set both start and end time, or leave both empty for all day");
+      return;
+    }
+    if (
+      formDateRangeStartTime &&
+      formDateRangeEndTime &&
+      formDateRangeStartTime >= formDateRangeEndTime
+    ) {
+      toast.error("Start time must be before end time");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      let res: Response;
+      const payload = {
+        userId: formDateRangeUserId,
+        startDate: formDateRangeStartDate,
+        endDate: formDateRangeEndDate,
+        startTime: formDateRangeStartTime || null,
+        endTime: formDateRangeEndTime || null,
+        isAvailable: formDateRangeIsAvailable,
+        reason: formDateRangeReason || null,
+      };
+      if (editingDateRange) {
+        res = await fetch(`/api/availability/date-ranges/${editingDateRange.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(payload),
+        });
+      } else {
+        res = await fetch("/api/availability/date-ranges", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(payload),
+        });
+      }
+      if (res.ok) {
+        toast.success(editingDateRange ? "Date range updated" : "Date range added");
+        setDateRangeDialogOpen(false);
+        resetDateRangeForm();
+        fetchCoreData();
+        fetchWeekSchedule();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        toast.error(safeText(err.error, "Failed to save date range"));
+      }
+    } catch {
+      toast.error("Failed to save date range");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDeleteDateRange = async (id: string) => {
+    try {
+      const res = await fetch(`/api/availability/date-ranges/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (res.ok) {
+        toast.success("Date range deleted");
+        fetchCoreData();
+        fetchWeekSchedule();
+      } else {
+        toast.error("Failed to delete");
+      }
+    } catch {
+      toast.error("Failed to delete");
+    } finally {
+      setDeleteDateRangeId(null);
     }
   };
 
@@ -865,6 +1013,9 @@ export default function AvailabilityPage() {
           </TabsTrigger>
           <TabsTrigger value="overrides" className="text-xs sm:text-sm">
             <CalendarClock className="h-4 w-4 mr-1 sm:mr-1.5" /> <span className="hidden xs:inline">Overrides </span>({upcomingOverrides.length})
+          </TabsTrigger>
+          <TabsTrigger value="date-ranges" className="text-xs sm:text-sm">
+            <CalendarRange className="h-4 w-4 mr-1 sm:mr-1.5" /> <span className="hidden xs:inline">Date </span>Ranges ({dateRanges.length})
           </TabsTrigger>
         </TabsList>
 
@@ -1598,6 +1749,27 @@ export default function AvailabilityPage() {
                         ))}
                       </div>
                     )}
+
+                    {dailySchedule.dateRanges && dailySchedule.dateRanges.length > 0 && (
+                      <div className="mt-3 p-2 rounded-md bg-violet-50 dark:bg-violet-900/10 border border-violet-200 dark:border-violet-800">
+                        <div className="text-xs font-medium text-violet-700 dark:text-violet-400 flex items-center gap-1">
+                          <CalendarRange className="h-3 w-3" /> Active Date Range(s)
+                        </div>
+                        {dailySchedule.dateRanges.map((dr) => {
+                          const isSingle = dr.startDate === dr.endDate;
+                          return (
+                            <div key={dr.id} className="text-xs text-violet-600 dark:text-violet-500 mt-0.5">
+                              {dr.isAvailable ? "Available" : "Unavailable"}
+                              {isSingle
+                                ? ` on ${dr.startDate}`
+                                : ` ${dr.startDate} → ${dr.endDate}`}
+                              {dr.startTime && dr.endTime ? ` (${dr.startTime}–${dr.endTime})` : " (All Day)"}
+                              {dr.reason && ` — ${safeText(dr.reason)}`}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </div>
@@ -1944,6 +2116,176 @@ export default function AvailabilityPage() {
             </Card>
           )}
         </TabsContent>
+
+        {/* ═══════════════════════════════════════════════════════════════════════
+            TAB 5: Date Ranges
+        ═══════════════════════════════════════════════════════════════════════ */}
+        <TabsContent value="date-ranges" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <CalendarRange className="h-4 w-4 text-violet-500" />
+                    Availability Date Ranges
+                  </CardTitle>
+                  <CardDescription>
+                    Set availability or unavailability for a span of dates (e.g., a project engagement or vacation).
+                  </CardDescription>
+                </div>
+                <Button size="sm" onClick={() => { resetDateRangeForm(); setDateRangeDialogOpen(true); }}>
+                  <Plus className="h-4 w-4 mr-1.5" /> Add Date Range
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {dateRanges.length === 0 ? (
+                <div className="flex flex-col items-center py-10 text-muted-foreground">
+                  <CalendarRange className="h-12 w-12 opacity-30 mb-3" />
+                  <p className="text-sm">No date ranges configured</p>
+                  <p className="text-xs mt-1">Use date ranges for multi-day availability or leave (e.g., vacation, project travel).</p>
+                  <Button variant="outline" size="sm" className="mt-3" onClick={() => { resetDateRangeForm(); setDateRangeDialogOpen(true); }}>
+                    <Plus className="h-3 w-3 mr-1" /> Create Date Range
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  {/* Mobile card layout */}
+                  <div className="space-y-2 md:hidden">
+                    {dateRanges.map((range) => {
+                      const isSingleDay = range.startDate === range.endDate;
+                      return (
+                        <div key={range.id} className="p-3 rounded-lg border bg-muted/20">
+                          <div className="flex items-start gap-2.5">
+                            <Avatar className="h-9 w-9 shrink-0">
+                              <AvatarImage src={range.user?.avatar || undefined} alt={range.user?.name || ""} />
+                              <AvatarFallback className="text-xs">
+                                {range.user?.name ? getUserInitials(range.user.name) : "?"}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-medium">{range.user?.name || "Unknown"}</div>
+                              <div className="text-xs text-muted-foreground mt-0.5">
+                                {isSingleDay
+                                  ? new Date(range.startDate + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })
+                                  : <>
+                                    {new Date(range.startDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                                    {" → "}
+                                    {new Date(range.endDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                                  </>}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                {range.startTime && range.endTime
+                                  ? `${range.startTime} – ${range.endTime}`
+                                  : "All Day"}
+                              </div>
+                              <div className="flex items-center gap-2 mt-1.5">
+                                <Badge
+                                  className={`text-[10px] px-2 py-0.5 border-0 ${
+                                    range.isAvailable
+                                      ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+                                      : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+                                  }`}
+                                >
+                                  {range.isAvailable ? "Available" : "Unavailable"}
+                                </Badge>
+                              </div>
+                              {range.reason && (
+                                <div className="text-xs text-muted-foreground mt-1">{safeText(range.reason)}</div>
+                              )}
+                              <div className="flex items-center gap-2 mt-2">
+                                <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs" onClick={() => openEditDateRange(range)}>
+                                  <Edit3 className="h-3 w-3 mr-1" /> Edit
+                                </Button>
+                                <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs text-red-600 border-red-200 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-900/20" onClick={() => setDeleteDateRangeId(range.id)}>
+                                  <Trash2 className="h-3 w-3 mr-1" /> Delete
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Desktop table layout */}
+                  <div className="hidden md:block rounded-md border overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="text-xs">Employee</TableHead>
+                          <TableHead className="text-xs">Date Range</TableHead>
+                          <TableHead className="text-xs">Time</TableHead>
+                          <TableHead className="text-xs">Status</TableHead>
+                          <TableHead className="text-xs">Reason</TableHead>
+                          <TableHead className="text-xs text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {dateRanges.map((range) => {
+                          const isSingleDay = range.startDate === range.endDate;
+                          return (
+                            <TableRow key={range.id}>
+                              <TableCell>
+                                <div className="flex items-center gap-2">
+                                  <Avatar className="h-6 w-6">
+                                    <AvatarImage src={range.user?.avatar || undefined} alt={range.user?.name || ""} />
+                                    <AvatarFallback className="text-[8px]">
+                                      {range.user?.name ? getUserInitials(range.user.name) : "?"}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <span className="text-sm font-medium">{range.user?.name || "Unknown"}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-xs">
+                                {isSingleDay
+                                  ? new Date(range.startDate + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+                                  : <>
+                                    {new Date(range.startDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                                    {" → "}
+                                    {new Date(range.endDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                                  </>}
+                              </TableCell>
+                              <TableCell className="text-xs text-muted-foreground">
+                                {range.startTime && range.endTime
+                                  ? `${range.startTime} – ${range.endTime}`
+                                  : "All Day"}
+                              </TableCell>
+                              <TableCell>
+                                <Badge
+                                  className={`text-[10px] px-2 py-0.5 border-0 ${
+                                    range.isAvailable
+                                      ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+                                      : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+                                  }`}
+                                >
+                                  {range.isAvailable ? "Available" : "Unavailable"}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">
+                                {range.reason ? safeText(range.reason) : "—"}
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex items-center justify-end gap-1">
+                                  <Button variant="outline" size="sm" className="h-8 px-2.5 text-[10px]" onClick={() => openEditDateRange(range)}>
+                                    <Edit3 className="h-3 w-3 mr-1" />Edit
+                                  </Button>
+                                  <Button variant="outline" size="sm" className="h-8 px-2.5 text-[10px] text-red-600 border-red-200 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-900/20" onClick={() => setDeleteDateRangeId(range.id)}>
+                                    <Trash2 className="h-3 w-3 mr-1" />Delete
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
 
       {/* Day Detail Popup Dialog */}
@@ -2215,6 +2557,128 @@ export default function AvailabilityPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Add/Edit Date Range Dialog */}
+      <Dialog open={dateRangeDialogOpen} onOpenChange={setDateRangeDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingDateRange ? "Edit Date Range" : "Add Availability Date Range"}</DialogTitle>
+            <DialogDescription>
+              Set availability or unavailability for a span of consecutive dates. Times are optional — leave empty for all-day.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {!editingDateRange && (
+              <div className="space-y-2">
+                <Label>Employee</Label>
+                <Select value={formDateRangeUserId} onValueChange={setFormDateRangeUserId}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select employee" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {teamUsers.map((u) => (
+                      <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Start Date</Label>
+                <Popover open={dateRangeStartCalOpen} onOpenChange={setDateRangeStartCalOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full justify-start text-left font-normal">
+                      <CalendarDays className="mr-2 h-4 w-4" />
+                      {formDateRangeStartDate
+                        ? new Date(formDateRangeStartDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                        : "Pick a date"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={formDateRangeStartDate ? new Date(formDateRangeStartDate + "T00:00:00") : undefined}
+                      onSelect={(d) => {
+                        if (d) {
+                          const ds = formatDateOnly(d);
+                          setFormDateRangeStartDate(ds);
+                          // Auto-adjust endDate if it's before startDate
+                          if (formDateRangeEndDate && formDateRangeEndDate < ds) {
+                            setFormDateRangeEndDate(ds);
+                          }
+                        }
+                      }}
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+              <div className="space-y-2">
+                <Label>End Date</Label>
+                <Popover open={dateRangeEndCalOpen} onOpenChange={setDateRangeEndCalOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full justify-start text-left font-normal">
+                      <CalendarDays className="mr-2 h-4 w-4" />
+                      {formDateRangeEndDate
+                        ? new Date(formDateRangeEndDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                        : "Pick a date"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={formDateRangeEndDate ? new Date(formDateRangeEndDate + "T00:00:00") : undefined}
+                      onSelect={(d) => { if (d) setFormDateRangeEndDate(formatDateOnly(d)); }}
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Start Time <span className="text-muted-foreground text-xs">(Optional)</span></Label>
+                <Input
+                  type="time"
+                  value={formDateRangeStartTime}
+                  onChange={(e) => setFormDateRangeStartTime(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>End Time <span className="text-muted-foreground text-xs">(Optional)</span></Label>
+                <Input
+                  type="time"
+                  value={formDateRangeEndTime}
+                  onChange={(e) => setFormDateRangeEndTime(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <Label>Available</Label>
+                <p className="text-xs text-muted-foreground">
+                  {formDateRangeIsAvailable ? "Available during this range" : "Unavailable (leave / vacation)"}
+                </p>
+              </div>
+              <Switch checked={formDateRangeIsAvailable} onCheckedChange={setFormDateRangeIsAvailable} />
+            </div>
+            <div className="space-y-2">
+              <Label>Reason <span className="text-muted-foreground text-xs">(Optional)</span></Label>
+              <Textarea
+                value={formDateRangeReason}
+                onChange={(e) => setFormDateRangeReason(e.target.value)}
+                placeholder="Reason for this date range (e.g., project travel, vacation)..."
+                rows={2}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDateRangeDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleSaveDateRange} disabled={submitting}>
+              {submitting ? "Saving..." : editingDateRange ? "Update Date Range" : "Add Date Range"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Delete Availability Confirmation Dialog */}
       <AlertDialog open={!!deleteAvailId} onOpenChange={() => setDeleteAvailId(null)}>
         <AlertDialogContent>
@@ -2245,6 +2709,24 @@ export default function AvailabilityPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={() => deleteOverrideId && handleDeleteOverride(deleteOverrideId)} className="bg-red-600 hover:bg-red-700">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Date Range Confirmation Dialog */}
+      <AlertDialog open={!!deleteDateRangeId} onOpenChange={() => setDeleteDateRangeId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Date Range</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this date range? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => deleteDateRangeId && handleDeleteDateRange(deleteDateRangeId)} className="bg-red-600 hover:bg-red-700">
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>
