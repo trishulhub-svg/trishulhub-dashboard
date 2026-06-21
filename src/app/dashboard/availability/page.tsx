@@ -202,10 +202,10 @@ function getCellStatus(dayData: WeekDayData | undefined): CellStatus {
 }
 
 const CELL_BG: Record<CellStatus, string> = {
-  leave: "bg-sky-50 dark:bg-sky-950/30 border-sky-200 dark:border-sky-800",
-  unavailable: "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800",
-  available: "bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800",
-  partial: "bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800",
+  leave: "bg-sky-50 dark:bg-sky-900/40 border-sky-200 dark:border-sky-700",
+  unavailable: "bg-red-50 dark:bg-red-900/40 border-red-200 dark:border-red-700",
+  available: "bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-700",
+  partial: "bg-amber-50 dark:bg-amber-900/40 border-amber-200 dark:border-amber-700",
   notset: "bg-muted/20 border-border",
 };
 
@@ -213,7 +213,7 @@ const CELL_TEXT: Record<CellStatus, string> = {
   leave: "text-sky-700 dark:text-sky-300",
   unavailable: "text-red-700 dark:text-red-300",
   available: "text-green-700 dark:text-green-300",
-  partial: "text-amber-700 dark:text-amber-300",
+  partial: "text-amber-800 dark:text-amber-200",
   notset: "text-muted-foreground",
 };
 
@@ -1213,19 +1213,19 @@ export default function AvailabilityPage() {
             {/* Color legend */}
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-muted-foreground">
               <span className="flex items-center gap-1.5">
-                <span className="h-3 w-3 rounded border bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800" />
+                <span className="h-3 w-3 rounded border bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-700" />
                 Available
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="h-3 w-3 rounded border bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800" />
+                <span className="h-3 w-3 rounded border bg-amber-50 dark:bg-amber-900/40 border-amber-200 dark:border-amber-700" />
                 Partial / Override
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="h-3 w-3 rounded border bg-sky-50 dark:bg-sky-950/30 border-sky-200 dark:border-sky-800" />
+                <span className="h-3 w-3 rounded border bg-sky-50 dark:bg-sky-900/40 border-sky-200 dark:border-sky-700" />
                 On Leave
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="h-3 w-3 rounded border bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800" />
+                <span className="h-3 w-3 rounded border bg-red-50 dark:bg-red-900/40 border-red-200 dark:border-red-700" />
                 Unavailable
               </span>
               <span className="flex items-center gap-1.5">
@@ -1254,7 +1254,7 @@ export default function AvailabilityPage() {
           ) : (
             <>
               {weekSchedule.warning && (
-                <div className="p-2.5 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-xs text-amber-700 dark:text-amber-300">
+                <div className="p-2.5 rounded-md bg-amber-50 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-700 text-xs text-amber-800 dark:text-amber-200">
                   {weekSchedule.warning}
                 </div>
               )}
@@ -1437,12 +1437,12 @@ export default function AvailabilityPage() {
                                       >
                                         <div className="flex flex-wrap gap-1">
                                           {dayData.isOnLeave && (
-                                            <Badge className="text-[8px] px-1 py-0 bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-200 border-0">
+                                            <Badge className="text-[8px] px-1 py-0 bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-200 border-0">
                                               LEAVE
                                             </Badge>
                                           )}
                                           {dayData.override && !dayData.isOnLeave && (
-                                            <Badge className="text-[8px] px-1 py-0 bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200 border-0">
+                                            <Badge className="text-[8px] px-1 py-0 bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200 border-0">
                                               OVERRIDE
                                             </Badge>
                                           )}
@@ -1515,7 +1515,7 @@ export default function AvailabilityPage() {
                                         )}
                                         {dayData.override && (
                                           <div className="text-[10px]">
-                                            <span className="font-medium text-amber-600">Override: </span>
+                                            <span className="font-medium text-amber-700 dark:text-amber-300">Override: </span>
                                             {dayData.override.isAvailable ? "Available" : "Unavailable"}
                                             {dayData.override.startTime && dayData.override.endTime
                                               ? ` (${dayData.override.startTime}–${dayData.override.endTime})`
@@ -1705,7 +1705,7 @@ export default function AvailabilityPage() {
                                     </span>
                                     <span className="text-xs text-muted-foreground ml-1.5">({hours}h)</span>
                                     {!slot.isAvailable && (
-                                      <Badge className="ml-1.5 text-[8px] px-1 py-0 bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-300 border-0">
+                                      <Badge className="ml-1.5 text-[8px] px-1 py-0 bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-200 border-0">
                                         Unavailable
                                       </Badge>
                                     )}
@@ -1956,17 +1956,17 @@ export default function AvailabilityPage() {
 
               {/* Override info */}
               {selectedDayDetail.dayData.override && (
-                <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800">
+                <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-700">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">Override Active</span>
-                    <Button variant="ghost" size="sm" className="h-7 text-[10px] text-amber-600" onClick={() => {
+                    <span className="text-xs font-semibold text-amber-800 dark:text-amber-200">Override Active</span>
+                    <Button variant="ghost" size="sm" className="h-7 text-[10px] text-amber-700 dark:text-amber-300" onClick={() => {
                       const ovr = overrides.find(o => o.id === selectedDayDetail.dayData.override!.id);
                       if (ovr) { setDayDetailDialogOpen(false); openEditOverride(ovr); }
                     }}>
                       <Edit3 className="h-3 w-3 mr-1" /> Edit
                     </Button>
                   </div>
-                  <div className="text-xs text-amber-600 dark:text-amber-500 mt-1">
+                  <div className="text-xs text-amber-700 dark:text-amber-300 mt-1">
                     {selectedDayDetail.dayData.override.isAvailable ? "Available" : "Unavailable"}
                     {selectedDayDetail.dayData.override.startTime && selectedDayDetail.dayData.override.endTime
                       ? ` (${selectedDayDetail.dayData.override.startTime}–${selectedDayDetail.dayData.override.endTime})`
@@ -2405,8 +2405,8 @@ export default function AvailabilityPage() {
                       ))}
                   </SelectContent>
                 </Select>
-                <div className="p-2.5 rounded-md bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800">
-                  <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                <div className="p-2.5 rounded-md bg-amber-50 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-700">
+                  <p className="text-[11px] text-amber-800 dark:text-amber-200">
                     This will <strong>replace</strong> the target user&apos;s existing recurring weekly schedule with the source&apos;s schedule.
                   </p>
                 </div>
@@ -2587,8 +2587,8 @@ function OverrideList({
                   <Badge
                     className={`text-[10px] px-2 py-0.5 border-0 ${
                       override.isAvailable
-                        ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
-                        : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+                        ? "bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-200"
+                        : "bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-200"
                     }`}
                   >
                     {override.isAvailable ? "Available" : "Unavailable"}
@@ -2652,8 +2652,8 @@ function OverrideList({
                   <Badge
                     className={`text-[10px] px-2 py-0.5 border-0 ${
                       override.isAvailable
-                        ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
-                        : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+                        ? "bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-200"
+                        : "bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-200"
                     }`}
                   >
                     {override.isAvailable ? "Available" : "Unavailable"}
@@ -2727,8 +2727,8 @@ function DateRangeList({
                     <Badge
                       className={`text-[10px] px-2 py-0.5 border-0 ${
                         range.isAvailable
-                          ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
-                          : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+                          ? "bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-200"
+                          : "bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-200"
                       }`}
                     >
                       {range.isAvailable ? "Available" : "Unavailable"}
@@ -2799,8 +2799,8 @@ function DateRangeList({
                     <Badge
                       className={`text-[10px] px-2 py-0.5 border-0 ${
                         range.isAvailable
-                          ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
-                          : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+                          ? "bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-200"
+                          : "bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-200"
                       }`}
                     >
                       {range.isAvailable ? "Available" : "Unavailable"}
