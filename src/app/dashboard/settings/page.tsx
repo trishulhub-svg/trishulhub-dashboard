@@ -1362,38 +1362,38 @@ export default function SettingsPage() {
         <CardContent className="space-y-4">
           <div>
             <Label className="text-xs mb-2 block">Theme</Label>
-            <div className="flex gap-2">
+            <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2">
               <Button
                 variant={theme === "light" ? "default" : "outline"}
                 size="sm"
                 onClick={() => { setTheme("light"); isDirtyRef.current = true; }}
-                className="flex-1"
+                className="sm:flex-1 justify-center"
               >
-                <Sun className="h-4 w-4 mr-2" /> Light
+                <Sun className="h-4 w-4 mr-1.5 shrink-0" /> <span className="truncate">Light</span>
               </Button>
               <Button
                 variant={theme === "dark" ? "default" : "outline"}
                 size="sm"
                 onClick={() => { setTheme("dark"); isDirtyRef.current = true; }}
-                className="flex-1"
+                className="sm:flex-1 justify-center"
               >
-                <Moon className="h-4 w-4 mr-2" /> Dark
+                <Moon className="h-4 w-4 mr-1.5 shrink-0" /> <span className="truncate">Dark</span>
               </Button>
               <Button
                 variant={theme === "system" ? "default" : "outline"}
                 size="sm"
                 onClick={() => { setTheme("system"); isDirtyRef.current = true; }}
-                className="flex-1"
+                className="sm:flex-1 justify-center"
               >
-                <Monitor className="h-4 w-4 mr-2" /> System
+                <Monitor className="h-4 w-4 mr-1.5 shrink-0" /> <span className="truncate">System</span>
               </Button>
               <Button
                 variant={theme === "bluelight" ? "default" : "outline"}
                 size="sm"
                 onClick={() => { setTheme("bluelight"); isDirtyRef.current = true; }}
-                className="flex-1"
+                className="sm:flex-1 justify-center"
               >
-                <Eye className="h-4 w-4 mr-2" /> Blue Light
+                <Eye className="h-4 w-4 mr-1.5 shrink-0" /> <span className="truncate">Blue Light</span>
               </Button>
             </div>
           </div>
