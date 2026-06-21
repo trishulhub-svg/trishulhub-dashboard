@@ -208,23 +208,36 @@ export default function DocumentDetailPage() {
   const handleGenerateTest = async (level: string) => {
     setGeneratingTest(level)
     toast.info(`Generating ${level} difficulty test...`)
+    // Client-side timeout: abort the request after 4 minutes so the UI never
+    // gets stuck on "Generating..." if the server is killed silently (e.g.
+    // Vercel maxDuration exceeded) — the server sets maxDuration=300 which
+    // gives the AI call room to complete, but we cap the wait at 240s on the
+    // client to ensure the user gets feedback even in worst-case scenarios.
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 240000)
     try {
       const res = await fetch("/api/training/tests/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({ documentId: docId, level }),
+        signal: controller.signal,
       })
       if (res.ok) {
         toast.success(`${level} test generated successfully!`)
         fetchDocument()
       } else {
-        const data = await res.json()
+        const data = await res.json().catch(() => ({}))
         toast.error(data.error || "Failed to generate test")
       }
-    } catch (_e) {
-      toast.error("Failed to generate test")
+    } catch (e: unknown) {
+      if (e instanceof DOMException && e.name === "AbortError") {
+        toast.error("Test generation timed out. The AI may be busy — try again in a moment.")
+      } else {
+        toast.error("Failed to generate test")
+      }
     } finally {
+      clearTimeout(timeoutId)
       setGeneratingTest(null)
     }
   }

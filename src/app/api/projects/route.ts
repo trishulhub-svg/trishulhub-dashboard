@@ -71,13 +71,24 @@ export async function GET(req: NextRequest) {
     //
     // Task 7 (Phase 4): demo projects now live ONLY on /dashboard/demo;
     // regular projects live ONLY on /dashboard/projects.
+    //
+    // ISSUE 5 FIX: For non-admin (DEVELOPER/CLIENT/VIEWER) list fetches, the
+    // isDemo=false default must NOT be applied. Non-admins are already
+    // constrained to their assigned project IDs via getAssignedProjectIds
+    // (DEVELOPER/VIEWER) or their client record (CLIENT), and that set may
+    // include demo projects they're working on. Applying isDemo=false here
+    // would silently hide those demo projects — e.g. the time-tracking page
+    // dropdown would only show "No Project". Admins keep the isDemo=false
+    // default so /dashboard/projects stays demo-free.
+    const userIsAdmin = isAdmin(userRole)
     const isDemoParam = searchParams.get("isDemo")
     const isDemoFilter: boolean | undefined =
       isDemoParam === "true" ? true
       : isDemoParam === "false" ? false
       : isDemoParam === "all" ? undefined
       : projectId ? undefined  // single-project fetch — never filter by isDemo
-      : false                   // list fetch with no param — exclude demos
+      : userIsAdmin ? false    // admin list fetch with no param — exclude demos
+      : undefined              // non-admin list fetch — show ALL assigned projects (regular + demo)
 
     // CLIENT users can only see their own projects
     if (userRole === "CLIENT") {
@@ -121,7 +132,7 @@ export async function GET(req: NextRequest) {
     }
 
     // For developers: don't expose budget info
-    const includeBudget = isAdmin(userRole)
+    const includeBudget = userIsAdmin
 
     // ZAI FIX #310: When projectId is specified (detail page), return ONLY
     // scalar fields — no includes at all. The detail page fetches tasks,

@@ -252,7 +252,7 @@ async function callOpenRouterAPI(
       max_tokens: options?.maxTokens || 4096,
       temperature: options?.temperature || 0.7,
     }),
-    signal: AbortSignal.timeout(120000), // FIX: Add 2-minute timeout
+    signal: AbortSignal.timeout(90000), // 90s — under Vercel's 300s maxDuration for AI route
   })
 
   if (!response.ok) {
@@ -322,7 +322,7 @@ async function callZaiAPI(
         max_tokens: options?.maxTokens || 4096,
         temperature: options?.temperature || 0.7,
       }),
-      signal: AbortSignal.timeout(120000), // FIX: Add 2-minute timeout
+      signal: AbortSignal.timeout(90000), // 90s — under Vercel's 300s maxDuration for AI route
     })
 
     if (!response.ok) {
@@ -427,7 +427,7 @@ async function callGoogleAIAPI(
       "x-goog-api-key": apiKey,
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(120000), // FIX: Add 2-minute timeout
+    signal: AbortSignal.timeout(90000), // 90s — under Vercel's 300s maxDuration for AI route
   })
 
   if (!response.ok) {
@@ -487,7 +487,7 @@ async function callNvidiaAPI(
         clear_thinking: false,
       },
     }),
-    signal: AbortSignal.timeout(120000), // FIX: Add 2-minute timeout
+    signal: AbortSignal.timeout(90000), // 90s — under Vercel's 300s maxDuration for AI route
   })
 
   if (!response.ok) {
@@ -590,8 +590,18 @@ export async function callAIWithFailover(
 
     try {
       // Phase A8: keyValue is stored encrypted (JSON envelope) — decrypt before use.
-      // decryptFromJson gracefully handles legacy plaintext values (returns as-is).
+      // decryptFromJson gracefully handles legacy plaintext values (returns as-is),
+      // but returns "" on decryption failure (e.g. ENCRYPTION_KEY changed since key was stored).
+      // Fail fast with APIKeyInvalidError so the failover loop moves on instead of sending
+      // an empty Authorization header (which 401s slowly against the AI provider).
       const plainKeyValue = decryptFromJson(key.keyValue)
+      if (!plainKeyValue || plainKeyValue.length === 0) {
+        throw new APIKeyInvalidError(
+          key.provider,
+          0,
+          "Decryption returned empty string — ENCRYPTION_KEY may have changed since this key was stored. Re-enter the key in Dashboard > API Keys."
+        )
+      }
       const result = await callAI(messages, model, plainKeyValue, key.provider, options)
 
       return {

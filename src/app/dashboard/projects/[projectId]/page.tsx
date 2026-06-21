@@ -55,6 +55,9 @@ export default function ProjectDetailPage() {
   const params = useParams();
   const router = useRouter();
   const pathname = usePathname();
+  // If viewing a demo project detail (/dashboard/demo/[projectId]), the back
+  // button should return to the demo list — not the regular projects list.
+  const isDemoDetail = pathname?.includes("/demo/") ?? false;
   const { data: session, status: sessionStatus } = useSession();
   const queryClient = useQueryClient();
 
@@ -448,7 +451,7 @@ export default function ProjectDetailPage() {
           <FolderKanban className="h-7 w-7 text-muted-foreground/40" />
         </div>
         <p className="text-muted-foreground mb-4 font-medium">Invalid project ID</p>
-        <Button variant="outline" onClick={() => router.push("/dashboard/projects")} className="gap-2">
+        <Button variant="outline" onClick={() => router.push(isDemoDetail ? "/dashboard/demo" : "/dashboard/projects")} className="gap-2">
           <ArrowLeft className="h-4 w-4" /> Back to Projects
         </Button>
       </div>
@@ -462,7 +465,7 @@ export default function ProjectDetailPage() {
           <FolderKanban className="h-7 w-7 text-muted-foreground/40" />
         </div>
         <p className="text-muted-foreground mb-4 font-medium">Project not found</p>
-        <Button variant="outline" onClick={() => router.push("/dashboard/projects")} className="gap-2">
+        <Button variant="outline" onClick={() => router.push(isDemoDetail ? "/dashboard/demo" : "/dashboard/projects")} className="gap-2">
           <ArrowLeft className="h-4 w-4" /> Back to Projects
         </Button>
       </div>
@@ -501,7 +504,7 @@ export default function ProjectDetailPage() {
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => router.push("/dashboard/projects")}
+          onClick={() => router.push(isDemoDetail ? "/dashboard/demo" : "/dashboard/projects")}
           aria-label="Back to projects"
           className="mt-0.5 h-8 w-8 rounded-lg hover:bg-muted/80 hover:scale-105 transition-all duration-200"
         >
@@ -754,11 +757,12 @@ export default function ProjectDetailPage() {
                 {isAdminUser && mUserId !== userId && (
                   <button
                     type="button"
-                    className="h-4 w-4 flex items-center justify-center rounded-full text-muted-foreground/40 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 opacity-0 group-hover/member:opacity-100 transition-all ml-0.5"
+                    title="Remove member"
+                    aria-label="Remove member"
+                    className="h-7 w-7 flex items-center justify-center rounded-full bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 text-red-500 hover:text-red-600 opacity-0 group-hover/member:opacity-100 transition-all ml-0.5"
                     onClick={() => setRemoveMemberUserId(mUserId)}
-                    aria-label={`Remove ${mUserName}`}
                   >
-                    <X className="h-2.5 w-2.5" />
+                    <X className="h-3.5 w-3.5" />
                   </button>
                 )}
               </div>

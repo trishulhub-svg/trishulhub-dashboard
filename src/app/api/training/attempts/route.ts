@@ -6,12 +6,29 @@ import { rateLimit } from "@/lib/rate-limit"
 // TODO: Use trainingRateLimit() from rate-limit.ts for consistency (W33)
 // TODO: Use validateRequest() with submitTestAttemptSchema from validations.ts (W32)
 import { ensureTrainingTables } from "@/lib/training-migration"
+import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
 // POST /api/training/attempts - Submit test attempt
+// Auth: ANY logged-in user can submit. We verify the user is the assignee of
+// the TrainingAssignment — we do NOT require admin role. This allows DEVELOPER
+// (and MANAGER/ADMIN acting as the assignee) to submit their own training tests.
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+    // Defensive: legacy JWT tokens (created before token.id was added) can have
+    // session.user.id === undefined. Without this check, the assignment.assignedTo
+    // (a real user ID string) would never equal undefined, causing a confusing
+    // 403 "Forbidden" error. Fail fast with a clear 401 instead so the user
+    // knows to log out and back in.
+    if (!session.user.id) {
+      console.error("[training/attempts] session.user.id is missing — user likely has a stale JWT. Instruct user to log out and back in.")
+      return NextResponse.json(
+        { error: "Your session is stale. Please log out and log back in, then try submitting again." },
+        { status: 401 }
+      )
+    }
 
     // Auto-create training tables if missing (e.g. Turso DB not yet migrated)
     const migration = await ensureTrainingTables()
@@ -45,7 +62,34 @@ export async function POST(req: NextRequest) {
     })
 
     if (!assignment) return NextResponse.json({ error: "Assignment not found" }, { status: 404 })
-    if (assignment.assignedTo !== userId) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    // Authorization: only the assigned user can submit their own test.
+    // We deliberately do NOT check role here — DEVELOPER, MANAGER, and ADMIN
+    // are all allowed to submit if they are the assignee. If the check fails,
+    // log diagnostic detail server-side (never leak to the client) so we can
+    // troubleshoot ID mismatches (e.g. recreated user accounts).
+    if (assignment.assignedTo !== userId) {
+      console.error(
+        `[training/attempts] Forbidden: assignment.assignedTo="${assignment.assignedTo}" !== session.user.id="${userId}" (user=${session.user.email}, role=${session.user.role}, assignmentId=${assignmentId})`
+      )
+      void logAudit({
+        userId,
+        userName: session.user.name || "unknown",
+        userRole: session.user.role,
+        department: "LEARNING",
+        page: "my-training",
+        action: "ACCESS",
+        entityType: "TrainingAssignment",
+        entityId: assignmentId,
+        description: `Forbidden submit attempt: assignment assigned to a different user`,
+        ipAddress: getIpAddress(req),
+        userAgent: getUserAgent(req),
+        status: "FAILURE",
+      })
+      return NextResponse.json(
+        { error: "You are not assigned to this training. If you believe this is an error, ask an admin to reassign it to you, or try logging out and back in." },
+        { status: 403 }
+      )
+    }
     if (!assignment.test) return NextResponse.json({ error: "No test assigned" }, { status: 400 })
 
     // C14: Transactional submission with TOCTOU re-check to prevent double submission race
@@ -128,6 +172,23 @@ export async function POST(req: NextRequest) {
     } catch (notifyErr: unknown) {
       console.error("[training/attempts] Notification error (non-blocking):", notifyErr instanceof Error ? notifyErr.message : notifyErr)
     }
+
+    // Audit: log test submission (fire-and-forget)
+    void logAudit({
+      userId,
+      userName: session.user.name || "unknown",
+      userRole: session.user.role,
+      department: "LEARNING",
+      page: "my-training",
+      action: "STATUS_CHANGE",
+      entityType: "TrainingAssignment",
+      entityId: assignmentId,
+      description: `Submitted training test "${assignment.document.topic.slice(0, 80)}" — score ${result.score}/${result.questions.length} (${result.passed ? "PASSED" : "FAILED"})`,
+      ipAddress: getIpAddress(req),
+      userAgent: getUserAgent(req),
+      status: "SUCCESS",
+      metadata: JSON.stringify({ assignmentId, score: result.score, total: result.questions.length, passed: result.passed }),
+    })
 
     return NextResponse.json({
       attempt: result.attempt,

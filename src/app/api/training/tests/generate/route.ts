@@ -8,9 +8,12 @@ import { canManageTraining } from "@/lib/rbac"
 import { rateLimit } from "@/lib/rate-limit"
 import { callAIWithFailover } from "@/lib/ai/openrouter"
 import { ensureTrainingTables } from "@/lib/training-migration"
+import { decryptFromJson } from "@/lib/encryption"
 
-// Vercel serverless function timeout (seconds) — AI generation needs more time
-export const maxDuration = 60
+// Vercel serverless function timeout (seconds).
+// AI generation can take 60-120s for long documents — set to 300s (Vercel Pro max)
+// so the function isn't killed mid-call, which would leave the UI stuck on "Generating...".
+export const maxDuration = 300
 
 // POST /api/training/tests/generate - Generate test for a document
 export async function POST(req: NextRequest) {
@@ -73,6 +76,27 @@ export async function POST(req: NextRequest) {
         }, { status: 500 })
       }
 
+      // Defensive: verify each key can be decrypted to a non-empty string.
+      // If ENCRYPTION_KEY changed since the key was stored, decryptFromJson returns "".
+      // Catch this BEFORE calling the AI so we fail fast with a helpful message
+      // instead of sending an empty Authorization header (which 401s slowly).
+      const usableKeys = apiKeys.filter((k) => {
+        try {
+          const plain = decryptFromJson(k.keyValue || "")
+          return !!plain && plain.length > 0
+        } catch {
+          return false
+        }
+      })
+      if (usableKeys.length === 0) {
+        console.error("[training/tests/generate] All API keys failed to decrypt. Check ENCRYPTION_KEY env var matches the key used when keys were stored.")
+        return NextResponse.json({
+          error: "API keys are configured but could not be decrypted. Ask a Super Admin to re-enter API keys in Dashboard > API Keys, or verify the ENCRYPTION_KEY environment variable.",
+        }, { status: 500 })
+      }
+
+      console.log(`[training/tests/generate] Generating ${level} test for doc ${documentId} (${usableKeys.length}/${apiKeys.length} usable keys)`)
+
       const result = await callAIWithFailover(
         [
           {
@@ -111,20 +135,32 @@ Return format:
           },
         ],
         "glm-4.7-flash",
-        apiKeys,
+        usableKeys,
         { maxTokens: 4000, temperature: 0.5 }
       )
 
       const aiContent = result.content
-      // W38: Non-greedy regex and proper error handling for AI JSON parse
-      const jsonMatch = aiContent.match(/\[[\s\S]*?\]/)
+      if (!aiContent || aiContent.trim().length === 0) {
+        console.error("[training/tests/generate] AI returned empty content")
+        return NextResponse.json({ error: "AI returned an empty response. Try again or check API key balance." }, { status: 502 })
+      }
+
+      // W38: Extract JSON array from AI response.
+      // Use GREEDY match (\[[\s\S]*\]) so we capture the OUTER array,
+      // not the first inner options array like ["A","B","C","D"] which
+      // would cause JSON.parse to fail with "Unexpected end of input".
+      // Strip markdown code fences first to avoid ```json ... ``` breaking the match.
+      const stripped = aiContent.replace(/```(?:json)?/gi, "")
+      const jsonMatch = stripped.match(/\[[\s\S]*\]/)
       if (!jsonMatch) {
-        return NextResponse.json({ error: "AI returned invalid format" }, { status: 500 })
+        console.error("[training/tests/generate] AI response did not contain a JSON array. First 500 chars:", aiContent.substring(0, 500))
+        return NextResponse.json({ error: "AI returned invalid format (no JSON array found). Try regenerating." }, { status: 502 })
       }
       try {
         questions = JSON.parse(jsonMatch[0])
-      } catch {
-        return NextResponse.json({ error: "AI returned malformed JSON" }, { status: 500 })
+      } catch (parseErr) {
+        console.error("[training/tests/generate] AI returned malformed JSON:", parseErr instanceof Error ? parseErr.message : parseErr, "| First 500 chars:", jsonMatch[0].substring(0, 500))
+        return NextResponse.json({ error: "AI returned malformed JSON. Try regenerating the test." }, { status: 502 })
       }
 
       // W39: Separate try/catch for API usage tracking
