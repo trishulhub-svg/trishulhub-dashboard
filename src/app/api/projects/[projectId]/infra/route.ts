@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { isAdmin, getAssignedProjectIds } from "@/lib/rbac"
+import { isAdminOrProjectManager } from "@/lib/rbac"
 import { encryptCredential } from "@/lib/encryption"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
@@ -13,9 +13,9 @@ function isValidProjectId(id: string): boolean {
   return /^[a-zA-Z0-9_-]{10,50}$/.test(id)
 }
 
-/** Check if user is a member of the project or is admin */
+/** Check if user is a member of the project, an admin, or a project manager */
 async function canAccessProject(userId: string, role: string, projectId: string): Promise<boolean> {
-  if (isAdmin(role)) return true
+  if (isAdminOrProjectManager(role)) return true
   const membership = await db.projectMember.findFirst({
     where: { userId, projectId },
     select: { id: true },
@@ -118,8 +118,9 @@ export async function PUT(
       return NextResponse.json({ error: "Invalid project ID" }, { status: 400 })
     }
 
-    // Only ADMIN+ can edit infrastructure
-    if (!isAdmin(session.user.role)) {
+    // Only ADMIN+ (including PROJECT_MANAGER) can edit infrastructure fields.
+    // Token fields (POST endpoint) are still SUPER_ADMIN only.
+    if (!isAdminOrProjectManager(session.user.role)) {
       return NextResponse.json({ error: "Forbidden: admin access required" }, { status: 403 })
     }
 

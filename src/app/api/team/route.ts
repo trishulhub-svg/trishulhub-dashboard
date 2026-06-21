@@ -15,7 +15,7 @@ function toLocalDateStr(d: Date): string {
 }
 
 // [T4/T6] Valid role values
-const VALID_ROLES = ["SUPER_ADMIN", "ADMIN", "DEVELOPER", "VIEWER", "CLIENT"] as const
+const VALID_ROLES = ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER", "VIEWER", "CLIENT"] as const
 
 // [W15] Helper: verify user account is still active
 async function requireActiveUser(userId: string): Promise<NextResponse | null> {
@@ -72,9 +72,11 @@ export async function GET(req: NextRequest) {
     }
 
     if (type === "users") {
-      // SUPER_ADMIN and ADMIN: list all users for team management
+      // SUPER_ADMIN, ADMIN, and PROJECT_MANAGER: list all users for team/credential management.
+      // PROJECT_MANAGER needs the user list to manage credentials (Access Hub).
+      // They do NOT have access to the Team Management page itself (middleware-gated).
       const userRole = session.user.role
-      if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+      if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN" && userRole !== "PROJECT_MANAGER") {
         return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
       }
       // TODO: Add cursor-based pagination for large datasets
@@ -596,9 +598,11 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Invalid department" }, { status: 400 });
       }
 
-      // Only SUPER_ADMIN can create other SUPER_ADMIN or ADMIN users
-      if ((role === "SUPER_ADMIN" || role === "ADMIN") && userRole !== "SUPER_ADMIN") {
-        return NextResponse.json({ error: "Only Super Admins can create Admin or Super Admin users" }, { status: 403 });
+      // Only SUPER_ADMIN can create other SUPER_ADMIN, ADMIN, or PROJECT_MANAGER users.
+      // PROJECT_MANAGER is a privileged role with admin-like project/client/credential access,
+      // so it must be restricted the same way as ADMIN.
+      if ((role === "SUPER_ADMIN" || role === "ADMIN" || role === "PROJECT_MANAGER") && userRole !== "SUPER_ADMIN") {
+        return NextResponse.json({ error: "Only Super Admins can create Admin, Super Admin, or Project Manager users" }, { status: 403 });
       }
 
       // Check if email already exists

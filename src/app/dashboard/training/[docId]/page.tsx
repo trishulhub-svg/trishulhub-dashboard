@@ -179,12 +179,12 @@ export default function DocumentDetailPage() {
 
         let filtered: Employee[]
         if (myRole === "SUPER_ADMIN") {
-          // Superadmin can assign to anyone (self, admins, developers)
-          filtered = allUsers.filter((e: Employee) => ["SUPER_ADMIN", "ADMIN", "DEVELOPER"].includes(e.role))
+          // Superadmin can assign to anyone (self, admins, PMs, developers)
+          filtered = allUsers.filter((e: Employee) => ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"].includes(e.role))
         } else {
-          // Admin can assign to self and developers, but NOT superadmins
+          // Admin can assign to self, PMs, and developers, but NOT superadmins
           filtered = allUsers.filter((e: Employee) =>
-            e.id === myId || e.role === "DEVELOPER" || e.role === "ADMIN"
+            e.id === myId || e.role === "DEVELOPER" || e.role === "ADMIN" || e.role === "PROJECT_MANAGER"
           ).filter((e: Employee) => e.role !== "SUPER_ADMIN")
         }
 

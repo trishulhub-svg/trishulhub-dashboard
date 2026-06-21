@@ -44,7 +44,8 @@ export async function POST(request: NextRequest) {
         email: user.email,
         name: user.name,
         role: user.role,
-        tier: user.role === "SUPER_ADMIN" || user.role === "ADMIN" ? 1 : 2,
+        // PROJECT_MANAGER is treated as tier 1 (admin-like) for agent API access
+        tier: user.role === "SUPER_ADMIN" || user.role === "ADMIN" || user.role === "PROJECT_MANAGER" ? 1 : 2,
       },
       refreshed: !shouldRefresh(payload) ? false : true,
     });

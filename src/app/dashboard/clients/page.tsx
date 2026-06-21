@@ -398,7 +398,9 @@ export default function ClientsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const userRole = session?.user?.role || "DEVELOPER";
-  const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+  // PROJECT_MANAGER has the same client-management capabilities as ADMIN
+  // per requirements ("Clients: ✅ Full (like admin) — Can manage clients").
+  const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN" || userRole === "PROJECT_MANAGER";
 
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [loading, setLoading] = useState(true);

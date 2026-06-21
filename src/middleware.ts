@@ -78,26 +78,53 @@ export async function middleware(request: NextRequest) {
       return addSecurityHeaders(request, NextResponse.redirect(new URL("/portal", request.url)))
     }
 
-    // Admin-only routes — developers can access: workspace,
-    // my-training, leaves (for their own data), and settings (profile/password/avatar only).
-    // The settings page itself renders admin-only sections conditionally based on role.
+    // Granular role-based route protection.
+    //
+    // PROJECT_MANAGER is a new tier between ADMIN and DEVELOPER. It can access
+    // project/client/credential/approval management (admin-like) but is
+    // excluded from finance, CRM, team, training, availability, audit trail,
+    // API keys, and protocol management.
+    //
+    // Super admin only routes — strictly SUPER_ADMIN (e.g. API keys).
+    const superAdminOnlyRoutes = ["/dashboard/api-keys"]
+
+    // Admin only routes — NOT accessible to PROJECT_MANAGER.
+    // PROJECT_MANAGER is redirected to /dashboard if they try to access these.
     const adminOnlyRoutes = [
-      "/dashboard/api-keys",
       "/dashboard/finance",
       "/dashboard/crm",
+      "/dashboard/team",
+      "/dashboard/availability",
+      "/dashboard/training",
+      "/dashboard/audit-trail",
+    ]
+
+    // Admin OR Project Manager routes — accessible to SUPER_ADMIN, ADMIN,
+    // and PROJECT_MANAGER. Developers/viewers are redirected away.
+    const adminOrPmRoutes = [
       "/dashboard/clients",
       "/dashboard/projects",
       "/dashboard/demo",
-      "/dashboard/availability",
-      "/dashboard/team",
-      "/dashboard/training",
       "/dashboard/approvals",
-      "/dashboard/audit-trail",
       "/dashboard/credentials",
     ]
-    const isAdmin = role === "SUPER_ADMIN" || role === "ADMIN"
 
-    if (!isAdmin && adminOnlyRoutes.some(route => pathname.startsWith(route))) {
+    const isSuperAdmin = role === "SUPER_ADMIN"
+    const isAdminRole = role === "SUPER_ADMIN" || role === "ADMIN"
+    const isAdminOrPm = role === "SUPER_ADMIN" || role === "ADMIN" || role === "PROJECT_MANAGER"
+
+    // Check super admin only routes
+    if (!isSuperAdmin && superAdminOnlyRoutes.some(route => pathname.startsWith(route))) {
+      return addSecurityHeaders(request, NextResponse.redirect(new URL("/dashboard", request.url)))
+    }
+
+    // Check admin only routes (excludes PROJECT_MANAGER)
+    if (!isAdminRole && adminOnlyRoutes.some(route => pathname.startsWith(route))) {
+      return addSecurityHeaders(request, NextResponse.redirect(new URL("/dashboard", request.url)))
+    }
+
+    // Check admin or PM routes
+    if (!isAdminOrPm && adminOrPmRoutes.some(route => pathname.startsWith(route))) {
       return addSecurityHeaders(request, NextResponse.redirect(new URL("/dashboard", request.url)))
     }
   }

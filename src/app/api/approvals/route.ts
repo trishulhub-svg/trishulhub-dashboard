@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { canManageApprovals } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { deepSanitize } from "@/lib/utils"
 
@@ -31,9 +32,12 @@ export async function GET(req: NextRequest) {
     const where: Record<string, unknown> = {}
     if (type) where.type = type
 
-    // Non-admin users can only see their own approval requests
-    const isAdminRole = userRole === "SUPER_ADMIN" || userRole === "ADMIN"
-    if (!isAdminRole) {
+    // Non-admin users can only see their own approval requests.
+    // PROJECT_MANAGER (via canManageApprovals) can see all approvals — they
+    // can manage non-leave approvals (AI approvals, task approvals, etc.).
+    // Leave approvals are gated separately via /api/team and canApproveLeave.
+    const canManage = canManageApprovals(userRole)
+    if (!canManage) {
       where.requesterId = userId
       // W26: Validate statusParam against whitelist for non-admins
       const validStatuses = ["PENDING", "APPROVED", "REJECTED", "NEEDS_IMPROVEMENT"]
@@ -42,12 +46,12 @@ export async function GET(req: NextRequest) {
       }
       if (statusParam) where.status = statusParam
     } else {
-      // W26: Validate statusParam against whitelist for admins
+      // W26: Validate statusParam against whitelist for admins/PM
       const validStatuses = ["PENDING", "APPROVED", "REJECTED", "NEEDS_IMPROVEMENT"]
       if (statusParam && !validStatuses.includes(statusParam)) {
         return NextResponse.json({ error: "Invalid status parameter" }, { status: 400 })
       }
-      // Admins default to PENDING but can override via ?status=
+      // Admins/PM default to PENDING but can override via ?status=
       where.status = statusParam || "PENDING"
     }
 
@@ -177,8 +181,11 @@ export async function PATCH(req: NextRequest) {
     // Sanitize feedback
     const sanitizedFeedback = String(feedback || "").slice(0, 500).replace(/[<>]/g, "")
 
-    // Only ADMIN and SUPER_ADMIN can approve/reject
-    if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+    // Only ADMIN, SUPER_ADMIN, and PROJECT_MANAGER can approve/reject AI approvals.
+    // PROJECT_MANAGER is included via canManageApprovals. Note: this endpoint
+    // is only for AI/non-leave approvals — leave approvals are handled by
+    // /api/team which uses isAdmin (excludes PM) for status changes.
+    if (!canManageApprovals(userRole)) {
       return NextResponse.json({ error: "Only administrators can approve or reject requests" }, { status: 403 })
     }
 

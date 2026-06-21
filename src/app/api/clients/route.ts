@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { createClientSchema, validateRequest } from "@/lib/validations"
-import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
+import { isAdminOrProjectManager, getAssignedClientIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { deepSanitize } from "@/lib/utils"
@@ -166,8 +166,8 @@ export async function GET(req: NextRequest) {
       primaryWebsite: websites.length > 0 ? websites[0] : null,
       projectMethodId: projectMethod?.id || null,
       projectMethod,
-      // Hide revenue for developers
-      revenue: isAdmin(role) ? revenue : undefined,
+      // Hide revenue for developers. PROJECT_MANAGER sees revenue (admin-like access).
+      revenue: isAdminOrProjectManager(role) ? revenue : undefined,
     }
   })
 
@@ -189,7 +189,7 @@ export async function GET(req: NextRequest) {
     const allEnriched = allClients.map((client) => {
       const revenue = client.invoices.reduce((sum, inv) => sum + inv.total, 0)
       const { invoices, websites, projectMethod, ...rest } = client
-      return { ...rest, primaryWebsite: websites.length > 0 ? websites[0] : null, projectMethod, projectMethodId: projectMethod?.id || null, revenue: isAdmin(role) ? revenue : undefined }
+      return { ...rest, primaryWebsite: websites.length > 0 ? websites[0] : null, projectMethod, projectMethodId: projectMethod?.id || null, revenue: isAdminOrProjectManager(role) ? revenue : undefined }
     })
     allEnriched.sort((a, b) => {
       const revA = (a.revenue as number) ?? 0
@@ -216,7 +216,7 @@ export async function GET(req: NextRequest) {
   ])
 
   let totalRevenue: number | undefined
-  if (isAdmin(role)) {
+  if (isAdminOrProjectManager(role)) {
     const revenueResult = await db.invoice.aggregate({
       where: { client: statsWhere, status: "PAID" },
       _sum: { total: true },
@@ -250,7 +250,9 @@ export async function POST(req: NextRequest) {
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const role = session.user.role
-  if (role !== "SUPER_ADMIN" && role !== "ADMIN") {
+  if (role === "CLIENT") return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  // PROJECT_MANAGER can create clients (admin-like access per requirements)
+  if (!isAdminOrProjectManager(role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 

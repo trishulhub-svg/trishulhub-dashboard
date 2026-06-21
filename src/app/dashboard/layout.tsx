@@ -94,17 +94,17 @@ const navGroups: NavGroup[] = [
   {
     label: "Overview",
     items: [
-      { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
-      { title: "Workspace", href: "/dashboard/workspace", icon: Rocket, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+      { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
+      { title: "Workspace", href: "/dashboard/workspace", icon: Rocket, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
     ],
   },
   {
     label: "Business",
     items: [
       { title: "CRM", href: "/dashboard/crm", icon: Crosshair, roles: ["SUPER_ADMIN", "ADMIN"] },
-      { title: "Clients", href: "/dashboard/clients", icon: Briefcase, roles: ["SUPER_ADMIN", "ADMIN"] },
-      { title: "Projects", href: "/dashboard/projects", icon: FolderKanban, roles: ["SUPER_ADMIN", "ADMIN"] },
-      { title: "Demo Projects", href: "/dashboard/demo", icon: FlaskConical, roles: ["SUPER_ADMIN", "ADMIN"] },
+      { title: "Clients", href: "/dashboard/clients", icon: Briefcase, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER"] },
+      { title: "Projects", href: "/dashboard/projects", icon: FolderKanban, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER"] },
+      { title: "Demo Projects", href: "/dashboard/demo", icon: FlaskConical, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER"] },
       { title: "Finance", href: "/dashboard/finance", icon: DollarSign, roles: ["SUPER_ADMIN", "ADMIN"] },
     ],
   },
@@ -112,23 +112,23 @@ const navGroups: NavGroup[] = [
     label: "Team & Work",
     items: [
       { title: "Team", href: "/dashboard/team", icon: Users, roles: ["SUPER_ADMIN", "ADMIN"] },
-      { title: "Time Tracking", href: "/dashboard/time-tracking", icon: Clock, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+      { title: "Time Tracking", href: "/dashboard/time-tracking", icon: Clock, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
     ],
   },
   {
     label: "HR & People",
     items: [
-      { title: "My Leaves", href: "/dashboard/leaves", icon: CalendarDays, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
-      { title: "My Details", href: "/dashboard/my-details", icon: IdCard, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+      { title: "My Leaves", href: "/dashboard/leaves", icon: CalendarDays, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
+      { title: "My Details", href: "/dashboard/my-details", icon: IdCard, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
       { title: "Availability", href: "/dashboard/availability", icon: Clock, roles: ["SUPER_ADMIN", "ADMIN"] },
-      { title: "Approvals", href: "/dashboard/approvals", icon: Shield, roles: ["SUPER_ADMIN", "ADMIN"] },
+      { title: "Approvals", href: "/dashboard/approvals", icon: Shield, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER"] },
     ],
   },
   {
     label: "Learning",
     items: [
       { title: "Training", href: "/dashboard/training", icon: GraduationCap, roles: ["SUPER_ADMIN", "ADMIN"] },
-      { title: "My Training", href: "/dashboard/my-training", icon: BookOpen, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+      { title: "My Training", href: "/dashboard/my-training", icon: BookOpen, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
     ],
   },
   {
@@ -140,14 +140,14 @@ const navGroups: NavGroup[] = [
         title: "Access Hub",
         href: "/dashboard/access-hub",
         icon: KeyRound,
-        roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"],
+        roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"],
         children: [
-          { title: "Credentials", href: "/dashboard/access-hub?tab=credentials", icon: Shield, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+          { title: "Credentials", href: "/dashboard/access-hub?tab=credentials", icon: Shield, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
           { title: "Protocol", href: "/dashboard/access-hub?tab=protocol", icon: FileText, roles: ["SUPER_ADMIN", "ADMIN"] },
           { title: "System Config", href: "/dashboard/access-hub?tab=system", icon: Settings, roles: ["SUPER_ADMIN", "ADMIN"] },
         ],
       },
-      { title: "Settings", href: "/dashboard/settings", icon: Settings, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+      { title: "Settings", href: "/dashboard/settings", icon: Settings, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
     ],
   },
 ];
@@ -518,7 +518,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [navBadgeData, setNavBadgeData] = useState<NavBadgeMap>({});
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
 
-  const VALID_ROLES = ["SUPER_ADMIN", "ADMIN", "DEVELOPER", "VIEWER", "CLIENT"] as const;
+  const VALID_ROLES = ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER", "VIEWER", "CLIENT"] as const;
   const rawRole = session?.user?.role;
   const userRole = rawRole && VALID_ROLES.includes(rawRole as typeof VALID_ROLES[number])
     ? rawRole

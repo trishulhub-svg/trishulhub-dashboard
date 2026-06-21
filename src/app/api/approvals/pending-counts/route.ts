@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import { isAdmin } from "@/lib/rbac"
+import { isAdmin, canManageApprovals } from "@/lib/rbac"
 import { db } from "@/lib/db"
 import { ensureTable } from "@/lib/auto-migrate"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
@@ -9,7 +9,8 @@ import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 // GET /api/approvals/pending-counts
 // Returns a map of nav-href → count for notification badges.
 // Different roles see different badge data:
-//   ADMIN/SUPER_ADMIN: pending approvals, leaves
+//   ADMIN/SUPER_ADMIN: pending approvals, all leaves
+//   PROJECT_MANAGER:   pending AI approvals (cannot act on leaves)
 //   DEVELOPER:          their pending leaves, unread notifications
 //   VIEWER:             (no badges currently)
 export async function GET(req: NextRequest) {
@@ -39,7 +40,7 @@ export async function GET(req: NextRequest) {
     const badges: Record<string, number> = {}
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // ADMIN / SUPER_ADMIN badges
+    // ADMIN / SUPER_ADMIN badges — full visibility of approvals + leaves
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     if (isAdmin(userRole)) {
       const [approvals, leaveRequests] = await Promise.all([
@@ -57,6 +58,27 @@ export async function GET(req: NextRequest) {
 
       // Leaves page: pending leaves
       if (leaveRequests > 0) badges["/dashboard/leaves"] = leaveRequests
+
+      return NextResponse.json(badges)
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // PROJECT_MANAGER badges — sees AI approvals (can manage) + own leaves
+    // (PM has developer-level leave access — they can only see/cancel their own)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    if (canManageApprovals(userRole)) {
+      const [approvals, myPendingLeaves] = await Promise.all([
+        db.approval.count({ where: { status: "PENDING" } }),
+        db.leaveRequest.count({ where: { userId, status: "PENDING" } }),
+      ])
+
+      const total = approvals + myPendingLeaves
+
+      // Approvals page: pending AI approvals + my pending leaves
+      if (total > 0) badges["/dashboard/approvals"] = total
+
+      // Leaves page: my pending leaves
+      if (myPendingLeaves > 0) badges["/dashboard/leaves"] = myPendingLeaves
 
       return NextResponse.json(badges)
     }

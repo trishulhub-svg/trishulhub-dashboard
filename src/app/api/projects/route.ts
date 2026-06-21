@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
-import { isAdmin, getAssignedProjectIds } from "@/lib/rbac"
+import { isAdmin, isAdminOrProjectManager, getAssignedProjectIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { createProjectSchema, updateProjectSchema } from "@/lib/validations"
@@ -78,16 +78,20 @@ export async function GET(req: NextRequest) {
     // (DEVELOPER/VIEWER) or their client record (CLIENT), and that set may
     // include demo projects they're working on. Applying isDemo=false here
     // would silently hide those demo projects — e.g. the time-tracking page
-    // dropdown would only show "No Project". Admins keep the isDemo=false
-    // default so /dashboard/projects stays demo-free.
+    // dropdown would only show "No Project". Admins (and PROJECT_MANAGER,
+    // who has admin-like project visibility) keep the isDemo=false default
+    // so /dashboard/projects stays demo-free.
     const userIsAdmin = isAdmin(userRole)
+    // PROJECT_MANAGER gets admin-like project visibility (no project ID filter),
+    // but budget visibility is still gated by isAdmin (PM does NOT see budget).
+    const canManageProjects = isAdminOrProjectManager(userRole)
     const isDemoParam = searchParams.get("isDemo")
     const isDemoFilter: boolean | undefined =
       isDemoParam === "true" ? true
       : isDemoParam === "false" ? false
       : isDemoParam === "all" ? undefined
       : projectId ? undefined  // single-project fetch — never filter by isDemo
-      : userIsAdmin ? false    // admin list fetch with no param — exclude demos
+      : canManageProjects ? false    // admin/PM list fetch with no param — exclude demos
       : undefined              // non-admin list fetch — show ALL assigned projects (regular + demo)
 
     // CLIENT users can only see their own projects
@@ -132,6 +136,7 @@ export async function GET(req: NextRequest) {
     }
 
     // For developers: don't expose budget info
+    // PROJECT_MANAGER also doesn't see budget — only SUPER_ADMIN/ADMIN do
     const includeBudget = userIsAdmin
 
     // ZAI FIX #310: When projectId is specified (detail page), return ONLY
@@ -207,9 +212,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
     }
 
-    // Only admins can create projects
+    // Only admins can create projects (PROJECT_MANAGER can also create/manage projects
+    // per requirements — they have full project-management capabilities)
     const userRole = session.user.role
-    if (!isAdmin(userRole)) {
+    if (!isAdminOrProjectManager(userRole)) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
 
@@ -287,9 +293,9 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
     }
 
-    // Only admins can update projects
+    // Only admins/PM can update projects
     const userRole = session.user.role
-    if (!isAdmin(userRole)) {
+    if (!isAdminOrProjectManager(userRole)) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
 
@@ -385,7 +391,7 @@ export async function DELETE(req: NextRequest) {
     }
 
     const userRole = session.user.role
-    if (!isAdmin(userRole)) {
+    if (!isAdminOrProjectManager(userRole)) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
 

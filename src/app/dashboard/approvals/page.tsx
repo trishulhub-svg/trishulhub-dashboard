@@ -194,7 +194,15 @@ export default function ApprovalsPage() {
   const isSessionLoading = sessionStatus === "loading";
   const userRole = session?.user?.role || "DEVELOPER";
   const userId = session?.user?.id || "";
+  // isAdminUser = SUPER_ADMIN or ADMIN only. Used for leave-management UI
+  // (admin sees all leaves + can approve/reject; PM/dev see only their own
+  // leaves + cannot approve/reject). PROJECT_MANAGER is intentionally NOT
+  // included here so they get developer-level leave access.
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+  // canManageApprovals = SUPER_ADMIN, ADMIN, or PROJECT_MANAGER. Used for
+  // AI approval UI (these roles can see and act on AI approval requests).
+  // PROJECT_MANAGER is included so they can manage non-leave approvals.
+  const canManageApprovals = userRole === "SUPER_ADMIN" || userRole === "ADMIN" || userRole === "PROJECT_MANAGER";
 
   // Tab state
   const [activeTab, setActiveTab] = useState("all-pending");
@@ -223,6 +231,11 @@ export default function ApprovalsPage() {
     approvals: pendingAiApprovals.length,
     leaveRequests: pendingLeaves.length,
     total: pendingAiApprovals.length + pendingLeaves.length,
+  } : canManageApprovals ? {
+    // PROJECT_MANAGER: can manage AI approvals (see all) but only their own leaves
+    approvals: pendingAiApprovals.length,
+    leaveRequests: myPendingLeaves.length,
+    total: pendingAiApprovals.length + myPendingLeaves.length,
   } : {
     approvals: 0,
     leaveRequests: myPendingLeaves.length,
@@ -230,6 +243,10 @@ export default function ApprovalsPage() {
   };
 
   // Unified pending queue (memoized)
+  // - ADMIN/SUPER_ADMIN: all pending leaves + all pending AI approvals
+  // - PROJECT_MANAGER: own pending leaves + all pending AI approvals
+  //   (PM can manage AI approvals but only has developer-level leave access)
+  // - DEVELOPER/VIEWER: own pending leaves only (no AI approvals)
   const unifiedPending: UnifiedPendingItem[] = useMemo(() => [
     ...(isAdminUser ? pendingLeaves : myPendingLeaves).map((l) => ({
       id: l.id,
@@ -241,7 +258,7 @@ export default function ApprovalsPage() {
       createdAt: l.createdAt,
       raw: l,
     })),
-    ...(isAdminUser ? pendingAiApprovals : []).map((a) => ({
+    ...(canManageApprovals ? pendingAiApprovals : []).map((a) => ({
       id: a.id,
       source: "AI" as const,
       title: a.title,
@@ -251,7 +268,7 @@ export default function ApprovalsPage() {
       createdAt: a.createdAt,
       raw: a,
     })),
-  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()), [isAdminUser, pendingLeaves, myPendingLeaves, pendingAiApprovals]);
+  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()), [isAdminUser, canManageApprovals, pendingLeaves, myPendingLeaves, pendingAiApprovals]);
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // Data Fetching
@@ -892,6 +909,29 @@ export default function ApprovalsPage() {
       color: "text-sky-600 dark:text-sky-400",
       bg: "bg-sky-50 dark:bg-sky-900/20",
     },
+  ] : canManageApprovals ? [
+    // PROJECT_MANAGER: can manage AI approvals, sees own leaves only
+    {
+      label: "Approval Requests",
+      value: counts.approvals,
+      icon: <Bot className="h-5 w-5" />,
+      color: "text-purple-600 dark:text-purple-400",
+      bg: "bg-purple-50 dark:bg-purple-900/20",
+    },
+    {
+      label: "My Leave Requests",
+      value: myPendingLeaves.length,
+      icon: <Calendar className="h-5 w-5" />,
+      color: "text-sky-600 dark:text-sky-400",
+      bg: "bg-sky-50 dark:bg-sky-900/20",
+    },
+    {
+      label: "Total Pending",
+      value: counts.total,
+      icon: <ShieldCheck className="h-5 w-5" />,
+      color: "text-amber-600 dark:text-amber-400",
+      bg: "bg-amber-50 dark:bg-amber-900/20",
+    },
   ] : [
     {
       label: "My Leave Requests",
@@ -915,7 +955,7 @@ export default function ApprovalsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Approval Center" description={isAdminUser ? "Universal approval gateway for all system requests" : "Track your tasks, leave requests, and approvals"}>
+      <PageHeader title="Approval Center" description={canManageApprovals ? "Universal approval gateway for all system requests" : "Track your tasks, leave requests, and approvals"}>
         <Button variant="outline" size="sm" onClick={fetchAllData}>
           <RefreshCw className={`h-4 w-4 mr-1 ${loading ? "animate-spin" : ""}`} /> Refresh
         </Button>
@@ -942,7 +982,7 @@ export default function ApprovalsPage() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="w-full sm:w-auto">
           <TabsTrigger value="all-pending">
-            {isAdminUser ? "All Pending" : "My Pending"}
+            {canManageApprovals ? "All Pending" : "My Pending"}
             {counts.total > 0 && (
               <Badge variant="destructive" className="ml-1.5 h-5 min-w-5 px-1 text-[10px]">
                 {counts.total}
@@ -968,7 +1008,7 @@ export default function ApprovalsPage() {
           {loading ? (
             renderLoading()
           ) : unifiedPending.length === 0 ? (
-            renderEmpty(isAdminUser ? "No pending approvals across the system." : "No pending items for you.")
+            renderEmpty(canManageApprovals ? "No pending approvals across the system." : "No pending items for you.")
           ) : (
             <div className="space-y-3">
               {unifiedPending.map((item) => renderUnifiedCard(item))}

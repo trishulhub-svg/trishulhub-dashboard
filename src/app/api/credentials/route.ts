@@ -34,12 +34,16 @@ const updateCredentialSchema = z.object({
 });
 
 // ── Auth Helper ──
+// PROJECT_MANAGER has the same credential access as ADMIN — they can view
+// all credentials but can only create/update/delete their own. This matches
+// the existing ADMIN behavior and the requirement that PM has "full access
+// like admin" for credentials.
 async function requireAdmin(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }), session: null };
   }
-  if (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN") {
+  if (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN" && session.user.role !== "PROJECT_MANAGER") {
     return { error: NextResponse.json({ error: "Forbidden — Admin only" }, { status: 403 }), session: null };
   }
   return { error: null, session };
@@ -74,8 +78,9 @@ export async function GET(req: NextRequest) {
     const userId = session.user.id;
     const role = session.user.role;
 
-    if (role === "SUPER_ADMIN" || role === "ADMIN") {
-      // Admins can see all credentials with user info
+    // ADMIN and PROJECT_MANAGER can see all credentials with user info.
+    // They can create/update/delete only their own (matching existing ADMIN behavior).
+    if (role === "SUPER_ADMIN" || role === "ADMIN" || role === "PROJECT_MANAGER") {
       const { searchParams } = new URL(req.url);
       const targetUserId = searchParams.get("userId");
 
@@ -161,8 +166,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    // Ownership check: ADMIN can only create for themselves
-    if (session.user.role === "ADMIN" && userId !== session.user.id) {
+    // Ownership check: ADMIN and PROJECT_MANAGER can only create for themselves.
+    // (SUPER_ADMIN can create for any user.)
+    if ((session.user.role === "ADMIN" || session.user.role === "PROJECT_MANAGER") && userId !== session.user.id) {
       return NextResponse.json({ error: "Forbidden — Cannot create credentials for other users" }, { status: 403 });
     }
 
@@ -232,6 +238,8 @@ export async function PUT(req: NextRequest) {
     const credential = await db.$transaction(async (tx) => {
       const existing = await tx.userCredential.findUnique({ where: { id } });
       if (!existing) throw new Error("NOT_FOUND");
+      // Only SUPER_ADMIN can update other users' credentials. ADMIN and
+      // PROJECT_MANAGER can only update their own.
       if (session.user.role !== "SUPER_ADMIN" && existing.userId !== session.user.id) throw new Error("FORBIDDEN");
       return tx.userCredential.update({
         where: { id },
@@ -296,6 +304,8 @@ export async function DELETE(req: NextRequest) {
     await db.$transaction(async (tx) => {
       const existing = await tx.userCredential.findUnique({ where: { id } });
       if (!existing) throw new Error("NOT_FOUND");
+      // Only SUPER_ADMIN can delete other users' credentials. ADMIN and
+      // PROJECT_MANAGER can only delete their own.
       if (session.user.role !== "SUPER_ADMIN" && existing.userId !== session.user.id) throw new Error("FORBIDDEN");
       if (process.env.NODE_ENV !== "production") {
         console.log("[credentials] DELETE by userId:", session.user.id, "credentialId:", id);

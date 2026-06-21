@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { isAdmin } from "@/lib/rbac"
+import { isAdminOrProjectManager } from "@/lib/rbac"
 import { ensureAllTables } from "@/lib/auto-migrate"
 
 // GET /api/projects/[projectId]/methods — Get methods assigned to a project
@@ -11,8 +11,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ proj
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    // C2: Authorization check — non-admin users must be a member of the project
-    if (!isAdmin(session.user.role)) {
+    // C2: Authorization check — non-admin/PM users must be a member of the project.
+    // PROJECT_MANAGER can view methods since they have admin-like project access.
+    if (!isAdminOrProjectManager(session.user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
@@ -42,8 +43,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ proj
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    // C1: Admin authorization check
-    if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Unauthorized" }, { status: 403 })
+    // C1: Admin/PM authorization check
+    if (!isAdminOrProjectManager(session.user.role)) return NextResponse.json({ error: "Unauthorized" }, { status: 403 })
 
     const { projectId: id } = await params
     // W33: Validate projectId format

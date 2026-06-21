@@ -32,10 +32,11 @@ export async function GET(
       return NextResponse.json({ error: "Credential not found" }, { status: 404 });
     }
 
-    // Only admin/super_admin or the credential owner can reveal
+    // Only admin/super_admin/project_manager or the credential owner can reveal.
+    // PROJECT_MANAGER has admin-like credential access per requirements.
     const userId = session.user.id;
     const userRole = session.user.role;
-    if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN" && credential.userId !== userId) {
+    if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN" && userRole !== "PROJECT_MANAGER" && credential.userId !== userId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

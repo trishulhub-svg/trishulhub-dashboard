@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
-import { isAdmin } from "@/lib/rbac";
+import { isAdminOrProjectManager } from "@/lib/rbac";
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 
 // TODO: Extract to @/lib/sanitize.ts
@@ -37,8 +37,8 @@ export async function GET(
 
     const { projectId } = await params;
 
-    // W43: Use imported isAdmin instead of local shadow
-    if (!isAdmin(session.user.role)) {
+    // W43: PM has admin-like project access — can view/edit websites.
+    if (!isAdminOrProjectManager(session.user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -74,8 +74,8 @@ export async function POST(
 
     const { projectId } = await params;
 
-    // W43: Use imported isAdmin instead of local shadow
-    if (!isAdmin(session.user.role)) {
+    // W43: PM has admin-like project access — can view/edit websites.
+    if (!isAdminOrProjectManager(session.user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -156,8 +156,8 @@ export async function PATCH(
 
     const { projectId } = await params;
 
-    // W43: Use imported isAdmin instead of local shadow
-    if (!isAdmin(session.user.role)) {
+    // W43: PM has admin-like project access — can view/edit websites.
+    if (!isAdminOrProjectManager(session.user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -240,8 +240,8 @@ export async function DELETE(
 
     const { projectId } = await params;
 
-    // W43: Use imported isAdmin instead of local shadow
-    if (!isAdmin(session.user.role)) {
+    // W43: PM has admin-like project access — can view/edit websites.
+    if (!isAdminOrProjectManager(session.user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

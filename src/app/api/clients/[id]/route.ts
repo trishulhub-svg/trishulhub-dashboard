@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { updateClientSchema, validateRequest } from "@/lib/validations"
-import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
+import { isAdminOrProjectManager, getAssignedClientIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { deepSanitize } from "@/lib/utils"
@@ -46,8 +46,9 @@ export async function GET(
 
     const { id } = await params
 
-    // SECURITY FIX: Developers can only view clients they are assigned to
-    if (!isAdmin(role)) {
+    // SECURITY FIX: Developers can only view clients they are assigned to.
+    // PROJECT_MANAGER has admin-like visibility into all clients.
+    if (!isAdminOrProjectManager(role)) {
       const assignedClientIds = await getAssignedClientIds(userId, role)
       if (assignedClientIds && !assignedClientIds.includes(id)) {
         return NextResponse.json({ error: "Access denied: Client not in your assigned scope" }, { status: 403 })
@@ -55,7 +56,9 @@ export async function GET(
     }
 
     // API-015: Conditionally build include object to skip unnecessary queries for developers
-    const adminOnly = isAdmin(role)
+    // PROJECT_MANAGER sees the same client detail level as ADMIN (including
+    // budget/revenue data — they have full client-management access).
+    const adminOnly = isAdminOrProjectManager(role)
 
     const includeObj: Record<string, unknown> = {
       websites: {
@@ -183,7 +186,8 @@ export async function PATCH(
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const role = session.user.role
-  if (role !== "SUPER_ADMIN" && role !== "ADMIN") {
+  // PROJECT_MANAGER can update clients (admin-like access per requirements)
+  if (!isAdminOrProjectManager(role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
@@ -304,7 +308,8 @@ export async function DELETE(
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     const role = session.user.role
-    if (role !== "SUPER_ADMIN" && role !== "ADMIN") {
+    // PROJECT_MANAGER can deactivate clients (admin-like access per requirements)
+    if (!isAdminOrProjectManager(role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 

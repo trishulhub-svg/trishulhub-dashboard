@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { isAdmin } from "@/lib/rbac"
+import { isAdminOrProjectManager } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 
@@ -29,8 +29,9 @@ export async function GET(
     const userRole = session.user.role
     const userId = session.user.id
 
-    // SECURITY: Non-admin users must be a member of this project to view its members
-    if (!isAdmin(userRole)) {
+    // SECURITY: Non-admin users must be a member of this project to view its members.
+    // PROJECT_MANAGER has admin-like project visibility (no membership check needed).
+    if (!isAdminOrProjectManager(userRole)) {
       const membership = await db.projectMember.findFirst({
         where: { userId, projectId },
       })
@@ -66,7 +67,7 @@ export async function POST(
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     const userRole = session.user.role
-    if (!isAdmin(userRole)) {
+    if (!isAdminOrProjectManager(userRole)) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
 
@@ -156,7 +157,7 @@ export async function DELETE(
     if (!rl.success) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
 
     const userRole = session.user.role
-    if (!isAdmin(userRole)) {
+    if (!isAdminOrProjectManager(userRole)) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
 

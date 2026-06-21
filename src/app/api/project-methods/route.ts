@@ -2,16 +2,16 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { isAdmin } from "@/lib/rbac"
+import { isAdminOrProjectManager } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 
-// GET /api/project-methods — List all project methods (admin only)
+// GET /api/project-methods — List all project methods (admin/PM only)
 export async function GET() {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    if (!isAdminOrProjectManager(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
     const rl = rateLimit(`project-methods-get-${session.user.id}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    if (!isAdminOrProjectManager(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
     const rl = rateLimit(`project-methods-post-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
@@ -105,7 +105,7 @@ export async function PATCH(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    if (!isAdminOrProjectManager(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
     const rl = rateLimit(`project-methods-patch-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
@@ -151,7 +151,7 @@ export async function DELETE(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    if (!isAdminOrProjectManager(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
     const rl = rateLimit(`project-methods-delete-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })

@@ -58,7 +58,8 @@ export function generateAgentToken(user: {
     email: user.email,
     role: user.role,
     name: user.name,
-    tier: user.role === "SUPER_ADMIN" || user.role === "ADMIN" ? 1 : 2,
+    // PROJECT_MANAGER is treated as tier 1 (admin-like) for agent API access
+    tier: user.role === "SUPER_ADMIN" || user.role === "ADMIN" || user.role === "PROJECT_MANAGER" ? 1 : 2,
     iat: now,
     exp,
     jti,
@@ -148,16 +149,20 @@ export function shouldRefresh(payload: AgentTokenPayload): boolean {
 
 /**
  * Derive tier from role (used when creating tokens and when checking permissions).
+ * PROJECT_MANAGER is treated as tier 1 (admin-like) since they have admin-like
+ * access to projects, clients, credentials, and non-leave approvals.
  */
 export function getTierFromRole(role: string): number {
-  return role === "SUPER_ADMIN" || role === "ADMIN" ? 1 : 2;
+  return role === "SUPER_ADMIN" || role === "ADMIN" || role === "PROJECT_MANAGER" ? 1 : 2;
 }
 
 /**
  * Check if a user role has admin-level access.
+ * PROJECT_MANAGER is included since they have admin-like access to projects,
+ * clients, credentials, and non-leave approvals via the agent API.
  */
 export function isAgentAdmin(payload: AgentTokenPayload): boolean {
-  return payload.role === "SUPER_ADMIN" || payload.role === "ADMIN";
+  return payload.role === "SUPER_ADMIN" || payload.role === "ADMIN" || payload.role === "PROJECT_MANAGER";
 }
 
 /**

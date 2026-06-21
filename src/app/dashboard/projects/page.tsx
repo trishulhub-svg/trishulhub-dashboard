@@ -876,7 +876,9 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
   const projects = projectsData;
   const clients = clientsData;
 
-  const isAdminUser = session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN";
+  // PROJECT_MANAGER has the same project-management capabilities as ADMIN
+  // per requirements ("Projects: ✅ Full (like admin) — Can manage all projects").
+  const isAdminUser = session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN" || session?.user?.role === "PROJECT_MANAGER";
 
   // Feature 3: Credentials state
   const [credentials, setCredentials] = useState<{ id: string; title: string; username: string; password: string }[]>([]);

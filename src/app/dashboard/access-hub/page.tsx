@@ -109,10 +109,22 @@ function AccessHubContent() {
   const effectiveTab = (() => {
     const raw = searchParams.get("tab") || "credentials";
     const superAdmin = session?.user?.role === "SUPER_ADMIN";
-    return (!superAdmin && raw === "system") ? "credentials" : raw;
+    const admin = session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN";
+    // System tab: SUPER_ADMIN only.
+    // Protocol tab: SUPER_ADMIN/ADMIN only (PROJECT_MANAGER excluded per requirements).
+    // Redirect non-authorized roles to "credentials".
+    if (!superAdmin && raw === "system") return "credentials";
+    if (!admin && raw === "protocol") return "credentials";
+    return raw;
   })();
   const isSuperAdmin = session?.user?.role === "SUPER_ADMIN";
+  // isAdmin = SUPER_ADMIN or ADMIN. Used to gate the Protocol tab and System Config
+  // (both admin-only — PROJECT_MANAGER is excluded from protocol management).
   const isAdmin = session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN";
+  // canManageCredentials = SUPER_ADMIN, ADMIN, or PROJECT_MANAGER. Used to gate the
+  // admin credentials view (full credential management UI). PROJECT_MANAGER has
+  // admin-like credential access per requirements.
+  const canManageCredentials = session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN" || session?.user?.role === "PROJECT_MANAGER";
   const fileInputRef = useRef<HTMLInputElement>(null);
   const initialFetchDone = useRef(false);
 
@@ -183,7 +195,7 @@ function AccessHubContent() {
     setCredsError("");
     try {
       const params = new URLSearchParams();
-      if (isAdmin && selectedUserId && selectedUserId !== "all") {
+      if (canManageCredentials && selectedUserId && selectedUserId !== "all") {
         params.set("userId", selectedUserId);
       }
       const res = await fetch(`/api/credentials?${params.toString()}`, { credentials: "include" });
@@ -201,10 +213,10 @@ function AccessHubContent() {
     } finally {
       setCredsLoading(false);
     }
-  }, [isAdmin, selectedUserId]);
+  }, [canManageCredentials, selectedUserId]);
 
   const fetchUsers = useCallback(async () => {
-    if (!isAdmin) return;
+    if (!canManageCredentials) return;
     try {
       const res = await fetch("/api/team", { credentials: "include" });
       if (res.ok) {
@@ -215,7 +227,7 @@ function AccessHubContent() {
     } catch {
       // silent
     }
-  }, [isAdmin]);
+  }, [canManageCredentials]);
 
   useEffect(() => {
     if (status === "loading") return;
@@ -225,9 +237,9 @@ function AccessHubContent() {
     initialFetchDone.current = true;
   }, [session, status, fetchCredentials, fetchUsers]);
 
-  // Re-fetch when admin changes user filter (skip initial mount)
+  // Re-fetch when admin/PM changes user filter (skip initial mount)
   useEffect(() => {
-    if (!isAdmin || !session || !initialFetchDone.current) return;
+    if (!canManageCredentials || !session || !initialFetchDone.current) return;
     fetchCredentials();
   }, [selectedUserId]);
 
@@ -404,7 +416,7 @@ function AccessHubContent() {
 
   const handleSaveCred = async () => {
     if (!formLabel || !formUsername || (!formPassword && !editingCredential)) return;
-    if (isAdmin && !formTargetUserId) return;
+    if (canManageCredentials && !formTargetUserId) return;
     setSaving(true);
     try {
       const body: Record<string, string> = {
@@ -419,7 +431,7 @@ function AccessHubContent() {
         const res = await fetch("/api/credentials", { method: "PUT", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(body) });
         if (res.ok) { setShowAddDialog(false); resetCredForm(); fetchCredentials(); }
       } else {
-        const userId = isAdmin ? formTargetUserId : session?.user?.id;
+        const userId = canManageCredentials ? formTargetUserId : session?.user?.id;
         if (!userId) {
           toast.error("No user session found");
           return;
@@ -586,17 +598,19 @@ function AccessHubContent() {
         description="Credentials, protocol documents, and system configuration."
       />
 
-      {isAdmin ? (
+      {canManageCredentials ? (
         <Tabs value={effectiveTab} className="space-y-6">
           <TabsList className="bg-muted/50 w-full sm:w-auto overflow-x-auto flex-nowrap">
             <TabsTrigger value="credentials" className="gap-1.5 text-xs sm:text-sm shrink-0" onClick={() => router.replace("/dashboard/access-hub?tab=credentials")}>
               <KeyRound className="h-3.5 w-3.5" />
               Credentials
             </TabsTrigger>
-            <TabsTrigger value="protocol" className="gap-1.5 text-xs sm:text-sm shrink-0" onClick={() => router.replace("/dashboard/access-hub?tab=protocol")}>
-              <FileText className="h-3.5 w-3.5" />
-              Protocol &amp; Resources
-            </TabsTrigger>
+            {isAdmin && (
+              <TabsTrigger value="protocol" className="gap-1.5 text-xs sm:text-sm shrink-0" onClick={() => router.replace("/dashboard/access-hub?tab=protocol")}>
+                <FileText className="h-3.5 w-3.5" />
+                Protocol &amp; Resources
+              </TabsTrigger>
+            )}
             {isSuperAdmin && (
               <TabsTrigger value="system" className="gap-1.5 text-xs sm:text-sm shrink-0" onClick={() => router.replace("/dashboard/access-hub?tab=system")}>
                 <Settings className="h-3.5 w-3.5" />
@@ -607,8 +621,8 @@ function AccessHubContent() {
 
           {/* ═══════════ TAB 1: CREDENTIALS ═══════════ */}
           <TabsContent value="credentials" className="space-y-5 mt-2">
-            {/* Admin: User filter */}
-            {isAdmin && allUsers.length > 0 && (
+            {/* Admin/PM: User filter */}
+            {canManageCredentials && allUsers.length > 0 && (
               <Card>
                 <CardContent className="pt-4">
                   <div className="flex items-center gap-3 flex-wrap">
@@ -646,7 +660,7 @@ function AccessHubContent() {
             </div>
 
             {/* Add button */}
-            {isAdmin && (
+            {canManageCredentials && (
               <div className="flex items-center gap-2 w-full sm:w-auto">
                 <Button size="sm" onClick={openAddCredDialog} className="w-full sm:w-auto">
                   <Plus className="h-4 w-4 mr-1" /> Add Credential
@@ -708,7 +722,7 @@ function AccessHubContent() {
                             </a>
                           )}
                         </div>
-                        {isAdmin && (
+                        {canManageCredentials && (
                           <div className="flex items-center gap-1 opacity-100 transition-opacity">
                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditCredDialog(cred)} aria-label="Edit credential">
                               <Edit3 className="h-3 w-3" />
@@ -719,7 +733,7 @@ function AccessHubContent() {
                           </div>
                         )}
                       </div>
-                      {isAdmin && cred.user && (
+                      {canManageCredentials && cred.user && (
                         <CardDescription className="text-xs truncate">
                           For: {safeText(cred.user.name, "")} ({safeText(cred.user.email, "")})
                         </CardDescription>
@@ -1140,7 +1154,7 @@ function AccessHubContent() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            {isAdmin && (
+            {canManageCredentials && (
               <div className="space-y-2">
                 <Label>Assign to User</Label>
                 <Select value={formTargetUserId} onValueChange={setFormTargetUserId}>

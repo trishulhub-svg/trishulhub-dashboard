@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db, ensureProjectCredentialTable, getAppSetting } from "@/lib/db"
 import { Prisma } from "@prisma/client"
-import { isAdmin } from "@/lib/rbac"
+import { isAdminOrProjectManager } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { encryptCredential, decryptCredential } from "@/lib/encryption"
 
@@ -13,9 +13,10 @@ async function loadCredDbKey(): Promise<string> {
 }
 
 // Helper: verify the user has access to a given project.
-// ADMIN/SUPER_ADMIN always pass. CLIENT must own the project. DEVELOPER must be a member.
+// ADMIN/SUPER_ADMIN/PROJECT_MANAGER always pass. CLIENT must own the project.
+// DEVELOPER must be a member.
 async function verifyProjectAccess(userId: string, userRole: string, projectId: string): Promise<boolean> {
-  if (isAdmin(userRole)) return true
+  if (isAdminOrProjectManager(userRole)) return true
   const project = await db.project.findUnique({ where: { id: projectId }, select: { clientId: true } })
   if (!project) return false
   if (userRole === "CLIENT") {
@@ -34,8 +35,9 @@ export async function GET(req: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    // Only admins may view decrypted credentials
-    if (!isAdmin(session.user.role)) {
+    // Only admins (and PROJECT_MANAGER, who has admin-like credential access)
+    // may view decrypted credentials
+    if (!isAdminOrProjectManager(session.user.role)) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
 
@@ -81,7 +83,7 @@ export async function POST(req: NextRequest) {
     await ensureProjectCredentialTable()
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+    if (!isAdminOrProjectManager(session.user.role)) return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
 
     const rl = rateLimit(`credentials-post-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
@@ -134,7 +136,7 @@ export async function PATCH(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Admin access required" }, { status: 403 })
+    if (!isAdminOrProjectManager(session.user.role)) return NextResponse.json({ error: "Admin access required" }, { status: 403 })
 
     const rl = rateLimit(`credentials-patch-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
@@ -190,7 +192,7 @@ export async function DELETE(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Admin access required" }, { status: 403 })
+    if (!isAdminOrProjectManager(session.user.role)) return NextResponse.json({ error: "Admin access required" }, { status: 403 })
 
     const rl = rateLimit(`credentials-delete-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
