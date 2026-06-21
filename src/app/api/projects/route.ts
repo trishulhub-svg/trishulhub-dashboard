@@ -86,6 +86,7 @@ export async function GET(req: NextRequest) {
     // but budget visibility is still gated by isAdmin (PM does NOT see budget).
     const canManageProjects = isAdminOrProjectManager(userRole)
     const isDemoParam = searchParams.get("isDemo")
+    const isMinimal = searchParams.get("fields") === "minimal"
     const isDemoFilter: boolean | undefined =
       isDemoParam === "true" ? true
       : isDemoParam === "false" ? false
@@ -138,6 +139,18 @@ export async function GET(req: NextRequest) {
     // For developers: don't expose budget info
     // PROJECT_MANAGER also doesn't see budget — only SUPER_ADMIN/ADMIN do
     const includeBudget = userIsAdmin
+
+    // FAST PATH: minimal fields for dropdowns (time tracking, etc.)
+    // Returns only id, name, status, progress — no includes, no methods
+    if (isMinimal && !projectId) {
+      const projects = await db.project.findMany({
+        where,
+        select: { id: true, name: true, status: true, progress: true },
+        orderBy: { createdAt: "desc" },
+        take: limit,
+      })
+      return NextResponse.json(projects)
+    }
 
     // ZAI FIX #310: When projectId is specified (detail page), return ONLY
     // scalar fields — no includes at all. The detail page fetches tasks,

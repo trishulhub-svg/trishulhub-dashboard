@@ -329,21 +329,26 @@ export default function TimeTrackingPage() {
   }, []);
 
   // ── Fetch projects ──
+  // Fetch only id + name + status for fast loading (no need for full project details)
   const fetchProjects = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch("/api/projects", { credentials: "include", signal });
+      const res = await fetch("/api/projects?fields=minimal", { credentials: "include", signal });
       if (res.ok) {
         const data = await res.json();
-        // [FIX C1: safe array fallback before .filter()]
-        const arr = safeArray<Project>(data);
+        // Handle both array response and { data: [...] } response
+        const arr = safeArray<Project>(Array.isArray(data) ? data : (data?.data || data));
         setProjects(arr.filter((p) => p.status !== "COMPLETED"));
       } else {
-        const errData = await res.json().catch(() => null);
-        toast.error(errData?.error || "Failed to load projects");
+        // Fallback: try without the fields param
+        const res2 = await fetch("/api/projects", { credentials: "include", signal });
+        if (res2.ok) {
+          const data2 = await res2.json();
+          const arr2 = safeArray<Project>(Array.isArray(data2) ? data2 : (data2?.data || data2));
+          setProjects(arr2.filter((p) => p.status !== "COMPLETED"));
+        }
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
-      // silently ignore abort for background fetches
     }
   }, []);
 
