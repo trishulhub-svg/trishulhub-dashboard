@@ -491,6 +491,25 @@ export default function AvailabilityPage() {
     return liveUsers.find((u) => u.userId === userId);
   }, [liveUsers]);
 
+  // ── Helper: check if current time is within any of today's availability slots ──
+  // Returns true only if right now falls inside a scheduled time slot
+  const isWithinAvailabilityNow = useCallback((availability: Array<{ startTime: string; endTime: string }>): boolean => {
+    const currentTime = new Date();
+    const currentHours = currentTime.getHours();
+    const currentMinutes = currentTime.getMinutes();
+    const currentTotalMinutes = currentHours * 60 + currentMinutes;
+
+    return availability.some((slot) => {
+      const [sh, sm] = slot.startTime.split(":").map(Number);
+      const [eh, em] = slot.endTime.split(":").map(Number);
+      const startTotal = sh * 60 + sm;
+      const endTotal = eh * 60 + em;
+      // Handle 24:00 end time
+      const effectiveEnd = endTotal === 0 ? 24 * 60 : endTotal;
+      return currentTotalMinutes >= startTotal && currentTotalMinutes < effectiveEnd;
+    });
+  }, []);
+
   // ── Filter upcoming / past overrides ──
   const upcomingOverrides = useMemo(
     () => overrides
@@ -1526,7 +1545,7 @@ export default function AvailabilityPage() {
                                                 </span>
                                               </div>
                                             )}
-                                            {isToday && !isUserLive(userSchedule.user.id) && (
+                                            {isToday && !isUserLive(userSchedule.user.id) && isWithinAvailabilityNow(dayData.availability) && (
                                               <div className="w-full text-[8px] text-muted-foreground/60 italic mb-0.5">
                                                 Not started
                                               </div>
