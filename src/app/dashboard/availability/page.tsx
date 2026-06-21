@@ -1432,7 +1432,7 @@ export default function AvailabilityPage() {
                                   <Tooltip key={dayStr}>
                                     <TooltipTrigger asChild>
                                       <div
-                                        className={`p-2 border-r last:border-r-0 cursor-pointer transition-colors hover:brightness-95 min-h-[80px] flex flex-col gap-1 ${CELL_BG[status]} ${isToday ? "ring-2 ring-primary ring-inset" : ""}`}
+                                        className={`p-2 border-r last:border-r-0 cursor-pointer transition-all hover:ring-2 hover:ring-primary/30 min-h-[80px] flex flex-col gap-1 ${CELL_BG[status]} ${isToday ? "ring-2 ring-primary ring-inset" : ""}`}
                                         onClick={() => openDayDetail(userSchedule.user.id, userSchedule.user.name, dayStr, dayData)}
                                       >
                                         <div className="flex flex-wrap gap-1">
@@ -1447,14 +1447,14 @@ export default function AvailabilityPage() {
                                             </Badge>
                                           )}
                                           {dayDateRanges.length > 0 && (
-                                            <Badge className="text-[8px] px-1 py-0 bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-200 border-0">
+                                            <Badge className="text-[8px] px-1 py-0 bg-violet-100 text-violet-800 dark:bg-violet-900/50 dark:text-violet-200 border-0">
                                               RANGE
                                             </Badge>
                                           )}
                                         </div>
                                         {dayData.isOnLeave ? (
                                           <div className="flex-1 flex items-center justify-center">
-                                            <span className="text-[10px] text-sky-600 dark:text-sky-300 font-medium">On Leave</span>
+                                            <span className="text-[10px] text-sky-700 dark:text-sky-200 font-medium">On Leave</span>
                                           </div>
                                         ) : dayData.availability.length > 0 ? (
                                           <div className="flex flex-wrap gap-1">
@@ -1483,7 +1483,7 @@ export default function AvailabilityPage() {
                                           </div>
                                         ) : dayData.override && !dayData.override.isAvailable ? (
                                           <div className="flex-1 flex items-center justify-center">
-                                            <span className="text-[10px] text-red-600 dark:text-red-300 font-medium">Off</span>
+                                            <span className="text-[10px] text-red-700 dark:text-red-200 font-medium">Off</span>
                                           </div>
                                         ) : (
                                           <div className="flex-1 flex items-center justify-center">
@@ -1497,7 +1497,7 @@ export default function AvailabilityPage() {
                                         <div className="font-semibold text-xs">{userSchedule.user.name} — {dayData.dayName}, {dayStr}</div>
                                         <Separator />
                                         {dayData.isOnLeave ? (
-                                          <div className="text-[11px] text-sky-600 font-medium">On Leave</div>
+                                          <div className="text-[11px] text-sky-700 dark:text-sky-200 font-medium">On Leave</div>
                                         ) : dayData.availability.length > 0 ? (
                                           <div className="space-y-0.5">
                                             <div className="text-[11px] font-medium">Availability:</div>
@@ -1525,7 +1525,7 @@ export default function AvailabilityPage() {
                                         )}
                                         {dayDateRanges.length > 0 && (
                                           <div className="text-[10px]">
-                                            <span className="font-medium text-violet-600">Date Ranges: </span>
+                                            <span className="font-medium text-violet-700 dark:text-violet-300">Date Ranges: </span>
                                             {dayDateRanges.map((dr, i) => (
                                               <span key={dr.id}>
                                                 {i > 0 && ", "}
@@ -1896,9 +1896,9 @@ export default function AvailabilityPage() {
             <div className="space-y-4">
               {/* Leave status */}
               {selectedDayDetail.dayData.isOnLeave && (
-                <div className="flex items-center gap-2 p-3 rounded-lg bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800">
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-sky-50 dark:bg-sky-900/40 border border-sky-200 dark:border-sky-700">
                   <CalendarDays className="h-4 w-4 text-sky-500 shrink-0" />
-                  <span className="text-sm font-medium text-sky-700 dark:text-sky-300">On Leave</span>
+                  <span className="text-sm font-medium text-sky-800 dark:text-sky-200">On Leave</span>
                 </div>
               )}
 
@@ -1985,6 +1985,9 @@ export default function AvailabilityPage() {
                 </Button>
                 <Button variant="outline" size="sm" className="flex-1 min-w-[100px] h-9 text-xs" onClick={() => { setDayDetailDialogOpen(false); openQuickAddOverride(selectedDayDetail.userId, selectedDayDetail.date); }}>
                   <CalendarClock className="h-3.5 w-3.5 mr-1" /> Add Override
+                </Button>
+                <Button variant="outline" size="sm" className="flex-1 min-w-[100px] h-9 text-xs" onClick={() => { setDayDetailDialogOpen(false); openCopyDialog(selectedDayDetail.userId); }}>
+                  <Copy className="h-3.5 w-3.5 mr-1" /> Copy Day
                 </Button>
                 <Button variant="outline" size="sm" className="flex-1 min-w-[100px] h-9 text-xs" onClick={() => { setDayDetailDialogOpen(false); setSchedUserId(selectedDayDetail.userId); setActiveTab("schedule"); }}>
                   <Clock className="h-3.5 w-3.5 mr-1" /> Open Schedule
