@@ -79,7 +79,8 @@ export async function middleware(request: NextRequest) {
     }
 
     // Admin-only routes — developers can access: workspace,
-    // my-training, leaves (for their own data). Everything else here requires admin.
+    // my-training, leaves (for their own data), and settings (profile/password/avatar only).
+    // The settings page itself renders admin-only sections conditionally based on role.
     const adminOnlyRoutes = [
       "/dashboard/api-keys",
       "/dashboard/finance",
@@ -92,7 +93,6 @@ export async function middleware(request: NextRequest) {
       "/dashboard/training",
       "/dashboard/approvals",
       "/dashboard/audit-trail",
-      "/dashboard/settings",
       "/dashboard/credentials",
     ]
     const isAdmin = role === "SUPER_ADMIN" || role === "ADMIN"

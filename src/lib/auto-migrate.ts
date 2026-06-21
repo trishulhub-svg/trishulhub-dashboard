@@ -355,6 +355,35 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
       "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`
   },
+  // HR — UserDetail (country, gov ID, bank account) — Issue 7
+  {
+    name: "UserDetail",
+    sql: `CREATE TABLE IF NOT EXISTS "UserDetail" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL UNIQUE,
+      "country" TEXT,
+      "countryLocked" BOOLEAN NOT NULL DEFAULT 0,
+      "fullNameAsPerId" TEXT,
+      "govIdType" TEXT,
+      "govIdNumber" TEXT,
+      "govIdEncIv" TEXT,
+      "govIdEncTag" TEXT,
+      "bankAccountName" TEXT,
+      "bankAccountNumber" TEXT,
+      "bankAccountEncIv" TEXT,
+      "bankAccountEncTag" TEXT,
+      "bankSortCode" TEXT,
+      "bankName" TEXT,
+      "bankBranch" TEXT,
+      "status" TEXT NOT NULL DEFAULT 'PENDING',
+      "rejectedReason" TEXT,
+      "reviewedBy" TEXT,
+      "reviewedAt" DATETIME,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
+    )`
+  },
 ]
 
 /**
@@ -931,6 +960,22 @@ export async function ensureAllTables(): Promise<void> {
     } catch (err: unknown) {
       if (!getErrMsg(err)?.includes('already exists')) {
         console.warn(`[auto-migrate] AvailabilityDateRange_endDate_idx: ${getErrMsg(err)}`)
+      }
+    }
+
+    // UserDetail indexes (Issue 7 — My Details page)
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "UserDetail_status_idx" ON "UserDetail"("status")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] UserDetail_status_idx: ${getErrMsg(err)}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "UserDetail_country_idx" ON "UserDetail"("country")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] UserDetail_country_idx: ${getErrMsg(err)}`)
       }
     }
 

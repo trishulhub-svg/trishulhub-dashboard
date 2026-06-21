@@ -50,6 +50,27 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const type = searchParams.get("type")
 
+    if (type === "me") {
+      // Any authenticated user: fetch their own profile (including avatar).
+      // Used by the Settings page to display and update the user's own avatar.
+      const me = await db.user.findUnique({
+        where: { id: session.user.id },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          department: true,
+          avatar: true,
+          isActive: true,
+        },
+      })
+      if (!me) {
+        return NextResponse.json({ error: "User not found" }, { status: 404 })
+      }
+      return NextResponse.json(me)
+    }
+
     if (type === "users") {
       // SUPER_ADMIN and ADMIN: list all users for team management
       const userRole = session.user.role
@@ -778,7 +799,8 @@ export async function PATCH(req: NextRequest) {
     // SECURITY: For self-profile updates (name only, no role/isActive),
     // always use the session user's ID — don't trust the body `id`.
     // This prevents IDOR where an ADMIN could modify another user's name.
-    const isSelfProfileUpdate = !data.role && data.isActive === undefined && !!data.name;
+    // Avatar updates are also self-profile updates (no role/isActive).
+    const isSelfProfileUpdate = !data.role && data.isActive === undefined && (!!data.name || data.avatar !== undefined);
     const effectiveId = isSelfProfileUpdate ? sessionUserId : (id as string);
 
     if (effectiveId !== sessionUserId && sessionUserRole !== "SUPER_ADMIN" && sessionUserRole !== "ADMIN") {
@@ -830,12 +852,33 @@ export async function PATCH(req: NextRequest) {
     if (data.department) updateData.department = data.department
     if (data.role) updateData.role = data.role
     if (data.isActive !== undefined) updateData.isActive = data.isActive
+    // Avatar update: accept a data URL (image only) up to 2 MB.
+    // Allows any authenticated user to update their own profile picture.
+    if (data.avatar !== undefined) {
+      const avatarValue = data.avatar as string | null
+      if (avatarValue === null) {
+        // Clear avatar
+        updateData.avatar = null
+      } else {
+        // Validate: must be a data URL with an image MIME type
+        // Allowed: data:image/png;base64,..., data:image/jpeg;base64,..., data:image/webp;base64,..., data:image/gif;base64,...
+        const dataUrlMatch = /^data:(image\/(png|jpeg|webp|gif));base64,([A-Za-z0-9+/=]+)$/.exec(avatarValue)
+        if (!dataUrlMatch) {
+          return NextResponse.json({ error: "Avatar must be a base64 data URL (PNG, JPEG, WebP, or GIF)" }, { status: 400 })
+        }
+        // Size limit: ~2 MB base64-encoded (~2.67M chars). Base64 inflates by ~33%.
+        if (avatarValue.length > 2_700_000) {
+          return NextResponse.json({ error: "Avatar image too large (max 2 MB)" }, { status: 400 })
+        }
+        updateData.avatar = avatarValue
+      }
+    }
     // Password updates NOT allowed here — use /api/password-change or /api/password-reset
 
     const user = await db.user.update({
       where: { id: effectiveId },
       data: updateData,
-      select: { id: true, name: true, email: true, role: true, department: true, isActive: true },
+      select: { id: true, name: true, email: true, role: true, department: true, isActive: true, avatar: true },
     })
 
     // Audit: log user profile update (fire-and-forget)

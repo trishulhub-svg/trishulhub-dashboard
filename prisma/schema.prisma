@@ -61,6 +61,7 @@ model User {
   agentAccess        UserAgentAccess[]
   scheduledTasks    ScheduledTask[]
   agentConversations AgentConversation[]
+  userDetail         UserDetail?
 
   @@map("User")
 }
@@ -1333,6 +1334,52 @@ model ProtocolRateLimit {
   updatedAt   DateTime @updatedAt
 
   @@index([key])
+}
+
+// ━━ User Details (HR & People — country, gov ID, bank account) ━━
+// Each user has at most one UserDetail row (one-to-one with User).
+// Country selection is one-time: once countryLocked is true, only an admin can change it.
+// Sensitive fields (govIdNumber, bankAccountNumber) are encrypted at rest using
+// encryptCredentialToJson() — the JSON envelope {"enc","iv","tag"} is stored in a
+// single column. The separate iv/tag columns are reserved for future migration.
+model UserDetail {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Country selection (one-time, locked after set)
+  country         String?  // "UK" or "INDIA"
+  countryLocked   Boolean  @default(false) // Once set, only admin can change
+
+  // Personal info
+  fullNameAsPerId String?  // Full name as per government document
+
+  // Government ID
+  govIdType       String?  // "AADHAAR", "PAN", "NI"
+  govIdNumber     String?  // The ID number (encrypted at rest — JSON envelope)
+  govIdEncIv      String?  // IV for encryption (reserved for future migration)
+  govIdEncTag     String?  // Auth tag for encryption (reserved for future migration)
+
+  // Bank details
+  bankAccountName String?   // Account holder name
+  bankAccountNumber String? // Account number (encrypted — JSON envelope)
+  bankAccountEncIv String?  // Reserved for future migration
+  bankAccountEncTag String? // Reserved for future migration
+  bankSortCode    String?  // UK: sort code, India: IFSC code
+  bankName        String?  // Bank name
+  bankBranch      String?  // Branch name (India)
+
+  // Status (review workflow)
+  status          String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  rejectedReason  String?  // If rejected, why
+  reviewedBy      String?  // Admin who reviewed
+  reviewedAt      DateTime?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([status])
+  @@index([country])
 }
 
 // ━━ Audit Log (Department-Wise) ━━

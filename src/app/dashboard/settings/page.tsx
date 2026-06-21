@@ -7,6 +7,7 @@ import {
   Settings, User, Bell, Palette, Shield, Moon, Sun, Monitor,
   Users, UserPlus, Loader2, Pencil, Trash2, CheckCircle2, XCircle,
   Mail, Server, Plus, TestTube, AlertCircle, Key, Clock, Filter, Eye, EyeOff,
+  Upload, Camera,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { safeArray } from "@/lib/utils";
 
 // ─── Module-Level Constants ─────────────────────────────────────
@@ -260,6 +262,13 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [togglingUserId, setTogglingUserId] = useState<string | null>(null);
 
+  // ── Profile Image (avatar) state ──
+  // Available to ALL users (developers included) — let users upload their own picture.
+  const [avatar, setAvatar] = useState<string | null>(null);
+  const [avatarLoading, setAvatarLoading] = useState(false);
+  const [avatarSaving, setAvatarSaving] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
   const userRole = session?.user?.role || "DEVELOPER";
   const isSuperAdmin = userRole === "SUPER_ADMIN";
   const isAdminOrAbove = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
@@ -354,6 +363,104 @@ export default function SettingsPage() {
   useEffect(() => {
     fetchPrefs();
   }, [fetchPrefs]);
+
+  // ── Fetch current user's avatar (any role) ──
+  const fetchAvatar = useCallback(async () => {
+    if (!session?.user?.id) return;
+    setAvatarLoading(true);
+    try {
+      const res = await fetch("/api/team?type=me", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setAvatar(typeof data.avatar === "string" ? data.avatar : null);
+      }
+    } catch (err) {
+      console.error("[settings] Failed to fetch avatar:", err);
+    } finally {
+      setAvatarLoading(false);
+    }
+  }, [session?.user?.id]);
+
+  useEffect(() => {
+    fetchAvatar();
+  }, [fetchAvatar]);
+
+  // ── Avatar Upload: read file → validate → convert to data URL → PATCH ──
+  const handleAvatarFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Reset input so the same file can be selected again later
+    if (fileInputRef.current) fileInputRef.current.value = "";
+
+    // Validate type
+    const allowedTypes = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+    if (!allowedTypes.includes(file.type)) {
+      toast.error("Please upload a PNG, JPEG, WebP, or GIF image");
+      return;
+    }
+    // Validate size: 2 MB max
+    const MAX_BYTES = 2 * 1024 * 1024;
+    if (file.size > MAX_BYTES) {
+      toast.error("Image too large. Max size is 2 MB.");
+      return;
+    }
+
+    setAvatarSaving(true);
+    try {
+      // Convert to base64 data URL
+      const dataUrl: string = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(new Error("Failed to read file"));
+        reader.readAsDataURL(file);
+      });
+
+      // Save via /api/team PATCH (self-profile update — server enforces self-only).
+      const res = await fetch("/api/team", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ avatar: dataUrl }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setAvatar(dataUrl);
+        toast.success("Profile image updated");
+      } else {
+        toast.error(data.error || "Failed to upload profile image");
+      }
+    } catch (err) {
+      console.error("[settings] Avatar upload failed:", err);
+      toast.error("Failed to upload profile image");
+    } finally {
+      setAvatarSaving(false);
+    }
+  };
+
+  // ── Avatar Remove: clear the user's avatar ──
+  const handleAvatarRemove = async () => {
+    setAvatarSaving(true);
+    try {
+      const res = await fetch("/api/team", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ avatar: null }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setAvatar(null);
+        toast.success("Profile image removed");
+      } else {
+        toast.error(data.error || "Failed to remove profile image");
+      }
+    } catch (err) {
+      console.error("[settings] Avatar remove failed:", err);
+      toast.error("Failed to remove profile image");
+    } finally {
+      setAvatarSaving(false);
+    }
+  };
 
   // ── Fetch Team Members ──
   const fetchTeamMembers = useCallback(async () => {
@@ -579,9 +686,16 @@ export default function SettingsPage() {
       toast.error("Password must be at least 8 characters");
       return;
     }
-    // Client-side password complexity (matches server requirement)
-    if (!/[a-zA-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
-      toast.error("Password must contain at least one letter and one number");
+    // Client-side password complexity (must match server requirement):
+    // At least 3 of: uppercase letter, lowercase letter, number, special character
+    const complexityChecks = [
+      /[A-Z]/.test(newPassword),
+      /[a-z]/.test(newPassword),
+      /[0-9]/.test(newPassword),
+      /[^A-Za-z0-9]/.test(newPassword),
+    ];
+    if (complexityChecks.filter(Boolean).length < 3) {
+      toast.error("Password must contain at least 3 of: uppercase letter, lowercase letter, number, special character");
       return;
     }
 
@@ -989,6 +1103,71 @@ export default function SettingsPage() {
     <div className="space-y-6 max-w-4xl">
       <PageHeader title="Settings" description="Manage your account and application settings" />
 
+      {/* TODO: Extract to ProfileImageSection.tsx */}
+      {/* --- Profile Image Section Start --- */}
+      {/* Profile Image — available to ALL users (developers included) */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Camera className="h-5 w-5 text-muted-foreground" />
+            <CardTitle className="text-base">Profile Image</CardTitle>
+          </div>
+          <CardDescription>Upload a profile picture. PNG, JPEG, WebP, or GIF up to 2 MB.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <Avatar className="h-20 w-20 border">
+              {avatar ? (
+                <AvatarImage src={avatar} alt={session?.user?.name || "Profile picture"} />
+              ) : null}
+              <AvatarFallback className="bg-primary text-primary-foreground text-xl font-bold">
+                {(session?.user?.name || "U").split(" ").filter(Boolean).map((n) => n[0]).join("").toUpperCase().slice(0, 2)}
+              </AvatarFallback>
+            </Avatar>
+            <div className="flex flex-col gap-2 flex-1">
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="default"
+                  disabled={avatarSaving || avatarLoading}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {avatarSaving ? (
+                    <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Uploading...</>
+                  ) : (
+                    <><Upload className="h-4 w-4 mr-1" /> {avatar ? "Change Image" : "Upload Image"}</>
+                  )}
+                </Button>
+                {avatar && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={avatarSaving || avatarLoading}
+                    onClick={handleAvatarRemove}
+                  >
+                    <Trash2 className="h-4 w-4 mr-1" /> Remove
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {avatarLoading ? "Loading current image..." :
+                  avatar ? "Your profile image is shown to teammates and in the user menu." :
+                  "No image uploaded yet. Your initials will be shown instead."}
+              </p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                onChange={handleAvatarFileChange}
+                className="hidden"
+                aria-label="Upload profile image"
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+      {/* --- Profile Image Section End --- */}
+
       {/* TODO: Extract to ProfileSection.tsx */}
       {/* --- Profile Section Start --- */}
       {/* Profile */}
@@ -1013,12 +1192,17 @@ export default function SettingsPage() {
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs" htmlFor="profile-email">Email</Label>
+              <Label className="text-xs" htmlFor="profile-email">
+                Email {isAdminOrAbove ? "" : <span className="text-muted-foreground">(read-only)</span>}
+              </Label>
               <div className="flex gap-2">
                 <Input id="profile-email" value={session?.user?.email || ""} disabled className="flex-1" />
-                <Button size="sm" variant="outline" onClick={() => { setChangeEmailOpen(true); setOtpSent(false); setNewEmailAddress(""); setEmailChangePassword(""); setOtpCode(""); }}>
-                  <Mail className="h-4 w-4 mr-1" /> Change
-                </Button>
+                {/* Email change is restricted to ADMIN and SUPER_ADMIN — developers cannot change their email */}
+                {isAdminOrAbove && (
+                  <Button size="sm" variant="outline" onClick={() => { setChangeEmailOpen(true); setOtpSent(false); setNewEmailAddress(""); setEmailChangePassword(""); setOtpCode(""); }}>
+                    <Mail className="h-4 w-4 mr-1" /> Change
+                  </Button>
+                )}
               </div>
             </div>
           </div>
@@ -1064,7 +1248,7 @@ export default function SettingsPage() {
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1">
                   <Label className="text-xs">New Password</Label>
-                  <p className="text-[10px] text-muted-foreground">Min 8 chars, at least 1 letter & 1 number</p>
+                  <p className="text-[10px] text-muted-foreground">Min 8 chars, 3 of: uppercase, lowercase, number, special char</p>
                   <div className="relative">
                     <Input
                       type={showNewPassword ? "text" : "password"}
@@ -2115,7 +2299,7 @@ export default function SettingsPage() {
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">New Password *</Label>
-                    <p className="text-[10px] text-muted-foreground">Min 8 chars, at least 1 letter & 1 number</p>
+                    <p className="text-[10px] text-muted-foreground">Min 8 chars, 3 of: uppercase, lowercase, number, special char</p>
                     <div className="relative">
                       <Input
                         type={showResetPwd ? "text" : "password"}

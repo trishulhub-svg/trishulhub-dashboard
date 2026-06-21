@@ -41,6 +41,7 @@ import {
 
   FileText,
   ChevronRight,
+  IdCard,
 } from "lucide-react";
 import Image from "next/image";
 import LoadingScreen from "@/components/ui/loading-screen";
@@ -55,7 +56,7 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 
 import { cn, safeArray, safeDateStr, safeText } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -118,6 +119,7 @@ const navGroups: NavGroup[] = [
     label: "HR & People",
     items: [
       { title: "My Leaves", href: "/dashboard/leaves", icon: CalendarDays, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
+      { title: "My Details", href: "/dashboard/my-details", icon: IdCard, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
       { title: "Availability", href: "/dashboard/availability", icon: Clock, roles: ["SUPER_ADMIN", "ADMIN"] },
       { title: "Approvals", href: "/dashboard/approvals", icon: Shield, roles: ["SUPER_ADMIN", "ADMIN"] },
     ],
@@ -145,7 +147,7 @@ const navGroups: NavGroup[] = [
           { title: "System Config", href: "/dashboard/access-hub?tab=system", icon: Settings, roles: ["SUPER_ADMIN", "ADMIN"] },
         ],
       },
-      { title: "Settings", href: "/dashboard/settings", icon: Settings, roles: ["SUPER_ADMIN", "ADMIN"] },
+      { title: "Settings", href: "/dashboard/settings", icon: Settings, roles: ["SUPER_ADMIN", "ADMIN", "DEVELOPER"] },
     ],
   },
 ];
@@ -207,6 +209,7 @@ const SidebarContent = React.memo(function SidebarContent({
   collapsed,
   userRole,
   userName,
+  userAvatar,
   pathname,
   onNavigate,
   badgeCounts,
@@ -214,6 +217,7 @@ const SidebarContent = React.memo(function SidebarContent({
   collapsed: boolean;
   userRole: UserRole;
   userName: string;
+  userAvatar?: string | null;
   pathname: string;
   onNavigate: (href: string) => void;
   badgeCounts: Record<string, number>;
@@ -480,6 +484,7 @@ const SidebarContent = React.memo(function SidebarContent({
       <div className="border-t border-sidebar-border p-4">
         <div className={cn("flex items-center gap-3", collapsed && "justify-center")}>
           <Avatar className="h-10 w-10">
+            {userAvatar ? <AvatarImage src={userAvatar} alt={userName} /> : null}
             <AvatarFallback className="bg-primary text-primary-foreground text-sm font-bold">
               {userName.split(" ").filter(Boolean).map((n) => n[0]).join("").toUpperCase().slice(0, 2)}
             </AvatarFallback>
@@ -511,6 +516,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [notifOpen, setNotifOpen] = useState(false);
   const [pendingCounts, setPendingCounts] = useState<PendingCounts>({ approvals: 0, leaveRequests: 0, total: 0 });
   const [navBadgeData, setNavBadgeData] = useState<NavBadgeMap>({});
+  const [userAvatar, setUserAvatar] = useState<string | null>(null);
 
   const VALID_ROLES = ["SUPER_ADMIN", "ADMIN", "DEVELOPER", "VIEWER", "CLIENT"] as const;
   const rawRole = session?.user?.role;
@@ -560,6 +566,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, []);
 
+  // Fetch the current user's avatar (used in sidebar + user dropdown)
+  const fetchUserAvatar = useCallback(async () => {
+    if (!userId) return;
+    try {
+      const res = await fetch("/api/team?type=me", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setUserAvatar(typeof data.avatar === "string" && data.avatar.length > 0 ? data.avatar : null);
+      }
+    } catch (err) {
+      console.error("Failed to fetch user avatar:", err);
+    }
+  }, [userId]);
+
   useEffect(() => {
     if (status === "unauthenticated") {
       router.push("/login");
@@ -585,6 +605,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       const timer = setTimeout(() => {
         fetchNotifications();
         fetchPendingCounts();
+        fetchUserAvatar();
       }, 200);
       const interval = setInterval(() => {
         fetchNotifications();
@@ -595,7 +616,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         clearInterval(interval);
       };
     }
-  }, [session, fetchNotifications, fetchPendingCounts]);
+  }, [session, fetchNotifications, fetchPendingCounts, fetchUserAvatar]);
+
+  // Refresh avatar when leaving the settings page (user may have updated it)
+  useEffect(() => {
+    if (pathname && pathname !== "/dashboard/settings") {
+      fetchUserAvatar();
+    }
+  }, [pathname, fetchUserAvatar]);
 
   const markAsRead = useCallback(async (notifId: string) => {
     try {
@@ -712,6 +740,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           collapsed={collapsed}
           userRole={userRole}
           userName={userName}
+          userAvatar={userAvatar}
           pathname={pathname}
           onNavigate={handleNavigate}
           badgeCounts={navBadgeData}
@@ -745,6 +774,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             collapsed={false}
             userRole={userRole}
             userName={userName}
+            userAvatar={userAvatar}
             pathname={pathname}
             onNavigate={handleNavigate}
             badgeCounts={navBadgeData}
@@ -903,8 +933,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="flex items-center gap-2 h-8 sm:h-9">
+                <Button variant="ghost" className="flex items-center gap-2 h-8 sm:h-9" aria-label="Open user menu">
                   <Avatar className="h-8 w-8">
+                    {userAvatar ? <AvatarImage src={userAvatar} alt={userName} /> : null}
                     <AvatarFallback className="bg-primary text-primary-foreground text-xs font-bold">
                       {userName.split(" ").filter(Boolean).map((n) => n[0]).join("").toUpperCase().slice(0, 2)}
                     </AvatarFallback>
