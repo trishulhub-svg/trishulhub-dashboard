@@ -298,13 +298,20 @@ export default function AvailabilityPage() {
 
   // ── Copy dialog state ──
   const [copyDialogOpen, setCopyDialogOpen] = useState(false);
-  const [copySourceUserId, setCopySourceUserId] = useState<string>("");
+  const [copySourceUserId, setCopySourceUserId] = useState("");
   const [copyMode, setCopyMode] = useState<"user" | "date" | "range">("user");
-  const [copyTargetUserId, setCopyTargetUserId] = useState<string>("");
-  const [copyTargetDate, setCopyTargetDate] = useState<string>("");
-  const [copyTargetStartDate, setCopyTargetStartDate] = useState<string>("");
-  const [copyTargetEndDate, setCopyTargetEndDate] = useState<string>("");
+  const [copyTargetUserId, setCopyTargetUserId] = useState("");
+  const [copyTargetDate, setCopyTargetDate] = useState("");
+  const [copyTargetStartDate, setCopyTargetStartDate] = useState("");
+  const [copyTargetEndDate, setCopyTargetEndDate] = useState("");
+  const [copyCalOpen, setCopyCalOpen] = useState(false);
+  const [copyStartCalOpen, setCopyStartCalOpen] = useState(false);
+  const [copyEndCalOpen, setCopyEndCalOpen] = useState(false);
   const [copying, setCopying] = useState(false);
+
+  // ── Live users state (who's currently clocked in) ──
+  const [liveUsers, setLiveUsers] = useState<Array<{ userId: string; name: string; projectName: string | null; clockInAt: string; elapsedSec: number }>>([]);
+  const [now, setNow] = useState(Date.now());
 
   // ── Helper: find raw availability entry by id ──
   const findAvailEntry = useCallback((id: string) => {
@@ -449,6 +456,40 @@ export default function AvailabilityPage() {
   useEffect(() => {
     if (isUserAdmin && !loading) fetchWeekSchedule();
   }, [fetchWeekSchedule, isUserAdmin, loading]);
+
+  // ── Live users polling: fetch who's currently clocked in ──
+  useEffect(() => {
+    if (!isUserAdmin) return;
+    let cancelled = false;
+    const fetchLive = async () => {
+      try {
+        const res = await fetch("/api/workspace/live-ops", { credentials: "include" });
+        if (res.ok && !cancelled) {
+          const data = await res.json();
+          setLiveUsers(data.activeUsers || []);
+        }
+      } catch { /* silent */ }
+    };
+    fetchLive();
+    const interval = setInterval(fetchLive, 15000); // Poll every 15s
+    // Tick 'now' every second for live elapsed time display
+    const tickInterval = setInterval(() => setNow(Date.now()), 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      clearInterval(tickInterval);
+    };
+  }, [isUserAdmin]);
+
+  // ── Helper: check if a user is currently live (clocked in) ──
+  const isUserLive = useCallback((userId: string): boolean => {
+    return liveUsers.some((u) => u.userId === userId);
+  }, [liveUsers]);
+
+  // ── Helper: get live info for a user ──
+  const getLiveInfo = useCallback((userId: string) => {
+    return liveUsers.find((u) => u.userId === userId);
+  }, [liveUsers]);
 
   // ── Filter upcoming / past overrides ──
   const upcomingOverrides = useMemo(
@@ -1288,7 +1329,15 @@ export default function AvailabilityPage() {
                               </AvatarFallback>
                             </Avatar>
                             <div className="flex-1 min-w-0">
-                              <div className="text-sm font-semibold truncate">{userSchedule.user.name}</div>
+                              <div className="text-sm font-semibold truncate flex items-center gap-1">
+                                {userSchedule.user.name}
+                                {isUserLive(userSchedule.user.id) && (
+                                  <span className="relative flex h-2 w-2 shrink-0" title="Currently working">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+                                  </span>
+                                )}
+                              </div>
                               <div className="text-[10px] text-muted-foreground">
                                 {Math.round(totalHours * 10) / 10}h/week · {configuredDays} days
                               </div>
@@ -1405,7 +1454,15 @@ export default function AvailabilityPage() {
                                   </AvatarFallback>
                                 </Avatar>
                                 <div className="min-w-0">
-                                  <div className="text-sm font-medium truncate">{userSchedule.user.name}</div>
+                                  <div className="text-sm font-medium truncate flex items-center gap-1">
+                                    {userSchedule.user.name}
+                                    {isUserLive(userSchedule.user.id) && (
+                                      <span className="relative flex h-2 w-2 shrink-0" title="Currently working">
+                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                                        <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+                                      </span>
+                                    )}
+                                  </div>
                                   <div className="text-[10px] text-muted-foreground truncate">
                                     {safeText(userSchedule.user.role, "")}
                                   </div>
@@ -1458,6 +1515,22 @@ export default function AvailabilityPage() {
                                           </div>
                                         ) : dayData.availability.length > 0 ? (
                                           <div className="flex flex-wrap gap-1">
+                                            {isToday && isUserLive(userSchedule.user.id) && (
+                                              <div className="w-full flex items-center gap-1 mb-0.5">
+                                                <span className="relative flex h-2 w-2 shrink-0">
+                                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                                                  <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+                                                </span>
+                                                <span className="text-[8px] font-bold text-red-600 dark:text-red-400">
+                                                  LIVE {Math.floor((now - new Date(getLiveInfo(userSchedule.user.id)?.clockInAt || Date.now()).getTime()) / 60000)}m
+                                                </span>
+                                              </div>
+                                            )}
+                                            {isToday && !isUserLive(userSchedule.user.id) && (
+                                              <div className="w-full text-[8px] text-muted-foreground/60 italic mb-0.5">
+                                                Not started
+                                              </div>
+                                            )}
                                             {dayData.availability.slice(0, 2).map((slot) => {
                                               const rawEntry = findAvailEntry(slot.id);
                                               return (
