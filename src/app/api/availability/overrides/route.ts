@@ -126,13 +126,14 @@ export async function POST(req: NextRequest) {
     }
 
     // W37: Validate time format and startTime < endTime
-    if (startTime && !TIME_REGEX.test(startTime)) {
+    if (startTime && !TIME_REGEX.test(startTime) && startTime !== "24:00") {
       return NextResponse.json({ error: "Start time must be in HH:MM format (00:00–23:59)" }, { status: 400 })
     }
-    if (endTime && !TIME_REGEX.test(endTime)) {
-      return NextResponse.json({ error: "End time must be in HH:MM format (00:00–23:59)" }, { status: 400 })
+    if (endTime && !TIME_REGEX.test(endTime) && endTime !== "24:00") {
+      return NextResponse.json({ error: "End time must be in HH:MM format (00:00–24:00)" }, { status: 400 })
     }
-    if (startTime && endTime && startTime >= endTime) {
+    // "24:00" means end of day — always greater than any start time
+    if (startTime && endTime && endTime !== "24:00" && startTime >= endTime) {
       return NextResponse.json({ error: "Start time must be before end time" }, { status: 400 })
     }
 

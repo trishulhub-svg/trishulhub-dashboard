@@ -64,7 +64,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       // Allow null (clears time) or valid HH:MM
       if (body.startTime === null || body.startTime === "") {
         data.startTime = null
-      } else if (typeof body.startTime === "string" && TIME_REGEX.test(body.startTime)) {
+      } else if (typeof body.startTime === "string" && (TIME_REGEX.test(body.startTime) || body.startTime === "24:00")) {
         data.startTime = body.startTime
       } else {
         return NextResponse.json({ error: "Start time must be in HH:MM format (00:00–23:59)" }, { status: 400 })
@@ -73,7 +73,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (body.endTime !== undefined) {
       if (body.endTime === null || body.endTime === "") {
         data.endTime = null
-      } else if (typeof body.endTime === "string" && TIME_REGEX.test(body.endTime)) {
+      } else if (typeof body.endTime === "string" && (TIME_REGEX.test(body.endTime) || body.endTime === "24:00")) {
         data.endTime = body.endTime
       } else {
         return NextResponse.json({ error: "End time must be in HH:MM format (00:00–23:59)" }, { status: 400 })

@@ -8,6 +8,7 @@ import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
 // W32: Standardized time validation regex (validates HH:MM with proper hour/minute ranges)
+// Also accepts "24:00" as a valid end time (meaning end of day / midnight)
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/
 
 // GET /api/availability - List availability entries
@@ -113,13 +114,15 @@ export async function POST(req: NextRequest) {
     }
 
     // Validate startTime/endTime format
-    if (!TIME_REGEX.test(startTime)) {
+    if (!TIME_REGEX.test(startTime) && startTime !== "24:00") {
       return NextResponse.json({ error: "Start time must be in HH:MM format (00:00–23:59)" }, { status: 400 })
     }
-    if (!TIME_REGEX.test(endTime)) {
-      return NextResponse.json({ error: "End time must be in HH:MM format (00:00–23:59)" }, { status: 400 })
+    if (!TIME_REGEX.test(endTime) && endTime !== "24:00") {
+      return NextResponse.json({ error: "End time must be in HH:MM format (00:00–24:00)" }, { status: 400 })
     }
-    if (startTime >= endTime) {
+    // "24:00" means end of day — always greater than any start time
+    // For normal times, start must be before end
+    if (endTime !== "24:00" && startTime >= endTime) {
       return NextResponse.json({ error: "Start time must be before end time" }, { status: 400 })
     }
 

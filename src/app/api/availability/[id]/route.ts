@@ -44,14 +44,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       data.dayOfWeek = dow
     }
     if (body.startTime !== undefined) {
-      if (!TIME_REGEX.test(body.startTime)) {
+      if (!TIME_REGEX.test(body.startTime) && body.startTime !== "24:00") {
         return NextResponse.json({ error: "Start time must be in HH:MM format (00:00–23:59)" }, { status: 400 })
       }
       data.startTime = body.startTime
     }
     if (body.endTime !== undefined) {
-      if (!TIME_REGEX.test(body.endTime)) {
-        return NextResponse.json({ error: "End time must be in HH:MM format (00:00–23:59)" }, { status: 400 })
+      if (!TIME_REGEX.test(body.endTime) && body.endTime !== "24:00") {
+        return NextResponse.json({ error: "End time must be in HH:MM format (00:00–24:00)" }, { status: 400 })
       }
       data.endTime = body.endTime
     }

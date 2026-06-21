@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { TimeSelect } from "@/components/ui/time-select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -2039,11 +2040,11 @@ export default function AvailabilityPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label>Start Time</Label>
-                <Input type="time" value={formStartTime} onChange={(e) => setFormStartTime(e.target.value)} />
+                <TimeSelect value={formStartTime} onChange={setFormStartTime} placeholder="Start time" className="h-9" />
               </div>
               <div className="space-y-2">
                 <Label>End Time</Label>
-                <Input type="time" value={formEndTime} onChange={(e) => setFormEndTime(e.target.value)} />
+                <TimeSelect value={formEndTime} onChange={setFormEndTime} placeholder="End time" allowEndOfDay className="h-9" />
               </div>
             </div>
             <div className="flex items-center justify-between">
@@ -2111,18 +2112,21 @@ export default function AvailabilityPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label>Start Time <span className="text-muted-foreground text-xs">(Optional)</span></Label>
-                <Input
-                  type="time"
+                <TimeSelect
                   value={formOverrideStartTime}
-                  onChange={(e) => setFormOverrideStartTime(e.target.value)}
+                  onChange={setFormOverrideStartTime}
+                  placeholder="Start time"
+                  className="h-9"
                 />
               </div>
               <div className="space-y-2">
                 <Label>End Time <span className="text-muted-foreground text-xs">(Optional)</span></Label>
-                <Input
-                  type="time"
+                <TimeSelect
                   value={formOverrideEndTime}
-                  onChange={(e) => setFormOverrideEndTime(e.target.value)}
+                  onChange={setFormOverrideEndTime}
+                  placeholder="End time"
+                  allowEndOfDay
+                  className="h-9"
                 />
               </div>
             </div>
@@ -2230,18 +2234,21 @@ export default function AvailabilityPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label>Start Time <span className="text-muted-foreground text-xs">(Optional)</span></Label>
-                <Input
-                  type="time"
+                <TimeSelect
                   value={formDateRangeStartTime}
-                  onChange={(e) => setFormDateRangeStartTime(e.target.value)}
+                  onChange={setFormDateRangeStartTime}
+                  placeholder="Start time"
+                  className="h-9"
                 />
               </div>
               <div className="space-y-2">
                 <Label>End Time <span className="text-muted-foreground text-xs">(Optional)</span></Label>
-                <Input
-                  type="time"
+                <TimeSelect
                   value={formDateRangeEndTime}
-                  onChange={(e) => setFormDateRangeEndTime(e.target.value)}
+                  onChange={setFormDateRangeEndTime}
+                  placeholder="End time"
+                  allowEndOfDay
+                  className="h-9"
                 />
               </div>
             </div>
