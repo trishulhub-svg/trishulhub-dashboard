@@ -5,7 +5,6 @@ import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { isAdmin, isAdminOrProjectManager, getAssignedProjectIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureAllTables } from "@/lib/auto-migrate"
 import { createProjectSchema, updateProjectSchema } from "@/lib/validations"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
@@ -38,12 +37,7 @@ function serializeProjects(projects: any[]): any[] {
 
 export async function GET(req: NextRequest) {
   try {
-    // Skip ensureAllTables for minimal fetches (speeds up dropdowns)
-    const isMinimal = req.nextUrl.searchParams.get("fields") === "minimal"
-    if (!isMinimal) {
-      await ensureAllTables()
-    }
-
+    // Skip ensureAllTables entirely — it's too slow and tables are created on server start
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -58,6 +52,7 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url)
     const projectId = searchParams.get("projectId")
+    const isMinimal = searchParams.get("fields") === "minimal"
 
     // W6: Reject negative/zero limit, cap at 200, default 100
     const limit = Math.max(1, Math.min(Number(searchParams.get("limit")) || 100, 200))
@@ -65,38 +60,11 @@ export async function GET(req: NextRequest) {
     // W5: Add offset pagination parameter
     const offset = Math.max(Number(searchParams.get("offset")) || 0, 0)
 
-    // isDemo filter: "true" → only demo projects, "false" → only non-demo,
-    // "all" → return all projects (demo + non-demo). When omitted, defaults
-    // to excluding demos so /dashboard/projects (and any caller that doesn't
-    // explicitly opt in) only sees regular projects; /dashboard/demo uses
-    // ?isDemo=true. Single-project fetches (projectId specified) never apply
-    // the default so demo project detail/edit loads keep working.
-    //
-    // Task 7 (Phase 4): demo projects now live ONLY on /dashboard/demo;
-    // regular projects live ONLY on /dashboard/projects.
-    //
-    // ISSUE 5 FIX: For non-admin (DEVELOPER/CLIENT/VIEWER) list fetches, the
-    // isDemo=false default must NOT be applied. Non-admins are already
-    // constrained to their assigned project IDs via getAssignedProjectIds
-    // (DEVELOPER/VIEWER) or their client record (CLIENT), and that set may
-    // include demo projects they're working on. Applying isDemo=false here
-    // would silently hide those demo projects — e.g. the time-tracking page
-    // dropdown would only show "No Project". Admins (and PROJECT_MANAGER,
-    // who has admin-like project visibility) keep the isDemo=false default
-    // so /dashboard/projects stays demo-free.
-    const userIsAdmin = isAdmin(userRole)
-    // PROJECT_MANAGER gets admin-like project visibility (no project ID filter),
-    // but budget visibility is still gated by isAdmin (PM does NOT see budget).
-    const canManageProjects = isAdminOrProjectManager(userRole)
     const isDemoParam = searchParams.get("isDemo")
-    // isMinimal already declared at top of function
-    // NOTE: isDemo filter is only applied when explicitly requested via ?isDemo=true/false
-    // The default (no param) does NOT filter by isDemo to avoid errors if the column
-    // doesn't exist in the DB yet. Demo filtering is handled client-side.
     const isDemoFilter: boolean | undefined =
       isDemoParam === "true" ? true
       : isDemoParam === "false" ? false
-      : undefined  // no filter by default — show all projects
+      : undefined  // no filter by default
 
     // CLIENT users can only see their own projects
     if (userRole === "CLIENT") {
@@ -139,12 +107,7 @@ export async function GET(req: NextRequest) {
       where.isDemo = isDemoFilter
     }
 
-    // For developers: don't expose budget info
-    // PROJECT_MANAGER also doesn't see budget — only SUPER_ADMIN/ADMIN do
-    const includeBudget = userIsAdmin
-
     // FAST PATH: minimal fields for dropdowns (time tracking, etc.)
-    // Returns only id, name, status, progress — no includes, no methods
     if (isMinimal && !projectId) {
       const projects = await db.project.findMany({
         where,
@@ -155,60 +118,70 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(projects)
     }
 
-    // ZAI FIX #310: When projectId is specified (detail page), return ONLY
-    // scalar fields — no includes at all. The detail page fetches tasks,
-    // members, and client data from their own dedicated endpoints.
-    // This eliminates the possibility of circular refs or nested objects.
+    // DETAIL VIEW: When projectId is specified, return scalar fields + websites only
+    // (detail page fetches members, client, infra from their own endpoints)
+    if (projectId) {
+      const project = await db.project.findUnique({
+        where: { id: projectId },
+        include: { websites: true },
+      })
+      if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 })
+
+      // Fetch methods for this project
+      let methods: Array<{ id: string; name: string }> = []
+      try {
+        const assignments = await db.$queryRawUnsafe(
+          `SELECT pm."id", pm."name" FROM "_ProjectMethodToProject" j JOIN "ProjectMethod" pm ON j."A" = pm."id" WHERE j."B" = ?`,
+          projectId
+        ) as unknown as Array<{ id: string; name: string }>
+        methods = assignments
+      } catch { /* non-fatal */ }
+
+      const result = { ...serializeProjectDates(project), methods }
+      // For non-admins: hide budget
+      if (!isAdmin(userRole)) {
+        (result as any).budget = undefined
+      }
+      return NextResponse.json(result)
+    }
+
+    // LIST VIEW: Fast query — only select scalar fields + client name (no member joins)
+    // Members are fetched separately by the projects page via /api/projects/[id]/members
     const projects = await db.project.findMany({
       where,
-      include: {
-        ...(projectId ? {} : { client: true }),
-        ...(projectId ? {} : { members: { include: { user: { select: { id: true, name: true, email: true, role: true } } } } }),
-        // Only include websites for detail view — avoids breaking listing if table doesn't exist
-        ...(projectId ? { websites: true } : {}),
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        status: true,
+        progress: true,
+        startDate: true,
+        deadline: true,
+        budget: true,
+        createdAt: true,
+        updatedAt: true,
+        clientId: true,
+        isDemo: true,
+        client: { select: { id: true, name: true, company: true } },
       },
       orderBy: { createdAt: "desc" },
       take: limit,
       skip: offset,
     })
 
-    // Fetch project-method assignments — only for detail view (not list view)
-    // This skips a slow raw SQL query when just listing projects
-    let methodsMap: Record<string, Array<{ id: string; name: string }>> = {}
-    if (projectId) {
-      try {
-        const assignments = await db.$queryRawUnsafe(
-          `SELECT j."B" as "projectId", pm."id", pm."name" FROM "_ProjectMethodToProject" j JOIN "ProjectMethod" pm ON j."A" = pm."id" WHERE j."B" = ?`,
-          projectId
-        ) as unknown as Array<{ projectId: string; id: string; name: string }>
-        for (const a of assignments) {
-          if (!methodsMap[a.projectId]) methodsMap[a.projectId] = []
-          methodsMap[a.projectId].push({ id: a.id, name: a.name })
-        }
-      } catch {
-        // Join table may not exist — non-fatal
-      }
-    }
+    // Serialize dates for JSON response
+    const serialized = serializeProjects(projects as any[])
 
-    // Attach methods to each project
-    const projectsWithMethods = projects.map((p: any) => ({
-      ...p,
-      methods: methodsMap[p.id] || [],
-    }))
-
-    // For developers: hide budget and client financial details
-    if (!includeBudget) {
-      const filtered = projectsWithMethods.map(({ budget, client, members: _m, ...rest }) => ({
+    // For non-admins: hide budget
+    if (!isAdmin(userRole)) {
+      const filtered = serialized.map(({ budget, ...rest }: any) => ({
         ...rest,
         budget: undefined,
-        client: client ? { id: client.id, name: client.name, company: client.company } : undefined,
       }))
-      // I1: Targeted Date serialization
-      return NextResponse.json(serializeProjects(filtered))
+      return NextResponse.json(filtered)
     }
 
-    // I1: Targeted Date serialization
-    return NextResponse.json(serializeProjects(projectsWithMethods))
+    return NextResponse.json(serialized)
   } catch (error: unknown) {
     console.error("[projects] GET error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "Failed to load projects" }, { status: 500 })
