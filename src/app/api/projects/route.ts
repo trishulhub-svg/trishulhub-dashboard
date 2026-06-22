@@ -267,40 +267,39 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const project = await db.project.create({
-      data: {
-        name,
-        description: description,
-        status: projectStatus,
-        clientId,
-        budget: validated.budget ?? null,
-        deadline: validated.deadline ? new Date(validated.deadline) : null,
-        startDate: validated.startDate ? new Date(validated.startDate) : null,
-        isDemo: validated.isDemo === true,
-      },
-    }).catch(async (err) => {
-      // If isDemo column doesn't exist yet, try without it
+    // Build the create data — only include fields that exist in the schema
+    const createData = {
+      name,
+      description: description,
+      status: projectStatus,
+      clientId,
+      budget: validated.budget ?? null,
+      deadline: validated.deadline ? new Date(validated.deadline) : null,
+      startDate: validated.startDate ? new Date(validated.startDate) : null,
+    }
+
+    // Only add isDemo if the column exists in the DB
+    // We'll try with it first, and if it fails, retry without it
+    let project
+    try {
+      project = await db.project.create({
+        data: { ...createData, isDemo: validated.isDemo === true },
+      })
+    } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err)
+      // If the error is about isDemo column, try without it
       if (errMsg.includes("isDemo") || errMsg.includes("Unknown column") || errMsg.includes("no such column")) {
-        console.warn("[projects] POST: isDemo column may not exist, running ALTER TABLE...");
+        console.warn("[projects] POST: isDemo column may not exist, trying without it...")
+        // Try to add the column for next time
         try {
           await db.$executeRawUnsafe(`ALTER TABLE "Project" ADD COLUMN isDemo BOOLEAN NOT NULL DEFAULT 0`)
-        } catch { /* column already exists */ }
-        // Retry WITHOUT isDemo (let DB default handle it)
-        return db.project.create({
-          data: {
-            name,
-            description: description,
-            status: projectStatus,
-            clientId,
-            budget: validated.budget ?? null,
-            deadline: validated.deadline ? new Date(validated.deadline) : null,
-            startDate: validated.startDate ? new Date(validated.startDate) : null,
-          },
-        })
+        } catch { /* column already exists or other error */ }
+        // Retry without isDemo (DB default will handle it)
+        project = await db.project.create({ data: createData })
+      } else {
+        throw err
       }
-      throw err
-    })
+    }
     // I1: Targeted Date serialization
     void logAudit({
       userId: session.user.id, userName: session.user.name || "unknown", userRole,
@@ -443,26 +442,29 @@ export async function DELETE(req: NextRequest) {
     // Capture project name before deletion for the audit log
     const projectName = existing.name
 
-    // C4: Use $transaction for atomic deletion of all related records
-    await db.$transaction(async (tx) => {
-      // Delete all child records explicitly (relationMode = "prisma" doesn't cascade at DB level)
-      // Wrap each in try/catch so missing tables don't block deletion
-      await tx.projectAttachment.deleteMany({ where: { projectId: id } }).catch(() => {})
-      await tx.projectCredential.deleteMany({ where: { projectId: id } }).catch(() => {})
-      await tx.projectMember.deleteMany({ where: { projectId: id } }).catch(() => {})
-      await tx.projectWebsite.deleteMany({ where: { projectId: id } }).catch(() => {})
-      await tx.projectInfrastructure.deleteMany({ where: { projectId: id } }).catch(() => {})
-      await tx.timeEntry.deleteMany({ where: { projectId: id } }).catch(() => {})
-      await tx.expense.deleteMany({ where: { projectId: id } }).catch(() => {})
-      await tx.subscription.deleteMany({ where: { projectId: id } }).catch(() => {})
-      await tx.invoice.deleteMany({ where: { projectId: id } }).catch(() => {})
-      // Remove project-method associations (implicit many-to-many join table)
-      try {
-        await tx.$executeRawUnsafe(`DELETE FROM "_ProjectMethodToProject" WHERE "B" = ?`, id)
-      } catch { /* Join table might not exist — non-fatal */ }
-      // Delete the project itself
-      await tx.project.delete({ where: { id } })
+    // Delete project and all related records using raw SQL for maximum reliability
+    // (relationMode = "prisma" causes issues with cascading deletes)
+    await db.$transaction([
+      db.$executeRawUnsafe(`DELETE FROM "ProjectAttachment" WHERE "projectId" = ?`, id),
+      db.$executeRawUnsafe(`DELETE FROM "ProjectCredential" WHERE "projectId" = ?`, id),
+      db.$executeRawUnsafe(`DELETE FROM "ProjectMember" WHERE "projectId" = ?`, id),
+      db.$executeRawUnsafe(`DELETE FROM "ProjectWebsite" WHERE "projectId" = ?`, id),
+      db.$executeRawUnsafe(`DELETE FROM "ProjectInfrastructure" WHERE "projectId" = ?`, id),
+      db.$executeRawUnsafe(`DELETE FROM "TimeEntry" WHERE "projectId" = ?`, id),
+      db.$executeRawUnsafe(`DELETE FROM "Expense" WHERE "projectId" = ?`, id),
+      db.$executeRawUnsafe(`DELETE FROM "Subscription" WHERE "projectId" = ?`, id),
+      db.$executeRawUnsafe(`DELETE FROM "Invoice" WHERE "projectId" = ?`, id),
+    ]).catch(() => {
+      // Some tables might not exist — non-fatal, we'll try to delete the project anyway
     })
+
+    // Delete join table entries
+    try {
+      await db.$executeRawUnsafe(`DELETE FROM "_ProjectMethodToProject" WHERE "B" = ?`, id)
+    } catch { /* non-fatal */ }
+
+    // Delete the project itself using raw SQL (bypasses Prisma referential integrity checks)
+    await db.$executeRawUnsafe(`DELETE FROM "Project" WHERE "id" = ?`, id)
 
     // Audit: log project deletion (fire-and-forget)
     void logAudit({
