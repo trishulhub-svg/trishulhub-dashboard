@@ -42,13 +42,13 @@ export async function GET() {
     ])
 
     // Build where clauses based on role.
-    // Task 7 (Phase 4): main dashboard excludes demo projects from both the
-    // recent-projects list and the "Active Projects" count so demos don't
-    // inflate headline metrics. Demo projects are still fully visible on
-    // /dashboard/demo — this filter only affects the main dashboard tiles.
+    // NOTE: isDemo filter is intentionally NOT applied here because the column
+    // may not exist in all production DBs yet (auto-migrate adds it on cold start).
+    // Demo projects are filtered out on the client side (projects page fetches
+    // with ?isDemo=false). The dashboard just shows recent projects.
     const projectWhere = assignedProjectIds
-      ? { id: { in: assignedProjectIds }, isDemo: false }
-      : { isDemo: false }
+      ? { id: { in: assignedProjectIds } }
+      : {}
     const clientWhere = assignedClientIds ? { id: { in: assignedClientIds } } : {}
     const invoiceWhere = assignedClientIds ? { clientId: { in: assignedClientIds } } : {}
     const expenseWhere = assignedProjectIds ? { projectId: { in: assignedProjectIds } } : {}

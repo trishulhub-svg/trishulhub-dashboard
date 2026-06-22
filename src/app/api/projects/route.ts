@@ -90,13 +90,13 @@ export async function GET(req: NextRequest) {
     const canManageProjects = isAdminOrProjectManager(userRole)
     const isDemoParam = searchParams.get("isDemo")
     // isMinimal already declared at top of function
+    // NOTE: isDemo filter is only applied when explicitly requested via ?isDemo=true/false
+    // The default (no param) does NOT filter by isDemo to avoid errors if the column
+    // doesn't exist in the DB yet. Demo filtering is handled client-side.
     const isDemoFilter: boolean | undefined =
       isDemoParam === "true" ? true
       : isDemoParam === "false" ? false
-      : isDemoParam === "all" ? undefined
-      : projectId ? undefined  // single-project fetch — never filter by isDemo
-      : canManageProjects ? false    // admin/PM list fetch with no param — exclude demos
-      : undefined              // non-admin list fetch — show ALL assigned projects (regular + demo)
+      : undefined  // no filter by default — show all projects
 
     // CLIENT users can only see their own projects
     if (userRole === "CLIENT") {
@@ -268,17 +268,17 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Lenient createData: only include optional fields when they have a real value ──
-    // This avoids Prisma errors when the client sends `null`, `""`, or `NaN` for
-    // optional fields. Previously, sending `description: null` would still be passed
-    // to Prisma as `description: null` — which is fine for nullable String? — but
-    // sending `budget: NaN` would throw at the DB layer with a cryptic error.
-    const createData: Prisma.ProjectUncheckedCreateInput = {
+    // Build the data object incrementally to avoid Prisma type issues with null values
+    const createData: Record<string, unknown> = {
       name,
       status: projectStatus,
-      clientId,
     }
 
-    // Description: only send if non-empty string (after sanitization)
+    // clientId: explicitly set to null when no client is selected
+    // Prisma accepts null for optional relations — this is correct
+    createData.clientId = clientId
+
+    // Description: only send if non-empty string
     if (typeof validated.description === "string" && validated.description.trim().length > 0) {
       createData.description = sanitizeInput(validated.description, 2000)
     }
@@ -308,7 +308,7 @@ export async function POST(req: NextRequest) {
     let project
     try {
       project = await db.project.create({
-        data: { ...createData, isDemo: validated.isDemo === true },
+        data: { ...createData, isDemo: validated.isDemo === true } as any,
       })
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err)
@@ -320,10 +320,9 @@ export async function POST(req: NextRequest) {
           await db.$executeRawUnsafe(`ALTER TABLE "Project" ADD COLUMN isDemo BOOLEAN NOT NULL DEFAULT 0`)
         } catch { /* column already exists or other error */ }
         // Retry without isDemo (DB default will handle it)
-        project = await db.project.create({ data: createData })
+        project = await db.project.create({ data: createData as any })
       } else {
-        // Comprehensive error logging — log full error AND the createData so we
-        // can see exactly what was sent to Prisma when debugging.
+        // Comprehensive error logging
         console.error("[projects] POST: db.project.create failed:", errMsg)
         console.error("[projects] POST: createData was:", JSON.stringify(createData, (key, value) =>
           value instanceof Date ? value.toISOString() : value
@@ -488,78 +487,41 @@ export async function DELETE(req: NextRequest) {
     // Capture project name before deletion for the audit log
     const projectName = existing.name
 
-    // ── Bulletproof cleanup: delete ALL child rows individually with raw SQL ──
-    // Each statement runs in its own try/catch so that one missing/non-existent
-    // table doesn't block the others (the previous $transaction approach would
-    // roll back ALL deletes if any single statement failed — which is why
-    // project deletion sometimes silently left orphaned rows and then failed
-    // the final project delete).
-    //
-    // Tables referencing Project (verified via prisma/schema.prisma):
-    //   - ProjectAttachment  (projectId)
-    //   - ProjectCredential  (projectId)
-    //   - ProjectMember      (projectId)
-    //   - ProjectWebsite     (projectId)
-    //   - ProjectInfrastructure (projectId, @unique)
-    //   - TimeEntry          (projectId, nullable)
-    //   - Expense            (projectId, nullable)
-    //   - Subscription       (projectId, nullable)
-    //   - Invoice            (projectId, nullable)
-    //   - _ProjectMethodToProject (join table — column "B" = projectId)
-    //
-    // AuditLog and Notification do NOT have projectId columns (verified in schema).
-    // Contract has projectName (string), NOT a projectId FK — no cleanup needed.
-    const childTables = [
-      "ProjectAttachment",
-      "ProjectCredential",
-      "ProjectMember",
-      "ProjectWebsite",
-      "ProjectInfrastructure",
-      "TimeEntry",
-      "Expense",
-      "Subscription",
-      "Invoice",
+    // ── Bulletproof cleanup: delete ALL child rows using Prisma ORM ──
+    // Using Prisma ORM (not raw SQL) because relationMode = "prisma" emulates
+    // foreign keys at the app layer. Raw SQL DELETE bypasses this emulation
+    // but Prisma's internal relation tracker still thinks the rows exist,
+    // causing the final project.delete() to fail.
+    // By using Prisma ORM deleteMany, Prisma's relation tracker is updated.
+    const childCleanup = [
+      () => db.projectAttachment.deleteMany({ where: { projectId: id } }),
+      () => db.projectCredential.deleteMany({ where: { projectId: id } }),
+      () => db.projectMember.deleteMany({ where: { projectId: id } }),
+      () => db.projectWebsite.deleteMany({ where: { projectId: id } }),
+      () => db.projectInfrastructure.deleteMany({ where: { projectId: id } }),
+      () => db.timeEntry.deleteMany({ where: { projectId: id } }),
+      () => db.expense.deleteMany({ where: { projectId: id } }),
+      () => db.subscription.deleteMany({ where: { projectId: id } }),
+      () => db.invoice.deleteMany({ where: { projectId: id } }),
     ]
-    for (const table of childTables) {
+
+    for (const cleanup of childCleanup) {
       try {
-        await db.$executeRawUnsafe(`DELETE FROM "${table}" WHERE "projectId" = ?`, id)
+        await cleanup()
       } catch (err) {
-        // Non-fatal: table may not exist yet (cold start), or row already gone.
-        console.warn(`[projects] DELETE: cleanup of ${table} failed (non-fatal):`, err instanceof Error ? err.message : String(err))
+        console.warn(`[projects] DELETE: cleanup failed (non-fatal):`, err instanceof Error ? err.message : String(err))
       }
     }
 
-    // Delete join table entries (_ProjectMethodToProject — column "B" = projectId)
+    // Delete join table entries
     try {
       await db.$executeRawUnsafe(`DELETE FROM "_ProjectMethodToProject" WHERE "B" = ?`, id)
-    } catch (err) {
-      console.warn(`[projects] DELETE: cleanup of _ProjectMethodToProject failed (non-fatal):`, err instanceof Error ? err.message : String(err))
+    } catch {
+      // Non-fatal: join table may not exist
     }
 
-    // ── Final project delete ──
-    // Use raw SQL to bypass Prisma's emulated referential integrity checks
-    // (relationMode = "prisma" can fail on boolean columns like isDemo when
-    // there are stale relation rows Prisma doesn't know we already cleaned up).
-    try {
-      await db.$executeRawUnsafe(`DELETE FROM "Project" WHERE "id" = ?`, id)
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err)
-      console.warn(`[projects] DELETE: first attempt failed (${errMsg.slice(0, 100)}). Retrying after setting isDemo = false...`)
-      // Retry: sometimes Prisma emulated relations fail on the boolean isDemo
-      // column. Setting it to 0 (false) first lets the delete succeed.
-      try {
-        await db.$executeRawUnsafe(`UPDATE "Project" SET "isDemo" = 0 WHERE "id" = ?`, id)
-      } catch {
-        // ignore — column may not exist
-      }
-      try {
-        await db.$executeRawUnsafe(`DELETE FROM "Project" WHERE "id" = ?`, id)
-      } catch (err2) {
-        const errMsg2 = err2 instanceof Error ? err2.message : String(err2)
-        console.error(`[projects] DELETE: final project delete failed:`, errMsg2)
-        return NextResponse.json({ error: `Failed to delete project: ${errMsg2.slice(0, 150)}` }, { status: 500 })
-      }
-    }
+    // Delete the project using Prisma ORM (respects relation mode properly)
+    await db.project.delete({ where: { id } })
 
     // Audit: log project deletion (fire-and-forget)
     void logAudit({
