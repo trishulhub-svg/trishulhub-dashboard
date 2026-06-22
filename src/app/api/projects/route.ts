@@ -294,6 +294,43 @@ export async function POST(req: NextRequest) {
         } catch { /* column already exists or other error */ }
         // Retry without isDemo (DB default will handle it)
         project = await db.project.create({ data: createData as any })
+      } else if (errMsg.includes("NOT NULL") && errMsg.includes("clientId")) {
+        // The clientId column is NOT NULL in the DB — this happens on older DBs
+        // where the nullable migration hasn't been applied yet.
+        // Attempt a raw SQL fix: recreate the table with nullable clientId.
+        console.error("[projects] POST: clientId column is NOT NULL — attempting migration fix...")
+        try {
+          // Quick fix: try to make the column nullable via table recreation
+          await db.$executeRawUnsafe(`BEGIN`)
+          await db.$executeRawUnsafe(`
+            CREATE TABLE IF NOT EXISTS "Project_new" (
+              "id" TEXT NOT NULL PRIMARY KEY, "name" TEXT NOT NULL, "description" TEXT,
+              "clientId" TEXT, "status" TEXT NOT NULL DEFAULT 'PLANNING', "progress" INTEGER NOT NULL DEFAULT 0,
+              "isDemo" BOOLEAN NOT NULL DEFAULT 0, "startDate" DATETIME, "deadline" DATETIME, "budget" REAL,
+              "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE SET NULL
+            )
+          `)
+          await db.$executeRawUnsafe(`
+            INSERT INTO "Project_new" SELECT "id", "name", "description", NULLIF("clientId", ''),
+              "status", "progress", COALESCE("isDemo", 0), "startDate", "deadline", "budget", "createdAt", "updatedAt" FROM "Project"
+          `)
+          await db.$executeRawUnsafe(`DROP TABLE "Project"`)
+          await db.$executeRawUnsafe(`ALTER TABLE "Project_new" RENAME TO "Project"`)
+          await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Project_clientId_index" ON "Project"("clientId")`)
+          await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Project_status_index" ON "Project"("status")`)
+          await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Project_deadline_index" ON "Project"("deadline")`)
+          await db.$executeRawUnsafe(`COMMIT`)
+          console.log("[projects] POST: clientId column is now nullable — retrying create...")
+          // Retry the create
+          project = await db.project.create({
+            data: { ...createData, isDemo: validated.isDemo === true } as any,
+          })
+        } catch (fixErr) {
+          await db.$executeRawUnsafe(`ROLLBACK`).catch(() => {})
+          console.error("[projects] POST: migration fix failed:", fixErr instanceof Error ? fixErr.message : String(fixErr))
+          throw new Error("Cannot create project with no client — database schema needs migration. Please contact admin to run migrations.")
+        }
       } else {
         // Comprehensive error logging
         console.error("[projects] POST: db.project.create failed:", errMsg)
@@ -460,12 +497,18 @@ export async function DELETE(req: NextRequest) {
     // Capture project name before deletion for the audit log
     const projectName = existing.name
 
-    // ── Bulletproof cleanup: delete ALL child rows using Prisma ORM ──
-    // Using Prisma ORM (not raw SQL) because relationMode = "prisma" emulates
-    // foreign keys at the app layer. Raw SQL DELETE bypasses this emulation
-    // but Prisma's internal relation tracker still thinks the rows exist,
-    // causing the final project.delete() to fail.
-    // By using Prisma ORM deleteMany, Prisma's relation tracker is updated.
+    // ── Bulletproof cleanup: delete ALL child rows ──
+    // We clean up using BOTH Prisma ORM (for known relations) AND raw SQL
+    // (for orphaned tables from removed models that may still exist in the
+    // production DB with FK constraints pointing at Project.id).
+    //
+    // relationMode = "prisma" emulates FKs at the app layer, but the auto-migrate
+    // script also creates real DB-level FK constraints. If orphaned tables
+    // (Task, Meeting, LarkTaskMapping, etc.) still exist in the DB from a
+    // previous schema version, their FK constraints will block the final
+    // project.delete() even though Prisma doesn't know about them.
+
+    // 1. Prisma ORM cleanup for current schema relations
     const childCleanup = [
       () => db.projectAttachment.deleteMany({ where: { projectId: id } }),
       () => db.projectCredential.deleteMany({ where: { projectId: id } }),
@@ -482,19 +525,65 @@ export async function DELETE(req: NextRequest) {
       try {
         await cleanup()
       } catch (err) {
-        console.warn(`[projects] DELETE: cleanup failed (non-fatal):`, err instanceof Error ? err.message : String(err))
+        console.warn(`[projects] DELETE: Prisma cleanup failed (non-fatal):`, err instanceof Error ? err.message : String(err))
       }
     }
 
-    // Delete join table entries
-    try {
-      await db.$executeRawUnsafe(`DELETE FROM "_ProjectMethodToProject" WHERE "B" = ?`, id)
-    } catch {
-      // Non-fatal: join table may not exist
+    // 2. Raw SQL cleanup for orphaned tables from REMOVED models
+    // These tables may still exist in the production DB even though they were
+    // removed from the Prisma schema. Their FK constraints will block
+    // project.delete() if we don't clean them up first.
+    const orphanedTableCleanup = [
+      // Tables removed from schema but may still exist in DB
+      `DELETE FROM "Task" WHERE "projectId" = ?`,
+      `DELETE FROM "LarkTaskMapping" WHERE "projectId" = ?`,
+      `DELETE FROM "Meeting" WHERE "projectId" = ?`,
+      `DELETE FROM "MeetingAttendee" WHERE "meetingId" IN (SELECT "id" FROM "Meeting" WHERE "projectId" = ?)`,
+      `DELETE FROM "PersonalTimetableTask" WHERE "projectId" = ?`,
+      `DELETE FROM "TimetableSettings" WHERE "projectId" = ?`,
+      `DELETE FROM "TaskGitConfig" WHERE "projectId" = ?`,
+      // Join tables that may reference Project
+      `DELETE FROM "_ProjectMethodToProject" WHERE "B" = ?`,
+      // Also clean up any _TaskToProject or _MeetingToProject join tables
+      `DELETE FROM "_TaskToProject" WHERE "B" = ?`,
+      `DELETE FROM "_MeetingToProject" WHERE "B" = ?`,
+    ]
+
+    for (const sql of orphanedTableCleanup) {
+      try {
+        await db.$executeRawUnsafe(sql, id)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        // "no such table" is expected — the table may not exist
+        if (!msg.includes("no such table") && !msg.includes("does not exist")) {
+          console.warn(`[projects] DELETE: orphan cleanup failed (non-fatal):`, msg)
+        }
+      }
     }
 
-    // Delete the project using Prisma ORM (respects relation mode properly)
-    await db.project.delete({ where: { id } })
+    // 3. Delete the project — try Prisma ORM first, then raw SQL fallback
+    try {
+      await db.project.delete({ where: { id } })
+    } catch (deleteErr) {
+      const delMsg = deleteErr instanceof Error ? deleteErr.message : String(deleteErr)
+      console.warn("[projects] DELETE: Prisma ORM delete failed, trying raw SQL:", delMsg)
+      try {
+        await db.$executeRawUnsafe(`DELETE FROM "Project" WHERE "id" = ?`, id)
+      } catch (rawErr) {
+        const rawMsg = rawErr instanceof Error ? rawErr.message : String(rawErr)
+        console.error("[projects] DELETE: raw SQL also failed:", rawMsg)
+        // Last resort: try to identify which table is blocking the delete
+        let blockerInfo = ""
+        try {
+          const blockers = await db.$queryRawUnsafe(`
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND sql LIKE '%projectId%' AND name != 'Project'
+          `) as Array<{ name: string }>
+          blockerInfo = ` Potential blocking tables: ${blockers.map(b => b.name).join(", ")}`
+        } catch { /* ignore */ }
+        throw new Error(`Cannot delete project (FK constraint).${blockerInfo} Original: ${delMsg.slice(0, 100)}`)
+      }
+    }
 
     // Audit: log project deletion (fire-and-forget)
     void logAudit({

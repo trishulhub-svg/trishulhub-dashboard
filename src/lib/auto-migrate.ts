@@ -476,10 +476,67 @@ export async function ensureAllTables(): Promise<void> {
     }
 
     // 1e. Make Project.clientId nullable (was NOT NULL, now optional for "No client" projects)
-    // Note: Skipping the PRAGMA-based nullable check since it requires BigInt-safe PRAGMA.
-    // This migration was likely already applied. If not, the table recreation fallback
-    // will be handled by a future explicit migration.
-    // The nullable change is non-blocking — Prisma handles null values at the ORM level.
+    // SQLite doesn't support ALTER COLUMN, so we recreate the table if clientId is NOT NULL.
+    // This is critical for "No Client" project creation — without it, inserting null fails.
+    try {
+      // Check if clientId is currently NOT NULL by inspecting the table schema
+      const columns = await db.$queryRawUnsafe(`PRAGMA table_info("Project")`) as Array<{
+        name: string
+        notnull: number
+        type: string
+        dflt_value: string | null
+        pk: number
+        cid: number
+      }>
+      const clientIdCol = columns.find(c => c.name === "clientId")
+      if (clientIdCol && clientIdCol.notnull === 1) {
+        // clientId is NOT NULL — need to recreate the table with nullable clientId
+        console.log("[auto-migrate] Project.clientId is NOT NULL — recreating table to make it nullable...")
+        await db.$executeRawUnsafe(`BEGIN`)
+        try {
+          // Step 1: Create new table with nullable clientId
+          await db.$executeRawUnsafe(`
+            CREATE TABLE IF NOT EXISTS "Project_new" (
+              "id" TEXT NOT NULL PRIMARY KEY,
+              "name" TEXT NOT NULL,
+              "description" TEXT,
+              "clientId" TEXT,
+              "status" TEXT NOT NULL DEFAULT 'PLANNING',
+              "progress" INTEGER NOT NULL DEFAULT 0,
+              "isDemo" BOOLEAN NOT NULL DEFAULT 0,
+              "startDate" DATETIME,
+              "deadline" DATETIME,
+              "budget" REAL,
+              "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE SET NULL
+            )
+          `)
+          // Step 2: Copy data from old table (convert empty strings to null)
+          await db.$executeRawUnsafe(`
+            INSERT INTO "Project_new" ("id", "name", "description", "clientId", "status", "progress", "isDemo", "startDate", "deadline", "budget", "createdAt", "updatedAt")
+            SELECT "id", "name", "description", NULLIF("clientId", ''), "status", "progress",
+              COALESCE("isDemo", 0), "startDate", "deadline", "budget", "createdAt", "updatedAt"
+            FROM "Project"
+          `)
+          // Step 3: Drop old table and rename new one
+          await db.$executeRawUnsafe(`DROP TABLE "Project"`)
+          await db.$executeRawUnsafe(`ALTER TABLE "Project_new" RENAME TO "Project"`)
+          // Step 4: Recreate indexes
+          await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Project_clientId_index" ON "Project"("clientId")`)
+          await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Project_status_index" ON "Project"("status")`)
+          await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Project_deadline_index" ON "Project"("deadline")`)
+          await db.$executeRawUnsafe(`COMMIT`)
+          console.log("[auto-migrate] Project.clientId is now nullable — 'No Client' projects will work")
+        } catch (innerErr: unknown) {
+          await db.$executeRawUnsafe(`ROLLBACK`).catch(() => {})
+          const innerMsg = innerErr instanceof Error ? innerErr.message : String(innerErr)
+          console.warn(`[auto-migrate] Project.clientId nullable migration failed: ${innerMsg}`)
+        }
+      }
+    } catch (err: unknown) {
+      console.warn(`[auto-migrate] Project.clientId nullable check: ${getErrMsg(err)}`)
+    }
 
     // 1f. Create indexes for FileMetadata
     try {

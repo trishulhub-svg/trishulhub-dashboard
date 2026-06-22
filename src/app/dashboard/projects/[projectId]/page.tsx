@@ -72,6 +72,9 @@ export default function ProjectDetailPage() {
   const userRole = session?.user?.role || "DEVELOPER";
   const userId = session?.user?.id || "";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+  // PROJECT_MANAGER can manage projects, members, infrastructure, and tokens
+  // (same as ADMIN for project-management capabilities).
+  const canManageProject = userRole === "SUPER_ADMIN" || userRole === "ADMIN" || userRole === "PROJECT_MANAGER";
 
   // Detect if loaded inside floating board iframe — hide back button & reduce padding
   const isInIframe = typeof window !== "undefined" && window.self !== window.top;
@@ -158,7 +161,10 @@ export default function ProjectDetailPage() {
     retry: 1,
   });
 
-  // Lazy load team users only when add member dialog opens (not on page load)
+  // Lazy load team users — prefetch on hover/focus so the list is ready
+  // by the time the dialog opens. The query is enabled when addMemberOpen
+  // is true OR when the user hovers the add-member button (prefetch).
+  const [prefetchTeamUsers, setPrefetchTeamUsers] = useState(false);
   const { data: teamUsersData = [] } = useQuery({
     queryKey: ["team-users"],
     queryFn: async () => {
@@ -168,7 +174,8 @@ export default function ProjectDetailPage() {
       const ud = deepSanitize(await res.json());
       return Array.isArray(ud) ? ud : (Array.isArray((ud as Record<string, unknown>)?.data) ? (ud as Record<string, unknown>).data as unknown[] : []);
     },
-    enabled: !isInIframe && isAdminUser && addMemberOpen,
+    // Enable on: dialog open OR prefetch trigger (hover/focus on add button)
+    enabled: !isInIframe && isAdminUser && (addMemberOpen || prefetchTeamUsers),
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
     refetchOnWindowFocus: false,
@@ -384,7 +391,14 @@ export default function ProjectDetailPage() {
   const handleAddMember = async (userId: string, role: string) => {
     try {
       const res = await fetch(`/api/projects/${projectId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ userId, role }) });
-      if (res.ok) { toast.success("Member added"); setAddMemberOpen(false); invalidateAll(); }
+      if (res.ok) {
+        toast.success("Member added");
+        setAddMemberOpen(false);
+        // PERF: Only invalidate the members query — not the entire project.
+        // invalidateAll() refetches project + members + websites + infra,
+        // which causes a visible flash and adds ~1-2s of loading state.
+        queryClient.invalidateQueries({ queryKey: ["project-members", projectId] });
+      }
       else { if (handle401(res)) return; const d = await res.json(); toast.error(d.error || "Failed to add member"); }
     } catch { toast.error("Failed to add member"); }
   };
@@ -400,7 +414,11 @@ export default function ProjectDetailPage() {
   const handleRemoveMember = async (userId: string) => {
     try {
       const res = await fetch(`/api/projects/${projectId}/members?userId=${userId}`, { method: "DELETE", credentials: "include" });
-      if (res.ok) { toast.success("Member removed"); invalidateAll(); }
+      if (res.ok) {
+        toast.success("Member removed");
+        // PERF: Only invalidate members, not the entire project.
+        queryClient.invalidateQueries({ queryKey: ["project-members", projectId] });
+      }
       else { if (handle401(res)) return; toast.error("Failed to remove member"); }
     } catch { toast.error("Failed to remove member"); }
   };
@@ -776,6 +794,8 @@ export default function ProjectDetailPage() {
                   variant="outline"
                   className="h-7 w-7 rounded-full shrink-0 shadow-sm hover:shadow-md transition-all"
                   aria-label="Add member"
+                  onMouseEnter={() => setPrefetchTeamUsers(true)}
+                  onFocus={() => setPrefetchTeamUsers(true)}
                 >
                   <UserPlus className="h-3.5 w-3.5" />
                 </Button>
@@ -837,12 +857,12 @@ export default function ProjectDetailPage() {
               <Badge variant="secondary" className="text-[10px] font-semibold h-5 px-1.5">Configured</Badge>
             )}
           </div>
-          {isAdminUser && !infraEditing && (
+          {canManageProject && !infraEditing && (
             <div className="flex items-center gap-1.5">
               <Button size="sm" variant="outline" className="h-7 text-xs px-2.5 gap-1" onClick={handleInfraEdit}>
                 <Pencil className="h-3 w-3" /> Edit
               </Button>
-              {userRole === "SUPER_ADMIN" && (
+              {canManageProject && (
                 <Button size="sm" variant="outline" className="h-7 text-xs px-2.5 gap-1" onClick={() => setTokenEditOpen(true)}>
                   <Key className="h-3 w-3" /> Tokens
                 </Button>
@@ -1039,8 +1059,8 @@ export default function ProjectDetailPage() {
         </div>
       </div>
 
-      {/* ── Token Edit Dialog (SUPER_ADMIN only) ── */}
-      {userRole === "SUPER_ADMIN" && (
+      {/* ── Token Edit Dialog (ADMIN + PROJECT_MANAGER) ── */}
+      {canManageProject && (
         <Dialog open={tokenEditOpen} onOpenChange={setTokenEditOpen}>
           <DialogContent className="sm:max-w-md bg-white/80 dark:bg-gray-950/80 backdrop-blur-xl border-white/20 dark:border-white/10">
             <DialogHeader>

@@ -6,7 +6,6 @@ import { Prisma } from "@prisma/client"
 import { createLeadSchema, validateRequest } from "@/lib/validations"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureAllTables } from "@/lib/auto-migrate"
 import { deepSanitize } from "@/lib/utils"
 
 // ━━ Shared constants ━━
@@ -74,8 +73,6 @@ export async function GET(req: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    await ensureAllTables()
-
     const userRole = session.user.role
     if (!isAdmin(userRole)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
@@ -95,7 +92,6 @@ export async function GET(req: NextRequest) {
     const sortOrder = searchParams.get("sortOrder") || "desc"
 
     const clientId = searchParams.get("clientId") || ""
-    // Note: Filtering by non-existent clientId just returns empty results, which is acceptable behavior.
 
     // Pagination params
     const page = Math.max(1, parseInt(searchParams.get("page") || "1"))
@@ -132,10 +128,29 @@ export async function GET(req: NextRequest) {
         ? { name: sortOrder === "asc" ? "asc" : "desc" }
         : { createdAt: sortOrder === "asc" ? "asc" : "desc" }
 
+    // PERF: Use select instead of include to avoid fetching full client objects
+    // and the entire emails collection per lead. The kanban board only needs
+    // scalar fields + the client name. Emails are loaded on demand when a
+    // lead is selected via /api/leads/emails?leadId=...
     const [leads, total] = await Promise.all([
       db.lead.findMany({
         where,
-        include: { client: true, emails: true },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          company: true,
+          website: true,
+          phone: true,
+          source: true,
+          score: true,
+          status: true,
+          notes: true,
+          clientId: true,
+          createdAt: true,
+          updatedAt: true,
+          client: { select: { id: true, name: true, company: true } },
+        },
         orderBy,
         skip: offset,
         take: limit,
@@ -161,8 +176,6 @@ export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-
-    await ensureAllTables()
 
     const userRole = session.user.role
     if (!isAdmin(userRole)) {
@@ -230,8 +243,6 @@ export async function PATCH(req: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    await ensureAllTables()
-
     const userRole = session.user.role
     if (!isAdmin(userRole)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
@@ -269,8 +280,6 @@ export async function PUT(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-
-    await ensureAllTables()
 
     const userRole = session.user.role
     if (!isAdmin(userRole)) {

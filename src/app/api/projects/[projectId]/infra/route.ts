@@ -205,9 +205,9 @@ export async function POST(
       return NextResponse.json({ error: "Invalid project ID" }, { status: 400 })
     }
 
-    // Only SUPER_ADMIN can set tokens
-    if (session.user.role !== "SUPER_ADMIN") {
-      return NextResponse.json({ error: "Forbidden: super admin access required to set tokens" }, { status: 403 })
+    // ADMIN+ and PROJECT_MANAGER can set tokens (project-management capability)
+    if (!isAdminOrProjectManager(session.user.role)) {
+      return NextResponse.json({ error: "Forbidden: admin or project manager access required to set tokens" }, { status: 403 })
     }
 
     // Rate limit
