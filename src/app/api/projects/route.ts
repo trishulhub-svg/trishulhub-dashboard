@@ -38,8 +38,11 @@ function serializeProjects(projects: any[]): any[] {
 
 export async function GET(req: NextRequest) {
   try {
-    // Auto-migrate: ensure all tables/columns exist before querying (Turso)
-    await ensureAllTables()
+    // Skip ensureAllTables for minimal fetches (speeds up dropdowns)
+    const isMinimal = req.nextUrl.searchParams.get("fields") === "minimal"
+    if (!isMinimal) {
+      await ensureAllTables()
+    }
 
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -86,7 +89,7 @@ export async function GET(req: NextRequest) {
     // but budget visibility is still gated by isAdmin (PM does NOT see budget).
     const canManageProjects = isAdminOrProjectManager(userRole)
     const isDemoParam = searchParams.get("isDemo")
-    const isMinimal = searchParams.get("fields") === "minimal"
+    // isMinimal already declared at top of function
     const isDemoFilter: boolean | undefined =
       isDemoParam === "true" ? true
       : isDemoParam === "false" ? false
@@ -169,22 +172,21 @@ export async function GET(req: NextRequest) {
       skip: offset,
     })
 
-    // Fetch project-method assignments — filter by projectId when specified
+    // Fetch project-method assignments — only for detail view (not list view)
+    // This skips a slow raw SQL query when just listing projects
     let methodsMap: Record<string, Array<{ id: string; name: string }>> = {}
-    try {
-      const methodsSql = projectId
-        ? `SELECT j."B" as "projectId", pm."id", pm."name" FROM "_ProjectMethodToProject" j JOIN "ProjectMethod" pm ON j."A" = pm."id" WHERE j."B" = '${projectId.replace(/'/g, "''")}'`
-        : `SELECT j."B" as "projectId", pm."id", pm."name" FROM "_ProjectMethodToProject" j JOIN "ProjectMethod" pm ON j."A" = pm."id"`
-      const assignments = await db.$queryRawUnsafe(methodsSql) as unknown as Array<{ projectId: string; id: string; name: string }>
-      for (const a of assignments) {
-        if (!methodsMap[a.projectId]) methodsMap[a.projectId] = []
-        methodsMap[a.projectId].push({ id: a.id, name: a.name })
-      }
-    } catch (err: unknown) {
-      // Join table may not exist yet — non-fatal
-      const errMsg = err instanceof Error ? err.message : String(err)
-      if (!errMsg.includes('no such table')) {
-        console.warn('[projects] Failed to fetch project methods:', errMsg)
+    if (projectId) {
+      try {
+        const assignments = await db.$queryRawUnsafe(
+          `SELECT j."B" as "projectId", pm."id", pm."name" FROM "_ProjectMethodToProject" j JOIN "ProjectMethod" pm ON j."A" = pm."id" WHERE j."B" = ?`,
+          projectId
+        ) as unknown as Array<{ projectId: string; id: string; name: string }>
+        for (const a of assignments) {
+          if (!methodsMap[a.projectId]) methodsMap[a.projectId] = []
+          methodsMap[a.projectId].push({ id: a.id, name: a.name })
+        }
+      } catch {
+        // Join table may not exist — non-fatal
       }
     }
 
@@ -271,19 +273,20 @@ export async function POST(req: NextRequest) {
         description: description,
         status: projectStatus,
         clientId,
-        // M-PRJ-1 FIX: Use ?? instead of || so budget: 0 is preserved
         budget: validated.budget ?? null,
         deadline: validated.deadline ? new Date(validated.deadline) : null,
         startDate: validated.startDate ? new Date(validated.startDate) : null,
+        isDemo: validated.isDemo === true,
       },
     }).catch(async (err) => {
       // If isDemo column doesn't exist yet, try without it
-      if (String(err).includes("isDemo") || String(err).includes("Unknown column")) {
-        console.warn("[projects] POST: isDemo column may not exist, trying auto-migrate...");
+      const errMsg = err instanceof Error ? err.message : String(err)
+      if (errMsg.includes("isDemo") || errMsg.includes("Unknown column") || errMsg.includes("no such column")) {
+        console.warn("[projects] POST: isDemo column may not exist, running ALTER TABLE...");
         try {
-          await db.$executeRawUnsafe(`ALTER TABLE "Project" ADD COLUMN isDemo BOOLEAN NOT NULL DEFAULT 0`).catch(() => {});
+          await db.$executeRawUnsafe(`ALTER TABLE "Project" ADD COLUMN isDemo BOOLEAN NOT NULL DEFAULT 0`)
         } catch { /* column already exists */ }
-        // Retry with isDemo
+        // Retry WITHOUT isDemo (let DB default handle it)
         return db.project.create({
           data: {
             name,
@@ -293,12 +296,11 @@ export async function POST(req: NextRequest) {
             budget: validated.budget ?? null,
             deadline: validated.deadline ? new Date(validated.deadline) : null,
             startDate: validated.startDate ? new Date(validated.startDate) : null,
-            isDemo: validated.isDemo === true,
           },
-        });
+        })
       }
-      throw err;
-    });
+      throw err
+    })
     // I1: Targeted Date serialization
     void logAudit({
       userId: session.user.id, userName: session.user.name || "unknown", userRole,
@@ -309,8 +311,9 @@ export async function POST(req: NextRequest) {
     })
     return NextResponse.json(serializeProjectDates(project), { status: 201 })
   } catch (error: unknown) {
-    console.error("[projects] POST error:", error instanceof Error ? error.message : String(error))
-    return NextResponse.json({ error: "Failed to create project" }, { status: 500 })
+    const errMsg = error instanceof Error ? error.message : String(error)
+    console.error("[projects] POST error:", errMsg)
+    return NextResponse.json({ error: `Failed to create project: ${errMsg.slice(0, 150)}` }, { status: 500 })
   }
 }
 
@@ -443,21 +446,20 @@ export async function DELETE(req: NextRequest) {
     // C4: Use $transaction for atomic deletion of all related records
     await db.$transaction(async (tx) => {
       // Delete all child records explicitly (relationMode = "prisma" doesn't cascade at DB level)
-      await tx.projectAttachment.deleteMany({ where: { projectId: id } })
-      await tx.projectCredential.deleteMany({ where: { projectId: id } })
-      await tx.projectMember.deleteMany({ where: { projectId: id } })
-      await tx.projectWebsite.deleteMany({ where: { projectId: id } })
-      await tx.projectInfrastructure.deleteMany({ where: { projectId: id } })
-      await tx.timeEntry.deleteMany({ where: { projectId: id } })
-      await tx.expense.deleteMany({ where: { projectId: id } })
-      await tx.subscription.deleteMany({ where: { projectId: id } })
-      await tx.invoice.deleteMany({ where: { projectId: id } })
+      // Wrap each in try/catch so missing tables don't block deletion
+      await tx.projectAttachment.deleteMany({ where: { projectId: id } }).catch(() => {})
+      await tx.projectCredential.deleteMany({ where: { projectId: id } }).catch(() => {})
+      await tx.projectMember.deleteMany({ where: { projectId: id } }).catch(() => {})
+      await tx.projectWebsite.deleteMany({ where: { projectId: id } }).catch(() => {})
+      await tx.projectInfrastructure.deleteMany({ where: { projectId: id } }).catch(() => {})
+      await tx.timeEntry.deleteMany({ where: { projectId: id } }).catch(() => {})
+      await tx.expense.deleteMany({ where: { projectId: id } }).catch(() => {})
+      await tx.subscription.deleteMany({ where: { projectId: id } }).catch(() => {})
+      await tx.invoice.deleteMany({ where: { projectId: id } }).catch(() => {})
       // Remove project-method associations (implicit many-to-many join table)
       try {
         await tx.$executeRawUnsafe(`DELETE FROM "_ProjectMethodToProject" WHERE "B" = ?`, id)
-      } catch {
-        // Join table might not exist or might be empty — non-fatal
-      }
+      } catch { /* Join table might not exist — non-fatal */ }
       // Delete the project itself
       await tx.project.delete({ where: { id } })
     })
@@ -473,7 +475,9 @@ export async function DELETE(req: NextRequest) {
 
     return NextResponse.json({ success: true })
   } catch (error: unknown) {
-    console.error("[projects] DELETE error:", error instanceof Error ? error.message : String(error))
-    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+    const errMsg = error instanceof Error ? error.message : String(error)
+    console.error("[projects] DELETE error:", errMsg)
+    // Return a helpful error message
+    return NextResponse.json({ error: `Failed to delete project: ${errMsg.slice(0, 150)}` }, { status: 500 })
   }
 }
