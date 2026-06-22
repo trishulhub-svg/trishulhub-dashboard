@@ -456,11 +456,27 @@ export default function DocumentDetailPage() {
         {/* Assignments Tab */}
         <TabsContent value="assignments">
           <div className="space-y-4">
+            {/* ZAI FIX: Warn admin if document content isn't ready for assignment */}
+            {(!document.content || document.content.trim().length === 0 || document.status !== "READY") && (
+              <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg text-sm text-amber-700 dark:text-amber-400 flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>
+                  {document.status === "GENERATING"
+                    ? "Document is still being generated. Wait for it to finish before assigning."
+                    : document.status === "GENERATION_FAILED"
+                      ? "Document generation failed. Regenerate it before assigning."
+                      : "Document content is empty. Generate content before assigning to employees."}
+                </span>
+              </div>
+            )}
             {/* Assign button */}
             <div className="flex justify-end">
               <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
                 <DialogTrigger asChild>
-                  <Button className="gap-2" disabled={document.tests.length === 0}>
+                  <Button
+                    className="gap-2"
+                    disabled={document.tests.length === 0 || !document.content || document.content.trim().length === 0 || document.status !== "READY"}
+                  >
                     <Send className="h-4 w-4" /> Assign to Employees
                   </Button>
                 </DialogTrigger>

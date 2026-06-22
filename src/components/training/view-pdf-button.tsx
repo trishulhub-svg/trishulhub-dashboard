@@ -81,13 +81,14 @@ export function ViewPdfButton({
         onClick={generatePdf}
         disabled={loading || !content}
         className={`gap-2 ${className}`}
+        title={!content ? "Training content is not available yet. Contact your admin." : undefined}
       >
         {loading ? (
           <Loader2 className="h-5 w-5 animate-spin" />
         ) : (
           <FileText className="h-5 w-5" />
         )}
-        {loading ? "Generating PDF..." : "View PDF"}
+        {loading ? "Generating PDF..." : !content ? "No Content Available" : "View PDF"}
       </Button>
 
       {/* Full-screen PDF Viewer (loaded lazily) */}

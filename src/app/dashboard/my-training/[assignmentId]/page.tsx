@@ -380,6 +380,10 @@ export default function TrainingReaderPage() {
 
   // ─── READ MODE ───
   if (viewMode === "read") {
+    // ZAI FIX: If content is empty, the PDF can't be generated. Show a clear
+    // message instead of a disabled button that leaves the developer confused.
+    const hasContent = assignment.document.content && assignment.document.content.trim().length > 0
+
     return (
       <div className="space-y-6">
         <div className="flex items-center gap-4">
@@ -411,31 +415,56 @@ export default function TrainingReaderPage() {
                 View the training document as a professional PDF. Once you&apos;ve reviewed it, mark as read to proceed to the test.
               </p>
             </div>
-            <div className="flex flex-col sm:flex-row items-center gap-3 w-full">
-              <ViewPdfButton
-                topic={assignment.document.topic}
-                content={assignment.document.content}
-                generatedBy={assignment.assigner.name}
-                createdAt={assignment.createdAt}
-                size="lg"
-                className="bg-[#E85D04] hover:bg-[#C2410C] text-white"
-                onPdfOpened={handlePdfOpened}
-                onMarkAsRead={handleMarkAsRead}
-              />
-              <Button
-                size="lg"
-                variant={pdfOpened ? "default" : "outline"}
-                className={cn("gap-2 shadow-lg", pdfOpened && "bg-green-600 hover:bg-green-700 text-white")}
-                onClick={handleMarkAsRead}
-              >
-                <CheckCircle2 className="h-5 w-5" />
-                {pdfOpened ? "Mark as Read & Start Test" : "Read PDF First"}
-              </Button>
-            </div>
-            {!pdfOpened && (
-              <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
-                You must view the PDF document at least once before you can start the test.
-              </p>
+
+            {hasContent ? (
+              <>
+                <div className="flex flex-col sm:flex-row items-center gap-3 w-full">
+                  <ViewPdfButton
+                    topic={assignment.document.topic}
+                    content={assignment.document.content}
+                    generatedBy={assignment.assigner.name}
+                    createdAt={assignment.createdAt}
+                    size="lg"
+                    className="bg-[#E85D04] hover:bg-[#C2410C] text-white"
+                    onPdfOpened={handlePdfOpened}
+                    onMarkAsRead={handleMarkAsRead}
+                  />
+                  <Button
+                    size="lg"
+                    variant={pdfOpened ? "default" : "outline"}
+                    className={cn("gap-2 shadow-lg", pdfOpened && "bg-green-600 hover:bg-green-700 text-white")}
+                    onClick={handleMarkAsRead}
+                  >
+                    <CheckCircle2 className="h-5 w-5" />
+                    {pdfOpened ? "Mark as Read & Start Test" : "Read PDF First"}
+                  </Button>
+                </div>
+                {!pdfOpened && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
+                    You must view the PDF document at least once before you can start the test.
+                  </p>
+                )}
+              </>
+            ) : (
+              /* ZAI FIX: Content is empty — show a clear message instead of a disabled button */
+              <div className="flex flex-col items-center gap-3 max-w-md">
+                <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400">
+                  <AlertTriangle className="h-5 w-5 shrink-0" />
+                  <p className="text-sm text-left">
+                    The training document content is not available yet. This usually means
+                    the document is still being generated or generation failed.
+                    Please contact your admin to fix this.
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => router.push("/dashboard/my-training")}
+                  className="gap-2"
+                >
+                  <ArrowLeft className="h-4 w-4" /> Back to My Training
+                </Button>
+              </div>
             )}
           </div>
         </Card>
