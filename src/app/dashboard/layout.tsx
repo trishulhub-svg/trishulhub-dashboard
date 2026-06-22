@@ -686,11 +686,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     setMobileOpen(false);
   };
 
-  // Safety timeout for session loading — show fallback after 5s (reduced from 15s)
+  // Safety timeout for session loading — show fallback after 3s (reduced from 5s/15s)
   const [sessionTimedOut, setSessionTimedOut] = useState(false);
   useEffect(() => {
     if (status !== "loading") return;
-    const t = setTimeout(() => setSessionTimedOut(true), 5000);
+    const t = setTimeout(() => setSessionTimedOut(true), 3000);
     return () => clearTimeout(t);
   }, [status]);
 

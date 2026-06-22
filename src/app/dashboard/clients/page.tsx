@@ -538,14 +538,25 @@ export default function ClientsPage() {
         // CLI-033: Store aggregate stats from API
         if (result.stats) setStats(result.stats);
         setClients(data);
+        // Clear any previous error on success
+        setError(null);
+      } else if (res.status >= 500) {
+        // Transient server error (timeout/cold start): show inline error UI with retry.
+        // Avoid toast spam — the inline retry button is the recovery path.
+        const errData = await res.json().catch(() => ({}));
+        setError((errData?.error as string) || "Server is taking too long to respond. Please retry.");
+        setClients([]);
       } else {
+        // 4xx errors are real validation/permission issues — toast them.
         const errData = await res.json().catch(() => ({}));
         toast.error((errData.error || "Failed to load clients").slice(0, 100));
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
-      toast.error("Failed to load clients");
-      setError(err instanceof Error ? err.message : "Failed to load clients");
+      // Network error (offline, DNS, etc.) — show inline error UI with retry.
+      // Don't toast spam; the inline error state has a "Try Again" button.
+      setError(err instanceof Error ? err.message : "Network error. Please check your connection and retry.");
+      setClients([]);
     } finally {
       setLoading(false);
     }

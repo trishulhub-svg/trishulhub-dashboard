@@ -6,7 +6,7 @@ import {
   Clock, Play, Square, Timer, TrendingUp, Users, BarChart3,
   Download, Trash2, StopCircle, CalendarDays, FolderKanban,
   RefreshCw, AlertCircle, Loader2, UserCheck, Pencil, Plus, Eye,
-  ArrowLeft,
+  ArrowLeft, Calendar,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -76,6 +76,66 @@ interface Project {
   id: string;
   name: string;
   status: string;
+}
+
+// ── Attendance Types (moved from team page) ──
+interface AttendanceRecord {
+  id: string;
+  userId: string;
+  date: string;
+  checkIn?: string | null;
+  checkOut?: string | null;
+  status: string;
+  notes?: string | null;
+  isManual?: boolean;
+  requiredHours?: number | null;
+  workedHours?: number | null;
+  user?: { id: string; name: string; email: string; role: string; avatar?: string | null };
+}
+
+// Attendance status colors
+const attStatusColors: Record<string, string> = {
+  PRESENT: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+  ABSENT: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+  HALF_DAY: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
+  LEAVE: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+  NO_SCHEDULE: "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300",
+};
+
+// [C3] Helper: get local date string (YYYY-MM-DD)
+function toLocalDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+// [C4] Helper: format ISO time string to HH:MM for time input fields
+function formatTimeHHMM(isoStr?: string | null): string {
+  if (!isoStr) return "";
+  try {
+    const d = new Date(isoStr);
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  } catch {
+    return "";
+  }
+}
+
+// Format ISO time string for display (HH:MM AM/PM)
+function formatAttTime(isoStr?: string | null): string {
+  if (!isoStr) return "N/A";
+  try {
+    return new Date(isoStr).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return "N/A";
+  }
+}
+
+// Format ISO date string for attendance display
+function formatAttDate(isoStr?: string | null): string {
+  if (!isoStr) return "N/A";
+  try {
+    return new Date(isoStr).toLocaleDateString([], { weekday: "short", year: "numeric", month: "short", day: "numeric" });
+  } catch {
+    return "N/A";
+  }
 }
 
 interface AnalyticsData {
@@ -266,6 +326,20 @@ export default function TimeTrackingPage() {
 
   // View description dialog
   const [viewDescriptionEntry, setViewDescriptionEntry] = useState<TimeEntry | null>(null);
+
+  // ── Attendance state (moved from team page) ──
+  const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
+  const [attDateFrom, setAttDateFrom] = useState("");
+  const [attDateTo, setAttDateTo] = useState("");
+  const [attUserFilter, setAttUserFilter] = useState("all");
+  const [attDialogOpen, setAttDialogOpen] = useState(false);
+  const [attForm, setAttForm] = useState({ userId: "", date: "", status: "PRESENT", checkIn: "", checkOut: "", notes: "" });
+  const [attLoading, setAttLoading] = useState(false);
+  const [editAttDialogOpen, setEditAttDialogOpen] = useState(false);
+  const [editAttForm, setEditAttForm] = useState({ id: "", status: "PRESENT", checkIn: "", checkOut: "", notes: "" });
+  const [attEditLoading, setAttEditLoading] = useState(false);
+  const [deleteAttId, setDeleteAttId] = useState<string | null>(null);
 
   // Deep-link + redirect popup state
   const [showRedirectPopup, setShowRedirectPopup] = useState(false);
@@ -726,6 +800,172 @@ export default function TimeTrackingPage() {
     }
   }, [activeTab, fetchAnalytics]);
 
+  // ── Attendance: fetch records (admin only) ──
+  const fetchAttendance = useCallback(async (signal?: AbortSignal) => {
+    if (!isAdminUser) return;
+    setAttendanceLoading(true);
+    try {
+      const params = new URLSearchParams();
+      params.set("type", "attendance");
+      if (attDateFrom) params.set("from", attDateFrom);
+      if (attDateTo) params.set("to", attDateTo);
+      const res = await fetch(`/api/team?${params.toString()}`, { credentials: "include", signal });
+      if (res.ok) {
+        const data = await res.json();
+        setAttendance(Array.isArray(data) ? data : []);
+      } else {
+        const errData = await res.json().catch(() => null);
+        toast.error(errData?.error || "Failed to load attendance data");
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      // silently ignore — non-fatal
+    } finally {
+      setAttendanceLoading(false);
+    }
+  }, [isAdminUser, attDateFrom, attDateTo]);
+
+  useEffect(() => {
+    if (activeTab === "attendance" && isAdminUser) {
+      const controller = new AbortController();
+      fetchAttendance(controller.signal);
+      return () => controller.abort();
+    }
+  }, [activeTab, isAdminUser, fetchAttendance]);
+
+  // ── Attendance: Add record handler ──
+  const handleAddAttendance = useCallback(async () => {
+    if (!attForm.userId || !attForm.date) {
+      toast.error("Employee and date are required");
+      return;
+    }
+    setAttLoading(true);
+    try {
+      const payload: Record<string, unknown> = {
+        type: "attendance",
+        userId: attForm.userId,
+        date: attForm.date,
+        status: attForm.status,
+      };
+      if (attForm.checkIn) payload.checkIn = new Date(`${attForm.date}T${attForm.checkIn}`).toISOString();
+      if (attForm.checkOut) payload.checkOut = new Date(`${attForm.date}T${attForm.checkOut}`).toISOString();
+      if (attForm.notes.trim()) payload.notes = attForm.notes.trim();
+
+      const res = await fetch("/api/team", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        toast.success("Attendance record added");
+        setAttDialogOpen(false);
+        setAttForm({ userId: "", date: "", status: "PRESENT", checkIn: "", checkOut: "", notes: "" });
+        fetchAttendance();
+      } else {
+        const errData = await res.json().catch(() => null);
+        toast.error(errData?.error || "Failed to add attendance record");
+      }
+    } catch {
+      toast.error("Failed to add attendance record");
+    } finally {
+      setAttLoading(false);
+    }
+  }, [attForm, fetchAttendance]);
+
+  // ── Attendance: Edit record handler ──
+  const openEditAttDialog = useCallback((record: AttendanceRecord) => {
+    setEditAttForm({
+      id: record.id,
+      status: record.status,
+      checkIn: formatTimeHHMM(record.checkIn),
+      checkOut: formatTimeHHMM(record.checkOut),
+      notes: record.notes || "",
+    });
+    setEditAttDialogOpen(true);
+  }, []);
+
+  const handleEditAttendance = useCallback(async () => {
+    if (!editAttForm.id) return;
+    setAttEditLoading(true);
+    try {
+      // Find the original record to get its date for ISO reconstruction
+      const originalRecord = attendance.find(a => a.id === editAttForm.id);
+      const recordDateStr = originalRecord?.date ? toLocalDateStr(new Date(originalRecord.date)) : "";
+
+      const payload: Record<string, unknown> = {
+        type: "attendance",
+        status: editAttForm.status,
+      };
+      if (editAttForm.checkIn && recordDateStr) {
+        payload.checkIn = new Date(`${recordDateStr}T${editAttForm.checkIn}:00`).toISOString();
+      } else {
+        payload.checkIn = null;
+      }
+      if (editAttForm.checkOut && recordDateStr) {
+        payload.checkOut = new Date(`${recordDateStr}T${editAttForm.checkOut}:00`).toISOString();
+      } else {
+        payload.checkOut = null;
+      }
+      if (editAttForm.notes.trim()) payload.notes = editAttForm.notes.trim();
+      else payload.notes = null;
+
+      const res = await fetch("/api/team", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ id: editAttForm.id, ...payload }),
+      });
+      if (res.ok) {
+        toast.success("Attendance record updated");
+        setEditAttDialogOpen(false);
+        setEditAttForm({ id: "", status: "PRESENT", checkIn: "", checkOut: "", notes: "" });
+        fetchAttendance();
+      } else {
+        const errData = await res.json().catch(() => null);
+        toast.error(errData?.error || "Failed to update attendance record");
+      }
+    } catch {
+      toast.error("Failed to update attendance record");
+    } finally {
+      setAttEditLoading(false);
+    }
+  }, [editAttForm, fetchAttendance, attendance]);
+
+  // ── Attendance: Delete record handler ──
+  const handleDeleteAttendance = useCallback(async (id: string) => {
+    if (!id) return;
+    try {
+      const res = await fetch(`/api/team?type=attendance&id=${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (res.ok) {
+        toast.success("Attendance record deleted");
+        setDeleteAttId(null);
+        fetchAttendance();
+      } else {
+        const errData = await res.json().catch(() => null);
+        toast.error(errData?.error || "Failed to delete attendance record");
+      }
+    } catch {
+      toast.error("Failed to delete attendance record");
+    }
+  }, [fetchAttendance]);
+
+  // ── Attendance: filtered records + stats (memoized) ──
+  const filteredAttendance = useMemo(
+    () => attUserFilter === "all" ? attendance : attendance.filter(a => a.userId === attUserFilter),
+    [attUserFilter, attendance]
+  );
+  const attStats = useMemo(() => ({
+    total: filteredAttendance.length,
+    present: filteredAttendance.filter(a => a.status === "PRESENT").length,
+    absent: filteredAttendance.filter(a => a.status === "ABSENT").length,
+    halfDay: filteredAttendance.filter(a => a.status === "HALF_DAY").length,
+    leave: filteredAttendance.filter(a => a.status === "LEAVE").length,
+  }), [filteredAttendance]);
+
   // ── Export CSV ──
   const exportCSV = useCallback(() => {
     const headers = ["Employee", "Project", "Description", "Date", "Clock In", "Clock Out", "Duration (hours)"];
@@ -1034,6 +1274,7 @@ export default function TimeTrackingPage() {
           <TabsTrigger value="my-time" className="text-xs sm:text-sm">My Time</TabsTrigger>
           {isAdminUser && <TabsTrigger value="team" className="text-xs sm:text-sm">Team Logs</TabsTrigger>}
           <TabsTrigger value="analytics" className="text-xs sm:text-sm">Analytics</TabsTrigger>
+          {isAdminUser && <TabsTrigger value="attendance" className="text-xs sm:text-sm">Attendance</TabsTrigger>}
         </TabsList>
 
         {/* ── Tab 1: My Time ── */}
@@ -1523,7 +1764,334 @@ export default function TimeTrackingPage() {
             </Card>
           )}
         </TabsContent>
+
+        {/* ── Tab 4: Attendance (Admin) — moved from Team page ── */}
+        {isAdminUser && (
+          <TabsContent value="attendance" className="space-y-4 sm:space-y-6 mt-4">
+            {/* Header row with Add Record button */}
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <h3 className="text-sm sm:text-base font-medium flex items-center gap-2">
+                  <Calendar className="h-4 w-4" />
+                  Attendance Records
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Auto-computed from Time Tracking + Availability data
+                </p>
+              </div>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setAttForm({ userId: "", date: toLocalDateStr(new Date()), status: "PRESENT", checkIn: "", checkOut: "", notes: "" });
+                  setAttDialogOpen(true);
+                }}
+                className="bg-primary hover:bg-primary/90"
+              >
+                <Plus className="h-3.5 w-3.5 mr-1.5" /> <span className="hidden sm:inline">Add Record</span><span className="sm:hidden">Add</span>
+              </Button>
+            </div>
+
+            {/* Summary cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-3">
+              <Card className="p-2 sm:p-3">
+                <p className="text-[10px] sm:text-xs text-muted-foreground">Total</p>
+                <p className="text-lg sm:text-xl font-bold">{attStats.total}</p>
+              </Card>
+              <Card className="p-2 sm:p-3">
+                <p className="text-[10px] sm:text-xs text-muted-foreground">Present</p>
+                <p className="text-lg sm:text-xl font-bold text-green-600">{attStats.present}</p>
+              </Card>
+              <Card className="p-2 sm:p-3">
+                <p className="text-[10px] sm:text-xs text-muted-foreground">Absent</p>
+                <p className="text-lg sm:text-xl font-bold text-red-600">{attStats.absent}</p>
+              </Card>
+              <Card className="p-2 sm:p-3">
+                <p className="text-[10px] sm:text-xs text-muted-foreground">Half Day</p>
+                <p className="text-lg sm:text-xl font-bold text-yellow-600">{attStats.halfDay}</p>
+              </Card>
+              <Card className="p-2 sm:p-3">
+                <p className="text-[10px] sm:text-xs text-muted-foreground">On Leave</p>
+                <p className="text-lg sm:text-xl font-bold text-blue-600">{attStats.leave}</p>
+              </Card>
+            </div>
+
+            {/* Filters row */}
+            <Card>
+              <CardContent className="p-3 sm:p-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 items-end">
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">From Date</Label>
+                    <Input type="date" value={attDateFrom} onChange={(e) => setAttDateFrom(e.target.value)} className="h-9" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">To Date</Label>
+                    <Input type="date" value={attDateTo} onChange={(e) => setAttDateTo(e.target.value)} className="h-9" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Employee</Label>
+                    <Select value={attUserFilter} onValueChange={setAttUserFilter}>
+                      <SelectTrigger className="h-9"><SelectValue placeholder="All employees" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Employees</SelectItem>
+                        {teamUsers.map((u) => (
+                          <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-end gap-2">
+                    {(attDateFrom || attDateTo || attUserFilter !== "all") && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-9 text-xs"
+                        onClick={() => { setAttDateFrom(""); setAttDateTo(""); setAttUserFilter("all"); }}
+                      >
+                        Clear Filters
+                      </Button>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-9 text-xs"
+                      onClick={() => fetchAttendance()}
+                      disabled={attendanceLoading}
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${attendanceLoading ? "animate-spin" : ""}`} />
+                      Refresh
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Attendance records */}
+            <Card>
+              <CardContent className="p-3 sm:p-4">
+                {attendanceLoading ? (
+                  <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    <span className="text-sm">Loading attendance...</span>
+                  </div>
+                ) : filteredAttendance.length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <Clock className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                    <p className="text-sm">No attendance records found.</p>
+                    <p className="text-xs mt-1">Try adjusting the date filters or adding a manual record.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {filteredAttendance.map((record) => (
+                      <div
+                        key={record.id}
+                        className="flex items-center justify-between gap-2 sm:gap-3 p-2.5 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
+                      >
+                        <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+                          <Avatar className="h-8 w-8 shrink-0">
+                            <AvatarImage src={record.user?.avatar || ""} alt={record.user?.name || ""} />
+                            <AvatarFallback className="text-[10px]">
+                              {record.user?.name?.charAt(0)?.toUpperCase() || "?"}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-xs sm:text-sm font-medium truncate">{record.user?.name || "Unknown"}</p>
+                              {record.isManual && (
+                                <Badge variant="outline" className="text-[9px] px-1 py-0">Manual</Badge>
+                              )}
+                              <Badge className={`text-[10px] ${attStatusColors[record.status] || ""}`}>
+                                {(record.status || "").replace("_", " ")}
+                              </Badge>
+                            </div>
+                            <p className="text-[11px] sm:text-xs text-muted-foreground mt-0.5">
+                              {formatAttDate(record.date)}
+                              {record.checkIn && <span> &bull; In: {formatAttTime(record.checkIn)}</span>}
+                              {record.checkOut && <span> &bull; Out: {formatAttTime(record.checkOut)}</span>}
+                            </p>
+                            {/* Hours bar: required vs worked */}
+                            {record.requiredHours !== null && record.requiredHours !== undefined && record.requiredHours > 0 && (
+                              <div className="flex items-center gap-2 mt-1">
+                                <div className="flex-1 max-w-[150px] sm:max-w-[200px]">
+                                  <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                                    <div
+                                      className={`h-full rounded-full transition-all ${
+                                        (record.workedHours || 0) >= record.requiredHours
+                                          ? "bg-green-500"
+                                          : (record.workedHours || 0) >= record.requiredHours * 0.5
+                                            ? "bg-yellow-500"
+                                            : "bg-red-400"
+                                      }`}
+                                      style={{ width: `${Math.min(100, ((record.workedHours || 0) / record.requiredHours) * 100)}%` }}
+                                    />
+                                  </div>
+                                </div>
+                                <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                                  {record.workedHours || 0}h / {record.requiredHours}h
+                                </span>
+                              </div>
+                            )}
+                            {record.notes && (
+                              <p className="text-[10px] sm:text-xs text-muted-foreground/70 mt-0.5 truncate max-w-[200px] sm:max-w-[400px]">{record.notes}</p>
+                            )}
+                          </div>
+                        </div>
+                        {record.isManual && (
+                          <div className="flex items-center gap-1 shrink-0">
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7 text-muted-foreground hover:text-primary"
+                              aria-label="Edit attendance"
+                              onClick={() => openEditAttDialog(record)}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                              aria-label="Delete attendance"
+                              onClick={() => setDeleteAttId(record.id)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
       </Tabs>
+
+      {/* ── Attendance Dialogs ── */}
+
+      {/* Add Attendance Record Dialog */}
+      <Dialog open={attDialogOpen} onOpenChange={setAttDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Add Attendance Record</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Employee *</Label>
+              <Select value={attForm.userId} onValueChange={(v) => setAttForm(p => ({ ...p, userId: v }))}>
+                <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
+                <SelectContent>
+                  {teamUsers.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Date *</Label>
+                <Input type="date" value={attForm.date} onChange={(e) => setAttForm(p => ({ ...p, date: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Status *</Label>
+                <Select value={attForm.status} onValueChange={(v) => setAttForm(p => ({ ...p, status: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PRESENT">Present</SelectItem>
+                    <SelectItem value="ABSENT">Absent</SelectItem>
+                    <SelectItem value="HALF_DAY">Half Day</SelectItem>
+                    <SelectItem value="LEAVE">On Leave</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Check-in Time</Label>
+                <Input type="time" value={attForm.checkIn} onChange={(e) => setAttForm(p => ({ ...p, checkIn: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Check-out Time</Label>
+                <Input type="time" value={attForm.checkOut} onChange={(e) => setAttForm(p => ({ ...p, checkOut: e.target.value }))} />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Notes (Optional)</Label>
+              <Textarea value={attForm.notes} onChange={(e) => setAttForm(p => ({ ...p, notes: e.target.value }))} rows={2} placeholder="Any additional notes..." />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAttDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleAddAttendance} disabled={!attForm.userId || !attForm.date || attLoading}>
+              {attLoading ? "Adding..." : "Add Record"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Attendance Record Dialog */}
+      <Dialog open={editAttDialogOpen} onOpenChange={setEditAttDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Edit Attendance Record</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Status *</Label>
+              <Select value={editAttForm.status} onValueChange={(v) => setEditAttForm(p => ({ ...p, status: v }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="PRESENT">Present</SelectItem>
+                  <SelectItem value="ABSENT">Absent</SelectItem>
+                  <SelectItem value="HALF_DAY">Half Day</SelectItem>
+                  <SelectItem value="LEAVE">On Leave</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Check-in Time</Label>
+                <Input type="time" value={editAttForm.checkIn} onChange={(e) => setEditAttForm(p => ({ ...p, checkIn: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Check-out Time</Label>
+                <Input type="time" value={editAttForm.checkOut} onChange={(e) => setEditAttForm(p => ({ ...p, checkOut: e.target.value }))} />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Notes</Label>
+              <Textarea value={editAttForm.notes} onChange={(e) => setEditAttForm(p => ({ ...p, notes: e.target.value }))} rows={2} placeholder="Any additional notes..." />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditAttDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleEditAttendance} disabled={!editAttForm.id || attEditLoading}>
+              {attEditLoading ? "Saving..." : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Attendance Confirmation */}
+      <AlertDialog open={!!deleteAttId} onOpenChange={(open) => { if (!open) setDeleteAttId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Attendance Record</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this attendance record? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => { if (deleteAttId) handleDeleteAttendance(deleteAttId); }}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Clock-Out Dialog */}
       <Dialog open={clockOutOpen} onOpenChange={(open) => { setClockOutOpen(open); if (!open) setClockOutNotes(""); }}>

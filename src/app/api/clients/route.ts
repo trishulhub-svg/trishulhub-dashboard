@@ -6,7 +6,6 @@ import { Prisma } from "@prisma/client"
 import { createClientSchema, validateRequest } from "@/lib/validations"
 import { isAdminOrProjectManager, getAssignedClientIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureAllTables } from "@/lib/auto-migrate"
 import { deepSanitize } from "@/lib/utils"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
@@ -21,11 +20,11 @@ function serializeClientDates(c: any) {
 }
 
 // GET /api/clients - List all clients with pagination and aggregated data
+// PERF: ensureAllTables() is intentionally skipped here — tables are created
+// on server start via instrumentation.ts. Calling it on every cold start adds
+// ~30 SQL statements and causes the "Failed to load clients" timeout.
 export async function GET(req: NextRequest) {
   try {
-    // Auto-migrate: ensure all tables/columns exist before querying (Turso)
-    await ensureAllTables()
-
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 

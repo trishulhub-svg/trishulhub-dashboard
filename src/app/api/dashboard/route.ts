@@ -5,6 +5,11 @@ import { db } from "@/lib/db"
 import { isAdmin, getAssignedProjectIds, getAssignedClientIds } from "@/lib/rbac"
 import { ensureAllTables } from "@/lib/auto-migrate"
 
+// PERF: Allow up to 10s for the dashboard route (default is 10s on Vercel hobby,
+// 60s on Pro). Setting explicitly so we never silently hit the platform limit
+// and return a confusing 500 to the dashboard page.
+export const maxDuration = 10
+
 function sanitizeForJson(obj: any): any {
   if (obj === null || typeof obj !== 'object') return obj;
   if (obj instanceof Date) return obj.toISOString();
@@ -50,6 +55,9 @@ export async function GET() {
     const ticketWhere = assignedClientIds ? { clientId: { in: assignedClientIds } } : {}
 
     // PERF: Single Promise.all — everything parallel including leads + aggregates
+    // PERF: Non-admin queries for invoices/expenses/supportTickets/apiKeys/leads
+    // are skipped (return empty arrays) — the dashboard page only renders these
+    // for admins, so fetching them for developers wastes 4 DB round-trips.
     const [
       projects,
       clients,
@@ -75,16 +83,17 @@ export async function GET() {
         orderBy: { updatedAt: "desc" },
       }),
       db.client.findMany({ where: clientWhere, take: 10, select: { id: true, name: true, status: true, company: true } }),
-      db.invoice.findMany({ where: invoiceWhere, take: 5, orderBy: { createdAt: "desc" }, select: { id: true, invoiceNumber: true, total: true, status: true, createdAt: true } }),
-      db.expense.findMany({ where: expenseWhere, take: 5, orderBy: { createdAt: "desc" }, select: { id: true, amount: true, category: true, createdAt: true } }),
+      // PERF: Skip invoice query for non-admins (data is filtered to [] below anyway)
+      admin ? db.invoice.findMany({ where: invoiceWhere, take: 5, orderBy: { createdAt: "desc" }, select: { id: true, invoiceNumber: true, total: true, status: true, createdAt: true } }) : Promise.resolve([] as unknown[]),
+      admin ? db.expense.findMany({ where: expenseWhere, take: 5, orderBy: { createdAt: "desc" }, select: { id: true, amount: true, category: true, createdAt: true } }) : Promise.resolve([] as unknown[]),
       // API keys — exclude keyValue for non-SUPER_ADMIN to avoid exposing secrets in memory
       role === "SUPER_ADMIN"
         ? db.apiKey.findMany({ select: { id: true, keyName: true, currentSpend: true, monthlyBudget: true, provider: true, status: true, createdAt: true } })
         : admin
           ? db.apiKey.findMany({ select: { id: true, keyName: true, currentSpend: true, monthlyBudget: true, provider: true, status: true } })
           : Promise.resolve([] as unknown[]),
-      // Usage logs removed from dashboard — not displayed, saves a query
-      db.supportTicket.findMany({ where: ticketWhere, take: 5, include: { client: { select: { name: true } } }, orderBy: { createdAt: "desc" } }),
+      // PERF: Skip supportTicket query for non-admins (data is filtered to [] below anyway)
+      admin ? db.supportTicket.findMany({ where: ticketWhere, take: 5, include: { client: { select: { name: true } } }, orderBy: { createdAt: "desc" } }) : Promise.resolve([] as unknown[]),
       // PERF: Leads query moved into Promise.all (was sequential before)
       admin ? db.lead.findMany({ where: { status: "NEW" }, take: 10 }) : Promise.resolve([] as unknown[]),
       // Counts
@@ -97,9 +106,9 @@ export async function GET() {
       ] : [
         Promise.resolve(0), // leads not shown to developers
         db.project.count({ where: { ...projectWhere, status: { notIn: ["COMPLETED", "DEPLOYED"] } } }),
-        db.supportTicket.count({ where: { ...ticketWhere, status: "OPEN" } }),
+        Promise.resolve(0), // openTickets — skipped for non-admins (data not used)
         Promise.resolve(0),
-        Promise.resolve(0),
+        Promise.resolve(0), // totalClientCount — skipped for non-admins (data not used)
       ]),
       // PERF: Aggregate queries moved into Promise.all (were sequential before)
       ...(admin ? [

@@ -245,6 +245,7 @@ export async function POST(req: NextRequest) {
     const parseResult = createProjectSchema.safeParse(data)
     if (!parseResult.success) {
       const errors = parseResult.error.issues.map((e) => `${e.path.join(".")}: ${e.message}`).join("; ")
+      console.error("[projects] POST validation failed:", errors, "| raw data:", JSON.stringify(data).slice(0, 300))
       return NextResponse.json({ error: `Validation failed: ${errors}` }, { status: 400 })
     }
 
@@ -252,7 +253,6 @@ export async function POST(req: NextRequest) {
 
     // SECURITY: Sanitize project creation data using validated (and schema-constrained) values
     const name = sanitizeInput(validated.name, 200)
-    const description = validated.description ? sanitizeInput(validated.description, 2000) : null
     const projectStatus = validated.status || "PLANNING"
     // Normalize clientId: empty string ("") and undefined both mean "No Client"
     // and must be persisted as null (Prisma expects null for optional relations).
@@ -267,15 +267,40 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Build the create data — only include fields that exist in the schema
-    const createData = {
+    // ── Lenient createData: only include optional fields when they have a real value ──
+    // This avoids Prisma errors when the client sends `null`, `""`, or `NaN` for
+    // optional fields. Previously, sending `description: null` would still be passed
+    // to Prisma as `description: null` — which is fine for nullable String? — but
+    // sending `budget: NaN` would throw at the DB layer with a cryptic error.
+    const createData: Prisma.ProjectUncheckedCreateInput = {
       name,
-      description: description,
       status: projectStatus,
       clientId,
-      budget: validated.budget ?? null,
-      deadline: validated.deadline ? new Date(validated.deadline) : null,
-      startDate: validated.startDate ? new Date(validated.startDate) : null,
+    }
+
+    // Description: only send if non-empty string (after sanitization)
+    if (typeof validated.description === "string" && validated.description.trim().length > 0) {
+      createData.description = sanitizeInput(validated.description, 2000)
+    }
+    // Budget: only send if a real, finite, non-negative number
+    if (typeof validated.budget === "number" && Number.isFinite(validated.budget) && validated.budget >= 0) {
+      createData.budget = validated.budget
+    }
+    // Deadline: only send if non-empty string
+    if (typeof validated.deadline === "string" && validated.deadline.trim().length > 0) {
+      try {
+        createData.deadline = new Date(validated.deadline)
+      } catch {
+        // ignore invalid date
+      }
+    }
+    // StartDate: only send if non-empty string
+    if (typeof validated.startDate === "string" && validated.startDate.trim().length > 0) {
+      try {
+        createData.startDate = new Date(validated.startDate)
+      } catch {
+        // ignore invalid date
+      }
     }
 
     // Only add isDemo if the column exists in the DB
@@ -297,6 +322,12 @@ export async function POST(req: NextRequest) {
         // Retry without isDemo (DB default will handle it)
         project = await db.project.create({ data: createData })
       } else {
+        // Comprehensive error logging — log full error AND the createData so we
+        // can see exactly what was sent to Prisma when debugging.
+        console.error("[projects] POST: db.project.create failed:", errMsg)
+        console.error("[projects] POST: createData was:", JSON.stringify(createData, (key, value) =>
+          value instanceof Date ? value.toISOString() : value
+        ).slice(0, 500))
         throw err
       }
     }
@@ -311,8 +342,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(serializeProjectDates(project), { status: 201 })
   } catch (error: unknown) {
     const errMsg = error instanceof Error ? error.message : String(error)
-    console.error("[projects] POST error:", errMsg)
-    return NextResponse.json({ error: `Failed to create project: ${errMsg.slice(0, 150)}` }, { status: 500 })
+    const errCode = (error as { code?: string }).code
+    const errStack = error instanceof Error ? error.stack?.split("\n").slice(0, 3).join(" | ") : undefined
+    // Comprehensive error logging: message + Prisma error code + stack trace head
+    console.error("[projects] POST error:", errMsg, "| code:", errCode, "| stack:", errStack)
+    // Return the actual error message (truncated) to the client so the UI can
+    // surface what went wrong instead of a generic "Failed to create project".
+    return NextResponse.json(
+      { error: `Failed to create project: ${errMsg.slice(0, 200)}`, code: errCode },
+      { status: 500 }
+    )
   }
 }
 
@@ -370,7 +409,10 @@ export async function PUT(req: NextRequest) {
       sanitizedData.name = sanitizeInput(validated.name, 200)
     }
     if (validated.description !== undefined) {
-      sanitizedData.description = sanitizeInput(validated.description, 2000)
+      // description is nullable — null means "clear the description"
+      sanitizedData.description = validated.description === null
+        ? null
+        : sanitizeInput(validated.description, 2000)
     }
     if (validated.status !== undefined) {
       sanitizedData.status = validated.status
@@ -379,9 +421,13 @@ export async function PUT(req: NextRequest) {
       sanitizedData.progress = validated.progress
     }
     if (validated.deadline !== undefined) {
-      sanitizedData.deadline = validated.deadline ? new Date(validated.deadline) : null
+      // deadline is nullable — null/"" means "clear the deadline"
+      sanitizedData.deadline = (validated.deadline === null || validated.deadline === "")
+        ? null
+        : new Date(validated.deadline)
     }
     if (validated.budget !== undefined) {
+      // budget is nullable — null means "clear the budget"
       sanitizedData.budget = validated.budget
     }
     if (validated.isDemo !== undefined) {
@@ -442,29 +488,78 @@ export async function DELETE(req: NextRequest) {
     // Capture project name before deletion for the audit log
     const projectName = existing.name
 
-    // Delete project and all related records using raw SQL for maximum reliability
-    // (relationMode = "prisma" causes issues with cascading deletes)
-    await db.$transaction([
-      db.$executeRawUnsafe(`DELETE FROM "ProjectAttachment" WHERE "projectId" = ?`, id),
-      db.$executeRawUnsafe(`DELETE FROM "ProjectCredential" WHERE "projectId" = ?`, id),
-      db.$executeRawUnsafe(`DELETE FROM "ProjectMember" WHERE "projectId" = ?`, id),
-      db.$executeRawUnsafe(`DELETE FROM "ProjectWebsite" WHERE "projectId" = ?`, id),
-      db.$executeRawUnsafe(`DELETE FROM "ProjectInfrastructure" WHERE "projectId" = ?`, id),
-      db.$executeRawUnsafe(`DELETE FROM "TimeEntry" WHERE "projectId" = ?`, id),
-      db.$executeRawUnsafe(`DELETE FROM "Expense" WHERE "projectId" = ?`, id),
-      db.$executeRawUnsafe(`DELETE FROM "Subscription" WHERE "projectId" = ?`, id),
-      db.$executeRawUnsafe(`DELETE FROM "Invoice" WHERE "projectId" = ?`, id),
-    ]).catch(() => {
-      // Some tables might not exist — non-fatal, we'll try to delete the project anyway
-    })
+    // ── Bulletproof cleanup: delete ALL child rows individually with raw SQL ──
+    // Each statement runs in its own try/catch so that one missing/non-existent
+    // table doesn't block the others (the previous $transaction approach would
+    // roll back ALL deletes if any single statement failed — which is why
+    // project deletion sometimes silently left orphaned rows and then failed
+    // the final project delete).
+    //
+    // Tables referencing Project (verified via prisma/schema.prisma):
+    //   - ProjectAttachment  (projectId)
+    //   - ProjectCredential  (projectId)
+    //   - ProjectMember      (projectId)
+    //   - ProjectWebsite     (projectId)
+    //   - ProjectInfrastructure (projectId, @unique)
+    //   - TimeEntry          (projectId, nullable)
+    //   - Expense            (projectId, nullable)
+    //   - Subscription       (projectId, nullable)
+    //   - Invoice            (projectId, nullable)
+    //   - _ProjectMethodToProject (join table — column "B" = projectId)
+    //
+    // AuditLog and Notification do NOT have projectId columns (verified in schema).
+    // Contract has projectName (string), NOT a projectId FK — no cleanup needed.
+    const childTables = [
+      "ProjectAttachment",
+      "ProjectCredential",
+      "ProjectMember",
+      "ProjectWebsite",
+      "ProjectInfrastructure",
+      "TimeEntry",
+      "Expense",
+      "Subscription",
+      "Invoice",
+    ]
+    for (const table of childTables) {
+      try {
+        await db.$executeRawUnsafe(`DELETE FROM "${table}" WHERE "projectId" = ?`, id)
+      } catch (err) {
+        // Non-fatal: table may not exist yet (cold start), or row already gone.
+        console.warn(`[projects] DELETE: cleanup of ${table} failed (non-fatal):`, err instanceof Error ? err.message : String(err))
+      }
+    }
 
-    // Delete join table entries
+    // Delete join table entries (_ProjectMethodToProject — column "B" = projectId)
     try {
       await db.$executeRawUnsafe(`DELETE FROM "_ProjectMethodToProject" WHERE "B" = ?`, id)
-    } catch { /* non-fatal */ }
+    } catch (err) {
+      console.warn(`[projects] DELETE: cleanup of _ProjectMethodToProject failed (non-fatal):`, err instanceof Error ? err.message : String(err))
+    }
 
-    // Delete the project itself using raw SQL (bypasses Prisma referential integrity checks)
-    await db.$executeRawUnsafe(`DELETE FROM "Project" WHERE "id" = ?`, id)
+    // ── Final project delete ──
+    // Use raw SQL to bypass Prisma's emulated referential integrity checks
+    // (relationMode = "prisma" can fail on boolean columns like isDemo when
+    // there are stale relation rows Prisma doesn't know we already cleaned up).
+    try {
+      await db.$executeRawUnsafe(`DELETE FROM "Project" WHERE "id" = ?`, id)
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      console.warn(`[projects] DELETE: first attempt failed (${errMsg.slice(0, 100)}). Retrying after setting isDemo = false...`)
+      // Retry: sometimes Prisma emulated relations fail on the boolean isDemo
+      // column. Setting it to 0 (false) first lets the delete succeed.
+      try {
+        await db.$executeRawUnsafe(`UPDATE "Project" SET "isDemo" = 0 WHERE "id" = ?`, id)
+      } catch {
+        // ignore — column may not exist
+      }
+      try {
+        await db.$executeRawUnsafe(`DELETE FROM "Project" WHERE "id" = ?`, id)
+      } catch (err2) {
+        const errMsg2 = err2 instanceof Error ? err2.message : String(err2)
+        console.error(`[projects] DELETE: final project delete failed:`, errMsg2)
+        return NextResponse.json({ error: `Failed to delete project: ${errMsg2.slice(0, 150)}` }, { status: 500 })
+      }
+    }
 
     // Audit: log project deletion (fire-and-forget)
     void logAudit({

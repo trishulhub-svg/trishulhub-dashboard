@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import {
-  User, Clock, Calendar, CheckCircle2, XCircle, Plus, Trash2, AlertCircle, RefreshCw, Pencil,
+  User, Calendar, CheckCircle2, XCircle, Plus, AlertCircle, RefreshCw, Pencil,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,16 +15,6 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -59,20 +49,6 @@ interface LeaveRecord {
   user?: { id: string; name: string; email: string; role: string };
 }
 
-interface AttendanceRecord {
-  id: string;
-  userId: string;
-  date: string;
-  checkIn?: string | null;
-  checkOut?: string | null;
-  status: string;
-  notes?: string | null;
-  isManual?: boolean;
-  requiredHours?: number | null;
-  workedHours?: number | null;
-  user?: { id: string; name: string; email: string; role: string; avatar?: string | null };
-}
-
 // Role colors for badge styling
 const roleColors: Record<string, string> = {
   SUPER_ADMIN: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
@@ -81,15 +57,6 @@ const roleColors: Record<string, string> = {
   DEVELOPER: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
   VIEWER: "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300",
   CLIENT: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
-};
-
-// Attendance status colors
-const attStatusColors: Record<string, string> = {
-  PRESENT: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
-  ABSENT: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
-  HALF_DAY: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
-  LEAVE: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
-  NO_SCHEDULE: "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300",
 };
 
 // Leave status colors
@@ -105,16 +72,6 @@ function getLeaveDays(start: string, end: string): number {
   return diff > 0 ? diff : 1;
 }
 
-// Helper to format time from ISO string
-function formatTime(isoStr?: string | null): string {
-  if (!isoStr) return "N/A";
-  try {
-    return new Date(isoStr).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  } catch {
-    return "N/A";
-  }
-}
-
 // Helper to format date from ISO string
 function formatDate(isoStr?: string | null): string {
   if (!isoStr) return "N/A";
@@ -125,26 +82,9 @@ function formatDate(isoStr?: string | null): string {
   }
 }
 
-// [C4] Helper: format ISO time string to HH:MM for time input fields
-function formatTimeHHMM(isoStr?: string | null): string {
-  if (!isoStr) return "";
-  try {
-    const d = new Date(isoStr);
-    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-  } catch {
-    return "";
-  }
-}
-
-// [C3] Helper: get local date string (YYYY-MM-DD)
-function toLocalDateStr(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
-
 export default function TeamPage() {
   const [users, setUsers] = useState<TeamUser[]>([]);
   const [leaves, setLeaves] = useState<LeaveRecord[]>([]);
-  const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { data: session, status: sessionStatus } = useSession();
@@ -154,7 +94,7 @@ export default function TeamPage() {
   const isAdminUser = useMemo(() => session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN", [session?.user?.role]);
 
   // Default tab based on role — non-admins default to "leaves"
-  const [tab, setTab] = useState<"team" | "leaves" | "attendance">(isAdminUser ? "team" : "leaves");
+  const [tab, setTab] = useState<"team" | "leaves">(isAdminUser ? "team" : "leaves");
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
   const [addMemberOpen, setAddMemberOpen] = useState(false);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
@@ -178,28 +118,13 @@ export default function TeamPage() {
   // Add member form
   const [memberForm, setMemberForm] = useState({ name: "", email: "", role: "DEVELOPER", department: "Engineering", password: "" });
 
-  // ── Attendance management state ──
-  const [attDialogOpen, setAttDialogOpen] = useState(false);
-  const [editAttDialogOpen, setEditAttDialogOpen] = useState(false);
-  const [attForm, setAttForm] = useState({ userId: "", date: "", status: "PRESENT", checkIn: "", checkOut: "", notes: "" });
-  const [editAttForm, setEditAttForm] = useState({ id: "", status: "PRESENT", checkIn: "", checkOut: "", notes: "" });
-  const [attLoading, setAttLoading] = useState(false);
-  const [attEditLoading, setAttEditLoading] = useState(false);
-  const [attDateFrom, setAttDateFrom] = useState("");
-  const [attDateTo, setAttDateTo] = useState("");
-  const [attUserFilter, setAttUserFilter] = useState("all");
-  const [deleteAttId, setDeleteAttId] = useState<string | null>(null);
-
   const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
-      const [userRes, leaveRes, attendRes] = await Promise.all([
+      const [userRes, leaveRes] = await Promise.all([
         isAdminUser
           ? fetch("/api/team", { credentials: "include", signal })
           : Promise.resolve({ ok: true, json: async () => [] }),
         fetch("/api/team?type=leaves", { credentials: "include", signal }),
-        isAdminUser
-          ? fetch("/api/team?type=attendance", { credentials: "include", signal })
-          : Promise.resolve({ ok: true, json: async () => [] }),
       ]);
 
       if (userRes.ok) {
@@ -217,14 +142,6 @@ export default function TeamPage() {
         const errData = await (leaveRes as Response).json().catch(() => null);
         toast.error(errData?.error || "Failed to load leave requests");
       }
-
-      if (attendRes.ok) {
-        const attendData = await (attendRes as Response).json();
-        setAttendance(safeArray<AttendanceRecord>(attendData));
-      } else {
-        const errData = await (attendRes as Response).json().catch(() => null);
-        toast.error(errData?.error || "Failed to load attendance data");
-      }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
       console.error("[team] fetchData Error:", err);
@@ -234,41 +151,11 @@ export default function TeamPage() {
     }
   }, [isAdminUser]);
 
-  // Fetch attendance with filters
-  const fetchAttendance = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const params = new URLSearchParams();
-      params.set("type", "attendance");
-      if (attDateFrom) params.set("from", attDateFrom);
-      if (attDateTo) params.set("to", attDateTo);
-      const res = await fetch(`/api/team?${params.toString()}`, { credentials: "include", signal });
-      if (res.ok) {
-        const data = await res.json();
-        setAttendance(safeArray<AttendanceRecord>(data));
-      } else {
-        const errData = await res.json().catch(() => null);
-        toast.error(errData?.error || "Failed to load attendance data");
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      console.error(err);
-    }
-  }, [attDateFrom, attDateTo]);
-
   useEffect(() => {
     const controller = new AbortController();
     fetchData(controller.signal);
     return () => controller.abort();
   }, [fetchData]);
-
-  // Refetch attendance when date filters change
-  useEffect(() => {
-    if (tab === "attendance" && isAdminUser) {
-      const controller = new AbortController();
-      fetchAttendance(controller.signal);
-      return () => controller.abort();
-    }
-  }, [tab, fetchAttendance, isAdminUser]);
 
   // Edit user handler
   const handleEditUser = useCallback(async () => {
@@ -413,146 +300,12 @@ export default function TeamPage() {
     }
   }, [memberForm, fetchData]);
 
-  // ── Attendance CRUD handlers ──
-
-  const handleAddAttendance = useCallback(async () => {
-    if (!attForm.userId || !attForm.date) {
-      toast.error("Employee and date are required");
-      return;
-    }
-    setAttLoading(true);
-    try {
-      const payload: Record<string, unknown> = {
-        type: "attendance",
-        userId: attForm.userId,
-        date: attForm.date,
-        status: attForm.status,
-      };
-      if (attForm.checkIn) payload.checkIn = new Date(`${attForm.date}T${attForm.checkIn}`).toISOString();
-      if (attForm.checkOut) payload.checkOut = new Date(`${attForm.date}T${attForm.checkOut}`).toISOString();
-      if (attForm.notes.trim()) payload.notes = attForm.notes.trim();
-
-      const res = await fetch("/api/team", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(payload),
-      });
-      if (res.ok) {
-        toast.success("Attendance record added");
-        setAttDialogOpen(false);
-        setAttForm({ userId: "", date: "", status: "PRESENT", checkIn: "", checkOut: "", notes: "" });
-        fetchAttendance();
-      } else {
-        const errData = await res.json().catch(() => null);
-        toast.error(errData?.error || "Failed to add attendance record");
-      }
-    } catch {
-      toast.error("Failed to add attendance record");
-    } finally {
-      setAttLoading(false);
-    }
-  }, [attForm, fetchAttendance]);
-
-  const handleEditAttendance = useCallback(async () => {
-    if (!editAttForm.id) return;
-    setAttEditLoading(true);
-    try {
-      // Find the original record to get its date for ISO reconstruction
-      const originalRecord = attendance.find(a => a.id === editAttForm.id);
-      const recordDateStr = originalRecord?.date ? toLocalDateStr(new Date(originalRecord.date)) : "";
-
-      const payload: Record<string, unknown> = {
-        type: "attendance",
-        status: editAttForm.status,
-      };
-      // [C4] Reconstruct full ISO strings from HH:MM + date
-      if (editAttForm.checkIn && recordDateStr) {
-        payload.checkIn = new Date(`${recordDateStr}T${editAttForm.checkIn}:00`).toISOString();
-      } else {
-        payload.checkIn = null;
-      }
-      if (editAttForm.checkOut && recordDateStr) {
-        payload.checkOut = new Date(`${recordDateStr}T${editAttForm.checkOut}:00`).toISOString();
-      } else {
-        payload.checkOut = null;
-      }
-      if (editAttForm.notes.trim()) payload.notes = editAttForm.notes.trim();
-      else payload.notes = null;
-
-      const res = await fetch("/api/team", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ id: editAttForm.id, ...payload }),
-      });
-      if (res.ok) {
-        toast.success("Attendance record updated");
-        setEditAttDialogOpen(false);
-        setEditAttForm({ id: "", status: "PRESENT", checkIn: "", checkOut: "", notes: "" });
-        fetchAttendance();
-      } else {
-        const errData = await res.json().catch(() => null);
-        toast.error(errData?.error || "Failed to update attendance record");
-      }
-    } catch {
-      toast.error("Failed to update attendance record");
-    } finally {
-      setAttEditLoading(false);
-    }
-  }, [editAttForm, fetchAttendance, attendance]);
-
-  const handleDeleteAttendance = useCallback(async (id: string) => {
-    if (!id) return;
-    try {
-      const res = await fetch(`/api/team?type=attendance&id=${id}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-      if (res.ok) {
-        toast.success("Attendance record deleted");
-        setDeleteAttId(null);
-        fetchAttendance();
-      } else {
-        const errData = await res.json().catch(() => null);
-        toast.error(errData?.error || "Failed to delete attendance record");
-      }
-    } catch {
-      toast.error("Failed to delete attendance record");
-    }
-  }, [fetchAttendance]);
-
-  const openEditAttDialog = useCallback((record: AttendanceRecord) => {
-    setEditAttForm({
-      id: record.id,
-      status: record.status,
-      // [C4] Use HH:MM format for time inputs instead of locale string
-      checkIn: formatTimeHHMM(record.checkIn),
-      checkOut: formatTimeHHMM(record.checkOut),
-      notes: record.notes || "",
-    });
-    setEditAttDialogOpen(true);
-  }, []);
-
   // [I10] useMemo — must be called before any conditional early returns (Rules of Hooks)
   const filteredLeaves = useMemo(
     () => leaves.filter(l => leaveFilter === "all" || l.status === leaveFilter),
     [leaves, leaveFilter]
   );
   const pendingLeavesCount = useMemo(() => leaves.filter(l => l.status === "PENDING").length, [leaves]);
-
-  const filteredAttendance = useMemo(
-    () => attUserFilter === "all" ? attendance : attendance.filter(a => a.userId === attUserFilter),
-    [attUserFilter, attendance]
-  );
-
-  const attStats = useMemo(() => ({
-    total: filteredAttendance.length,
-    present: filteredAttendance.filter(a => a.status === "PRESENT").length,
-    absent: filteredAttendance.filter(a => a.status === "ABSENT").length,
-    halfDay: filteredAttendance.filter(a => a.status === "HALF_DAY").length,
-    leave: filteredAttendance.filter(a => a.status === "LEAVE").length,
-  }), [filteredAttendance]);
 
   // [I10] Consolidated loading skeleton
   if (sessionStatus === "loading" || loading) {
@@ -578,7 +331,7 @@ export default function TeamPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title={isAdminUser ? "Team Management" : "My Leaves"} description={isAdminUser ? "Manage team members, leave requests, and attendance" : "View and manage your leave requests"}>
+      <PageHeader title={isAdminUser ? "Team Management" : "My Leaves"} description={isAdminUser ? "Manage team members and leave requests" : "View and manage your leave requests"}>
         <div className="flex gap-2">
           {isAdminUser && (
             <>
@@ -588,14 +341,6 @@ export default function TeamPage() {
               {tab === "team" && (
                 <Button size="sm" onClick={() => setAddMemberOpen(true)} className="bg-primary hover:bg-primary/90">
                   <Plus className="h-4 w-4 mr-1" /> Add Member
-                </Button>
-              )}
-              {tab === "attendance" && (
-                <Button size="sm" onClick={() => {
-                  setAttForm({ userId: "", date: toLocalDateStr(new Date()), status: "PRESENT", checkIn: "", checkOut: "", notes: "" });
-                  setAttDialogOpen(true);
-                }} className="bg-primary hover:bg-primary/90">
-                  <Plus className="h-4 w-4 mr-1" /> Add Record
                 </Button>
               )}
             </>
@@ -618,21 +363,16 @@ export default function TeamPage() {
         <Button key="leaves" variant={tab === "leaves" ? "default" : "outline"} size="sm" onClick={() => setTab("leaves")}>
           Leave Requests{pendingLeavesCount > 0 ? ` (${pendingLeavesCount})` : ""}
         </Button>
-        {isAdminUser && (
-          <Button key="attendance" variant={tab === "attendance" ? "default" : "outline"} size="sm" onClick={() => setTab("attendance")}>
-            Attendance ({attendance.length})
-          </Button>
-        )}
       </div>
 
       {/* ═══════════════ TEAM TAB ═══════════════ */}
       {tab === "team" && isAdminUser && (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
           {users.map((user) => (
             <Card key={user.id}>
               <CardContent className="p-4">
                 <div className="flex items-center gap-3">
-                  <Avatar className="h-10 w-10">
+                  <Avatar className="h-10 w-10 shrink-0">
                     <AvatarImage src={user.avatar || undefined} alt={safeText(user.name)} />
                     <AvatarFallback className="bg-muted text-xs font-medium">
                       {safeText(user.name)?.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2) || "?"}
@@ -659,7 +399,7 @@ export default function TeamPage() {
             </Card>
           ))}
           {users.length === 0 && (
-            <div className="col-span-2 text-center py-12 text-muted-foreground">
+            <div className="col-span-1 sm:col-span-2 text-center py-12 text-muted-foreground">
               <User className="h-12 w-12 mx-auto mb-3 opacity-30" />
               <p>No team members found.</p>
               <p className="text-xs mt-1">Click &quot;Add Member&quot; to invite someone to the team.</p>
@@ -682,16 +422,16 @@ export default function TeamPage() {
           {filteredLeaves.map((leave) => (
             <Card key={leave.id}>
               <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <Calendar className="h-5 w-5 text-muted-foreground" />
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Calendar className="h-5 w-5 text-muted-foreground shrink-0" />
                     <div className="min-w-0">
                       <p className="text-sm font-medium">{safeText(leave.user?.name)}</p>
                       <p className="text-xs text-muted-foreground">
                         {safeText(leave.type)} leave: {formatDate(leave.startDate)} - {formatDate(leave.endDate)}
                         <span className="ml-1.5 text-muted-foreground/70">({getLeaveDays(leave.startDate, leave.endDate)} day(s))</span>
                       </p>
-                      {leave.reason && <p className="text-xs mt-1 truncate max-w-[300px]">{safeText(leave.reason)}</p>}
+                      {leave.reason && <p className="text-xs mt-1 truncate max-w-[200px] sm:max-w-[300px]">{safeText(leave.reason)}</p>}
                       {leave.feedback && (
                         <p className="text-xs mt-1 text-orange-600 dark:text-orange-400">
                           Feedback: {safeText(leave.feedback)}
@@ -704,10 +444,10 @@ export default function TeamPage() {
                     {/* Only show approve/reject for admins AND not own leaves */}
                     {isAdminUser && leave.status === "PENDING" && leave.userId !== currentUserId && (
                       <div className="flex gap-1">
-                        <Button size="sm" variant="ghost" className="h-7 text-green-600" onClick={() => handleLeaveAction(leave.id, "APPROVED")} disabled={mutating}>
+                        <Button size="sm" variant="ghost" className="h-7 text-green-600" onClick={() => handleLeaveAction(leave.id, "APPROVED")} disabled={mutating} aria-label="Approve leave">
                           <CheckCircle2 className="h-4 w-4" />
                         </Button>
-                        <Button size="sm" variant="ghost" className="h-7 text-red-500" onClick={() => { setRejectingLeaveId(leave.id); setRejectFeedback(""); setRejectDialogOpen(true); }} disabled={mutating}>
+                        <Button size="sm" variant="ghost" className="h-7 text-red-500" onClick={() => { setRejectingLeaveId(leave.id); setRejectFeedback(""); setRejectDialogOpen(true); }} disabled={mutating} aria-label="Reject leave">
                           <XCircle className="h-4 w-4" />
                         </Button>
                       </div>
@@ -723,164 +463,11 @@ export default function TeamPage() {
         </div>
       )}
 
-      {/* ═══════════════ ATTENDANCE TAB ═══════════════ */}
-      {tab === "attendance" && isAdminUser && (
-        <div className="space-y-4">
-          {/* Summary cards */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            <Card className="p-3">
-              <p className="text-xs text-muted-foreground">Total Records</p>
-              <p className="text-xl font-bold">{attStats.total}</p>
-            </Card>
-            <Card className="p-3">
-              <p className="text-xs text-muted-foreground">Present</p>
-              <p className="text-xl font-bold text-green-600">{attStats.present}</p>
-            </Card>
-            <Card className="p-3">
-              <p className="text-xs text-muted-foreground">Absent</p>
-              <p className="text-xl font-bold text-red-600">{attStats.absent}</p>
-            </Card>
-            <Card className="p-3">
-              <p className="text-xs text-muted-foreground">Half Day</p>
-              <p className="text-xl font-bold text-yellow-600">{attStats.halfDay}</p>
-            </Card>
-            <Card className="p-3">
-              <p className="text-xs text-muted-foreground">On Leave</p>
-              <p className="text-xl font-bold text-blue-600">{attStats.leave}</p>
-            </Card>
-          </div>
-
-          {/* Filters row */}
-          <div className="flex flex-wrap gap-3 items-end">
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">From Date</Label>
-              <Input type="date" value={attDateFrom} onChange={(e) => setAttDateFrom(e.target.value)} className="h-9 w-40" />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">To Date</Label>
-              <Input type="date" value={attDateTo} onChange={(e) => setAttDateTo(e.target.value)} className="h-9 w-40" />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Employee</Label>
-              <Select value={attUserFilter} onValueChange={setAttUserFilter}>
-                <SelectTrigger className="h-9 w-48"><SelectValue placeholder="All employees" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Employees</SelectItem>
-                  {users.map((u) => (
-                    <SelectItem key={u.id} value={u.id}>{safeText(u.name)}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {(attDateFrom || attDateTo || attUserFilter !== "all") && (
-              <Button variant="ghost" size="sm" className="h-9 text-xs" onClick={() => { setAttDateFrom(""); setAttDateTo(""); setAttUserFilter("all"); }}>
-                Clear Filters
-              </Button>
-            )}
-          </div>
-
-          {/* Attendance records list */}
-          <div className="space-y-2">
-            {filteredAttendance.map((record) => (
-              <Card key={record.id}>
-                <CardContent className="p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <Avatar className="h-8 w-8">
-                        <AvatarImage src={record.user?.avatar || undefined} alt={safeText(record.user?.name)} />
-                        <AvatarFallback className="bg-muted text-[10px]">
-                          {safeText(record.user?.name)?.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2) || "?"}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-medium truncate">{safeText(record.user?.name)}</p>
-                          {record.isManual && (
-                            <Badge variant="outline" className="text-[9px] px-1 py-0">Manual</Badge>
-                          )}
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          {formatDate(record.date)}
-                          {record.checkIn && (
-                            <span> &bull; In: {formatTime(record.checkIn)}</span>
-                          )}
-                          {record.checkOut && (
-                            <span> &bull; Out: {formatTime(record.checkOut)}</span>
-                          )}
-                        </p>
-                        {/* Hours bar: required vs worked */}
-                        {record.requiredHours !== null && record.requiredHours !== undefined && record.requiredHours > 0 && (
-                          <div className="flex items-center gap-2 mt-1">
-                            <div className="flex-1 max-w-[200px]">
-                              <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                                <div
-                                  className={`h-full rounded-full transition-all ${
-                                    (record.workedHours || 0) >= record.requiredHours
-                                      ? "bg-green-500"
-                                      : (record.workedHours || 0) >= record.requiredHours * 0.5
-                                        ? "bg-yellow-500"
-                                        : "bg-red-400"
-                                  }`}
-                                  style={{ width: `${Math.min(100, ((record.workedHours || 0) / record.requiredHours) * 100)}%` }}
-                                />
-                              </div>
-                            </div>
-                            <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                              {record.workedHours || 0}h / {record.requiredHours}h req
-                            </span>
-                          </div>
-                        )}
-                        {/* Show worked hours even if no requirement */}
-                        {(record.workedHours !== null && record.workedHours !== undefined && record.workedHours > 0) && (record.requiredHours === null || record.requiredHours === 0) && (
-                          <p className="text-[10px] text-gray-500 mt-0.5">
-                            Worked {record.workedHours}h (no schedule set for this day)
-                          </p>
-                        )}
-                        {record.notes && (
-                          <p className="text-xs text-muted-foreground/70 mt-0.5 truncate max-w-[400px]">{safeText(record.notes)}</p>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <Badge className={`text-[10px] ${attStatusColors[record.status] || ""}`}>{safeText(record.status).replace("_", " ")}</Badge>
-                      {record.isManual && (
-                        <>
-                          <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Edit attendance" onClick={() => openEditAttDialog(record)}>
-                            <Pencil className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button size="icon" variant="ghost" className="h-7 w-7 text-red-500" aria-label="Delete attendance" onClick={() => setDeleteAttId(record.id)}>
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-            {filteredAttendance.length === 0 && (
-              <div className="text-center py-12 text-muted-foreground">
-                <Clock className="h-12 w-12 mx-auto mb-3 opacity-30" />
-                <p>No attendance records found.</p>
-                <p className="text-xs mt-1">
-                  Attendance is auto-computed from Time Tracking and Availability data. If no records show, try:
-                </p>
-                <ul className="text-xs mt-1 text-muted-foreground/70 space-y-0.5">
-                  <li>1. Ensure employees have Availability schedules set up</li>
-                  <li>2. Ensure employees have clocked in/out via Time Tracking</li>
-                  <li>3. Adjust the date filters to a wider range</li>
-                </ul>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* ═══════════════ DIALOGS ═══════════════ */}
 
       {/* Apply Leave Dialog */}
       <Dialog open={leaveDialogOpen} onOpenChange={setLeaveDialogOpen}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle>Apply for Leave</DialogTitle>
           </DialogHeader>
@@ -896,7 +483,7 @@ export default function TeamPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Start Date</Label>
                 <Input type="date" value={leaveForm.startDate} onChange={(e) => setLeaveForm(p => ({ ...p, startDate: e.target.value }))} />
@@ -923,7 +510,7 @@ export default function TeamPage() {
 
       {/* Reject Leave Dialog with feedback */}
       <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle>Reject Leave Request</DialogTitle>
           </DialogHeader>
@@ -962,7 +549,7 @@ export default function TeamPage() {
         setEditUserOpen(open);
         if (!open) setEditUser(null);
       }}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle>Edit Team Member</DialogTitle>
           </DialogHeader>
@@ -1022,7 +609,7 @@ export default function TeamPage() {
 
       {/* Add Team Member Dialog */}
       <Dialog open={addMemberOpen} onOpenChange={setAddMemberOpen}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle>Add Team Member</DialogTitle>
           </DialogHeader>
@@ -1080,125 +667,6 @@ export default function TeamPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Add Attendance Record Dialog */}
-      <Dialog open={attDialogOpen} onOpenChange={setAttDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add Attendance Record</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Employee *</Label>
-              <Select value={attForm.userId} onValueChange={(v) => setAttForm(p => ({ ...p, userId: v }))}>
-                <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
-                <SelectContent>
-                  {users.filter(u => u.isActive).map((u) => (
-                    <SelectItem key={u.id} value={u.id}>{safeText(u.name)} ({safeText(u.email)})</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Date *</Label>
-                <Input type="date" value={attForm.date} onChange={(e) => setAttForm(p => ({ ...p, date: e.target.value }))} />
-              </div>
-              <div className="space-y-2">
-                <Label>Status *</Label>
-                <Select value={attForm.status} onValueChange={(v) => setAttForm(p => ({ ...p, status: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="PRESENT">Present</SelectItem>
-                    <SelectItem value="ABSENT">Absent</SelectItem>
-                    <SelectItem value="HALF_DAY">Half Day</SelectItem>
-                    <SelectItem value="LEAVE">On Leave</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Check-in Time</Label>
-                <Input type="time" value={attForm.checkIn} onChange={(e) => setAttForm(p => ({ ...p, checkIn: e.target.value }))} />
-              </div>
-              <div className="space-y-2">
-                <Label>Check-out Time</Label>
-                <Input type="time" value={attForm.checkOut} onChange={(e) => setAttForm(p => ({ ...p, checkOut: e.target.value }))} />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Notes (Optional)</Label>
-              <Textarea value={attForm.notes} onChange={(e) => setAttForm(p => ({ ...p, notes: e.target.value }))} rows={2} placeholder="Any additional notes..." />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAttDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleAddAttendance} disabled={!attForm.userId || !attForm.date || attLoading}>
-              {attLoading ? "Adding..." : "Add Record"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Attendance Record Dialog */}
-      <Dialog open={editAttDialogOpen} onOpenChange={setEditAttDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit Attendance Record</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Status *</Label>
-              <Select value={editAttForm.status} onValueChange={(v) => setEditAttForm(p => ({ ...p, status: v }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="PRESENT">Present</SelectItem>
-                  <SelectItem value="ABSENT">Absent</SelectItem>
-                  <SelectItem value="HALF_DAY">Half Day</SelectItem>
-                  <SelectItem value="LEAVE">On Leave</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Check-in Time</Label>
-                <Input type="time" value={editAttForm.checkIn} onChange={(e) => setEditAttForm(p => ({ ...p, checkIn: e.target.value }))} />
-              </div>
-              <div className="space-y-2">
-                <Label>Check-out Time</Label>
-                <Input type="time" value={editAttForm.checkOut} onChange={(e) => setEditAttForm(p => ({ ...p, checkOut: e.target.value }))} />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Notes</Label>
-              <Textarea value={editAttForm.notes} onChange={(e) => setEditAttForm(p => ({ ...p, notes: e.target.value }))} rows={2} placeholder="Any additional notes..." />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditAttDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleEditAttendance} disabled={!editAttForm.id || attEditLoading}>
-              {attEditLoading ? "Saving..." : "Save Changes"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Attendance Confirmation */}
-      <AlertDialog open={!!deleteAttId} onOpenChange={(open) => { if (!open) setDeleteAttId(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Attendance Record</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete this attendance record? This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { if (deleteAttId) handleDeleteAttendance(deleteAttId); }} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

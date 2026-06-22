@@ -19,15 +19,17 @@ export const createCredentialSchema = z.object({
 // ━━ Project Schemas ━━
 export const createProjectSchema = z.object({
   name: z.string().min(1, "Project name is required").max(200),
-  description: z.string().max(2000).optional(),
+  description: z.string().max(2000).optional().nullable(),
   // Allow "No Client" projects — accept empty string ("") and null in addition
   // to a real client ID. The API POST handler normalizes "" / undefined to null.
   clientId: z.string().optional().or(z.literal("")).nullable(),
   status: z.enum(["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"]).optional(),
   progress: z.number().int().min(0).max(100).optional(),
   isDemo: z.boolean().optional(),
-  deadline: z.string().optional(),
-  startDate: z.string().optional(),
+  // Lenient: accept null/empty string and let the API normalize to undefined.
+  deadline: z.string().optional().nullable(),
+  startDate: z.string().optional().nullable(),
+  // Lenient: accept null (NaN should be caught upstream, but accept null here).
   budget: z.number().min(0).optional().nullable(),
   websites: z.array(z.object({
     url: z.string().min(1, "URL is required").max(500),
@@ -39,11 +41,11 @@ export const createProjectSchema = z.object({
 export const updateProjectSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1).max(200).optional(),
-  description: z.string().max(2000).optional(),
+  description: z.string().max(2000).optional().nullable(),
   status: z.enum(["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"]).optional(),
   progress: z.number().int().min(0).max(100).optional(),
   isDemo: z.boolean().optional(),
-  deadline: z.string().optional(),
+  deadline: z.string().optional().nullable(),
   budget: z.number().min(0).optional().nullable(),
 })
 
