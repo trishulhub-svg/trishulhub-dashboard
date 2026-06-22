@@ -77,6 +77,7 @@ interface AttendanceRecord {
 const roleColors: Record<string, string> = {
   SUPER_ADMIN: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
   ADMIN: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+  PROJECT_MANAGER: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
   DEVELOPER: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
   VIEWER: "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300",
   CLIENT: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
@@ -977,9 +978,10 @@ export default function TeamPage() {
                 <SelectContent>
                   <SelectItem value="DEVELOPER">Developer</SelectItem>
                   <SelectItem value="VIEWER">Viewer</SelectItem>
-                  {/* [W17] Only SUPER_ADMIN can assign ADMIN or SUPER_ADMIN roles */}
+                  {/* [W17] Only SUPER_ADMIN can assign ADMIN, PROJECT_MANAGER, or SUPER_ADMIN roles */}
                   {session?.user?.role === "SUPER_ADMIN" && (
                     <>
+                      <SelectItem value="PROJECT_MANAGER">Project Manager</SelectItem>
                       <SelectItem value="ADMIN">Admin</SelectItem>
                       <SelectItem value="SUPER_ADMIN">Super Admin</SelectItem>
                     </>
@@ -1040,9 +1042,10 @@ export default function TeamPage() {
                 <SelectContent>
                   <SelectItem value="DEVELOPER">Developer</SelectItem>
                   <SelectItem value="VIEWER">Viewer</SelectItem>
-                  {/* [W17] Only SUPER_ADMIN can assign ADMIN or SUPER_ADMIN roles */}
+                  {/* [W17] Only SUPER_ADMIN can assign ADMIN, PROJECT_MANAGER, or SUPER_ADMIN roles */}
                   {session?.user?.role === "SUPER_ADMIN" && (
                     <>
+                      <SelectItem value="PROJECT_MANAGER">Project Manager</SelectItem>
                       <SelectItem value="ADMIN">Admin</SelectItem>
                       <SelectItem value="SUPER_ADMIN">Super Admin</SelectItem>
                     </>

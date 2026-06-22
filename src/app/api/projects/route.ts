@@ -275,10 +275,30 @@ export async function POST(req: NextRequest) {
         budget: validated.budget ?? null,
         deadline: validated.deadline ? new Date(validated.deadline) : null,
         startDate: validated.startDate ? new Date(validated.startDate) : null,
-        // Demo flag — defaults to false; set to true when creating from /dashboard/demo
-        isDemo: validated.isDemo === true,
       },
-    })
+    }).catch(async (err) => {
+      // If isDemo column doesn't exist yet, try without it
+      if (String(err).includes("isDemo") || String(err).includes("Unknown column")) {
+        console.warn("[projects] POST: isDemo column may not exist, trying auto-migrate...");
+        try {
+          await db.$executeRawUnsafe(`ALTER TABLE "Project" ADD COLUMN isDemo BOOLEAN NOT NULL DEFAULT 0`).catch(() => {});
+        } catch { /* column already exists */ }
+        // Retry with isDemo
+        return db.project.create({
+          data: {
+            name,
+            description: description,
+            status: projectStatus,
+            clientId,
+            budget: validated.budget ?? null,
+            deadline: validated.deadline ? new Date(validated.deadline) : null,
+            startDate: validated.startDate ? new Date(validated.startDate) : null,
+            isDemo: validated.isDemo === true,
+          },
+        });
+      }
+      throw err;
+    });
     // I1: Targeted Date serialization
     void logAudit({
       userId: session.user.id, userName: session.user.name || "unknown", userRole,

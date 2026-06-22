@@ -1083,11 +1083,11 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
 
     const data = {
       name: form.get("name") as string,
-      description: form.get("description") as string,
+      description: (form.get("description") as string) || undefined,
       clientId,
-      budget: parseFloat(form.get("budget") as string) || null,
-      startDate: form.get("startDate") as string || null,
-      deadline: form.get("deadline") as string || null,
+      budget: form.get("budget") ? parseFloat(form.get("budget") as string) || null : null,
+      startDate: (form.get("startDate") as string) || null,
+      deadline: (form.get("deadline") as string) || null,
       // Demo view: new projects default to isDemo=true so they appear on /dashboard/demo
       ...(isDemoView ? { isDemo: true } : {}),
     };
