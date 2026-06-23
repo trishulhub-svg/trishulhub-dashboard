@@ -6,6 +6,7 @@ import { canManageTraining } from "@/lib/rbac"
 // TODO: Use trainingRateLimit() from rate-limit.ts for consistency (W33)
 import { rateLimit } from "@/lib/rate-limit"
 import { ensureTrainingTables } from "@/lib/training-migration"
+import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
 // GET /api/training/assignments/[id] - Get single assignment with full details
 export async function GET(
@@ -168,6 +169,67 @@ export async function PATCH(
       return NextResponse.json({ error: "Assignment not found" }, { status: 404 })
     }
     console.error("[training/assignments/[id]] PATCH error:", error instanceof Error ? error.message : error)
+    return NextResponse.json({ error: "An error occurred" }, { status: 500 })
+  }
+}
+
+// DELETE /api/training/assignments/[id] - Unassign training (admin only)
+// Removes the assignment and all associated test attempts.
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+    if (!canManageTraining(session.user.role)) {
+      return NextResponse.json({ error: "Forbidden: admin access required" }, { status: 403 })
+    }
+
+    const migration = await ensureTrainingTables()
+    if (!migration.ok) {
+      console.error("[training/assignments/[id]] DELETE migration error")
+      return NextResponse.json({ error: "Database migration error" }, { status: 500 })
+    }
+
+    const rl = rateLimit(session.user.id, 20, 60000)
+    if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+
+    const { id } = await params
+
+    const assignment = await db.trainingAssignment.findUnique({
+      where: { id },
+      include: {
+        document: { select: { topic: true } },
+        employee: { select: { id: true, name: true } },
+      },
+    })
+
+    if (!assignment) {
+      return NextResponse.json({ error: "Assignment not found" }, { status: 404 })
+    }
+
+    // TestAttempt has onDelete: Cascade, so attempts are auto-removed
+    await db.trainingAssignment.delete({ where: { id } })
+
+    void logAudit({
+      userId: session.user.id,
+      userName: session.user.name || "unknown",
+      userRole: session.user.role,
+      department: "LEARNING",
+      page: "training",
+      action: "DELETE",
+      entityType: "TrainingAssignment",
+      entityId: id,
+      description: `Unassigned training "${assignment.document.topic.slice(0, 80)}" from ${assignment.employee.name}`,
+      ipAddress: getIpAddress(req),
+      userAgent: getUserAgent(req),
+    })
+
+    return NextResponse.json({ success: true })
+  } catch (error: unknown) {
+    console.error("[training/assignments/[id]] DELETE error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
   }
 }

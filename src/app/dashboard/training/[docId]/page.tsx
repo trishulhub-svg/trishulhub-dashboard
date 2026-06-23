@@ -19,6 +19,7 @@ import {
   Calendar,
   BadgeCheck,
   XCircle,
+  UserMinus,
 } from "lucide-react"
 import { ViewPdfButton } from "@/components/training"
 import { cn, safeDateStr, safeArray } from "@/lib/utils"
@@ -144,6 +145,8 @@ export default function DocumentDetailPage() {
   const [selectedEmployees, setSelectedEmployees] = useState<string[]>([])
   const [assigning, setAssigning] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [unassignTarget, setUnassignTarget] = useState<AssignmentData | null>(null)
+  const [unassigning, setUnassigning] = useState(false)
   const [imageUrls, setImageUrls] = useState<string[]>([])
 
   const fetchDocument = useCallback(async () => {
@@ -295,6 +298,30 @@ export default function DocumentDetailPage() {
       toast.error("Failed to assign training")
     } finally {
       setAssigning(false)
+    }
+  }
+
+  // ZAI: Unassign training — removes the assignment (and its test attempts).
+  const handleUnassign = async () => {
+    if (!unassignTarget) return
+    setUnassigning(true)
+    try {
+      const res = await fetch(`/api/training/assignments/${unassignTarget.id}`, {
+        method: "DELETE",
+        credentials: "include",
+      })
+      if (res.ok) {
+        toast.success(`Unassigned training from ${unassignTarget.employee.name}`)
+        setUnassignTarget(null)
+        fetchDocument()
+      } else {
+        const data = await res.json().catch(() => ({}))
+        toast.error((data as Record<string, string>).error || "Failed to unassign training")
+      }
+    } catch {
+      toast.error("Failed to unassign training")
+    } finally {
+      setUnassigning(false)
     }
   }
 
@@ -602,14 +629,14 @@ export default function DocumentDetailPage() {
                     <Card key={a.id}>
                       <CardContent className="p-4">
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <Avatar className="h-9 w-9">
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <Avatar className="h-9 w-9 shrink-0">
                               <AvatarFallback className="text-xs">
                                 {a.employee.name.split(" ").map((n) => n[0]).join("")}
                               </AvatarFallback>
                             </Avatar>
-                            <div>
-                              <p className="text-sm font-medium">{a.employee.name}</p>
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium truncate">{a.employee.name}</p>
                               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                 <span>{a.testLevel} level</span>
                                 {a.dueDate && (
@@ -624,9 +651,9 @@ export default function DocumentDetailPage() {
                               </div>
                             </div>
                           </div>
-                          <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
                             {latestAttempt && (
-                              <div className="text-right">
+                              <div className="text-right hidden sm:block">
                                 <p className={cn("text-sm font-bold", latestAttempt.passed ? "text-green-600" : "text-red-600")}>
                                   {latestAttempt.score}/{latestAttempt.total}
                                 </p>
@@ -642,6 +669,17 @@ export default function DocumentDetailPage() {
                               {a.status === "FAILED" && <XCircle className="h-3 w-3 mr-1" />}
                               {statusCfg.label}
                             </Badge>
+                            {/* ZAI: Unassign button */}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-muted-foreground hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
+                              onClick={() => setUnassignTarget(a)}
+                              title="Unassign training"
+                              aria-label={`Unassign training from ${a.employee.name}`}
+                            >
+                              <UserMinus className="h-4 w-4" />
+                            </Button>
                           </div>
                         </div>
                       </CardContent>
@@ -667,6 +705,45 @@ export default function DocumentDetailPage() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={() => deleteId && handleDeleteTest(deleteId)} className="bg-red-600 hover:bg-red-700">
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ZAI: Unassign Training Confirmation Dialog */}
+      <AlertDialog open={!!unassignTarget} onOpenChange={(open) => { if (!open) setUnassignTarget(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unassign Training</AlertDialogTitle>
+            <AlertDialogDescription>
+              {unassignTarget && (
+                <>
+                  Remove training assignment for <strong>{unassignTarget.employee.name}</strong>?
+                  {unassignTarget.status === "PASSED" || unassignTarget.status === "FAILED" ? (
+                    <span className="block mt-2 text-amber-600 dark:text-amber-400">
+                      This employee has already completed the test. Their test attempt
+                      ({unassignTarget.attempts[0]?.score ?? 0}/{unassignTarget.attempts[0]?.total ?? 10}) will also be deleted.
+                    </span>
+                  ) : (
+                    <span className="block mt-2">
+                      This will remove the assignment and any in-progress test data.
+                      The employee will no longer see this training in their My Training page.
+                    </span>
+                  )}
+                  <span className="block mt-2 font-medium">This action cannot be undone.</span>
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={unassigning}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleUnassign}
+              disabled={unassigning}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {unassigning ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <UserMinus className="h-4 w-4 mr-2" />}
+              Unassign
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
