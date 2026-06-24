@@ -224,6 +224,9 @@ export default function AvailabilityPage() {
   const { data: session, status } = useSession();
   const userRole = session?.user?.role || "DEVELOPER";
   const isUserAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+  // canViewAvailability: SUPER_ADMIN, ADMIN, PROJECT_MANAGER can all VIEW the page.
+  // PROJECT_MANAGER gets read-only access (mutation buttons hidden via isUserAdmin).
+  const canViewAvailability = userRole === "SUPER_ADMIN" || userRole === "ADMIN" || userRole === "PROJECT_MANAGER";
   const isSessionLoading = status === "loading";
 
   // ── Core data ──
@@ -450,16 +453,16 @@ export default function AvailabilityPage() {
   }, [weekStartStr, router]);
 
   useEffect(() => {
-    if (isUserAdmin) fetchCoreData();
-  }, [fetchCoreData, isUserAdmin]);
+    if (canViewAvailability) fetchCoreData();
+  }, [fetchCoreData, canViewAvailability]);
 
   useEffect(() => {
-    if (isUserAdmin && !loading) fetchWeekSchedule();
-  }, [fetchWeekSchedule, isUserAdmin, loading]);
+    if (canViewAvailability && !loading) fetchWeekSchedule();
+  }, [fetchWeekSchedule, canViewAvailability, loading]);
 
   // ── Live users polling: fetch who's currently clocked in ──
   useEffect(() => {
-    if (!isUserAdmin) return;
+    if (!canViewAvailability) return;
     let cancelled = false;
     const fetchLive = async () => {
       try {
@@ -479,7 +482,7 @@ export default function AvailabilityPage() {
       clearInterval(interval);
       clearInterval(tickInterval);
     };
-  }, [isUserAdmin]);
+  }, [canViewAvailability]);
 
   // ── Helper: check if a user is currently live (clocked in) ──
   const isUserLive = useCallback((userId: string): boolean => {
@@ -1073,7 +1076,7 @@ export default function AvailabilityPage() {
     );
   }
 
-  if (!isUserAdmin) {
+  if (!canViewAvailability) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
