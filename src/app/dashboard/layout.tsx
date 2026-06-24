@@ -120,7 +120,7 @@ const navGroups: NavGroup[] = [
     items: [
       { title: "My Leaves", href: "/dashboard/leaves", icon: CalendarDays, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
       { title: "My Details", href: "/dashboard/my-details", icon: IdCard, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
-      { title: "Availability", href: "/dashboard/availability", icon: Clock, roles: ["SUPER_ADMIN", "ADMIN"] },
+      { title: "Availability", href: "/dashboard/availability", icon: Clock, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER"] },
       { title: "Approvals", href: "/dashboard/approvals", icon: Shield, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER"] },
     ],
   },
