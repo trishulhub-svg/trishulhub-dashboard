@@ -1131,19 +1131,23 @@ export default function AvailabilityPage() {
         title="Availability"
         description="Plan, view, and override your team's weekly availability"
       >
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => { resetOverrideForm(); setActiveTab("overrides"); setOverrideDialogOpen(true); }}
-        >
-          <CalendarClock className="h-4 w-4 mr-1.5" /> <span className="hidden sm:inline">Add Override</span>
-        </Button>
-        <Button
-          size="sm"
-          onClick={() => { resetAvailForm(); setActiveTab("schedule"); setAvailDialogOpen(true); }}
-        >
-          <Plus className="h-4 w-4 mr-1.5" /> <span className="hidden sm:inline">Add Slot</span>
-        </Button>
+        {isUserAdmin && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => { resetOverrideForm(); setActiveTab("overrides"); setOverrideDialogOpen(true); }}
+          >
+            <CalendarClock className="h-4 w-4 mr-1.5" /> <span className="hidden sm:inline">Add Override</span>
+          </Button>
+        )}
+        {isUserAdmin && (
+          <Button
+            size="sm"
+            onClick={() => { resetAvailForm(); setActiveTab("schedule"); setAvailDialogOpen(true); }}
+          >
+            <Plus className="h-4 w-4 mr-1.5" /> <span className="hidden sm:inline">Add Slot</span>
+          </Button>
+        )}
       </PageHeader>
 
       {/* ── Summary Stats ── */}
@@ -1696,9 +1700,11 @@ export default function AvailabilityPage() {
                   </Button>
                 )}
               </div>
-              <Button size="sm" className="h-9" onClick={() => { resetAvailForm(); setAvailDialogOpen(true); }}>
-                <Plus className="h-4 w-4 mr-1.5" /> Add Slot
-              </Button>
+              {isUserAdmin && (
+                <Button size="sm" className="h-9" onClick={() => { resetAvailForm(); setAvailDialogOpen(true); }}>
+                  <Plus className="h-4 w-4 mr-1.5" /> Add Slot
+                </Button>
+              )}
             </div>
           </Card>
 
@@ -1755,28 +1761,32 @@ export default function AvailabilityPage() {
                             </span>
                           )}
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 text-xs"
-                          onClick={() => openQuickAddSlot(schedUserId, dayIndex)}
-                        >
-                          <Plus className="h-3 w-3 mr-1" /> Add Slot
-                        </Button>
+                        {isUserAdmin && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 text-xs"
+                            onClick={() => openQuickAddSlot(schedUserId, dayIndex)}
+                          >
+                            <Plus className="h-3 w-3 mr-1" /> Add Slot
+                          </Button>
+                        )}
                       </div>
                     </CardHeader>
                     <CardContent className="px-4 pb-3">
                       {daySlots.length === 0 ? (
                         <div className="flex items-center justify-between py-3 text-muted-foreground">
                           <span className="text-xs">No availability configured</span>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-8 text-xs"
-                            onClick={() => openQuickAddSlot(schedUserId, dayIndex)}
-                          >
-                            <Plus className="h-3 w-3 mr-1" /> Add
-                          </Button>
+                          {isUserAdmin && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8 text-xs"
+                              onClick={() => openQuickAddSlot(schedUserId, dayIndex)}
+                            >
+                              <Plus className="h-3 w-3 mr-1" /> Add
+                            </Button>
+                          )}
                         </div>
                       ) : (
                         <div className="space-y-1.5">
@@ -1802,24 +1812,26 @@ export default function AvailabilityPage() {
                                       </Badge>
                                     )}
                                   </div>
-                                  <div className="flex items-center gap-1 shrink-0">
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      className="h-8 px-2.5 text-xs"
-                                      onClick={() => openEditAvailability(slot)}
-                                    >
-                                      <Edit3 className="h-3 w-3 mr-1" />Edit
-                                    </Button>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      className="h-8 px-2.5 text-xs text-red-600 hover:text-red-700 border-red-200 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-900/20"
-                                      onClick={() => setDeleteAvailId(slot.id)}
-                                    >
-                                      <Trash2 className="h-3 w-3 mr-1" />Delete
-                                    </Button>
-                                  </div>
+                                  {isUserAdmin && (
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-8 px-2.5 text-xs"
+                                        onClick={() => openEditAvailability(slot)}
+                                      >
+                                        <Edit3 className="h-3 w-3 mr-1" />Edit
+                                      </Button>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-8 px-2.5 text-xs text-red-600 hover:text-red-700 border-red-200 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-900/20"
+                                        onClick={() => setDeleteAvailId(slot.id)}
+                                      >
+                                        <Trash2 className="h-3 w-3 mr-1" />Delete
+                                      </Button>
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })}
@@ -1856,9 +1868,11 @@ export default function AvailabilityPage() {
                     Set availability or unavailability for a span of dates (vacation, project travel, multi-day leave).
                   </CardDescription>
                 </div>
-                <Button size="sm" onClick={() => { resetDateRangeForm(); setDateRangeDialogOpen(true); }}>
-                  <Plus className="h-4 w-4 mr-1.5" /> Add Date Range
-                </Button>
+                {isUserAdmin && (
+                  <Button size="sm" onClick={() => { resetDateRangeForm(); setDateRangeDialogOpen(true); }}>
+                    <Plus className="h-4 w-4 mr-1.5" /> Add Date Range
+                  </Button>
+                )}
               </div>
             </CardHeader>
             <CardContent>
@@ -1867,9 +1881,11 @@ export default function AvailabilityPage() {
                   <CalendarRange className="h-12 w-12 opacity-30 mb-3" />
                   <p className="text-sm">No date ranges configured</p>
                   <p className="text-xs mt-1 text-center max-w-md">Use date ranges for multi-day availability or leave (e.g., vacation, project travel, conference).</p>
-                  <Button variant="outline" size="sm" className="mt-3" onClick={() => { resetDateRangeForm(); setDateRangeDialogOpen(true); }}>
-                    <Plus className="h-3 w-3 mr-1" /> Create Date Range
-                  </Button>
+                  {isUserAdmin && (
+                    <Button variant="outline" size="sm" className="mt-3" onClick={() => { resetDateRangeForm(); setDateRangeDialogOpen(true); }}>
+                      <Plus className="h-3 w-3 mr-1" /> Create Date Range
+                    </Button>
+                  )}
                 </div>
               ) : (
                 <>
@@ -1883,6 +1899,7 @@ export default function AvailabilityPage() {
                         ranges={activeDateRanges}
                         onEdit={openEditDateRange}
                         onDelete={(id) => setDeleteDateRangeId(id)}
+                        canEdit={isUserAdmin}
                       />
                     </>
                   )}
@@ -1896,6 +1913,7 @@ export default function AvailabilityPage() {
                         onEdit={openEditDateRange}
                         onDelete={(id) => setDeleteDateRangeId(id)}
                         dimmed
+                        canEdit={isUserAdmin}
                       />
                     </>
                   )}
@@ -1921,9 +1939,11 @@ export default function AvailabilityPage() {
                     Single-day changes to recurring availability (sick day, extra hours, unexpected absence).
                   </CardDescription>
                 </div>
-                <Button size="sm" onClick={() => { resetOverrideForm(); setOverrideDialogOpen(true); }}>
-                  <Plus className="h-4 w-4 mr-1.5" /> Add Override
-                </Button>
+                {isUserAdmin && (
+                  <Button size="sm" onClick={() => { resetOverrideForm(); setOverrideDialogOpen(true); }}>
+                    <Plus className="h-4 w-4 mr-1.5" /> Add Override
+                  </Button>
+                )}
               </div>
             </CardHeader>
             <CardContent>
@@ -1932,9 +1952,11 @@ export default function AvailabilityPage() {
                   <CalendarClock className="h-12 w-12 opacity-30 mb-3" />
                   <p className="text-sm">No overrides configured</p>
                   <p className="text-xs mt-1 text-center max-w-md">Overrides apply to a single date only — perfect for sick days, extra hours, or unexpected changes.</p>
-                  <Button variant="outline" size="sm" className="mt-3" onClick={() => { resetOverrideForm(); setOverrideDialogOpen(true); }}>
-                    <Plus className="h-3 w-3 mr-1" /> Create Override
-                  </Button>
+                  {isUserAdmin && (
+                    <Button variant="outline" size="sm" className="mt-3" onClick={() => { resetOverrideForm(); setOverrideDialogOpen(true); }}>
+                      <Plus className="h-3 w-3 mr-1" /> Create Override
+                    </Button>
+                  )}
                 </div>
               ) : (
                 <>
@@ -1947,6 +1969,7 @@ export default function AvailabilityPage() {
                         overrides={upcomingOverrides}
                         onEdit={openEditOverride}
                         onDelete={(id) => setDeleteOverrideId(id)}
+                        canEdit={isUserAdmin}
                       />
                     </>
                   )}
@@ -1960,6 +1983,7 @@ export default function AvailabilityPage() {
                         onEdit={openEditOverride}
                         onDelete={(id) => setDeleteOverrideId(id)}
                         dimmed
+                        canEdit={isUserAdmin}
                       />
                     </>
                   )}
@@ -2006,9 +2030,11 @@ export default function AvailabilityPage() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <h4 className="text-sm font-semibold">Availability Slots</h4>
-                  <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { setDayDetailDialogOpen(false); openQuickAddSlot(selectedDayDetail.userId, selectedDayDetail.dayData.dayOfWeek); }}>
-                    <Plus className="h-3 w-3 mr-0.5" /> Add
-                  </Button>
+                  {isUserAdmin && (
+                    <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { setDayDetailDialogOpen(false); openQuickAddSlot(selectedDayDetail.userId, selectedDayDetail.dayData.dayOfWeek); }}>
+                      <Plus className="h-3 w-3 mr-0.5" /> Add
+                    </Button>
+                  )}
                 </div>
                 {selectedDayDetail.dayData.availability.length > 0 ? (
                   <div className="space-y-1.5">
@@ -2024,14 +2050,16 @@ export default function AvailabilityPage() {
                             <span className="text-sm font-medium">{slot.startTime} – {slot.endTime}</span>
                             <span className="text-xs text-muted-foreground ml-1.5">({slot.hours}h)</span>
                           </button>
-                          <div className="flex items-center gap-1 shrink-0">
-                            <Button variant="outline" size="sm" className="h-7 px-2 text-[10px]" onClick={() => { setDayDetailDialogOpen(false); openEditAvailability(entry); }}>
-                              <Edit3 className="h-3 w-3" />
-                            </Button>
-                            <Button variant="outline" size="sm" className="h-7 px-2 text-[10px] text-red-600 border-red-200 dark:border-red-800" onClick={() => { setDeleteAvailId(slot.id); setDayDetailDialogOpen(false); }}>
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </div>
+                          {isUserAdmin && (
+                            <div className="flex items-center gap-1 shrink-0">
+                              <Button variant="outline" size="sm" className="h-7 px-2 text-[10px]" onClick={() => { setDayDetailDialogOpen(false); openEditAvailability(entry); }}>
+                                <Edit3 className="h-3 w-3" />
+                              </Button>
+                              <Button variant="outline" size="sm" className="h-7 px-2 text-[10px] text-red-600 border-red-200 dark:border-red-800" onClick={() => { setDeleteAvailId(slot.id); setDayDetailDialogOpen(false); }}>
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -2051,12 +2079,14 @@ export default function AvailabilityPage() {
                 <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-700">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold text-amber-800 dark:text-amber-200">Override Active</span>
-                    <Button variant="ghost" size="sm" className="h-7 text-[10px] text-amber-700 dark:text-amber-300" onClick={() => {
-                      const ovr = overrides.find(o => o.id === selectedDayDetail.dayData.override!.id);
-                      if (ovr) { setDayDetailDialogOpen(false); openEditOverride(ovr); }
-                    }}>
-                      <Edit3 className="h-3 w-3 mr-1" /> Edit
-                    </Button>
+                    {isUserAdmin && (
+                      <Button variant="ghost" size="sm" className="h-7 text-[10px] text-amber-700 dark:text-amber-300" onClick={() => {
+                        const ovr = overrides.find(o => o.id === selectedDayDetail.dayData.override!.id);
+                        if (ovr) { setDayDetailDialogOpen(false); openEditOverride(ovr); }
+                      }}>
+                        <Edit3 className="h-3 w-3 mr-1" /> Edit
+                      </Button>
+                    )}
                   </div>
                   <div className="text-xs text-amber-700 dark:text-amber-300 mt-1">
                     {selectedDayDetail.dayData.override.isAvailable ? "Available" : "Unavailable"}
@@ -2152,7 +2182,7 @@ export default function AvailabilityPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAvailDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSaveAvailability} disabled={submitting}>
+            <Button onClick={handleSaveAvailability} disabled={submitting || !isUserAdmin}>
               {submitting ? "Saving..." : editingAvailability ? "Update" : "Add"}
             </Button>
           </DialogFooter>
@@ -2244,7 +2274,7 @@ export default function AvailabilityPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOverrideDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSaveOverride} disabled={submitting}>
+            <Button onClick={handleSaveOverride} disabled={submitting || !isUserAdmin}>
               {submitting ? "Saving..." : editingOverride ? "Update Override" : "Add Override"}
             </Button>
           </DialogFooter>
@@ -2368,7 +2398,7 @@ export default function AvailabilityPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDateRangeDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSaveDateRange} disabled={submitting}>
+            <Button onClick={handleSaveDateRange} disabled={submitting || !isUserAdmin}>
               {submitting ? "Saving..." : editingDateRange ? "Update Date Range" : "Add Date Range"}
             </Button>
           </DialogFooter>
@@ -2386,7 +2416,7 @@ export default function AvailabilityPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => deleteAvailId && handleDeleteAvailability(deleteAvailId)} className="bg-red-600 hover:bg-red-700">
+            <AlertDialogAction onClick={() => deleteAvailId && handleDeleteAvailability(deleteAvailId)} className="bg-red-600 hover:bg-red-700" disabled={!isUserAdmin}>
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -2404,7 +2434,7 @@ export default function AvailabilityPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => deleteOverrideId && handleDeleteOverride(deleteOverrideId)} className="bg-red-600 hover:bg-red-700">
+            <AlertDialogAction onClick={() => deleteOverrideId && handleDeleteOverride(deleteOverrideId)} className="bg-red-600 hover:bg-red-700" disabled={!isUserAdmin}>
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -2422,7 +2452,7 @@ export default function AvailabilityPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => deleteDateRangeId && handleDeleteDateRange(deleteDateRangeId)} className="bg-red-600 hover:bg-red-700">
+            <AlertDialogAction onClick={() => deleteDateRangeId && handleDeleteDateRange(deleteDateRangeId)} className="bg-red-600 hover:bg-red-700" disabled={!isUserAdmin}>
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -2647,11 +2677,13 @@ function OverrideList({
   onEdit,
   onDelete,
   dimmed = false,
+  canEdit = true,
 }: {
   overrides: OverrideEntry[];
   onEdit: (o: OverrideEntry) => void;
   onDelete: (id: string) => void;
   dimmed?: boolean;
+  canEdit?: boolean;
 }) {
   return (
     <>
@@ -2692,14 +2724,16 @@ function OverrideList({
                 {override.reason && (
                   <div className="text-xs text-muted-foreground mt-1">{safeText(override.reason)}</div>
                 )}
-                <div className="flex items-center gap-2 mt-2">
-                  <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs" onClick={() => onEdit(override)}>
-                    <Edit3 className="h-3 w-3 mr-1" /> Edit
-                  </Button>
-                  <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs text-red-600 border-red-200 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-900/20" onClick={() => onDelete(override.id)}>
-                    <Trash2 className="h-3 w-3 mr-1" /> Delete
-                  </Button>
-                </div>
+                {canEdit && (
+                  <div className="flex items-center gap-2 mt-2">
+                    <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs" onClick={() => onEdit(override)}>
+                      <Edit3 className="h-3 w-3 mr-1" /> Edit
+                    </Button>
+                    <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs text-red-600 border-red-200 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-900/20" onClick={() => onDelete(override.id)}>
+                      <Trash2 className="h-3 w-3 mr-1" /> Delete
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -2758,14 +2792,18 @@ function OverrideList({
                   {override.reason ? safeText(override.reason) : "—"}
                 </TableCell>
                 <TableCell>
-                  <div className="flex items-center justify-end gap-1">
-                    <Button variant="outline" size="sm" className="h-8 px-2.5 text-[10px]" onClick={() => onEdit(override)}>
-                      Edit
-                    </Button>
-                    <Button variant="outline" size="sm" className="h-8 px-2.5 text-[10px] text-red-600 border-red-200 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-900/20" onClick={() => onDelete(override.id)}>
-                      Delete
-                    </Button>
-                  </div>
+                  {canEdit ? (
+                    <div className="flex items-center justify-end gap-1">
+                      <Button variant="outline" size="sm" className="h-8 px-2.5 text-[10px]" onClick={() => onEdit(override)}>
+                        Edit
+                      </Button>
+                      <Button variant="outline" size="sm" className="h-8 px-2.5 text-[10px] text-red-600 border-red-200 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-900/20" onClick={() => onDelete(override.id)}>
+                        Delete
+                      </Button>
+                    </div>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">--</span>
+                  )}
                 </TableCell>
               </TableRow>
             ))}
@@ -2781,11 +2819,13 @@ function DateRangeList({
   onEdit,
   onDelete,
   dimmed = false,
+  canEdit = true,
 }: {
   ranges: DateRangeEntry[];
   onEdit: (r: DateRangeEntry) => void;
   onDelete: (id: string) => void;
   dimmed?: boolean;
+  canEdit?: boolean;
 }) {
   return (
     <>
@@ -2832,14 +2872,16 @@ function DateRangeList({
                   {range.reason && (
                     <div className="text-xs text-muted-foreground mt-1">{safeText(range.reason)}</div>
                   )}
-                  <div className="flex items-center gap-2 mt-2">
-                    <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs" onClick={() => onEdit(range)}>
-                      <Edit3 className="h-3 w-3 mr-1" /> Edit
-                    </Button>
-                    <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs text-red-600 border-red-200 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-900/20" onClick={() => onDelete(range.id)}>
-                      <Trash2 className="h-3 w-3 mr-1" /> Delete
-                    </Button>
-                  </div>
+                  {canEdit && (
+                    <div className="flex items-center gap-2 mt-2">
+                      <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs" onClick={() => onEdit(range)}>
+                        <Edit3 className="h-3 w-3 mr-1" /> Edit
+                      </Button>
+                      <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs text-red-600 border-red-200 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-900/20" onClick={() => onDelete(range.id)}>
+                        <Trash2 className="h-3 w-3 mr-1" /> Delete
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -2905,14 +2947,18 @@ function DateRangeList({
                     {range.reason ? safeText(range.reason) : "—"}
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-center justify-end gap-1">
-                      <Button variant="outline" size="sm" className="h-8 px-2.5 text-[10px]" onClick={() => onEdit(range)}>
-                        <Edit3 className="h-3 w-3 mr-1" />Edit
-                      </Button>
-                      <Button variant="outline" size="sm" className="h-8 px-2.5 text-[10px] text-red-600 border-red-200 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-900/20" onClick={() => onDelete(range.id)}>
-                        <Trash2 className="h-3 w-3 mr-1" />Delete
-                      </Button>
-                    </div>
+                    {canEdit ? (
+                      <div className="flex items-center justify-end gap-1">
+                        <Button variant="outline" size="sm" className="h-8 px-2.5 text-[10px]" onClick={() => onEdit(range)}>
+                          <Edit3 className="h-3 w-3 mr-1" />Edit
+                        </Button>
+                        <Button variant="outline" size="sm" className="h-8 px-2.5 text-[10px] text-red-600 border-red-200 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-900/20" onClick={() => onDelete(range.id)}>
+                          <Trash2 className="h-3 w-3 mr-1" />Delete
+                        </Button>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">--</span>
+                    )}
                   </TableCell>
                 </TableRow>
               );

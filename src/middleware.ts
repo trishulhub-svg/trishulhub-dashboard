@@ -94,7 +94,6 @@ export async function middleware(request: NextRequest) {
       "/dashboard/finance",
       "/dashboard/crm",
       "/dashboard/team",
-      "/dashboard/availability",
       "/dashboard/training",
       "/dashboard/audit-trail",
     ]
@@ -107,6 +106,7 @@ export async function middleware(request: NextRequest) {
       "/dashboard/demo",
       "/dashboard/approvals",
       "/dashboard/credentials",
+      "/dashboard/availability", // PM has read-only access — API enforces no mutations
     ]
 
     const isSuperAdmin = role === "SUPER_ADMIN"

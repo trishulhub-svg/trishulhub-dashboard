@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { isAdmin } from "@/lib/rbac"
+import { isAdmin, isAdminOrProjectManager } from "@/lib/rbac"
 import { ensureTable } from "@/lib/auto-migrate"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
@@ -39,9 +39,11 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const userIdParam = searchParams.get("userId")
 
-    // Scope: non-admins only see their own, admins can see any user (or all)
+    // Scope: non-admins (DEVELOPER/VIEWER) only see their own.
+    // ADMIN/SUPER_ADMIN/PROJECT_MANAGER can see any user (or all).
+    // PROJECT_MANAGER gets read-only admin-like visibility per requirement.
     const where: Record<string, unknown> = {}
-    if (!isAdmin(session.user.role)) {
+    if (!isAdminOrProjectManager(session.user.role)) {
       where.userId = session.user.id
     } else if (userIdParam) {
       if (!/^[a-zA-Z0-9_-]{1,100}$/.test(userIdParam)) {

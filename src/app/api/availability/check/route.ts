@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { isAdmin } from "@/lib/rbac"
+import { isAdmin, isAdminOrProjectManager } from "@/lib/rbac"
 import { ensureTable } from "@/lib/auto-migrate"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
@@ -13,7 +13,8 @@ export async function GET(req: NextRequest) {
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     const userRole = session.user.role
-    if (!isAdmin(userRole)) {
+    // GET: allow PROJECT_MANAGER (read-only). This endpoint is read-only by design.
+    if (!isAdminOrProjectManager(userRole)) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
 
