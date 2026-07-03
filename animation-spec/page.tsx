@@ -279,7 +279,7 @@ export default function TrishulHubLanding() {
                 magnetic
                 magneticStrength={8}
                 orbit
-                onClick={() => window.open("https://chat.z.ai", "_blank", "noopener,noreferrer")}
+                onClick={() => window.open("https://workspace-dashboard-rho.vercel.app/", "_blank", "noopener,noreferrer")}
                 className="group relative"
               >
                 <span className="relative z-10 flex items-center gap-2">

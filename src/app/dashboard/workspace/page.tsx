@@ -610,13 +610,13 @@ export default function TrishulWorkspacePage() {
     currentUserId && liveUsers.some((u) => u.userId === currentUserId)
   );
 
-  /* ── START handler ──
+   /* ── START handler ──
      If the user is clocked in (has an active TimeEntry / appears in
-     liveUsers), redirect to chat.z.ai. Otherwise, send them to the
+     liveUsers), redirect to workspace dashboard. Otherwise, send them to the
      time-tracking page so they can clock in first. */
   const handleStart = useCallback(() => {
     if (currentUserIsLive) {
-      window.open("https://chat.z.ai", "_blank", "noopener,noreferrer");
+      window.open("https://workspace-dashboard-rho.vercel.app/", "_blank", "noopener,noreferrer");
     } else {
       // Deep-link to time tracking with action=start so it scrolls directly to the timer
       router.push("/dashboard/time-tracking?action=start");
@@ -724,8 +724,8 @@ export default function TrishulWorkspacePage() {
                     type="button"
                     onClick={handleStart}
                     className={`ws-btn-primary ws-btn-primary--${mode}`}
-                    aria-label={currentUserIsLive ? "Start working — open chat.z.ai" : "Start session — clock in first"}
-                    title={currentUserIsLive ? "Start Working — open chat.z.ai" : "Start Session — clock in first"}
+                    aria-label={currentUserIsLive ? "Start working — open workspace" : "Start session — clock in first"}
+                    title={currentUserIsLive ? "Start Working — open workspace" : "Start Session — clock in first"}
                   >
                     {currentUserIsLive ? (
                       <Zap size={16} strokeWidth={2.5} />
@@ -982,7 +982,7 @@ export default function TrishulWorkspacePage() {
                 onClick={handleStart}
                 className="ws-start-card-inner"
                 aria-label={currentUserIsLive ? "Launch AI Workspace" : "Start your session — clock in first"}
-                title={currentUserIsLive ? "Open chat.z.ai" : "Clock in first"}
+                title={currentUserIsLive ? "Open workspace" : "Clock in first"}
               >
                 <div className="ws-start-left">
                   <div className={`ws-start-icon-box ws-start-icon-box--${mode}`}>

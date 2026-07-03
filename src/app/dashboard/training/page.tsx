@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
@@ -89,10 +89,14 @@ export default function TrainingLibraryPage() {
 
   const documentsRef = useRef(documents);
   documentsRef.current = documents;
+  const pollCountRef = useRef(0);
+  const MAX_POLLS = 60;
 
   useEffect(() => {
     const hasPending = documentsRef.current.some(d => d.status === "GENERATING" || d.status === "PENDING");
-    if (!hasPending) return;
+    if (!hasPending) { pollCountRef.current = 0; return; }
+    if (pollCountRef.current >= MAX_POLLS) return;
+    pollCountRef.current += 1;
     const interval = setInterval(() => { fetchDocuments() }, 5000);
     return () => clearInterval(interval);
   }, [fetchDocuments]);
@@ -140,7 +144,7 @@ export default function TrainingLibraryPage() {
     } catch { toast.error("Failed to delete") } finally { setDeleteId(null) }
   }
 
-  const sortedDocuments = [...documents].sort((a, b) => {
+  const sortedDocuments = useMemo(() => [...documents].sort((a, b) => {
     switch (sortBy) {
       case "newest": return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       case "oldest": return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
@@ -148,7 +152,7 @@ export default function TrainingLibraryPage() {
       case "name-desc": return b.topic.localeCompare(a.topic)
       default: return 0
     }
-  })
+  }), [documents, sortBy])
 
   if (status === "loading" || loading) {
     return (<div className="space-y-6">
@@ -158,10 +162,12 @@ export default function TrainingLibraryPage() {
     </div>)
   }
 
-  const totalDocs = documents.length
-  const readyDocs = documents.filter(d => d.status === "READY").length
-  const generatingDocs = documents.filter(d => d.status === "GENERATING" || d.status === "DRAFT").length
-  const totalAssignments = documents.reduce((sum, d) => sum + d._count.assignments, 0)
+  const { totalDocs, readyDocs, generatingDocs, totalAssignments } = useMemo(() => ({
+    totalDocs: documents.length,
+    readyDocs: documents.filter(d => d.status === "READY").length,
+    generatingDocs: documents.filter(d => d.status === "GENERATING" || d.status === "DRAFT").length,
+    totalAssignments: documents.reduce((sum, d) => sum + d._count.assignments, 0),
+  }), [documents])
 
   const briefCharPercent = (newBrief.length / MAX_BRIEF_CHARS) * 100
   const briefCharColor = briefCharPercent > 90 ? "text-red-500" : briefCharPercent > 70 ? "text-amber-500" : "text-muted-foreground"

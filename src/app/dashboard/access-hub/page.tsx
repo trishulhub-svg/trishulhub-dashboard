@@ -981,7 +981,7 @@ function AccessHubContent() {
                         Protocol v12: <code className="font-mono text-primary">trishulhub-svg/trishul-protocol-v12</code>
                       </p>
                       <p className="text-[10px] text-muted-foreground mt-1">
-                        Tasks managed in Lark. Devs see tasks in Lark app. Admins use chat.z.ai Connect IM for task queries.
+                        Tasks managed in Lark. Devs see tasks in Lark app. Admins use workspace dashboard for task queries.
                       </p>
                     </div>
                   </CardContent>

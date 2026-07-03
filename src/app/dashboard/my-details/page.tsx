@@ -1290,7 +1290,6 @@ function MyDetailSection(props: MyDetailSectionProps) {
                       <Select
                         value={formGovIdType}
                         onValueChange={(v) => setFormGovIdType(v as GovIdType)}
-                        disabled={!!formCountry}
                       >
                         <SelectTrigger id="gov-id-type" className="mt-1.5">
                           <SelectValue placeholder="Select ID type" />

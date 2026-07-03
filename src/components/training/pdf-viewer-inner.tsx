@@ -162,9 +162,8 @@ export default function PdfViewerInner({ pdfUrl, topic, onClose, onMarkAsRead }:
                   <Page
                     pageNumber={i + 1}
                     scale={scale}
-                    renderTextLayer={true}
+                    renderTextLayer={false}
                     renderAnnotationLayer={false}
-                    // TODO: Consider performance impact of text layer for very long documents
                     loading={
                       <div className="flex items-center justify-center bg-white" style={{ minHeight: "400px" }}>
                         <div className="flex flex-col items-center gap-3">

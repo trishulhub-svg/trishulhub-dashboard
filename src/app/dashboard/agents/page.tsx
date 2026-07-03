@@ -244,7 +244,7 @@ export default function TrishulWorkspacePage() {
 
   /* ── Handlers ── */
   const handleStart = useCallback(() => {
-    window.open("https://chat.z.ai", "_blank");
+    window.open("https://workspace-dashboard-rho.vercel.app/", "_blank");
   }, []);
   const handleCredentials = useCallback(() => {
     router.push("/dashboard/credentials");
