@@ -612,11 +612,11 @@ export default function TrishulWorkspacePage() {
 
    /* ── START handler ──
      If the user is clocked in (has an active TimeEntry / appears in
-     liveUsers), redirect to workspace dashboard. Otherwise, send them to the
+     liveUsers), open Cursor Agents. Otherwise, send them to the
      time-tracking page so they can clock in first. */
   const handleStart = useCallback(() => {
     if (currentUserIsLive) {
-      window.open("https://workspace-dashboard-rho.vercel.app/", "_blank", "noopener,noreferrer");
+      window.open("https://cursor.com/agents", "_blank", "noopener,noreferrer");
     } else {
       // Deep-link to time tracking with action=start so it scrolls directly to the timer
       router.push("/dashboard/time-tracking?action=start");
