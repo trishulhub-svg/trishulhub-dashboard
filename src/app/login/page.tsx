@@ -236,11 +236,11 @@ function LoginForm() {
             </p>
             <div className="login-security-badge animate-login-fade-up" style={{ animationDelay: '200ms' }}>
               <Shield className="h-2.5 w-2.5" />
-              <span>Secured with end-to-end encryption</span>
+              <span>Secure workspace access</span>
             </div>
           </div>
 
-          {/* Show setup button if database is not ready */}
+          {/* Setup / seed UI — only when database explicitly needs setup */}
           {dbReady === false && (
             <Card className="login-setup-card animate-login-scale-in" style={{ animationDelay: '200ms' }}>
               <CardHeader className="pb-3">
@@ -255,7 +255,7 @@ function LoginForm() {
                   onClick={handleSetup}
                   disabled={seeding}
                 >
-                  {seeding ? "Setting up..." : "Setup Database & Create Admin User"}
+                  {seeding ? "Setting up..." : "Seed Database"}
                 </Button>
                 <p className="text-[11px] text-orange-500 text-center">
                   Creates database, tables, users, clients, projects, and sample data
@@ -274,8 +274,8 @@ function LoginForm() {
           {/* Login Card */}
           <Card className="login-main-card animate-login-scale-in" style={{ animationDelay: '300ms' }}>
             <CardHeader className="pb-3 pt-5 px-5">
-              <CardTitle className="text-lg">Sign In</CardTitle>
-              <CardDescription className="text-xs">Enter your credentials to access the dashboard</CardDescription>
+              <CardTitle className="login-card-heading">Sign In</CardTitle>
+              <CardDescription className="login-card-desc">Enter your credentials to access the dashboard</CardDescription>
             </CardHeader>
             <CardContent className="px-5 pb-5">
               <form onSubmit={handleSubmit} className="space-y-4">
@@ -342,9 +342,10 @@ function LoginForm() {
             </CardContent>
           </Card>
 
+          {/* DB status check runs in background — do not surface as primary UI when ready/unknown */}
           {dbReady === null && (
-            <p className="text-center text-[11px] text-muted-foreground animate-login-fade-up" style={{ animationDelay: '400ms' }}>
-              Checking database status...
+            <p className="login-db-status sr-only" aria-live="polite">
+              Checking database status
             </p>
           )}
         </div>
