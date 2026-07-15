@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { isAdmin, getAssignedProjectIds, getAssignedClientIds } from "@/lib/rbac"
+import { isAdmin, isAdminOrProjectManager, getAssignedProjectIds, getAssignedClientIds } from "@/lib/rbac"
 
 // PERF: Allow up to 15s for the dashboard route
 export const maxDuration = 15
@@ -36,6 +36,7 @@ export async function GET() {
     if (role === "CLIENT") return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     const admin = isAdmin(role)
+    const adminOrPm = isAdminOrProjectManager(role)
 
     // Run rbac checks in parallel
     const [assignedProjectIds, assignedClientIds] = await Promise.all([
@@ -49,16 +50,25 @@ export async function GET() {
     const invoiceWhere = assignedClientIds ? { clientId: { in: assignedClientIds } } : {}
     const expenseWhere = assignedProjectIds ? { projectId: { in: assignedProjectIds } } : {}
     const ticketWhere = assignedClientIds ? { clientId: { in: assignedClientIds } } : {}
+    const memberWhere = assignedProjectIds ? { projectId: { in: assignedProjectIds } } : {}
+
+    // At-risk: open projects with a deadline on or before end of today
+    const endOfToday = new Date()
+    endOfToday.setHours(23, 59, 59, 999)
 
     // Each query wrapped in safeQuery — if one fails, dashboard still loads with partial data
     const [
       projects, clients, invoices, expenses, apiKeys, supportTickets, leads,
-      newLeadsCount, activeProjects, openTickets, totalLeadsCount, totalClientCount,
-      totalRevenue, pendingAmount, overdueAmount, totalExpenses,
+      newLeadsCount, activeProjects, atRiskProjects, openTickets, totalLeadsCount, totalClientCount,
+      totalRevenue, pendingAmount, overdueAmount, totalExpenses, teamMembers,
     ] = await Promise.all([
       safeQuery(() => db.project.findMany({
         where: projectWhere,
-        select: { id: true, name: true, status: true, progress: true, deadline: true, client: { select: { name: true } } },
+        select: {
+          id: true, name: true, status: true, progress: true, deadline: true,
+          client: { select: { name: true } },
+          _count: { select: { members: true } },
+        },
         take: 10, orderBy: { updatedAt: "desc" },
       }), [] as unknown[], "projects"),
 
@@ -70,7 +80,10 @@ export async function GET() {
       admin
         ? safeQuery(() => db.invoice.findMany({
             where: invoiceWhere, take: 5, orderBy: { createdAt: "desc" },
-            select: { id: true, invoiceNumber: true, total: true, status: true, createdAt: true },
+            select: {
+              id: true, invoiceNumber: true, total: true, status: true, createdAt: true, dueDate: true,
+              client: { select: { name: true } },
+            },
           }), [] as unknown[], "invoices")
         : Promise.resolve([] as unknown[]),
 
@@ -107,6 +120,14 @@ export async function GET() {
         where: { ...projectWhere, status: { notIn: ["COMPLETED", "DEPLOYED"] } },
       }), 0, "activeProjects"),
 
+      safeQuery(() => db.project.count({
+        where: {
+          ...projectWhere,
+          status: { notIn: ["COMPLETED", "DEPLOYED"] },
+          deadline: { lte: endOfToday },
+        },
+      }), 0, "atRiskProjects"),
+
       admin
         ? safeQuery(() => db.supportTicket.count({ where: { ...ticketWhere, status: "OPEN" } }), 0, "openTickets")
         : Promise.resolve(0),
@@ -142,6 +163,11 @@ export async function GET() {
             where: expenseWhere, _sum: { amount: true },
           }).then(r => r._sum.amount || 0), 0, "totalExpenses")
         : Promise.resolve(0),
+
+      // Team member seats across visible projects (PM delivery KPI; admins get it too)
+      adminOrPm
+        ? safeQuery(() => db.projectMember.count({ where: memberWhere }), 0, "teamMembers")
+        : Promise.resolve(0),
     ])
 
     const typedApiKeys = apiKeys as Array<{ currentSpend: number; monthlyBudget: number }>
@@ -149,6 +175,7 @@ export async function GET() {
     const monthlyBudget = admin ? typedApiKeys.reduce((sum, k) => sum + k.monthlyBudget, 0) : 0
 
     const safeResponse = sanitizeForJson({
+      role,
       projects,
       clients: admin ? clients : (clients as Array<{ id: string; name: string; company: string }>).map(c => ({ id: c.id, name: c.name, company: c.company })),
       leads,
@@ -159,9 +186,10 @@ export async function GET() {
       stats: {
         totalRevenue, pendingAmount, overdueAmount, totalExpenses,
         totalApiSpend, monthlyBudget,
-        newLeadsCount, activeProjects, openTickets,
+        newLeadsCount, activeProjects, atRiskProjects, openTickets,
         totalClients: admin ? totalClientCount : 0,
         totalLeads: totalLeadsCount,
+        teamMembers: adminOrPm ? teamMembers : 0,
       },
     })
 
