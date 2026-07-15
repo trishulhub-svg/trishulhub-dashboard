@@ -172,8 +172,6 @@ export async function POST() {
     }
   }
 
-  }
-
   // Create indexes if they don't exist
   const indexResults: string[] = []
   const indexes = [
