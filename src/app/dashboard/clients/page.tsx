@@ -1183,36 +1183,31 @@ export default function ClientsPage() {
   return (
     <div className="space-y-5">
       {/* ━━ Header + Search + Actions ━━ */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <PageHeader title="Client Management" description="Manage your clients and track relationships" showBack>
-        </PageHeader>
-        <div className="flex items-center gap-3 shrink-0">
-          {/* Inline search */}
-          <div className="relative">
-            <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground/50" />
-            <Input
-              id="client-search"
-              placeholder="Search clients..."
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              className="pl-8 w-52 h-8 text-sm bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50 focus:bg-white dark:focus:bg-white/[0.06] transition-all"
-              aria-label="Search clients"
-            />
-            {searchInput && (
-              <button
-                onClick={() => setSearchInput("")}
-                className="absolute right-2 top-2 text-muted-foreground/60 hover:text-foreground transition-colors"
-                aria-label="Clear search"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            )}
-          </div>
-          <Button onClick={handleAdd} className="h-8 px-3 text-sm">
-            <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Client
-          </Button>
+      <PageHeader title="Client Management" description="Manage your clients and track relationships" showBack>
+        <div className="relative">
+          <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground/50" />
+          <Input
+            id="client-search"
+            placeholder="Search clients..."
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            className="pl-8 w-52 h-8 text-sm bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50 focus:bg-white dark:focus:bg-white/[0.06] transition-all"
+            aria-label="Search clients"
+          />
+          {searchInput && (
+            <button
+              onClick={() => setSearchInput("")}
+              className="absolute right-2 top-2 text-muted-foreground/60 hover:text-foreground transition-colors"
+              aria-label="Clear search"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          )}
         </div>
-      </div>
+        <Button onClick={handleAdd} className="h-8 px-3 text-sm">
+          <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Client
+        </Button>
+      </PageHeader>
 
       {/* ━━ Stats Bar — Glassmorphism pills ━━ */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -1314,7 +1309,9 @@ export default function ClientsPage() {
         {clients.length === 0 ? (
           searchInput || statusFilter !== "ALL" ? (
             <div className="text-center py-16">
-              <Search className="h-12 w-12 text-muted-foreground/40 mx-auto mb-3" />
+              <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-muted/80 ring-1 ring-border/60">
+                <Search className="h-7 w-7 text-muted-foreground/70" />
+              </div>
               <p className="text-sm text-muted-foreground">No clients found matching your filters</p>
               <Button variant="outline" className="mt-4 text-xs" onClick={() => { setSearchInput(""); setStatusFilter("ALL"); }}>
                 <X className="h-3.5 w-3.5 mr-1.5" /> Clear Filters
@@ -1322,7 +1319,9 @@ export default function ClientsPage() {
             </div>
           ) : (
             <div className="text-center py-16">
-              <Briefcase className="h-12 w-12 text-muted-foreground/40 mx-auto mb-3" />
+              <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/20">
+                <Briefcase className="h-7 w-7 text-primary/70" />
+              </div>
               <p className="text-sm text-muted-foreground">No clients yet</p>
               <Button variant="outline" className="mt-4 text-xs" onClick={handleAdd}>
                 <Plus className="h-3.5 w-3.5 mr-1.5" /> Add your first client
