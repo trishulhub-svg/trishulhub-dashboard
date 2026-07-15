@@ -1233,7 +1233,7 @@ export default function ClientsPage() {
           <p className="text-xl font-bold tracking-tight text-amber-600 dark:text-amber-400">{stats.revenue != null ? formatCurrency(stats.revenue) : "—"}</p>
         </div>
         {/* CLI-010: Renamed "Invoices" to "Total Invoices" */}
-        <div className="rounded-xl p-3 transition-all bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-purple-200/40 dark:border-purple-500/20 hover:shadow-md">
+        <div className="rounded-xl p-3 transition-all bg-card border border-border hover:shadow-md">
           <div className="flex items-center gap-1.5 mb-1">
             <FileText className="h-3.5 w-3.5 text-primary" />
             <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Total Invoices</span>
