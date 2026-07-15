@@ -19,9 +19,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
-import { safeArray, safeText } from "@/lib/utils";
+import { cn, safeArray, safeText } from "@/lib/utils";
 import { DEPARTMENTS } from "@/lib/types";
 
 // ── TypeScript Interfaces ──
@@ -49,14 +50,14 @@ interface LeaveRecord {
   user?: { id: string; name: string; email: string; role: string };
 }
 
-// Role colors for badge styling
+// Role colors for badge styling — primary/muted treatments (no purple pastel wells)
 const roleColors: Record<string, string> = {
-  SUPER_ADMIN: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
-  ADMIN: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
-  PROJECT_MANAGER: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
-  DEVELOPER: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
-  VIEWER: "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300",
-  CLIENT: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+  SUPER_ADMIN: "bg-destructive/15 text-destructive",
+  ADMIN: "bg-primary/15 text-primary",
+  PROJECT_MANAGER: "bg-primary/10 text-primary",
+  DEVELOPER: "bg-muted text-foreground",
+  VIEWER: "bg-muted text-muted-foreground",
+  CLIENT: "bg-success/15 text-success",
 };
 
 // Leave status colors
@@ -330,7 +331,7 @@ export default function TeamPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 th-page-enter">
       <PageHeader title={isAdminUser ? "Team Management" : "My Leaves"} description={isAdminUser ? "Manage team members and leave requests" : "View and manage your leave requests"}>
         <div className="flex gap-2">
           {isAdminUser && (
@@ -353,115 +354,156 @@ export default function TeamPage() {
         </div>
       </PageHeader>
 
-      {/* Tab buttons */}
-      <div className="flex gap-2 flex-wrap">
-        {isAdminUser && (
-          <Button key="team" variant={tab === "team" ? "default" : "outline"} size="sm" onClick={() => setTab("team")}>
-            Team ({users.length})
-          </Button>
-        )}
-        <Button key="leaves" variant={tab === "leaves" ? "default" : "outline"} size="sm" onClick={() => setTab("leaves")}>
-          Leave Requests{pendingLeavesCount > 0 ? ` (${pendingLeavesCount})` : ""}
-        </Button>
-      </div>
+      <Tabs
+        value={tab}
+        onValueChange={(v) => setTab(v as "team" | "leaves")}
+        className="space-y-4"
+      >
+        <TabsList className={cn("bg-muted p-1 rounded-lg h-auto", isAdminUser ? "w-full sm:w-auto" : "w-full sm:w-auto")}>
+          {isAdminUser && (
+            <TabsTrigger value="team" className="data-[state=active]:bg-card data-[state=active]:shadow-sm">
+              Team ({users.length})
+            </TabsTrigger>
+          )}
+          <TabsTrigger value="leaves" className="data-[state=active]:bg-card data-[state=active]:shadow-sm">
+            Leave Requests{pendingLeavesCount > 0 ? ` (${pendingLeavesCount})` : ""}
+          </TabsTrigger>
+        </TabsList>
 
-      {/* ═══════════════ TEAM TAB ═══════════════ */}
-      {tab === "team" && isAdminUser && (
-        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
-          {users.map((user) => (
-            <Card key={user.id}>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <Avatar className="h-10 w-10 shrink-0">
-                    <AvatarImage src={user.avatar || undefined} alt={safeText(user.name)} />
-                    <AvatarFallback className="bg-muted text-xs font-medium">
-                      {safeText(user.name)?.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2) || "?"}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{safeText(user.name)}</p>
-                    <p className="text-xs text-muted-foreground truncate">{safeText(user.email)}</p>
-                    {user.department && (
-                      <p className="text-xs text-muted-foreground mt-0.5">{safeText(user.department)}</p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <Badge className={`text-[10px] ${roleColors[user.role] || ""}`}>{user.role.replace("_", " ")}</Badge>
-                    <Badge variant={user.isActive ? "default" : "secondary"} className="text-[10px]">
-                      {user.isActive ? "Active" : "Inactive"}
-                    </Badge>
-                    <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Edit member" onClick={() => openEditDialog(user)}>
-                      <Pencil className="h-3.5 w-3.5" />
+        {/* ═══════════════ TEAM TAB ═══════════════ */}
+        {isAdminUser && (
+          <TabsContent value="team" className="mt-0 space-y-3">
+            <Card className="liquid-glass-card border-border overflow-hidden">
+              <CardContent className="p-0">
+                {users.length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <div className="th-stat-icon mx-auto mb-3">
+                      <User className="h-5 w-5" />
+                    </div>
+                    <p className="text-sm font-medium text-foreground">No team members yet</p>
+                    <p className="text-xs mt-1 mb-3">Invite someone to get started.</p>
+                    <Button size="sm" onClick={() => setAddMemberOpen(true)}>
+                      <Plus className="h-4 w-4 mr-1" /> Add Member
                     </Button>
                   </div>
-                </div>
+                ) : (
+                  <ul className="divide-y divide-border">
+                    {users.map((user) => (
+                      <li
+                        key={user.id}
+                        className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40 transition-colors"
+                      >
+                        <Avatar className="h-8 w-8 shrink-0">
+                          <AvatarImage src={user.avatar || undefined} alt={safeText(user.name)} />
+                          <AvatarFallback className="bg-primary/10 text-primary text-[10px] font-semibold">
+                            {safeText(user.name)?.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2) || "?"}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate leading-tight">{safeText(user.name)}</p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {safeText(user.email)}
+                            {user.department ? ` · ${safeText(user.department)}` : ""}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          <Badge className={`text-[10px] ${roleColors[user.role] || ""}`}>{user.role.replace("_", " ")}</Badge>
+                          <Badge variant={user.isActive ? "default" : "secondary"} className="text-[10px] hidden sm:inline-flex">
+                            {user.isActive ? "Active" : "Inactive"}
+                          </Badge>
+                          <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Edit member" onClick={() => openEditDialog(user)}>
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </CardContent>
             </Card>
-          ))}
-          {users.length === 0 && (
-            <div className="col-span-1 sm:col-span-2 text-center py-12 text-muted-foreground">
-              <User className="h-12 w-12 mx-auto mb-3 opacity-30" />
-              <p>No team members found.</p>
-              <p className="text-xs mt-1">Click &quot;Add Member&quot; to invite someone to the team.</p>
-            </div>
-          )}
-        </div>
-      )}
+          </TabsContent>
+        )}
 
-      {/* ═══════════════ LEAVES TAB ═══════════════ */}
-      {tab === "leaves" && (
-        <div className="space-y-3">
-          <div className="flex gap-2 flex-wrap mb-4">
+        {/* ═══════════════ LEAVES TAB ═══════════════ */}
+        <TabsContent value="leaves" className="mt-0 space-y-3">
+          <div className="inline-flex flex-wrap gap-0.5 bg-muted p-1 rounded-lg">
             {(["all", "PENDING", "APPROVED", "REJECTED"] as const).map((s) => (
-              <Button key={s} size="sm" variant={leaveFilter === s ? "default" : "outline"} onClick={() => setLeaveFilter(s)}>
+              <button
+                key={s}
+                type="button"
+                onClick={() => setLeaveFilter(s)}
+                className={cn(
+                  "px-2.5 py-1 text-xs font-medium rounded-md transition-colors",
+                  leaveFilter === s
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
                 {s === "all" ? `All (${leaves.length})` : `${s.charAt(0) + s.slice(1).toLowerCase()} (${leaves.filter(l => l.status === s).length})`}
-              </Button>
+              </button>
             ))}
           </div>
 
-          {filteredLeaves.map((leave) => (
-            <Card key={leave.id}>
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <Calendar className="h-5 w-5 text-muted-foreground shrink-0" />
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium">{safeText(leave.user?.name)}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {safeText(leave.type)} leave: {formatDate(leave.startDate)} - {formatDate(leave.endDate)}
-                        <span className="ml-1.5 text-muted-foreground/70">({getLeaveDays(leave.startDate, leave.endDate)} day(s))</span>
-                      </p>
-                      {leave.reason && <p className="text-xs mt-1 truncate max-w-[200px] sm:max-w-[300px]">{safeText(leave.reason)}</p>}
-                      {leave.feedback && (
-                        <p className="text-xs mt-1 text-orange-600 dark:text-orange-400">
-                          Feedback: {safeText(leave.feedback)}
-                        </p>
-                      )}
-                    </div>
+          <Card className="liquid-glass-card border-border overflow-hidden">
+            <CardContent className="p-0">
+              {filteredLeaves.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <div className="th-stat-icon mx-auto mb-3">
+                    <Calendar className="h-5 w-5" />
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <Badge className={`text-xs ${leaveStatusColors[leave.status] || ""}`}>{safeText(leave.status)}</Badge>
-                    {/* Only show approve/reject for admins AND not own leaves */}
-                    {isAdminUser && leave.status === "PENDING" && leave.userId !== currentUserId && (
-                      <div className="flex gap-1">
-                        <Button size="sm" variant="ghost" className="h-7 text-green-600" onClick={() => handleLeaveAction(leave.id, "APPROVED")} disabled={mutating} aria-label="Approve leave">
-                          <CheckCircle2 className="h-4 w-4" />
-                        </Button>
-                        <Button size="sm" variant="ghost" className="h-7 text-red-500" onClick={() => { setRejectingLeaveId(leave.id); setRejectFeedback(""); setRejectDialogOpen(true); }} disabled={mutating} aria-label="Reject leave">
-                          <XCircle className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    )}
-                  </div>
+                  <p className="text-sm font-medium text-foreground">No leave requests</p>
+                  <p className="text-xs mt-1 mb-3">
+                    {leaveFilter === "all" ? "Submit a leave request when you need time off." : "No requests match this filter."}
+                  </p>
+                  {leaveFilter === "all" && (
+                    <Button size="sm" onClick={() => setLeaveDialogOpen(true)}>
+                      <Plus className="h-4 w-4 mr-1" /> Apply Leave
+                    </Button>
+                  )}
                 </div>
-              </CardContent>
-            </Card>
-          ))}
-          {filteredLeaves.length === 0 && (
-            <p className="text-center py-8 text-muted-foreground">No leave requests</p>
-          )}
-        </div>
-      )}
+              ) : (
+                <ul className="divide-y divide-border">
+                  {filteredLeaves.map((leave) => (
+                    <li key={leave.id} className="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-muted/40 transition-colors">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="th-stat-icon shrink-0 !w-8 !h-8">
+                          <Calendar className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium leading-tight">{safeText(leave.user?.name)}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {safeText(leave.type)} · {formatDate(leave.startDate)} – {formatDate(leave.endDate)}
+                            <span className="ml-1 text-muted-foreground/70">({getLeaveDays(leave.startDate, leave.endDate)}d)</span>
+                          </p>
+                          {leave.reason && <p className="text-xs mt-0.5 truncate max-w-[240px] sm:max-w-[360px] text-muted-foreground">{safeText(leave.reason)}</p>}
+                          {leave.feedback && (
+                            <p className="text-xs mt-0.5 text-primary/80">
+                              Feedback: {safeText(leave.feedback)}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <Badge className={`text-[10px] ${leaveStatusColors[leave.status] || ""}`}>{safeText(leave.status)}</Badge>
+                        {isAdminUser && leave.status === "PENDING" && leave.userId !== currentUserId && (
+                          <div className="flex gap-0.5">
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-success" onClick={() => handleLeaveAction(leave.id, "APPROVED")} disabled={mutating} aria-label="Approve leave">
+                              <CheckCircle2 className="h-4 w-4" />
+                            </Button>
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive" onClick={() => { setRejectingLeaveId(leave.id); setRejectFeedback(""); setRejectDialogOpen(true); }} disabled={mutating} aria-label="Reject leave">
+                              <XCircle className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       {/* ═══════════════ DIALOGS ═══════════════ */}
 

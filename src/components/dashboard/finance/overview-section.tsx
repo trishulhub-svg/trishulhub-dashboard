@@ -417,12 +417,12 @@ export default function OverviewSection({
                 API Spend
                 <span className="normal-case tracking-normal"> (this month)</span>
               </p>
-              <p className="text-xl font-bold text-purple-600">
+              <p className="text-xl font-bold tracking-tight">
                 {formatINR(apiSpend)}
               </p>
             </div>
-            <div className="h-8 w-8 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
-              <DollarSign className="h-4 w-4 text-purple-600" />
+            <div className="th-stat-icon">
+              <DollarSign className="h-4 w-4" />
             </div>
           </div>
         </div>

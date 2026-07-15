@@ -1,23 +1,42 @@
 "use client";
 
-import React from "react";
+import React, { useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { safeNumber } from "@/lib/utils";
-import { formatCurrency } from "@/lib/format";
 
 interface OverviewChartsProps {
   revenueData: { month: string; revenue: number; expenses: number }[];
   expenseData: { name: string; value: number; color: string }[];
 }
 
-// formatCurrency imported from @/lib/format
+function resolveCssVar(cssVar: string, fallback: string): string {
+  if (typeof window === "undefined") return fallback;
+  const match = cssVar.match(/var\((--[\w-]+)\)/);
+  if (!match) return cssVar;
+  return getComputedStyle(document.documentElement).getPropertyValue(match[1]).trim() || fallback;
+}
 
 const OverviewCharts = React.memo(function OverviewCharts({ revenueData, expenseData }: OverviewChartsProps) {
+  const theme = useMemo(() => {
+    if (typeof window === "undefined") {
+      return {
+        chart1: "oklch(0.52 0.13 160)",
+        muted: "oklch(0.88 0.012 210)",
+        fg: "oklch(0.48 0.02 250)",
+      };
+    }
+    const styles = getComputedStyle(document.documentElement);
+    return {
+      chart1: styles.getPropertyValue("--chart-1").trim() || "oklch(0.52 0.13 160)",
+      muted: styles.getPropertyValue("--border").trim() || "oklch(0.88 0.012 210)",
+      fg: styles.getPropertyValue("--muted-foreground").trim() || "oklch(0.48 0.02 250)",
+    };
+  }, []);
+
   return (
     <div className="grid gap-6 md:grid-cols-2">
-      {/* Revenue Chart */}
-      <Card>
+      <Card className="liquid-glass-card border-border">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Revenue Trend</CardTitle>
           <CardDescription>Last 6 months</CardDescription>
@@ -31,11 +50,19 @@ const OverviewCharts = React.memo(function OverviewCharts({ revenueData, expense
             ) : (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={revenueData}>
-                  <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                  <XAxis dataKey="month" tick={{ fontSize: 12 }} />
-                  <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} />
-                  <Tooltip formatter={(value: number) => [`₹${safeNumber(value).toLocaleString("en-IN")}`, "Revenue"]} />
-                  <Bar dataKey="revenue" fill="hsl(25, 80%, 50%)" radius={[4, 4, 0, 0]} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={theme.muted} opacity={0.6} />
+                  <XAxis dataKey="month" tick={{ fontSize: 12, fill: theme.fg }} axisLine={{ stroke: theme.muted }} tickLine={false} />
+                  <YAxis tick={{ fontSize: 12, fill: theme.fg }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} axisLine={false} tickLine={false} />
+                  <Tooltip
+                    contentStyle={{
+                      background: "var(--card)",
+                      border: "1px solid var(--border)",
+                      borderRadius: "8px",
+                      color: "var(--foreground)",
+                    }}
+                    formatter={(value: number) => [`₹${safeNumber(value).toLocaleString("en-IN")}`, "Revenue"]}
+                  />
+                  <Bar dataKey="revenue" fill={theme.chart1} radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -43,8 +70,7 @@ const OverviewCharts = React.memo(function OverviewCharts({ revenueData, expense
         </CardContent>
       </Card>
 
-      {/* Financial Breakdown */}
-      <Card>
+      <Card className="liquid-glass-card border-border">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Financial Overview</CardTitle>
         </CardHeader>
@@ -66,10 +92,21 @@ const OverviewCharts = React.memo(function OverviewCharts({ revenueData, expense
                     }
                   >
                     {expenseData.map((entry, i) => (
-                      <Cell key={i} fill={entry.color} />
+                      <Cell
+                        key={i}
+                        fill={entry.color.startsWith("var(") ? resolveCssVar(entry.color, theme.chart1) : entry.color}
+                      />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(value: number) => [`₹${safeNumber(value).toLocaleString("en-IN")}`]} />
+                  <Tooltip
+                    contentStyle={{
+                      background: "var(--card)",
+                      border: "1px solid var(--border)",
+                      borderRadius: "8px",
+                      color: "var(--foreground)",
+                    }}
+                    formatter={(value: number) => [`₹${safeNumber(value).toLocaleString("en-IN")}`]}
+                  />
                 </PieChart>
               </ResponsiveContainer>
             )}

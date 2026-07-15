@@ -16,9 +16,7 @@ import {
   AlertCircle, Search, Plus, Trash2, Pause, Play, Edit3, CreditCard,
   Receipt, FolderOpen, Tag, ChevronDown, ChevronUp, Pencil,
 } from "lucide-react";
-import {
-  Card, CardContent, CardDescription, CardHeader, CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -132,14 +130,14 @@ const EXPENSE_TABLE_LIMIT = 500;
 const DEFAULT_EXCHANGE_RATES: Record<string, number> = { INR: 1, USD: 83.5, GBP: 105.5 };
 
 const CATEGORY_COLORS: Record<string, string> = {
-  HOSTING: "border-l-purple-500 bg-purple-50 dark:bg-purple-950/20",
-  DOMAINS: "border-l-blue-500 bg-blue-50 dark:bg-blue-950/20",
-  API_COSTS: "border-l-red-500 bg-red-50 dark:bg-red-950/20",
-  TOOLS: "border-l-cyan-500 bg-cyan-50 dark:bg-cyan-950/20",
-  MARKETING: "border-l-orange-500 bg-orange-50 dark:bg-orange-950/20",
-  SALARY: "border-l-emerald-500 bg-emerald-50 dark:bg-emerald-950/20",
-  SOFTWARE: "border-l-indigo-500 bg-indigo-50 dark:bg-indigo-950/20",
-  OTHER: "border-l-gray-500 bg-gray-50 dark:bg-gray-950/20",
+  HOSTING: "border-l-primary bg-primary/5",
+  DOMAINS: "border-l-primary/70 bg-muted/40",
+  API_COSTS: "border-l-destructive/70 bg-muted/40",
+  TOOLS: "border-l-primary/50 bg-muted/40",
+  MARKETING: "border-l-warning bg-muted/40",
+  SALARY: "border-l-success bg-muted/40",
+  SOFTWARE: "border-l-primary/80 bg-primary/5",
+  OTHER: "border-l-muted-foreground/40 bg-muted/40",
 };
 
 // CATEGORY_BADGE_COLORS imported from @/lib/format
@@ -836,9 +834,9 @@ export default function FinancePage() {
     }
 
     const expData = [
-      { name: "Subscriptions", value: totalSubscriptionMonthly, color: "#f97316" },
-      { name: "Manual Expenses", value: stats.totalExpenses, color: "#f59e0b" },
-      { name: "Profit", value: Math.max(0, stats.totalRevenue - totalCosts), color: "#22c55e" },
+      { name: "Subscriptions", value: totalSubscriptionMonthly, color: "var(--chart-1)" },
+      { name: "Manual Expenses", value: stats.totalExpenses, color: "var(--chart-2)" },
+      { name: "Profit", value: Math.max(0, stats.totalRevenue - totalCosts), color: "var(--chart-4)" },
     ].filter((d) => d.value > 0);
     return { recentInvoices: inv, revenueData: revData, expenseData: expData };
   }, [data, invoices, stats.totalRevenue, stats.totalExpenses, totalCosts, totalSubscriptionMonthly]);
@@ -857,55 +855,48 @@ export default function FinancePage() {
         </div>
       </PageHeader>
 
-      {/* ─── Summary Cards with gradient backgrounds ──── */}
+      {/* ─── Summary Cards ──── */}
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-        <div>
-        <Card className="border-l-4 border-l-green-500 transition-shadow hover:shadow-lg bg-gradient-to-br from-green-50 to-emerald-50/50 dark:from-green-950/20 dark:to-emerald-950/10">
+        <Card className="liquid-glass-card border-border border-l-4 border-l-primary transition-shadow hover:shadow-md">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Revenue</p>
-                <p className="text-2xl font-bold text-green-600">{formatCurrency(safeNumber(stats.totalRevenue))}</p>
+                <p className="text-2xl font-bold tracking-tight">{formatCurrency(safeNumber(stats.totalRevenue))}</p>
               </div>
-              <div className="h-10 w-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-                <TrendingUp className="h-5 w-5 text-green-600" />
+              <div className="th-stat-icon">
+                <TrendingUp className="h-5 w-5" />
               </div>
             </div>
           </CardContent>
         </Card>
-        </div>
-        <div>
-        <Card className="border-l-4 border-l-red-500 transition-shadow hover:shadow-lg bg-gradient-to-br from-red-50 to-orange-50/50 dark:from-red-950/20 dark:to-orange-950/10">
+        <Card className="liquid-glass-card border-border border-l-4 border-l-destructive/60 transition-shadow hover:shadow-md">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Manual Expenses</p>
-                <p className="text-2xl font-bold text-red-600">{formatCurrency(safeNumber(totalManualExpenses))}</p>
+                <p className="text-2xl font-bold tracking-tight">{formatCurrency(safeNumber(totalManualExpenses))}</p>
               </div>
-              <div className="h-10 w-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-                <DollarSign className="h-5 w-5 text-red-600" />
+              <div className="th-stat-icon">
+                <DollarSign className="h-5 w-5" />
               </div>
             </div>
           </CardContent>
         </Card>
-        </div>
-        <div>
-        <Card className="border-l-4 border-l-orange-500 transition-shadow hover:shadow-lg bg-gradient-to-br from-orange-50 to-amber-50/50 dark:from-orange-950/20 dark:to-amber-950/10">
+        <Card className="liquid-glass-card border-border border-l-4 border-l-primary/50 transition-shadow hover:shadow-md">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Auto Subscriptions</p>
-                <p className="text-2xl font-bold text-orange-600">{formatCurrency(safeNumber(totalSubscriptionMonthly))}<span className="text-sm font-normal text-muted-foreground">/mo</span></p>
+                <p className="text-2xl font-bold tracking-tight">{formatCurrency(safeNumber(totalSubscriptionMonthly))}<span className="text-sm font-normal text-muted-foreground">/mo</span></p>
               </div>
-              <div className="h-10 w-10 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
-                <CreditCard className="h-5 w-5 text-orange-600" />
+              <div className="th-stat-icon">
+                <CreditCard className="h-5 w-5" />
               </div>
             </div>
           </CardContent>
         </Card>
-        </div>
-        <div>
-        <Card className={`border-l-4 ${netProfit === null ? "border-l-gray-400" : netProfit >= 0 ? "border-l-emerald-500 bg-gradient-to-br from-emerald-50 to-teal-50/50 dark:from-emerald-950/20 dark:to-teal-950/10" : "border-l-red-600 bg-gradient-to-br from-red-50 to-pink-50/50 dark:from-red-950/20 dark:to-pink-950/10"} transition-shadow hover:shadow-lg`}>
+        <Card className={`liquid-glass-card border-border border-l-4 transition-shadow hover:shadow-md ${netProfit === null ? "border-l-muted-foreground/40" : netProfit >= 0 ? "border-l-primary" : "border-l-destructive"}`}>
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -913,28 +904,27 @@ export default function FinancePage() {
                 {netProfit === null ? (
                   <Skeleton className="h-8 w-28 mt-1" />
                 ) : (
-                  <p className={`text-2xl font-bold ${netProfit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                  <p className={`text-2xl font-bold tracking-tight ${netProfit >= 0 ? "text-foreground" : "text-destructive"}`}>
                     {formatCurrency(safeNumber(netProfit))}
                   </p>
                 )}
               </div>
-              <div className={`h-10 w-10 rounded-full flex items-center justify-center ${netProfit === null ? "bg-gray-100 dark:bg-gray-900/30" : netProfit >= 0 ? "bg-emerald-100 dark:bg-emerald-900/30" : "bg-red-100 dark:bg-red-900/30"}`}>
-                {netProfit === null ? <DollarSign className="h-5 w-5 text-gray-400" /> : netProfit >= 0 ? <TrendingUp className="h-5 w-5 text-emerald-600" /> : <TrendingDown className="h-5 w-5 text-red-600" />}
+              <div className="th-stat-icon">
+                {netProfit === null ? <DollarSign className="h-5 w-5" /> : netProfit >= 0 ? <TrendingUp className="h-5 w-5" /> : <TrendingDown className="h-5 w-5" />}
               </div>
             </div>
           </CardContent>
         </Card>
-        </div>
       </div>
 
       {/* ─── Fix 8: Reordered Tabs ──── */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="flex flex-wrap h-auto gap-1">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="subscriptions">Subscriptions</TabsTrigger>
-          <TabsTrigger value="expenses">All Expenses</TabsTrigger>
-          <TabsTrigger value="category">By Category</TabsTrigger>
-          <TabsTrigger value="project">By Project</TabsTrigger>
+        <TabsList className="flex flex-wrap h-auto w-full sm:w-auto gap-0.5 bg-muted p-1 rounded-lg">
+          <TabsTrigger value="overview" className="data-[state=active]:bg-card data-[state=active]:shadow-sm">Overview</TabsTrigger>
+          <TabsTrigger value="subscriptions" className="data-[state=active]:bg-card data-[state=active]:shadow-sm">Subscriptions</TabsTrigger>
+          <TabsTrigger value="expenses" className="data-[state=active]:bg-card data-[state=active]:shadow-sm">All Expenses</TabsTrigger>
+          <TabsTrigger value="category" className="data-[state=active]:bg-card data-[state=active]:shadow-sm">By Category</TabsTrigger>
+          <TabsTrigger value="project" className="data-[state=active]:bg-card data-[state=active]:shadow-sm">By Project</TabsTrigger>
         </TabsList>
 
         {/* ─── Overview Tab ──── */}
@@ -962,43 +952,43 @@ export default function FinancePage() {
             </Card>
           ) : (
           <>
-          {/* Quick Stats Row */}
+          {/* Quick Stats Row — overview-only metrics (not duplicated in top summary) */}
           <div className="grid gap-4 md:grid-cols-3">
-            <Card className="transition-shadow hover:shadow-md">
+            <Card className="liquid-glass-card border-border transition-shadow hover:shadow-md">
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground">Pending Payments</p>
-                    <p className="text-2xl font-bold text-amber-600">{formatCurrency(safeNumber(stats.pendingAmount))}</p>
+                    <p className="text-2xl font-bold tracking-tight">{formatCurrency(safeNumber(stats.pendingAmount))}</p>
                   </div>
-                  <div className="h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
-                    <Clock className="h-5 w-5 text-amber-600" />
+                  <div className="th-stat-icon">
+                    <Clock className="h-5 w-5" />
                   </div>
                 </div>
               </CardContent>
             </Card>
-            <Card className="transition-shadow hover:shadow-md">
+            <Card className="liquid-glass-card border-border transition-shadow hover:shadow-md">
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground">Overdue</p>
-                    <p className="text-2xl font-bold text-red-600">{formatCurrency(safeNumber(stats.overdueAmount))}</p>
+                    <p className="text-2xl font-bold tracking-tight text-destructive">{formatCurrency(safeNumber(stats.overdueAmount))}</p>
                   </div>
-                  <div className="h-10 w-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-                    <AlertCircle className="h-5 w-5 text-red-600" />
+                  <div className="th-stat-icon">
+                    <AlertCircle className="h-5 w-5" />
                   </div>
                 </div>
               </CardContent>
             </Card>
-            <Card className="transition-shadow hover:shadow-md">
+            <Card className="liquid-glass-card border-border transition-shadow hover:shadow-md">
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground">Monthly Spend</p>
-                    <p className="text-2xl font-bold text-orange-600">{formatCurrency(safeNumber(monthlySpend))}</p>
+                    <p className="text-2xl font-bold tracking-tight">{formatCurrency(safeNumber(monthlySpend))}</p>
                   </div>
-                  <div className="h-10 w-10 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
-                    <CreditCard className="h-5 w-5 text-orange-600" />
+                  <div className="th-stat-icon">
+                    <CreditCard className="h-5 w-5" />
                   </div>
                 </div>
               </CardContent>
@@ -1009,44 +999,6 @@ export default function FinancePage() {
           {activeTab === "overview" && data && (
             <OverviewCharts revenueData={revenueData} expenseData={expenseData} />
           )}
-
-          {/* Company Overview */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Company Overview</CardTitle>
-              <CardDescription>Key business metrics at a glance</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {/* Total Revenue */}
-                <div className="text-center p-3 rounded-lg bg-green-50 dark:bg-green-950/20">
-                  <TrendingUp className="h-5 w-5 text-green-600 mx-auto mb-1" />
-                  <p className="text-lg font-bold text-green-600">{formatCurrency(safeNumber(stats.totalRevenue))}</p>
-                  <p className="text-xs text-muted-foreground">Total Revenue</p>
-                </div>
-                {/* Total Expenses */}
-                <div className="text-center p-3 rounded-lg bg-red-50 dark:bg-red-950/20">
-                  <TrendingDown className="h-5 w-5 text-red-600 mx-auto mb-1" />
-                  <p className="text-lg font-bold text-red-600">{formatCurrency(safeNumber(totalCosts))}</p>
-                  <p className="text-xs text-muted-foreground">Total Costs</p>
-                </div>
-                {/* Pending */}
-                <div className="text-center p-3 rounded-lg bg-amber-50 dark:bg-amber-950/20">
-                  <Clock className="h-5 w-5 text-amber-600 mx-auto mb-1" />
-                  <p className="text-lg font-bold text-amber-600">{formatCurrency(safeNumber(stats.pendingAmount))}</p>
-                  <p className="text-xs text-muted-foreground">Pending</p>
-                </div>
-                {/* Net Profit */}
-                <div className={`text-center p-3 rounded-lg ${netProfit !== null && netProfit >= 0 ? 'bg-emerald-50 dark:bg-emerald-950/20' : 'bg-red-50 dark:bg-red-950/20'}`}>
-                  {netProfit !== null && netProfit >= 0 ? <TrendingUp className="h-5 w-5 text-emerald-600 mx-auto mb-1" /> : <TrendingDown className="h-5 w-5 text-red-600 mx-auto mb-1" />}
-                  <p className={`text-lg font-bold ${netProfit !== null && netProfit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                    {netProfit !== null ? formatCurrency(safeNumber(netProfit)) : '—'}
-                  </p>
-                  <p className="text-xs text-muted-foreground">Net Profit</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
           </>
           )}
           </div>
@@ -1212,14 +1164,14 @@ export default function FinancePage() {
           {/* Total Monthly Cost Card */}
           <SubscriptionExpiryChecker subscriptions={subscriptions} />
           {subscriptions.length > 0 && (
-            <Card className="border-l-4 border-l-orange-500 bg-gradient-to-r from-orange-50 to-amber-50/30 dark:from-orange-950/10 dark:to-amber-950/5">
+            <Card className="liquid-glass-card border-border border-l-4 border-l-primary">
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium">Total Active Monthly Cost</p>
                     <p className="text-xs text-muted-foreground">Based on {subscriptions.filter((s) => s.status === "ACTIVE").length} active subscriptions</p>
                   </div>
-                  <p className="text-xl font-bold text-orange-600">{formatCurrency(safeNumber(subTotalMonthly))}<span className="text-sm font-normal text-muted-foreground">/mo</span></p>
+                  <p className="text-xl font-bold tracking-tight">{formatCurrency(safeNumber(subTotalMonthly))}<span className="text-sm font-normal text-muted-foreground">/mo</span></p>
                 </div>
               </CardContent>
             </Card>
@@ -1283,7 +1235,7 @@ export default function FinancePage() {
 
           {/* Total Expenses Summary */}
           {!expLoading && expenses.length > 0 && (
-            <Card className="border-l-4 border-l-red-500 bg-gradient-to-r from-red-50 to-orange-50/30 dark:from-red-950/10 dark:to-orange-950/5">
+            <Card className="liquid-glass-card border-border border-l-4 border-l-destructive/60">
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
@@ -1297,7 +1249,7 @@ export default function FinancePage() {
                       )}
                     </p>
                   </div>
-                  <p className="text-xl font-bold text-red-600">{formatCurrency(safeNumber(displayedExpTotal))}</p>
+                  <p className="text-xl font-bold tracking-tight">{formatCurrency(safeNumber(displayedExpTotal))}</p>
                 </div>
               </CardContent>
             </Card>
