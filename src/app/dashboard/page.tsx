@@ -17,8 +17,8 @@ import { cn, safeArray, safeJsonParse, safeText, deepSanitize, safeNumber, safeD
 
 const invoiceStatusColors: Record<string, string> = {
   DRAFT: "bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200",
-  SENT: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
-  PAID: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+  SENT: "bg-info/15 text-info dark:bg-info/20",
+  PAID: "bg-success/15 text-success dark:bg-success/20",
   OVERDUE: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
 };
 
