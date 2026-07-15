@@ -216,7 +216,7 @@ const projectTypeBadgeColors: Record<string, string> = {
 const projectStatusColors: Record<string, string> = {
   PLANNING: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
   IN_PROGRESS: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
-  REVIEW: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+  REVIEW: "bg-primary/10 text-primary dark:bg-primary/15 dark:text-primary",
   APPROVAL: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
   DEPLOYED: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
   COMPLETED: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
@@ -234,7 +234,7 @@ const leadStatusColors: Record<string, string> = {
   NEW: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
   CONTACTED: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
   INTERESTED: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300",
-  PROPOSAL: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+  PROPOSAL: "bg-primary/10 text-primary dark:bg-primary/15 dark:text-primary",
   NEGOTIATING: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
   WON: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
   LOST: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
@@ -257,7 +257,7 @@ const priorityColors: Record<string, string> = {
 const dealStageColors: Record<string, string> = {
   LEAD: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
   QUALIFIED: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300",
-  PROPOSAL: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+  PROPOSAL: "bg-primary/10 text-primary dark:bg-primary/15 dark:text-primary",
   NEGOTIATION: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
   CLOSED_WON: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
   CLOSED_LOST: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
@@ -1183,36 +1183,31 @@ export default function ClientsPage() {
   return (
     <div className="space-y-5">
       {/* ━━ Header + Search + Actions ━━ */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <PageHeader title="Client Management" description="Manage your clients and track relationships" showBack>
-        </PageHeader>
-        <div className="flex items-center gap-3 shrink-0">
-          {/* Inline search */}
-          <div className="relative">
-            <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground/50" />
-            <Input
-              id="client-search"
-              placeholder="Search clients..."
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              className="pl-8 w-52 h-8 text-sm bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50 focus:bg-white dark:focus:bg-white/[0.06] transition-all"
-              aria-label="Search clients"
-            />
-            {searchInput && (
-              <button
-                onClick={() => setSearchInput("")}
-                className="absolute right-2 top-2 text-muted-foreground/60 hover:text-foreground transition-colors"
-                aria-label="Clear search"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            )}
-          </div>
-          <Button onClick={handleAdd} className="h-8 px-3 text-sm">
-            <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Client
-          </Button>
+      <PageHeader title="Client Management" description="Manage your clients and track relationships" showBack>
+        <div className="relative">
+          <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground/50" />
+          <Input
+            id="client-search"
+            placeholder="Search clients..."
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            className="pl-8 w-52 h-8 text-sm bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50 focus:bg-white dark:focus:bg-white/[0.06] transition-all"
+            aria-label="Search clients"
+          />
+          {searchInput && (
+            <button
+              onClick={() => setSearchInput("")}
+              className="absolute right-2 top-2 text-muted-foreground/60 hover:text-foreground transition-colors"
+              aria-label="Clear search"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          )}
         </div>
-      </div>
+        <Button onClick={handleAdd} className="h-8 px-3 text-sm">
+          <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Client
+        </Button>
+      </PageHeader>
 
       {/* ━━ Stats Bar — Glassmorphism pills ━━ */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -1238,12 +1233,12 @@ export default function ClientsPage() {
           <p className="text-xl font-bold tracking-tight text-amber-600 dark:text-amber-400">{stats.revenue != null ? formatCurrency(stats.revenue) : "—"}</p>
         </div>
         {/* CLI-010: Renamed "Invoices" to "Total Invoices" */}
-        <div className="rounded-xl p-3 transition-all bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-purple-200/40 dark:border-purple-500/20 hover:shadow-md">
+        <div className="rounded-xl p-3 transition-all bg-card border border-border hover:shadow-md">
           <div className="flex items-center gap-1.5 mb-1">
-            <FileText className="h-3.5 w-3.5 text-purple-500" />
+            <FileText className="h-3.5 w-3.5 text-primary" />
             <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Total Invoices</span>
           </div>
-          <p className="text-xl font-bold tracking-tight text-purple-600 dark:text-purple-400">{safeNumber(stats.invoices)}</p>
+          <p className="text-xl font-bold tracking-tight text-primary">{safeNumber(stats.invoices)}</p>
         </div>
       </div>
 
@@ -1314,7 +1309,9 @@ export default function ClientsPage() {
         {clients.length === 0 ? (
           searchInput || statusFilter !== "ALL" ? (
             <div className="text-center py-16">
-              <Search className="h-12 w-12 text-muted-foreground/40 mx-auto mb-3" />
+              <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-muted/80 ring-1 ring-border/60">
+                <Search className="h-7 w-7 text-muted-foreground/70" />
+              </div>
               <p className="text-sm text-muted-foreground">No clients found matching your filters</p>
               <Button variant="outline" className="mt-4 text-xs" onClick={() => { setSearchInput(""); setStatusFilter("ALL"); }}>
                 <X className="h-3.5 w-3.5 mr-1.5" /> Clear Filters
@@ -1322,7 +1319,9 @@ export default function ClientsPage() {
             </div>
           ) : (
             <div className="text-center py-16">
-              <Briefcase className="h-12 w-12 text-muted-foreground/40 mx-auto mb-3" />
+              <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/20">
+                <Briefcase className="h-7 w-7 text-primary/70" />
+              </div>
               <p className="text-sm text-muted-foreground">No clients yet</p>
               <Button variant="outline" className="mt-4 text-xs" onClick={handleAdd}>
                 <Plus className="h-3.5 w-3.5 mr-1.5" /> Add your first client

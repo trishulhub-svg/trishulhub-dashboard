@@ -1106,7 +1106,7 @@ export default function TrishulWorkspacePage() {
           touch-action: pan-y;
           margin: -0.75rem;
           background: var(--ws-bg);
-          font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+          font-family: var(--font-plus-jakarta), ui-sans-serif, system-ui, sans-serif;
           color: var(--ws-text);
           --ws-bg: #09090b;
           --ws-text: #fafafa;
@@ -1489,32 +1489,32 @@ export default function TrishulWorkspacePage() {
           transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
         }
         .ws-btn-primary--dark {
-          background: linear-gradient(135deg, rgba(6,182,212,0.15), rgba(139,92,246,0.15));
-          color: #06b6d4; border: 1px solid rgba(6,182,212,0.20);
+          background: color-mix(in oklch, var(--primary) 18%, transparent);
+          color: var(--primary); border: 1px solid color-mix(in oklch, var(--primary) 28%, transparent);
         }
         .ws-btn-primary--dark:hover {
-          background: linear-gradient(135deg, rgba(6,182,212,0.25), rgba(139,92,246,0.20));
-          border-color: rgba(6,182,212,0.40);
-          box-shadow: 0 0 24px rgba(6,182,212,0.12);
+          background: color-mix(in oklch, var(--primary) 28%, transparent);
+          border-color: color-mix(in oklch, var(--primary) 45%, transparent);
+          box-shadow: 0 0 24px color-mix(in oklch, var(--primary) 16%, transparent);
           transform: translateY(-1px);
         }
         .ws-btn-primary--light {
-          background: linear-gradient(135deg, rgba(6,182,212,0.10), rgba(139,92,246,0.08));
-          color: #0891b2; border: 1px solid rgba(6,182,212,0.20);
+          background: color-mix(in oklch, var(--primary) 12%, transparent);
+          color: var(--primary); border: 1px solid color-mix(in oklch, var(--primary) 25%, transparent);
         }
         .ws-btn-primary--light:hover {
-          background: linear-gradient(135deg, rgba(6,182,212,0.18), rgba(139,92,246,0.14));
-          border-color: rgba(6,182,212,0.35);
+          background: color-mix(in oklch, var(--primary) 20%, transparent);
+          border-color: color-mix(in oklch, var(--primary) 40%, transparent);
           transform: translateY(-1px);
         }
         .ws-btn-primary--bluelight {
-          background: linear-gradient(135deg, rgba(251,191,36,0.12), rgba(217,119,6,0.10));
-          color: #f59e0b; border: 1px solid rgba(251,191,36,0.20);
+          background: color-mix(in oklch, var(--primary) 14%, transparent);
+          color: var(--primary); border: 1px solid color-mix(in oklch, var(--primary) 28%, transparent);
         }
         .ws-btn-primary--bluelight:hover {
-          background: linear-gradient(135deg, rgba(251,191,36,0.22), rgba(217,119,6,0.18));
-          border-color: rgba(251,191,36,0.40);
-          box-shadow: 0 0 24px rgba(251,191,36,0.12);
+          background: color-mix(in oklch, var(--primary) 22%, transparent);
+          border-color: color-mix(in oklch, var(--primary) 45%, transparent);
+          box-shadow: 0 0 24px color-mix(in oklch, var(--primary) 14%, transparent);
           transform: translateY(-1px);
         }
 

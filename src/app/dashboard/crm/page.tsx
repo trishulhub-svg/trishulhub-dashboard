@@ -11,7 +11,7 @@ import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-
 import { CSS } from "@dnd-kit/utilities";
 import {
   Plus, Mail, Phone, Globe, Building2, Star, Send, Search, AlertCircle,
-  Users, TrendingUp, Calendar, Trash2, UserCheck, Loader2, LayoutGrid, List,
+  Users, TrendingUp, Calendar, Trash2, UserCheck, Loader2, LayoutGrid, List, Filter,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -33,6 +33,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "sonner";
 import { LEAD_COLUMNS } from "@/lib/types";
 import type { LeadStatus } from "@/lib/types";
@@ -109,7 +110,7 @@ const statusBadgeColors: Record<string, string> = {
 
 // CRM-008: Source badge color coding map
 const sourceColors: Record<string, string> = {
-  AI_FOUND: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
+  AI_FOUND: "bg-primary/10 text-primary dark:bg-primary/15 dark:text-primary",
   REFERRAL: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
   SOCIAL_MEDIA: "bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300",
   MANUAL: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
@@ -920,42 +921,69 @@ export default function CRMPage() {
               aria-label="Search leads"
             />
           </div>
-          {/* CRM-S04: Source filter dropdown */}
-          <Select value={filterSource} onValueChange={setFilterSource}>
-            <SelectTrigger className="w-full sm:w-24 h-8 text-[11px] bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50">
-              <SelectValue placeholder="Source" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Sources</SelectItem>
-              <SelectItem value="MANUAL">Manual</SelectItem>
-              <SelectItem value="AI_FOUND">AI Found</SelectItem>
-              <SelectItem value="REFERRAL">Referral</SelectItem>
-              <SelectItem value="SOCIAL_MEDIA">Social Media</SelectItem>
-            </SelectContent>
-          </Select>
-          {/* CRM-S04: Status filter dropdown */}
-          <Select value={filterStatus} onValueChange={setFilterStatus}>
-            <SelectTrigger className="w-full sm:w-24 h-8 text-[11px] bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              {KANBAN_COLUMNS.map((col) => (
-                <SelectItem key={col.key} value={col.key}>{col.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {/* CRM-006: Sort dropdown */}
-          <Select value={sortBy} onValueChange={(v) => setSortBy(v as "score" | "name" | "createdAt")}>
-            <SelectTrigger className="w-full sm:w-28 h-8 text-[11px] bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50">
-              <SelectValue placeholder="Sort by" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="createdAt">Newest First</SelectItem>
-              <SelectItem value="score">Highest Score</SelectItem>
-              <SelectItem value="name">Name A-Z</SelectItem>
-            </SelectContent>
-          </Select>
+          {/* Secondary filters — Source / Status / Sort */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className={cn(
+                  "h-8 gap-1.5 text-[11px] bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50",
+                  (filterSource !== "all" || filterStatus !== "all" || sortBy !== "createdAt") && "border-primary/40 text-primary"
+                )}
+              >
+                <Filter className="h-3.5 w-3.5" />
+                Filters
+                {(filterSource !== "all" || filterStatus !== "all" || sortBy !== "createdAt") && (
+                  <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-56 space-y-3 p-3">
+              <div className="space-y-1.5">
+                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Source</Label>
+                <Select value={filterSource} onValueChange={setFilterSource}>
+                  <SelectTrigger className="w-full h-8 text-[11px]">
+                    <SelectValue placeholder="Source" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Sources</SelectItem>
+                    <SelectItem value="MANUAL">Manual</SelectItem>
+                    <SelectItem value="AI_FOUND">AI Found</SelectItem>
+                    <SelectItem value="REFERRAL">Referral</SelectItem>
+                    <SelectItem value="SOCIAL_MEDIA">Social Media</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Status</Label>
+                <Select value={filterStatus} onValueChange={setFilterStatus}>
+                  <SelectTrigger className="w-full h-8 text-[11px]">
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    {KANBAN_COLUMNS.map((col) => (
+                      <SelectItem key={col.key} value={col.key}>{col.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Sort</Label>
+                <Select value={sortBy} onValueChange={(v) => setSortBy(v as "score" | "name" | "createdAt")}>
+                  <SelectTrigger className="w-full h-8 text-[11px]">
+                    <SelectValue placeholder="Sort by" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="createdAt">Newest First</SelectItem>
+                    <SelectItem value="score">Highest Score</SelectItem>
+                    <SelectItem value="name">Name A-Z</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </PopoverContent>
+          </Popover>
           {/* Add Lead Dialog */}
           <Dialog open={addOpen} onOpenChange={(open) => { setAddOpen(open); if (open) setFormErrors({}); }}>
             <DialogTrigger asChild>

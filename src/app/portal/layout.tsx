@@ -26,7 +26,9 @@ function NavItems({ pathname, onNavigate, onNavClick }: { pathname: string; onNa
   return (
     <nav className="space-y-1" aria-label="Portal navigation">
       {portalNav.map((item) => {
-        const isActive = pathname === item.href;
+        const isActive =
+          pathname === item.href ||
+          (item.href !== "/portal" && pathname.startsWith(item.href + "/"));
         return (
           <button
             key={item.href}
@@ -101,7 +103,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   return (
     <div className="min-h-screen flex flex-col bg-background">
       {/* Top Navigation */}
-      <header className="sticky top-0 z-30 border-b bg-card">
+      <header className="sticky top-0 z-30 border-b border-border bg-card">
         <div className="flex items-center justify-between h-14 px-4 max-w-7xl mx-auto">
           <div className="flex items-center gap-4">
             <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
@@ -119,7 +121,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                     height={24}
                     className="rounded"
                   />
-                  <span className="font-bold text-primary">TrishulHub</span>
+                  <span className="font-bold tracking-tight text-foreground">TrishulHub</span>
                 </div>
                 <NavItems pathname={pathname} onNavigate={handleNavigate} onNavClick={() => setSheetOpen(false)} />
               </SheetContent>
@@ -132,7 +134,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                 height={24}
                 className="rounded"
               />
-              <h1 className="font-bold text-primary hidden sm:block">TrishulHub</h1>
+              <h1 className="font-bold tracking-tight text-foreground hidden sm:block">TrishulHub</h1>
             </div>
             <div className="hidden md:flex items-center gap-1">
               <NavItems pathname={pathname} onNavigate={handleNavigate} />

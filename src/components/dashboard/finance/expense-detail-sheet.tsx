@@ -52,7 +52,7 @@ interface ExpenseDetailSheetProps {
 
 // ─── Constants ───────────────────────────────────────────────────────
 const CATEGORY_BADGE_COLORS: Record<string, string> = {
-  HOSTING: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+  HOSTING: "bg-primary/10 text-primary",
   DOMAINS: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
   API_COSTS: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
   TOOLS: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",

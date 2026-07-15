@@ -17,8 +17,8 @@ import { cn, safeArray, safeJsonParse, safeText, deepSanitize, safeNumber, safeD
 
 const invoiceStatusColors: Record<string, string> = {
   DRAFT: "bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200",
-  SENT: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
-  PAID: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+  SENT: "bg-info/15 text-info dark:bg-info/20",
+  PAID: "bg-success/15 text-success dark:bg-success/20",
   OVERDUE: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
 };
 
@@ -142,15 +142,21 @@ export default function DashboardPage() {
 
   const formatCurrency = (n: number) => `₹${n.toLocaleString("en-IN")}`;
 
+  const firstName = safeText(session?.user?.name, "there").split(/\s+/)[0] || "there";
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold">Dashboard</h1>
-          <p className="text-muted-foreground text-xs sm:text-sm">
-            {isAdminUser 
-              ? "Welcome back! Here's your overview." 
-              : "Welcome back! Here's your project overview."}
+    <div className="th-page-enter space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="min-w-0 border-l-[2.5px] border-primary pl-3">
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-foreground">
+            {greeting}, {firstName}
+          </h1>
+          <p className="text-muted-foreground text-xs sm:text-sm mt-0.5 leading-relaxed">
+            {isAdminUser
+              ? "Here's your workspace overview for today."
+              : "Here's your project overview for today."}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -178,7 +184,7 @@ export default function DashboardPage() {
         <Card
           onClick={() => router.push("/dashboard/projects")}
           className={cn(
-            "cursor-pointer hover:shadow-md transition-shadow liquid-glass-card",
+            "cursor-pointer hover:shadow-md transition-shadow liquid-glass-card border-border",
             !isAdminUser && "sm:col-span-2 lg:col-span-3"
           )}
         >
@@ -187,10 +193,10 @@ export default function DashboardPage() {
               <div>
                 <p className="text-sm text-muted-foreground">Active Projects</p>
                 {/* DASH-003: All stats values wrapped in safeNumber() */}
-                <p className="text-2xl font-bold">{activeProjects}</p>
+                <p className="text-2xl font-bold tracking-tight">{activeProjects}</p>
               </div>
-              <div className="h-10 w-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                <FolderKanban className="h-5 w-5 text-blue-600" />
+              <div className="th-stat-icon">
+                <FolderKanban className="h-5 w-5" />
               </div>
             </div>
             <p className="text-xs text-muted-foreground mt-2">{totalClients} clients total</p>
@@ -201,16 +207,16 @@ export default function DashboardPage() {
           <>
             <Card
               onClick={() => router.push("/dashboard/crm")}
-              className="cursor-pointer hover:shadow-md transition-shadow liquid-glass-card"
+              className="cursor-pointer hover:shadow-md transition-shadow liquid-glass-card border-border"
             >
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground">New Leads</p>
-                    <p className="text-2xl font-bold">{newLeadsCount}</p>
+                    <p className="text-2xl font-bold tracking-tight">{newLeadsCount}</p>
                   </div>
-                  <div className="h-10 w-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-                    <TrendingUp className="h-5 w-5 text-green-600" />
+                  <div className="th-stat-icon">
+                    <TrendingUp className="h-5 w-5" />
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground mt-2">{totalLeads} total leads</p>
@@ -219,21 +225,21 @@ export default function DashboardPage() {
 
             <Card
               onClick={() => router.push("/dashboard/finance")}
-              className="cursor-pointer hover:shadow-md transition-shadow liquid-glass-card"
+              className="cursor-pointer hover:shadow-md transition-shadow liquid-glass-card border-border"
             >
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground">Revenue</p>
-                    <p className="text-2xl font-bold">{formatCurrency(totalRevenue)}</p>
+                    <p className="text-2xl font-bold tracking-tight">{formatCurrency(totalRevenue)}</p>
                   </div>
-                  <div className="h-10 w-10 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
-                    <DollarSign className="h-5 w-5 text-emerald-600" />
+                  <div className="th-stat-icon">
+                    <DollarSign className="h-5 w-5" />
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 text-xs text-muted-foreground">
                   <span>Pending: {formatCurrency(pendingAmount)}</span>
-                  {overdueAmount > 0 && <span className="text-red-500">Overdue: {formatCurrency(overdueAmount)}</span>}
+                  {overdueAmount > 0 && <span className="text-destructive">Overdue: {formatCurrency(overdueAmount)}</span>}
                 </div>
               </CardContent>
             </Card>
@@ -243,11 +249,11 @@ export default function DashboardPage() {
 
       {/* ── Earnings / Salary Card ── */}
       {earnings && (
-        <Card className="liquid-glass-card">
+        <Card className="liquid-glass-card border-border">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <CardTitle className="text-base flex items-center gap-2">
-                <Wallet className="h-4 w-4 text-emerald-500" /> My Earnings
+                <Wallet className="h-4 w-4 text-primary" /> My Earnings
               </CardTitle>
               <Button
                 variant="ghost"
@@ -263,11 +269,11 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-4 mb-1">
-              <div className="h-10 w-10 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
-                <IndianRupee className="h-5 w-5 text-emerald-600" />
+              <div className="th-stat-icon">
+                <IndianRupee className="h-5 w-5" />
               </div>
               <div>
-                <p className="text-2xl font-bold">₹{earnings.totalINR.toLocaleString("en-IN")}</p>
+                <p className="text-2xl font-bold tracking-tight">₹{earnings.totalINR.toLocaleString("en-IN")}</p>
                 <p className="text-xs text-muted-foreground">≈ £{earnings.totalGBP.toLocaleString("en-GB", { minimumFractionDigits: 2 })} GBP</p>
               </div>
             </div>
@@ -298,7 +304,7 @@ export default function DashboardPage() {
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {/* Active Projects */}
-        <Card className="md:col-span-2 lg:col-span-3 liquid-glass-card">
+        <Card className="md:col-span-2 lg:col-span-3 liquid-glass-card border-border">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <CardTitle className="text-base">{isAdminUser ? "Active Projects" : "My Projects"}</CardTitle>
@@ -310,9 +316,19 @@ export default function DashboardPage() {
           <CardContent>
             <div className="space-y-3 max-h-48 sm:max-h-64 overflow-y-auto custom-scrollbar">
               {projects.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-8">
-                  {isAdminUser ? "No active projects" : "No projects assigned yet. Contact your admin to get assigned to a project."}
-                </p>
+                <div className="flex flex-col items-center justify-center py-8 gap-2 text-center">
+                  <div className="th-stat-icon">
+                    <FolderKanban className="h-5 w-5" />
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    {isAdminUser ? "No active projects" : "No projects assigned yet. Contact your admin to get assigned to a project."}
+                  </p>
+                  {isAdminUser && (
+                    <Button size="sm" variant="outline" className="mt-1" onClick={() => router.push("/dashboard/projects")}>
+                      <Plus className="h-4 w-4 mr-1" /> Create a project
+                    </Button>
+                  )}
+                </div>
               ) : (
                 projects.map((project) => {
                   const pClient = project.client as Record<string, unknown> | undefined;
@@ -347,7 +363,7 @@ export default function DashboardPage() {
       {isAdminUser && (
         <div className="grid gap-4 md:grid-cols-1">
           {/* Recent Invoices */}
-          <Card className="liquid-glass-card">
+          <Card className="liquid-glass-card border-border">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base">Recent Invoices</CardTitle>
@@ -359,7 +375,15 @@ export default function DashboardPage() {
             <CardContent>
               <div className="space-y-2 max-h-48 sm:max-h-64 overflow-y-auto custom-scrollbar">
                 {invoices.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-8">No invoices</p>
+                  <div className="flex flex-col items-center justify-center py-8 gap-2 text-center">
+                    <div className="th-stat-icon">
+                      <DollarSign className="h-5 w-5" />
+                    </div>
+                    <p className="text-sm text-muted-foreground">No invoices yet</p>
+                    <Button size="sm" variant="outline" className="mt-1" onClick={() => router.push("/dashboard/finance/invoices")}>
+                      <Send className="h-4 w-4 mr-1" /> Create an invoice
+                    </Button>
+                  </div>
                 ) : (
                   invoices.slice(0, 5).map((inv) => (
                     // DASH-002: Changed invoice items from div to button with onClick navigation
@@ -395,7 +419,7 @@ export default function DashboardPage() {
       {!isAdminUser && (
         <div className="grid gap-4 md:grid-cols-1">
           {/* Quick Actions */}
-          <Card className="liquid-glass-card">
+          <Card className="liquid-glass-card border-border">
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Quick Actions</CardTitle>
               <CardDescription>Common actions for your workflow</CardDescription>
@@ -406,7 +430,9 @@ export default function DashboardPage() {
                 className="flex items-center gap-3 w-full p-3 rounded-lg hover:bg-muted transition-colors text-left"
                 type="button"
               >
-                <Clock className="h-5 w-5 text-blue-500" />
+                <div className="th-stat-icon shrink-0">
+                  <Clock className="h-4 w-4" />
+                </div>
                 <div>
                   <p className="text-sm font-medium">Track Time</p>
                   <p className="text-xs text-muted-foreground">Log hours on your projects</p>
@@ -417,7 +443,9 @@ export default function DashboardPage() {
                 className="flex items-center gap-3 w-full p-3 rounded-lg hover:bg-muted transition-colors text-left"
                 type="button"
               >
-                <Rocket className="h-5 w-5 text-purple-500" />
+                <div className="th-stat-icon shrink-0">
+                  <Rocket className="h-4 w-4" />
+                </div>
                 <div>
                   <p className="text-sm font-medium">AI Workspace</p>
                   <p className="text-xs text-muted-foreground">Launch the AI-powered workspace</p>
@@ -428,7 +456,9 @@ export default function DashboardPage() {
                 className="flex items-center gap-3 w-full p-3 rounded-lg hover:bg-muted transition-colors text-left"
                 type="button"
               >
-                <AlertCircle className="h-5 w-5 text-orange-500" />
+                <div className="th-stat-icon shrink-0">
+                  <AlertCircle className="h-4 w-4" />
+                </div>
                 <div>
                   <p className="text-sm font-medium">Request Leave</p>
                   <p className="text-xs text-muted-foreground">Submit time-off requests</p>

@@ -26,7 +26,6 @@ import {
   AlertTriangle,
   Info,
   CheckCircle2,
-  X,
   XCircle,
   CalendarDays,
   Monitor,
@@ -208,16 +207,12 @@ function formatRelativeTime(dateStr: string): string {
 const SidebarContent = React.memo(function SidebarContent({
   collapsed,
   userRole,
-  userName,
-  userAvatar,
   pathname,
   onNavigate,
   badgeCounts,
 }: {
   collapsed: boolean;
   userRole: UserRole;
-  userName: string;
-  userAvatar?: string | null;
   pathname: string;
   onNavigate: (href: string) => void;
   badgeCounts: Record<string, number>;
@@ -323,7 +318,7 @@ const SidebarContent = React.memo(function SidebarContent({
         </div>
         {!collapsed && (
           <div className="min-w-0">
-            <h1 className="font-extrabold text-sidebar-primary text-xl leading-tight tracking-tight">TrishulHub</h1>
+            <h1 className="font-extrabold text-foreground text-xl leading-tight tracking-tight">TrishulHub</h1>
             <p className="text-[11px] text-muted-foreground font-medium">AI Workspace</p>
           </div>
         )}
@@ -361,15 +356,18 @@ const SidebarContent = React.memo(function SidebarContent({
                     )}>
                       {group.label}
                     </span>
-                    {/* Badge count on group header when collapsed */}
-                    {!isExpanded && groupBadgeTotal > 0 && (
-                      <span className="ml-auto h-4 min-w-[16px] px-1 flex items-center justify-center rounded-full bg-destructive text-[9px] font-bold text-destructive-foreground">
-                        {groupBadgeTotal > 99 ? "99+" : groupBadgeTotal}
+                    {/* Trailing indicators: badge + active dot share one ml-auto cluster */}
+                    {!isExpanded && (groupBadgeTotal > 0 || hasActive) && (
+                      <span className="ml-auto flex items-center gap-1.5">
+                        {groupBadgeTotal > 0 && (
+                          <span className="h-4 min-w-[16px] px-1 flex items-center justify-center rounded-full bg-destructive text-[9px] font-bold text-destructive-foreground">
+                            {groupBadgeTotal > 99 ? "99+" : groupBadgeTotal}
+                          </span>
+                        )}
+                        {hasActive && (
+                          <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                        )}
                       </span>
-                    )}
-                    {/* Active indicator dot when collapsed */}
-                    {!isExpanded && hasActive && (
-                      <span className="ml-auto h-1.5 w-1.5 rounded-full bg-primary" />
                     )}
                   </button>
                 )}
@@ -405,10 +403,11 @@ const SidebarContent = React.memo(function SidebarContent({
                             }}
                             role="link"
                             aria-label={item.title}
+                            title={collapsed ? item.title : undefined}
                             className={cn(
                               "relative flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-all duration-200 w-full text-left",
                               isActive
-                                ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"
+                                ? "bg-primary/10 text-foreground th-rail-active"
                                 : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                             )}
                             type="button"
@@ -452,7 +451,7 @@ const SidebarContent = React.memo(function SidebarContent({
                                       className={cn(
                                         "relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all duration-200 w-full text-left",
                                         childActive
-                                          ? "bg-sidebar-primary/10 text-sidebar-primary font-semibold"
+                                          ? "bg-primary/10 text-foreground font-semibold"
                                           : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground"
                                       )}
                                       type="button"
@@ -479,24 +478,6 @@ const SidebarContent = React.memo(function SidebarContent({
           })}
         </nav>
       </ScrollArea>
-
-      {/* User Section */}
-      <div className="border-t border-sidebar-border p-4">
-        <div className={cn("flex items-center gap-3", collapsed && "justify-center")}>
-          <Avatar className="h-10 w-10">
-            {userAvatar ? <AvatarImage src={userAvatar} alt={userName} /> : null}
-            <AvatarFallback className="bg-primary text-primary-foreground text-sm font-bold">
-              {userName.split(" ").filter(Boolean).map((n) => n[0]).join("").toUpperCase().slice(0, 2)}
-            </AvatarFallback>
-          </Avatar>
-          {!collapsed && (
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold truncate">{userName}</p>
-              <p className="text-xs text-muted-foreground truncate">{userRole.replace("_", " ")}</p>
-            </div>
-          )}
-        </div>
-      </div>
     </div>
   );
 });
@@ -509,7 +490,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // hide sidebar, header, and nested floating board renderer — show ONLY task content
   // Using window.location.search instead of useSearchParams to avoid Suspense requirement
   const isEmbed = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("embed") === "true";
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, resolvedTheme } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -738,9 +719,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       >
         <SidebarContent
           collapsed={collapsed}
-          userRole={userRole}
-          userName={userName}
-          userAvatar={userAvatar}
+          userRole={userRole as UserRole}
           pathname={pathname}
           onNavigate={handleNavigate}
           badgeCounts={navBadgeData}
@@ -759,22 +738,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Mobile Sidebar */}
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
         <SheetContent side="left" className="w-[280px] p-0 bg-sidebar">
-          <div className="flex items-center justify-end p-2 pb-0">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => setMobileOpen(false)}
-              aria-label="Close menu"
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
           <SidebarContent
             collapsed={false}
-            userRole={userRole}
-            userName={userName}
-            userAvatar={userAvatar}
+            userRole={userRole as UserRole}
             pathname={pathname}
             onNavigate={handleNavigate}
             badgeCounts={navBadgeData}
@@ -801,7 +767,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-9 sm:w-9" aria-label="Change theme">
                   {theme === "system" ? (
-                    <Monitor className="h-4 w-4" />
+                    resolvedTheme === "dark" ? (
+                      <Moon className="h-4 w-4" />
+                    ) : (
+                      <Sun className="h-4 w-4" />
+                    )
                   ) : theme === "dark" ? (
                     <Moon className="h-4 w-4" />
                   ) : theme === "bluelight" ? (
@@ -886,7 +856,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                               notif.type === "ERROR" || notif.type === "WARNING" ? "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400" :
                               notif.type === "SUCCESS" ? "bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400" :
                               notif.type === "TASK" || notif.type === "APPROVAL" ? "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400" :
-                              notif.type === "AGENT" ? "bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400" :
+                              notif.type === "AGENT" ? "bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary" :
                               "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
                             )}>
                               <NotifIcon className="h-3.5 w-3.5" />
