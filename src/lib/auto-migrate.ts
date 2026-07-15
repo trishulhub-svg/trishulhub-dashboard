@@ -896,21 +896,6 @@ export async function ensureAllTables(): Promise<void> {
       }
     }
 
-    try {
-      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "TestAttempt_assignmentId_idx" ON "TestAttempt"("assignmentId")`)
-    } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes('already exists')) {
-        console.warn(`[auto-migrate] TestAttempt_assignmentId_idx: ${getErrMsg(err)}`)
-      }
-    }
-    try {
-      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "TrainingAssignment_assignedTo_status_idx" ON "TrainingAssignment"("assignedTo", "status")`)
-    } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes('already exists')) {
-        console.warn(`[auto-migrate] TrainingAssignment_assignedTo_status_idx: ${getErrMsg(err)}`)
-      }
-    }
-
     // Phase 8: Indexes for new modules
     // SupportTicket indexes
     try {

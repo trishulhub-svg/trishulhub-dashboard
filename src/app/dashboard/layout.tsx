@@ -37,7 +37,6 @@ import {
   ScrollText,
   FlaskConical,
 
-  FileText,
   ChevronRight,
   IdCard,
 } from "lucide-react";
@@ -139,9 +138,7 @@ const navGroups: NavGroup[] = [
         icon: KeyRound,
         roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"],
         children: [
-          { title: "Credentials", href: "/dashboard/access-hub?tab=credentials", icon: Shield, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
-          { title: "Protocol", href: "/dashboard/access-hub?tab=protocol", icon: FileText, roles: ["SUPER_ADMIN", "ADMIN"] },
-          { title: "System Config", href: "/dashboard/access-hub?tab=system", icon: Settings, roles: ["SUPER_ADMIN", "ADMIN"] },
+          { title: "Credentials", href: "/dashboard/access-hub", icon: Shield, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
         ],
       },
       { title: "Settings", href: "/dashboard/settings", icon: Settings, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },

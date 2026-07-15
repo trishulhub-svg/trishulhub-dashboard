@@ -187,10 +187,6 @@ export type LegacyLeaveType = "CASUAL" | "SICK" | "PAID";
 
 export type AttendanceStatus = "PRESENT" | "ABSENT" | "HALF_DAY" | "LEAVE" | "NO_SCHEDULE";
 
-export type TrainingTestLevel = "LOW" | "MEDIUM" | "HIGH";
-export type TrainingDocumentStatus = "DRAFT" | "READY" | "ARCHIVED";
-export type AssignmentStatus = "ASSIGNED" | "READ" | "TEST_STARTED" | "COMPLETED" | "PASSED" | "FAILED";
-
 export type TimeEntryStatus = "ACTIVE" | "COMPLETED";
 
 // I14: Scheduled task types (non-agent)

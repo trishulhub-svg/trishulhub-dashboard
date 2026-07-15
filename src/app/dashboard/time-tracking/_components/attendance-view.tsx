@@ -4,7 +4,6 @@ import { Calendar, Clock, Loader2, Pencil, Plus, RefreshCw, Trash2 } from "lucid
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -16,18 +15,17 @@ import {
 import { safeNumber, safeText } from "@/lib/utils";
 import type { AttendanceRecord, TeamUser } from "./types";
 import { ATT_STATUS_COLORS } from "./types";
-import { formatAttDate, formatAttTime } from "./utils";
+import { RangePresetToolbar, type RangePresetToolbarProps } from "./range-preset-toolbar";
+import { formatAttDate, formatAttTime, rangeLast7Days } from "./utils";
 
-interface AttendanceViewProps {
+export type { RangePresetToolbarProps };
+
+interface AttendanceViewProps extends RangePresetToolbarProps {
   records: AttendanceRecord[];
   loading: boolean;
   teamUsers: TeamUser[];
-  dateFrom: string;
-  dateTo: string;
   userFilter: string;
   stats: { total: number; present: number; absent: number; halfDay: number; leave: number };
-  onDateFrom: (v: string) => void;
-  onDateTo: (v: string) => void;
   onUserFilter: (v: string) => void;
   onClearFilters: () => void;
   onRefresh: () => void;
@@ -46,6 +44,7 @@ export function AttendanceView({
   stats,
   onDateFrom,
   onDateTo,
+  onApplyRange,
   onUserFilter,
   onClearFilters,
   onRefresh,
@@ -53,7 +52,9 @@ export function AttendanceView({
   onEdit,
   onDelete,
 }: AttendanceViewProps) {
-  const hasFilters = !!(dateFrom || dateTo || userFilter !== "all");
+  const defaultRange = rangeLast7Days();
+  const isDefaultRange = dateFrom === defaultRange.from && dateTo === defaultRange.to;
+  const canClear = !isDefaultRange || userFilter !== "all";
 
   return (
     <div className="space-y-4 sm:space-y-5">
@@ -99,45 +100,42 @@ export function AttendanceView({
         </span>
       </div>
 
-      <div className="rounded-xl border border-border p-3">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 items-end">
-          <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">From</Label>
-            <Input type="date" value={dateFrom} onChange={(e) => onDateFrom(e.target.value)} className="h-9" />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">To</Label>
-            <Input type="date" value={dateTo} onChange={(e) => onDateTo(e.target.value)} className="h-9" />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Employee</Label>
-            <Select value={userFilter} onValueChange={onUserFilter}>
-              <SelectTrigger className="h-9">
-                <SelectValue placeholder="All employees" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Employees</SelectItem>
-                {teamUsers.map((u) => (
-                  <SelectItem key={u.id} value={u.id}>
-                    {safeText(u.name)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-end gap-2">
-            {hasFilters && (
-              <Button variant="ghost" size="sm" className="h-9 text-xs" onClick={onClearFilters}>
-                Clear
-              </Button>
-            )}
-            <Button variant="outline" size="sm" className="h-9 text-xs" onClick={onRefresh} disabled={loading}>
-              <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${loading ? "animate-spin" : ""}`} />
-              Refresh
-            </Button>
-          </div>
+      <RangePresetToolbar
+        dateFrom={dateFrom}
+        dateTo={dateTo}
+        onDateFrom={onDateFrom}
+        onDateTo={onDateTo}
+        onApplyRange={onApplyRange}
+        showMonthPicker
+      >
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground">Employee</Label>
+          <Select value={userFilter} onValueChange={onUserFilter}>
+            <SelectTrigger className="h-9">
+              <SelectValue placeholder="All employees" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Employees</SelectItem>
+              {teamUsers.map((u) => (
+                <SelectItem key={u.id} value={u.id}>
+                  {safeText(u.name)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-      </div>
+        <div className="flex items-end gap-2 lg:col-span-4 sm:col-span-2">
+          {canClear && (
+            <Button variant="ghost" size="sm" className="h-9 text-xs" onClick={onClearFilters}>
+              Clear
+            </Button>
+          )}
+          <Button variant="outline" size="sm" className="h-9 text-xs" onClick={onRefresh} disabled={loading}>
+            <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+        </div>
+      </RangePresetToolbar>
 
       <div className="rounded-xl border border-border overflow-hidden">
         {loading ? (

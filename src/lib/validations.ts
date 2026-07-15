@@ -547,31 +547,6 @@ export const updateOverrideSchema = z.object({
   reason: z.string().max(200).optional(),
 });
 
-export const createTrainingDocSchema = z.object({
-  topic: z.string().min(1).max(200),
-  brief: z.string().max(2000).optional(),
-  attachmentText: z.string().max(50000).optional(),
-});
-
-export const createTrainingTestSchema = z.object({
-  documentId: z.string().min(1),
-  level: z.enum(["LOW", "MEDIUM", "HIGH"]).default("MEDIUM"),
-});
-
-export const createAssignmentSchema = z.object({
-  documentId: z.string().min(1),
-  testId: z.string().optional(),
-  assignedTo: z.string().min(1),
-  testLevel: z.enum(["LOW", "MEDIUM", "HIGH"]).default("MEDIUM"),
-  dueDate: z.string().min(1).optional(),
-});
-
-export const submitTestAttemptSchema = z.object({
-  assignmentId: z.string().min(1),
-  answers: z.array(z.number().int().min(0)),
-  timeTaken: z.number().min(0).optional(),
-});
-
 // === Phase 8 Validation Schemas ===
 
 // Support Ticket — additional schemas (existing ones above use `subject`)

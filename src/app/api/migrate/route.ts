@@ -172,122 +172,6 @@ export async function POST() {
     }
   }
 
-  // ━━ Training System Tables (added in training feature commit) ━━
-
-  // Check if TrainingDocument table exists
-  try {
-    await db.trainingDocument.count({ take: 1 })
-    results.TrainingDocument = "already exists"
-  } catch {
-    try {
-      await db.$executeRawUnsafe(`
-        CREATE TABLE IF NOT EXISTS "TrainingDocument" (
-          "id" TEXT PRIMARY KEY NOT NULL,
-          "topic" TEXT NOT NULL,
-          "content" TEXT NOT NULL,
-          "summary" TEXT,
-          "imageUrl" TEXT,
-          "imageUrls" TEXT NOT NULL DEFAULT '[]',
-          "status" TEXT NOT NULL DEFAULT 'DRAFT',
-          "generatedBy" TEXT NOT NULL,
-          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY ("generatedBy") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE
-        )
-      `)
-      results.TrainingDocument = "created"
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err)
-      console.error("[migrate] TrainingDocument table creation failed:", err)
-      results.TrainingDocument = "failed: table creation error"
-    }
-  }
-
-  // Check if TrainingTest table exists
-  try {
-    await db.trainingTest.count({ take: 1 })
-    results.TrainingTest = "already exists"
-  } catch {
-    try {
-      await db.$executeRawUnsafe(`
-        CREATE TABLE IF NOT EXISTS "TrainingTest" (
-          "id" TEXT PRIMARY KEY NOT NULL,
-          "documentId" TEXT NOT NULL,
-          "level" TEXT NOT NULL,
-          "questions" TEXT NOT NULL,
-          "timeLimit" INTEGER NOT NULL DEFAULT 20,
-          "generatedBy" TEXT NOT NULL,
-          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY ("documentId") REFERENCES "TrainingDocument"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-          FOREIGN KEY ("generatedBy") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
-          CONSTRAINT "TrainingTest_documentId_level_key" UNIQUE ("documentId", "level")
-        )
-      `)
-      results.TrainingTest = "created"
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err)
-      console.error("[migrate] TrainingTest table creation failed:", err)
-      results.TrainingTest = "failed: table creation error"
-    }
-  }
-
-  // Check if TrainingAssignment table exists
-  try {
-    await db.trainingAssignment.count({ take: 1 })
-    results.TrainingAssignment = "already exists"
-  } catch {
-    try {
-      await db.$executeRawUnsafe(`
-        CREATE TABLE IF NOT EXISTS "TrainingAssignment" (
-          "id" TEXT PRIMARY KEY NOT NULL,
-          "documentId" TEXT NOT NULL,
-          "testId" TEXT,
-          "assignedTo" TEXT NOT NULL,
-          "assignedBy" TEXT NOT NULL,
-          "testLevel" TEXT NOT NULL DEFAULT 'LOW',
-          "dueDate" DATETIME,
-          "status" TEXT NOT NULL DEFAULT 'ASSIGNED',
-          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY ("documentId") REFERENCES "TrainingDocument"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
-          FOREIGN KEY ("testId") REFERENCES "TrainingTest"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
-          FOREIGN KEY ("assignedTo") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
-          FOREIGN KEY ("assignedBy") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE
-        )
-      `)
-      results.TrainingAssignment = "created"
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err)
-      console.error("[migrate] TrainingAssignment table creation failed:", err)
-      results.TrainingAssignment = "failed: table creation error"
-    }
-  }
-
-  // Check if TestAttempt table exists
-  try {
-    await db.testAttempt.count({ take: 1 })
-    results.TestAttempt = "already exists"
-  } catch {
-    try {
-      await db.$executeRawUnsafe(`
-        CREATE TABLE IF NOT EXISTS "TestAttempt" (
-          "id" TEXT PRIMARY KEY NOT NULL,
-          "assignmentId" TEXT NOT NULL,
-          "answers" TEXT NOT NULL,
-          "score" INTEGER NOT NULL,
-          "total" INTEGER NOT NULL DEFAULT 10,
-          "timeTaken" INTEGER,
-          "passed" INTEGER NOT NULL DEFAULT 0,
-          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY ("assignmentId") REFERENCES "TrainingAssignment"("id") ON DELETE CASCADE ON UPDATE CASCADE
-        )
-      `)
-      results.TestAttempt = "created"
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err)
-      console.error("[migrate] TestAttempt table creation failed:", err)
-      results.TestAttempt = "failed: table creation error"
-    }
   }
 
   // Create indexes if they don't exist
@@ -302,9 +186,6 @@ export async function POST() {
     { name: "Availability_userId_idx", sql: `CREATE INDEX IF NOT EXISTS "Availability_userId_idx" ON "Availability"("userId")` },
     { name: "AvailabilityOverride_userId_idx", sql: `CREATE INDEX IF NOT EXISTS "AvailabilityOverride_userId_idx" ON "AvailabilityOverride"("userId")` },
     { name: "AvailabilityOverride_date_idx", sql: `CREATE INDEX IF NOT EXISTS "AvailabilityOverride_date_idx" ON "AvailabilityOverride"("date")` },
-    // Training system indexes
-    { name: "TrainingAssignment_assignedTo_idx", sql: `CREATE INDEX IF NOT EXISTS "TrainingAssignment_assignedTo_idx" ON "TrainingAssignment"("assignedTo")` },
-    { name: "TrainingAssignment_status_idx", sql: `CREATE INDEX IF NOT EXISTS "TrainingAssignment_status_idx" ON "TrainingAssignment"("status")` },
   ]
   for (const idx of indexes) {
     try {
@@ -357,37 +238,7 @@ export async function POST() {
     verification.AvailabilityOverride = "failed: verification error"
   }
 
-  // Verify training tables
-  try {
-    const count = await db.trainingDocument.count({ take: 1 })
-    verification.TrainingDocument = `verified (${count} rows)`
-  } catch (err: unknown) {
-    console.error("[migrate] TrainingDocument verification failed:", err)
-    verification.TrainingDocument = "failed: verification error"
-  }
-  try {
-    const count = await db.trainingTest.count({ take: 1 })
-    verification.TrainingTest = `verified (${count} rows)`
-  } catch (err: unknown) {
-    console.error("[migrate] TrainingTest verification failed:", err)
-    verification.TrainingTest = "failed: verification error"
-  }
-  try {
-    const count = await db.trainingAssignment.count({ take: 1 })
-    verification.TrainingAssignment = `verified (${count} rows)`
-  } catch (err: unknown) {
-    console.error("[migrate] TrainingAssignment verification failed:", err)
-    verification.TrainingAssignment = "failed: verification error"
-  }
-  try {
-    const count = await db.testAttempt.count({ take: 1 })
-    verification.TestAttempt = `verified (${count} rows)`
-  } catch (err: unknown) {
-    console.error("[migrate] TestAttempt verification failed:", err)
-    verification.TestAttempt = "failed: verification error"
-  }
-
-  const allSuccess = verification.SmtpConfig.startsWith("verified") && verification.EmailVerification.startsWith("verified") && verification.Leave?.startsWith("verified") && verification.Availability?.startsWith("verified") && verification.AvailabilityOverride?.startsWith("verified") && verification.TrainingDocument?.startsWith("verified") && verification.TrainingTest?.startsWith("verified") && verification.TrainingAssignment?.startsWith("verified") && verification.TestAttempt?.startsWith("verified")
+  const allSuccess = verification.SmtpConfig.startsWith("verified") && verification.EmailVerification.startsWith("verified") && verification.Leave?.startsWith("verified") && verification.Availability?.startsWith("verified") && verification.AvailabilityOverride?.startsWith("verified")
 
   return NextResponse.json({
     success: allSuccess,

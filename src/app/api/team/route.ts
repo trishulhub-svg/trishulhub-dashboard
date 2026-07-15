@@ -108,7 +108,7 @@ export async function GET(req: NextRequest) {
       const dateFromStr = searchParams.get("from")
       const dateToStr = searchParams.get("to")
 
-      // [W12] Default: last 30 days when no explicit date provided
+      // [W12] Default: last 7 days when no explicit date provided
       const today = new Date()
       let dateFrom: Date
       if (dateFromStr) {
@@ -116,7 +116,7 @@ export async function GET(req: NextRequest) {
         dateFrom.setHours(0, 0, 0, 0)
       } else {
         dateFrom = new Date(today)
-        dateFrom.setDate(dateFrom.getDate() - 30)
+        dateFrom.setDate(dateFrom.getDate() - 7)
         dateFrom.setHours(0, 0, 0, 0)
       }
 

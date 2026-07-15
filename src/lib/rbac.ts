@@ -140,10 +140,6 @@ export function canManageAttendance(role: string): boolean {
   return ["SUPER_ADMIN", "ADMIN", "MANAGER"].includes(role);
 }
 
-export function canManageTraining(role: string): boolean {
-  return ["SUPER_ADMIN", "ADMIN", "MANAGER"].includes(role);
-}
-
 export function canManageEmployees(role: string): boolean {
   return ["SUPER_ADMIN", "ADMIN"].includes(role);
 }

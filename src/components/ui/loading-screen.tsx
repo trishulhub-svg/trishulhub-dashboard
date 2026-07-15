@@ -25,13 +25,13 @@ export function LoadingScreen({ message }: LoadingScreenProps) {
         </div>
 
         {/* Brand name */}
-        <h1 className="animate-loading-fade-in text-2xl font-semibold tracking-tight text-foreground [animation-delay:200ms]">
+        <h1 className="animate-loading-fade-in text-2xl font-semibold tracking-tight text-foreground">
           TrishulHub
         </h1>
 
         {/* Optional message */}
         {message && (
-          <p className="animate-loading-fade-in text-sm text-muted-foreground [animation-delay:400ms]">
+          <p className="animate-loading-fade-in text-sm text-muted-foreground [animation-delay:80ms]">
             {message}
           </p>
         )}
@@ -77,7 +77,7 @@ export function LoadingScreen({ message }: LoadingScreenProps) {
         }
 
         .animate-loading-fade-in {
-          animation: loading-fade-in 0.3s ease-out both;
+          animation: loading-fade-in 0.18s ease-out both;
         }
       `}</style>
     </div>
