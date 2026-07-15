@@ -32,7 +32,6 @@ import {
   Eye,
   Briefcase,
   Clock,
-  GraduationCap,
   BookOpen,
   KeyRound,
   ScrollText,
@@ -126,8 +125,7 @@ const navGroups: NavGroup[] = [
   {
     label: "Learning",
     items: [
-      { title: "Training", href: "/dashboard/training", icon: GraduationCap, roles: ["SUPER_ADMIN", "ADMIN"] },
-      { title: "My Training", href: "/dashboard/my-training", icon: BookOpen, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
+      { title: "Learning", href: "/dashboard/training", icon: BookOpen, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
     ],
   },
   {

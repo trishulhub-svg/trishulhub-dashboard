@@ -1,313 +1,101 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
-import {
-  Clock, Play, Square, Timer, TrendingUp, Users, BarChart3,
-  Download, Trash2, StopCircle, CalendarDays, FolderKanban,
-  RefreshCw, AlertCircle, Loader2, UserCheck, Pencil, Plus, Eye,
-  ArrowLeft, Calendar,
-} from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { AlertCircle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
-import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
+import { toast } from "sonner";
+import { safeArray, safeNumber, safeText } from "@/lib/utils";
 
-// ── Types ──
-interface TimeEntry {
-  id: string;
-  userId: string;
-  projectId: string | null;
-  description: string | null;
-  status: string;
-  clockIn: string;
-  clockOut: string | null;
-  totalHours: number | null;
-  date: string;
-  // ── Phase A3: agent attendance fields ──
-  source?: string | null; // MANUAL, AGENT_OTP, ADMIN_OVERRIDE
-  agentSessionId?: string | null;
-  clockInMethod?: string | null; // OTP, MANUAL, ADMIN
-  clockOutMethod?: string | null; // END_COMMAND, MANUAL, ADMIN_OVERRIDE, AUTO_MISSED
-  user?: { id: string; name: string; email: string; avatar?: string | null; role?: string };
-  project?: { id: string; name: string } | null;
-}
+import type {
+  AnalyticsData,
+  AttendanceRecord,
+  Project,
+  TeamUser,
+  TimeEntry,
+  TimeTrackingTab,
+} from "./_components/types";
+import {
+  dayBounds,
+  escapeCSV,
+  formatDate,
+  formatTime,
+  formatTimeHHMM,
+  fromDatetimeLocal,
+  getDateStr,
+  getWeekDays,
+  shiftWeek,
+  toDatetimeLocal,
+  toLocalDateStr,
+} from "./_components/utils";
+import { TodayView } from "./_components/today-view";
+import { TimesheetView } from "./_components/timesheet-view";
+import { InsightsView } from "./_components/insights-view";
+import { AttendanceView } from "./_components/attendance-view";
+import {
+  AddAttendanceDialog,
+  AddEntryDialog,
+  ClockOutDialog,
+  DeleteAttendanceDialog,
+  DeleteEntryDialog,
+  EditAttendanceDialog,
+  EditEntryDialog,
+  EndSessionDialog,
+  RedirectWorkspaceDialog,
+  ViewDescriptionDialog,
+} from "./_components/dialogs";
 
-interface Project {
-  id: string;
-  name: string;
-  status: string;
-}
-
-// ── Attendance Types (moved from team page) ──
-interface AttendanceRecord {
-  id: string;
-  userId: string;
-  date: string;
-  checkIn?: string | null;
-  checkOut?: string | null;
-  status: string;
-  notes?: string | null;
-  isManual?: boolean;
-  requiredHours?: number | null;
-  workedHours?: number | null;
-  user?: { id: string; name: string; email: string; role: string; avatar?: string | null };
-}
-
-// Attendance status colors
-const attStatusColors: Record<string, string> = {
-  PRESENT: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
-  ABSENT: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
-  HALF_DAY: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
-  LEAVE: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
-  NO_SCHEDULE: "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300",
-};
-
-// [C3] Helper: get local date string (YYYY-MM-DD)
-function toLocalDateStr(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-// [C4] Helper: format ISO time string to HH:MM for time input fields
-function formatTimeHHMM(isoStr?: string | null): string {
-  if (!isoStr) return "";
-  try {
-    const d = new Date(isoStr);
-    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  } catch {
-    return "";
-  }
-}
-
-// Format ISO time string for display (HH:MM AM/PM)
-function formatAttTime(isoStr?: string | null): string {
-  if (!isoStr) return "N/A";
-  try {
-    return new Date(isoStr).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  } catch {
-    return "N/A";
-  }
-}
-
-// Format ISO date string for attendance display
-function formatAttDate(isoStr?: string | null): string {
-  if (!isoStr) return "N/A";
-  try {
-    return new Date(isoStr).toLocaleDateString([], { weekday: "short", year: "numeric", month: "short", day: "numeric" });
-  } catch {
-    return "N/A";
-  }
-}
-
-interface AnalyticsData {
-  type: string;
-  startDate: string;
-  endDate: string;
-  data: Array<{
-    userId?: string;
-    name?: string;
-    projectId?: string;
-    projectName?: string;
-    totalHours: number;
-    entries?: number;
-    contributorCount?: number;
-  }>;
-  totalHours: number;
-}
-
-// ── Helpers ── [FIX C1: safe array fallback]
-function safeArray<T>(data: unknown): T[] {
-  return Array.isArray(data) ? data : [];
-}
-
-function formatDuration(ms: number): string {
-  if (ms < 0) return "00:00:00"; // [FIX: handle negative elapsed]
-  const totalSeconds = Math.floor(ms / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-}
-
-function formatDurationShort(ms: number): string {
-  if (ms < 0) return "0m";
-  const totalMinutes = Math.floor(ms / 60000);
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  if (hours === 0) return `${minutes}m`;
-  return `${hours}h ${minutes}m`;
-}
-
-function formatHours(hours: number | null | undefined): string {
-  if (!hours) return "0h 0m";
-  const h = Math.floor(hours);
-  const m = Math.round((hours - h) * 60);
-  return `${h}h ${m}m`;
-}
-
-function formatTime(dateStr: string): string {
-  return new Date(dateStr).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-
-function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString([], { month: "short", day: "numeric" });
-}
-
-function getWeekDays(): Date[] {
-  const now = new Date();
-  const day = now.getDay();
-  const diff = day === 0 ? 6 : day - 1;
-  const monday = new Date(now);
-  monday.setDate(now.getDate() - diff);
-  monday.setHours(0, 0, 0, 0);
-
-  const days: Date[] = [];
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(monday);
-    d.setDate(monday.getDate() + i);
-    days.push(d);
-  }
-  return days;
-}
-
-function getDateStr(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-// Convert ISO string to datetime-local input format (YYYY-MM-DDTHH:MM)
-function toDatetimeLocal(isoStr: string): string {
-  const d = new Date(isoStr);
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  const hours = String(d.getHours()).padStart(2, "0");
-  const minutes = String(d.getMinutes()).padStart(2, "0");
-  return `${year}-${month}-${day}T${hours}:${minutes}`;
-}
-
-// Convert datetime-local input value to ISO string
-function fromDatetimeLocal(localStr: string): string {
-  return new Date(localStr).toISOString();
-}
-
-// [FIX M3: Proper CSV escaping]
-function escapeCSV(value: string): string {
-  if (value.includes('"') || value.includes(",") || value.includes("\n") || value.includes("\r")) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return `"${value}"`;
-}
-
-// ── Module-scope constants ──
-const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const COLORS = [
-  "bg-emerald-500",
-  "bg-teal-500",
-  "bg-cyan-500",
-  "bg-sky-500",
-  "bg-violet-500",
-  "bg-fuchsia-500",
-  "bg-pink-500",
-  "bg-rose-500",
-  "bg-orange-500",
-  "bg-amber-500",
-];
-
-// ── Component ──
 export default function TimeTrackingPage() {
   const { data: session, status: sessionStatus } = useSession();
   const userRole = session?.user?.role || "DEVELOPER";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
-  // State
+  // ── Core data ──
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
-  const [teamEntries, setTeamEntries] = useState<TimeEntry[]>([]);
-  const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState("my-time");
-  const [analyticsTab, setAnalyticsTab] = useState("employee");
-  const [dateRange, setDateRange] = useState("week");
-  const [teamLoading, setTeamLoading] = useState(false);
-  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<TimeTrackingTab>("today");
 
-  // Timer state
+  // Timer
   const [activeEntry, setActiveEntry] = useState<TimeEntry | null>(null);
   const [elapsed, setElapsed] = useState(0);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timerCardRef = useRef<HTMLDivElement>(null);
 
-  // Form state
   const [selectedProject, setSelectedProject] = useState("");
   const [timerDescription, setTimerDescription] = useState("");
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
 
-  // Team filter state
-  const [teamFilterUser, setTeamFilterUser] = useState("");
-  const [teamFilterProject, setTeamFilterProject] = useState("");
-  const [teamFilterStartDate, setTeamFilterStartDate] = useState("");
-  const [teamFilterEndDate, setTeamFilterEndDate] = useState("");
-
-  // Delete confirmation
-  const [deleteId, setDeleteId] = useState<string | null>(null);
-
-  // Admin: End running session (admin override on /api/time-tracking/[id]/admin-end)
+  // Admin running sessions
+  const [activeEntries, setActiveEntries] = useState<TimeEntry[]>([]);
+  const [activeElapsedMap, setActiveElapsedMap] = useState<Record<string, number>>({});
   const [endingEntryId, setEndingEntryId] = useState<string | null>(null);
   const [endSessionConfirmId, setEndSessionConfirmId] = useState<string | null>(null);
 
-  // Team users
-  const [teamUsers, setTeamUsers] = useState<Array<{ id: string; name: string }>>([]);
+  // Team / timesheet
+  const [teamUsers, setTeamUsers] = useState<TeamUser[]>([]);
+  const [timesheetEntries, setTimesheetEntries] = useState<TimeEntry[]>([]);
+  const [timesheetLoading, setTimesheetLoading] = useState(false);
+  const [weekAnchor, setWeekAnchor] = useState(() => getWeekDays()[0]);
+  const [filterUser, setFilterUser] = useState("all");
+  const [filterProject, setFilterProject] = useState("all");
 
-  // Clock-out dialog state
+  // Insights
+  const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsTab, setAnalyticsTab] = useState("employee");
+  const [dateRange, setDateRange] = useState("week");
+
+  // Dialogs
+  const [deleteId, setDeleteId] = useState<string | null>(null);
   const [clockOutOpen, setClockOutOpen] = useState(false);
   const [clockOutNotes, setClockOutNotes] = useState("");
   const clockOutNotesRef = useRef("");
 
-  // Active entries (who's online - admin only)
-  const [activeEntries, setActiveEntries] = useState<TimeEntry[]>([]);
-  const [activeElapsedMap, setActiveElapsedMap] = useState<Record<string, number>>({});
-
-  // Admin: Add entry dialog
   const [addEntryOpen, setAddEntryOpen] = useState(false);
   const [addEntryUserId, setAddEntryUserId] = useState("");
   const [addEntryProjectId, setAddEntryProjectId] = useState("");
@@ -316,7 +104,6 @@ export default function TimeTrackingPage() {
   const [addEntryClockOut, setAddEntryClockOut] = useState("");
   const [addEntrySaving, setAddEntrySaving] = useState(false);
 
-  // Admin: Edit entry dialog
   const [editEntry, setEditEntry] = useState<TimeEntry | null>(null);
   const [editDescription, setEditDescription] = useState("");
   const [editProjectId, setEditProjectId] = useState("");
@@ -324,53 +111,66 @@ export default function TimeTrackingPage() {
   const [editClockOut, setEditClockOut] = useState("");
   const [editSaving, setEditSaving] = useState(false);
 
-  // View description dialog
   const [viewDescriptionEntry, setViewDescriptionEntry] = useState<TimeEntry | null>(null);
 
-  // ── Attendance state (moved from team page) ──
+  // Attendance
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [attendanceLoading, setAttendanceLoading] = useState(false);
   const [attDateFrom, setAttDateFrom] = useState("");
   const [attDateTo, setAttDateTo] = useState("");
   const [attUserFilter, setAttUserFilter] = useState("all");
   const [attDialogOpen, setAttDialogOpen] = useState(false);
-  const [attForm, setAttForm] = useState({ userId: "", date: "", status: "PRESENT", checkIn: "", checkOut: "", notes: "" });
+  const [attForm, setAttForm] = useState({
+    userId: "",
+    date: "",
+    status: "PRESENT",
+    checkIn: "",
+    checkOut: "",
+    notes: "",
+  });
   const [attLoading, setAttLoading] = useState(false);
   const [editAttDialogOpen, setEditAttDialogOpen] = useState(false);
-  const [editAttForm, setEditAttForm] = useState({ id: "", status: "PRESENT", checkIn: "", checkOut: "", notes: "" });
+  const [editAttForm, setEditAttForm] = useState({
+    id: "",
+    status: "PRESENT",
+    checkIn: "",
+    checkOut: "",
+    notes: "",
+  });
   const [attEditLoading, setAttEditLoading] = useState(false);
   const [deleteAttId, setDeleteAttId] = useState<string | null>(null);
 
-  // Deep-link + redirect popup state
+  // Deep-link
   const [showRedirectPopup, setShowRedirectPopup] = useState(false);
   const [fromWorkspace, setFromWorkspace] = useState(false);
-  const timerCardRef = useRef<HTMLDivElement>(null);
 
-  // ── Deep-link: check for ?action=start param and scroll to timer ──
+  const weekDays = useMemo(() => getWeekDays(weekAnchor), [weekAnchor]);
+  const thisWeekStart = useMemo(() => getWeekDays()[0], []);
+  const canGoNextWeek = weekDays[0].getTime() < thisWeekStart.getTime();
+
+  // ── Deep-link: ?action=start ──
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     if (params.get("action") === "start") {
       setFromWorkspace(true);
-      // Wait for page to render, then scroll to timer card
+      setActiveTab("today");
       setTimeout(() => {
         timerCardRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-        timerCardRef.current?.classList.add("ring-2", "ring-green-400", "ring-offset-2");
-        // Remove highlight after 3 seconds
+        timerCardRef.current?.classList.add("ring-2", "ring-emerald-400", "ring-offset-2");
         setTimeout(() => {
-          timerCardRef.current?.classList.remove("ring-2", "ring-green-400", "ring-offset-2");
+          timerCardRef.current?.classList.remove("ring-2", "ring-emerald-400", "ring-offset-2");
         }, 3000);
       }, 500);
     }
   }, [loading]);
 
-  // ── Fetch entries ──
+  // ── Fetch entries (default week + active) ──
   const fetchEntries = useCallback(async (signal?: AbortSignal) => {
     try {
       const res = await fetch("/api/time-tracking", { credentials: "include", signal });
       if (res.ok) {
         const data = await res.json();
-        // Handle both new shape { entries, activeEntries } and legacy array
         let arr: TimeEntry[];
         if (data && !Array.isArray(data) && Array.isArray(data.entries)) {
           arr = safeArray<TimeEntry>(data.entries);
@@ -383,41 +183,30 @@ export default function TimeTrackingPage() {
         setActiveEntry(active || null);
       } else {
         const errData = await res.json().catch(() => null);
-        const msg = errData?.error || "Failed to load time entries";
+        const msg = safeText(errData?.error, "Failed to load time entries");
         toast.error(msg);
-        // Only set error state for non-429 errors so the page shows something useful
-        if (res.status !== 429) {
-          setError(msg);
-        }
+        if (res.status !== 429) setError(msg);
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
       setError("Failed to load time entries. Please try again.");
     } finally {
-      // [FIX: Don't set loading false on abort — prevents race condition
-      //  where the page briefly renders empty data between abort and replacement fetch]
-      if (!signal?.aborted) {
-        setLoading(false);
-      }
+      if (!signal?.aborted) setLoading(false);
     }
   }, []);
 
-  // ── Fetch projects ──
-  // Fetch only id + name + status for fast loading (no need for full project details)
   const fetchProjects = useCallback(async (signal?: AbortSignal) => {
     try {
       const res = await fetch("/api/projects?fields=minimal", { credentials: "include", signal });
       if (res.ok) {
         const data = await res.json();
-        // Handle both array response and { data: [...] } response
-        const arr = safeArray<Project>(Array.isArray(data) ? data : (data?.data || data));
+        const arr = safeArray<Project>(Array.isArray(data) ? data : data?.data || data);
         setProjects(arr.filter((p) => p.status !== "COMPLETED"));
       } else {
-        // Fallback: try without the fields param
         const res2 = await fetch("/api/projects", { credentials: "include", signal });
         if (res2.ok) {
           const data2 = await res2.json();
-          const arr2 = safeArray<Project>(Array.isArray(data2) ? data2 : (data2?.data || data2));
+          const arr2 = safeArray<Project>(Array.isArray(data2) ? data2 : data2?.data || data2);
           setProjects(arr2.filter((p) => p.status !== "COMPLETED"));
         }
       }
@@ -426,42 +215,45 @@ export default function TimeTrackingPage() {
     }
   }, []);
 
-  // ── Fetch team users ──
-  const fetchTeamUsers = useCallback(async (signal?: AbortSignal) => {
-    if (!isAdminUser) return;
-    try {
-      const res = await fetch("/api/team", { credentials: "include", signal });
-      if (res.ok) {
-        const data = await res.json();
-        // [FIX C1: safe array fallback before .map()]
-        const arr = safeArray<unknown>(data);
-        setTeamUsers(arr.filter((u): u is { id: string; name: string } => typeof u === 'object' && u !== null && 'id' in u && 'name' in u).map((u) => ({ id: u.id, name: u.name })));
-      } else {
-        const errData = await res.json().catch(() => null);
-        toast.error(errData?.error || "Failed to load team users");
+  const fetchTeamUsers = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!isAdminUser) return;
+      try {
+        const res = await fetch("/api/team", { credentials: "include", signal });
+        if (res.ok) {
+          const data = await res.json();
+          const arr = safeArray<unknown>(data);
+          setTeamUsers(
+            arr
+              .filter(
+                (u): u is { id: string; name: string } =>
+                  typeof u === "object" && u !== null && "id" in u && "name" in u
+              )
+              .map((u) => ({ id: u.id, name: u.name }))
+          );
+        } else {
+          const errData = await res.json().catch(() => null);
+          toast.error(safeText(errData?.error, "Failed to load team users"));
+        }
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
       }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      // silently ignore abort for background fetches
-    }
-  }, [isAdminUser]);
+    },
+    [isAdminUser]
+  );
 
   useEffect(() => {
     const controller = new AbortController();
-    const signal = controller.signal;
-    fetchEntries(signal);
-    fetchProjects(signal);
-    fetchTeamUsers(signal);
+    fetchEntries(controller.signal);
+    fetchProjects(controller.signal);
+    fetchTeamUsers(controller.signal);
     return () => controller.abort();
   }, [fetchEntries, fetchProjects, fetchTeamUsers]);
 
-  // ── Timer tick ──
+  // Live timer
   useEffect(() => {
     if (activeEntry) {
-      const update = () => {
-        const diff = Date.now() - new Date(activeEntry.clockIn).getTime();
-        setElapsed(diff);
-      };
+      const update = () => setElapsed(Date.now() - new Date(activeEntry.clockIn).getTime());
       update();
       timerRef.current = setInterval(update, 1000);
     } else {
@@ -473,18 +265,21 @@ export default function TimeTrackingPage() {
     };
   }, [activeEntry]);
 
-  // ── Active entries elapsed timer (admin - who's online) ──
+  // Admin running-session elapsed (ms)
   const updateActiveElapsedMap = useCallback(() => {
     const map: Record<string, number> = {};
     for (const entry of activeEntries) {
       if (entry.status === "ACTIVE" && entry.clockIn) {
-        map[entry.id] = Math.floor((Date.now() - new Date(entry.clockIn).getTime()) / 1000);
+        map[entry.id] = Date.now() - new Date(entry.clockIn).getTime();
       }
     }
-    setActiveElapsedMap(prev => {
-      // Only update if values actually changed
-      if (JSON.stringify(prev) === JSON.stringify(map)) return prev;
-      return { ...map };
+    setActiveElapsedMap((prev) => {
+      const keys = Object.keys(map);
+      if (keys.length !== Object.keys(prev).length) return map;
+      for (const k of keys) {
+        if (Math.abs((prev[k] || 0) - map[k]) > 500) return map;
+      }
+      return prev;
     });
   }, [activeEntries]);
 
@@ -498,7 +293,7 @@ export default function TimeTrackingPage() {
     return () => clearInterval(interval);
   }, [isAdminUser, activeEntries, updateActiveElapsedMap]);
 
-  // ── Start timer ── [FIX M5: wrap in useCallback]
+  // ── Start / stop ──
   const handleStart = useCallback(async () => {
     setStarting(true);
     try {
@@ -507,7 +302,7 @@ export default function TimeTrackingPage() {
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          projectId: selectedProject === "none" ? undefined : (selectedProject || undefined),
+          projectId: selectedProject === "none" ? undefined : selectedProject || undefined,
           description: timerDescription || undefined,
         }),
       });
@@ -516,13 +311,10 @@ export default function TimeTrackingPage() {
         setActiveEntry(entry);
         toast.success("Timer started!");
         fetchEntries();
-        // If user came from workspace, show redirect popup
-        if (fromWorkspace) {
-          setShowRedirectPopup(true);
-        }
+        if (fromWorkspace) setShowRedirectPopup(true);
       } else {
-        const err = await res.json();
-        toast.error(err.error || "Failed to start timer");
+        const err = await res.json().catch(() => null);
+        toast.error(safeText(err?.error, "Failed to start timer"));
       }
     } catch {
       toast.error("Failed to start timer");
@@ -531,10 +323,10 @@ export default function TimeTrackingPage() {
     }
   }, [selectedProject, timerDescription, fetchEntries, fromWorkspace]);
 
-  // ── Clock-out dialog handlers ──
   const handleClockOutClick = useCallback(() => {
     if (activeEntry) {
       setClockOutNotes("");
+      clockOutNotesRef.current = "";
       setClockOutOpen(true);
     }
   }, [activeEntry]);
@@ -548,7 +340,11 @@ export default function TimeTrackingPage() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ id: activeEntry.id, status: "COMPLETED", description: notes || undefined }),
+        body: JSON.stringify({
+          id: activeEntry.id,
+          status: "COMPLETED",
+          description: notes || undefined,
+        }),
       });
       if (res.ok) {
         setActiveEntry(null);
@@ -557,8 +353,8 @@ export default function TimeTrackingPage() {
         setClockOutNotes("");
         fetchEntries();
       } else {
-        const err = await res.json();
-        toast.error(err.error || "Failed to clock out");
+        const err = await res.json().catch(() => null);
+        toast.error(safeText(err?.error, "Failed to clock out"));
       }
     } catch {
       toast.error("Failed to clock out");
@@ -567,47 +363,140 @@ export default function TimeTrackingPage() {
     }
   }, [activeEntry, fetchEntries]);
 
-  // ── Fetch team logs ── (declared before handleDelete to avoid use-before-declaration)
-  const fetchTeamLogs = useCallback(async (signal?: AbortSignal) => {
-    if (!isAdminUser) return;
-    setTeamLoading(true);
-    try {
-      const params = new URLSearchParams();
-      // [FIX H2/H3: Don't send "all" as userId/projectId to API]
-      if (teamFilterUser && teamFilterUser !== "all") params.set("userId", teamFilterUser);
-      if (teamFilterProject && teamFilterProject !== "all") params.set("projectId", teamFilterProject);
-      if (teamFilterStartDate) params.set("startDate", teamFilterStartDate);
-      if (teamFilterEndDate) params.set("endDate", teamFilterEndDate);
-      // If no date filter, show this week
-      if (!teamFilterStartDate && !teamFilterEndDate) {
-        const weekDays = getWeekDays();
-        params.set("startDate", getDateStr(weekDays[0]));
-        params.set("endDate", getDateStr(weekDays[6]));
-      }
-      params.set("status", "COMPLETED");
-
-      const res = await fetch(`/api/time-tracking?${params}`, { credentials: "include", signal });
-      if (res.ok) {
-        const data = await res.json();
-        // Handle both new shape { entries } and legacy array
-        if (data && !Array.isArray(data) && Array.isArray(data.entries)) {
-          setTeamEntries(safeArray<TimeEntry>(data.entries));
-        } else {
-          setTeamEntries(safeArray<TimeEntry>(data));
+  // ── Timesheet fetch ──
+  const fetchTimesheet = useCallback(
+    async (signal?: AbortSignal) => {
+      setTimesheetLoading(true);
+      try {
+        const days = getWeekDays(weekAnchor);
+        const params = new URLSearchParams();
+        params.set("startDate", getDateStr(days[0]));
+        params.set("endDate", getDateStr(days[6]));
+        params.set("status", "COMPLETED");
+        params.set("limit", "200");
+        if (isAdminUser && filterUser && filterUser !== "all") params.set("userId", filterUser);
+        if (isAdminUser && filterProject && filterProject !== "all") {
+          params.set("projectId", filterProject);
         }
-      } else {
-        const errData = await res.json().catch(() => null);
-        toast.error(errData?.error || "Failed to load team logs");
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      // silently ignore abort for background fetches
-    } finally {
-      setTeamLoading(false);
-    }
-  }, [isAdminUser, teamFilterUser, teamFilterProject, teamFilterStartDate, teamFilterEndDate]);
 
-  // ── Admin: Add entry handler ──
+        const res = await fetch(`/api/time-tracking?${params}`, {
+          credentials: "include",
+          signal,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && !Array.isArray(data) && Array.isArray(data.entries)) {
+            setTimesheetEntries(safeArray<TimeEntry>(data.entries));
+          } else {
+            setTimesheetEntries(safeArray<TimeEntry>(data));
+          }
+        } else {
+          const errData = await res.json().catch(() => null);
+          toast.error(safeText(errData?.error, "Failed to load timesheet"));
+        }
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+      } finally {
+        setTimesheetLoading(false);
+      }
+    },
+    [weekAnchor, isAdminUser, filterUser, filterProject]
+  );
+
+  useEffect(() => {
+    if (activeTab !== "timesheet") return;
+    const controller = new AbortController();
+    fetchTimesheet(controller.signal);
+    return () => controller.abort();
+  }, [activeTab, fetchTimesheet]);
+
+  // ── Insights ──
+  const fetchAnalytics = useCallback(
+    async (signal?: AbortSignal) => {
+      setAnalyticsLoading(true);
+      try {
+        const params = new URLSearchParams();
+        params.set("type", analyticsTab);
+        const now = new Date();
+        if (dateRange === "week") {
+          const days = getWeekDays();
+          params.set("startDate", getDateStr(days[0]));
+          params.set("endDate", getDateStr(days[6]));
+        } else {
+          const start = new Date(now.getFullYear(), now.getMonth(), 1);
+          const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+          params.set("startDate", getDateStr(start));
+          params.set("endDate", getDateStr(end));
+        }
+        const res = await fetch(`/api/time-tracking/analytics?${params}`, {
+          credentials: "include",
+          signal,
+        });
+        if (res.ok) {
+          setAnalyticsData(await res.json());
+        } else {
+          const errData = await res.json().catch(() => null);
+          toast.error(safeText(errData?.error, "Failed to load insights"));
+        }
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+      } finally {
+        setAnalyticsLoading(false);
+      }
+    },
+    [analyticsTab, dateRange]
+  );
+
+  useEffect(() => {
+    if (activeTab !== "insights") return;
+    const controller = new AbortController();
+    fetchAnalytics(controller.signal);
+    return () => controller.abort();
+  }, [activeTab, fetchAnalytics]);
+
+  // ── Attendance ──
+  const fetchAttendance = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!isAdminUser) return;
+      setAttendanceLoading(true);
+      try {
+        const params = new URLSearchParams();
+        params.set("type", "attendance");
+        if (attDateFrom) params.set("from", attDateFrom);
+        if (attDateTo) params.set("to", attDateTo);
+        const res = await fetch(`/api/team?${params.toString()}`, {
+          credentials: "include",
+          signal,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setAttendance(Array.isArray(data) ? data : []);
+        } else {
+          const errData = await res.json().catch(() => null);
+          toast.error(safeText(errData?.error, "Failed to load attendance data"));
+        }
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+      } finally {
+        setAttendanceLoading(false);
+      }
+    },
+    [isAdminUser, attDateFrom, attDateTo]
+  );
+
+  useEffect(() => {
+    if (activeTab !== "attendance" || !isAdminUser) return;
+    const controller = new AbortController();
+    fetchAttendance(controller.signal);
+    return () => controller.abort();
+  }, [activeTab, isAdminUser, fetchAttendance]);
+
+  // ── Admin CRUD ──
+  const refreshAfterMutation = useCallback(() => {
+    fetchEntries();
+    if (activeTab === "timesheet") fetchTimesheet();
+  }, [fetchEntries, fetchTimesheet, activeTab]);
+
   const handleAdminAddEntry = useCallback(async () => {
     if (!addEntryUserId || !addEntryClockIn) {
       toast.error("Employee and clock-in time are required");
@@ -637,20 +526,25 @@ export default function TimeTrackingPage() {
         setAddEntryDescription("");
         setAddEntryClockIn("");
         setAddEntryClockOut("");
-        fetchEntries();
-        if (activeTab === "team") fetchTeamLogs();
+        refreshAfterMutation();
       } else {
-        const err = await res.json();
-        toast.error(err.error || "Failed to create entry");
+        const err = await res.json().catch(() => null);
+        toast.error(safeText(err?.error, "Failed to create entry"));
       }
     } catch {
       toast.error("Failed to create entry");
     } finally {
       setAddEntrySaving(false);
     }
-  }, [addEntryUserId, addEntryClockIn, addEntryProjectId, addEntryDescription, addEntryClockOut, activeTab, fetchEntries, fetchTeamLogs]);
+  }, [
+    addEntryUserId,
+    addEntryClockIn,
+    addEntryProjectId,
+    addEntryDescription,
+    addEntryClockOut,
+    refreshAfterMutation,
+  ]);
 
-  // ── Admin: Edit entry handler ──
   const openEditDialog = useCallback((entry: TimeEntry) => {
     setEditEntry(entry);
     setEditDescription(entry.description || "");
@@ -666,14 +560,10 @@ export default function TimeTrackingPage() {
       const payload: Record<string, unknown> = {
         id: editEntry.id,
         description: editDescription || undefined,
-        projectId: editProjectId === "none" ? null : (editProjectId || undefined),
+        projectId: editProjectId === "none" ? null : editProjectId || undefined,
         clockIn: fromDatetimeLocal(editClockIn),
       };
-      if (editClockOut) {
-        payload.clockOut = fromDatetimeLocal(editClockOut);
-      } else {
-        payload.clockOut = null;
-      }
+      payload.clockOut = editClockOut ? fromDatetimeLocal(editClockOut) : null;
 
       const res = await fetch(`/api/time-tracking/${editEntry.id}`, {
         method: "PATCH",
@@ -684,20 +574,18 @@ export default function TimeTrackingPage() {
       if (res.ok) {
         toast.success("Entry updated successfully");
         setEditEntry(null);
-        fetchEntries();
-        if (activeTab === "team") fetchTeamLogs();
+        refreshAfterMutation();
       } else {
-        const err = await res.json();
-        toast.error(err.error || "Failed to update entry");
+        const err = await res.json().catch(() => null);
+        toast.error(safeText(err?.error, "Failed to update entry"));
       }
     } catch {
       toast.error("Failed to update entry");
     } finally {
       setEditSaving(false);
     }
-  }, [editEntry, editDescription, editProjectId, editClockIn, editClockOut, activeTab, fetchEntries, fetchTeamLogs]);
+  }, [editEntry, editDescription, editProjectId, editClockIn, editClockOut, refreshAfterMutation]);
 
-  // ── Delete entry ──
   const handleDelete = useCallback(async () => {
     if (!deleteId) return;
     try {
@@ -707,133 +595,48 @@ export default function TimeTrackingPage() {
       });
       if (res.ok) {
         toast.success("Entry deleted");
-        fetchEntries();
-        if (activeTab === "team") fetchTeamLogs();
+        refreshAfterMutation();
       } else {
-        // [FIX H4: Read error body from API response]
         const errData = await res.json().catch(() => null);
-        toast.error(errData?.error || "Failed to delete entry");
+        toast.error(safeText(errData?.error, "Failed to delete entry"));
       }
     } catch {
       toast.error("Failed to delete entry");
     } finally {
       setDeleteId(null);
     }
-  }, [deleteId, activeTab, fetchEntries, fetchTeamLogs]);
+  }, [deleteId, refreshAfterMutation]);
 
-  // ── Admin: End running session (admin override) ──
-  // Calls /api/time-tracking/[id]/admin-end to force-clock-out a user who forgot.
-  const handleAdminEndSession = useCallback(async (entryId: string) => {
-    setEndingEntryId(entryId);
-    try {
-      const res = await fetch(`/api/time-tracking/${entryId}/admin-end`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({}),
-      });
-      const data = await res.json().catch(() => null);
-      if (res.ok && data?.success) {
-        const hours = typeof data.totalHours === "number" ? data.totalHours.toFixed(2) : "?";
-        toast.success(`Session ended. Total: ${hours}h`);
-        fetchEntries();
-        if (activeTab === "team") fetchTeamLogs();
-      } else {
-        toast.error(data?.error || "Failed to end session");
+  const handleAdminEndSession = useCallback(
+    async (entryId: string) => {
+      setEndingEntryId(entryId);
+      try {
+        const res = await fetch(`/api/time-tracking/${entryId}/admin-end`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({}),
+        });
+        const data = await res.json().catch(() => null);
+        if (res.ok && data?.success) {
+          const hours =
+            typeof data.totalHours === "number" ? data.totalHours.toFixed(2) : "?";
+          toast.success(`Session ended. Total: ${hours}h`);
+          refreshAfterMutation();
+        } else {
+          toast.error(safeText(data?.error, "Failed to end session"));
+        }
+      } catch {
+        toast.error("Failed to end session");
+      } finally {
+        setEndingEntryId(null);
+        setEndSessionConfirmId(null);
       }
-    } catch {
-      toast.error("Failed to end session");
-    } finally {
-      setEndingEntryId(null);
-      setEndSessionConfirmId(null);
-    }
-  }, [activeTab, fetchEntries, fetchTeamLogs]);
+    },
+    [refreshAfterMutation]
+  );
 
-  useEffect(() => {
-    if (activeTab === "team" && isAdminUser) {
-      const controller = new AbortController();
-      fetchTeamLogs(controller.signal);
-      return () => controller.abort();
-    }
-  }, [activeTab, isAdminUser, fetchTeamLogs]);
-
-  // ── Fetch analytics ──
-  const fetchAnalytics = useCallback(async (signal?: AbortSignal) => {
-    setAnalyticsLoading(true);
-    try {
-      const params = new URLSearchParams();
-      params.set("type", analyticsTab);
-
-      const now = new Date();
-      if (dateRange === "week") {
-        const days = getWeekDays();
-        params.set("startDate", getDateStr(days[0]));
-        params.set("endDate", getDateStr(days[6]));
-      } else if (dateRange === "month") {
-        const start = new Date(now.getFullYear(), now.getMonth(), 1);
-        const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-        params.set("startDate", getDateStr(start));
-        params.set("endDate", getDateStr(end));
-      }
-
-      const res = await fetch(`/api/time-tracking/analytics?${params}`, { credentials: "include", signal });
-      if (res.ok) {
-        const data = await res.json();
-        setAnalyticsData(data);
-      } else {
-        const errData = await res.json().catch(() => null);
-        toast.error(errData?.error || "Failed to load analytics");
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      // silently ignore abort for background fetches
-    } finally {
-      setAnalyticsLoading(false);
-    }
-  }, [analyticsTab, dateRange]);
-
-  useEffect(() => {
-    if (activeTab === "analytics") {
-      const controller = new AbortController();
-      fetchAnalytics(controller.signal);
-      return () => controller.abort();
-    }
-  }, [activeTab, fetchAnalytics]);
-
-  // ── Attendance: fetch records (admin only) ──
-  const fetchAttendance = useCallback(async (signal?: AbortSignal) => {
-    if (!isAdminUser) return;
-    setAttendanceLoading(true);
-    try {
-      const params = new URLSearchParams();
-      params.set("type", "attendance");
-      if (attDateFrom) params.set("from", attDateFrom);
-      if (attDateTo) params.set("to", attDateTo);
-      const res = await fetch(`/api/team?${params.toString()}`, { credentials: "include", signal });
-      if (res.ok) {
-        const data = await res.json();
-        setAttendance(Array.isArray(data) ? data : []);
-      } else {
-        const errData = await res.json().catch(() => null);
-        toast.error(errData?.error || "Failed to load attendance data");
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      // silently ignore — non-fatal
-    } finally {
-      setAttendanceLoading(false);
-    }
-  }, [isAdminUser, attDateFrom, attDateTo]);
-
-  useEffect(() => {
-    if (activeTab === "attendance" && isAdminUser) {
-      const controller = new AbortController();
-      fetchAttendance(controller.signal);
-      return () => controller.abort();
-    }
-  }, [activeTab, isAdminUser, fetchAttendance]);
-
-  // ── Attendance: Add record handler ──
+  // Attendance CRUD
   const handleAddAttendance = useCallback(async () => {
     if (!attForm.userId || !attForm.date) {
       toast.error("Employee and date are required");
@@ -847,8 +650,12 @@ export default function TimeTrackingPage() {
         date: attForm.date,
         status: attForm.status,
       };
-      if (attForm.checkIn) payload.checkIn = new Date(`${attForm.date}T${attForm.checkIn}`).toISOString();
-      if (attForm.checkOut) payload.checkOut = new Date(`${attForm.date}T${attForm.checkOut}`).toISOString();
+      if (attForm.checkIn) {
+        payload.checkIn = new Date(`${attForm.date}T${attForm.checkIn}`).toISOString();
+      }
+      if (attForm.checkOut) {
+        payload.checkOut = new Date(`${attForm.date}T${attForm.checkOut}`).toISOString();
+      }
       if (attForm.notes.trim()) payload.notes = attForm.notes.trim();
 
       const res = await fetch("/api/team", {
@@ -860,11 +667,18 @@ export default function TimeTrackingPage() {
       if (res.ok) {
         toast.success("Attendance record added");
         setAttDialogOpen(false);
-        setAttForm({ userId: "", date: "", status: "PRESENT", checkIn: "", checkOut: "", notes: "" });
+        setAttForm({
+          userId: "",
+          date: "",
+          status: "PRESENT",
+          checkIn: "",
+          checkOut: "",
+          notes: "",
+        });
         fetchAttendance();
       } else {
         const errData = await res.json().catch(() => null);
-        toast.error(errData?.error || "Failed to add attendance record");
+        toast.error(safeText(errData?.error, "Failed to add attendance record"));
       }
     } catch {
       toast.error("Failed to add attendance record");
@@ -873,7 +687,6 @@ export default function TimeTrackingPage() {
     }
   }, [attForm, fetchAttendance]);
 
-  // ── Attendance: Edit record handler ──
   const openEditAttDialog = useCallback((record: AttendanceRecord) => {
     setEditAttForm({
       id: record.id,
@@ -889,9 +702,10 @@ export default function TimeTrackingPage() {
     if (!editAttForm.id) return;
     setAttEditLoading(true);
     try {
-      // Find the original record to get its date for ISO reconstruction
-      const originalRecord = attendance.find(a => a.id === editAttForm.id);
-      const recordDateStr = originalRecord?.date ? toLocalDateStr(new Date(originalRecord.date)) : "";
+      const originalRecord = attendance.find((a) => a.id === editAttForm.id);
+      const recordDateStr = originalRecord?.date
+        ? toLocalDateStr(new Date(originalRecord.date))
+        : "";
 
       const payload: Record<string, unknown> = {
         type: "attendance",
@@ -907,8 +721,7 @@ export default function TimeTrackingPage() {
       } else {
         payload.checkOut = null;
       }
-      if (editAttForm.notes.trim()) payload.notes = editAttForm.notes.trim();
-      else payload.notes = null;
+      payload.notes = editAttForm.notes.trim() || null;
 
       const res = await fetch("/api/team", {
         method: "PATCH",
@@ -923,7 +736,7 @@ export default function TimeTrackingPage() {
         fetchAttendance();
       } else {
         const errData = await res.json().catch(() => null);
-        toast.error(errData?.error || "Failed to update attendance record");
+        toast.error(safeText(errData?.error, "Failed to update attendance record"));
       }
     } catch {
       toast.error("Failed to update attendance record");
@@ -932,54 +745,67 @@ export default function TimeTrackingPage() {
     }
   }, [editAttForm, fetchAttendance, attendance]);
 
-  // ── Attendance: Delete record handler ──
-  const handleDeleteAttendance = useCallback(async (id: string) => {
-    if (!id) return;
-    try {
-      const res = await fetch(`/api/team?type=attendance&id=${id}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-      if (res.ok) {
-        toast.success("Attendance record deleted");
-        setDeleteAttId(null);
-        fetchAttendance();
-      } else {
-        const errData = await res.json().catch(() => null);
-        toast.error(errData?.error || "Failed to delete attendance record");
+  const handleDeleteAttendance = useCallback(
+    async (id: string) => {
+      if (!id) return;
+      try {
+        const res = await fetch(`/api/team?type=attendance&id=${id}`, {
+          method: "DELETE",
+          credentials: "include",
+        });
+        if (res.ok) {
+          toast.success("Attendance record deleted");
+          setDeleteAttId(null);
+          fetchAttendance();
+        } else {
+          const errData = await res.json().catch(() => null);
+          toast.error(safeText(errData?.error, "Failed to delete attendance record"));
+        }
+      } catch {
+        toast.error("Failed to delete attendance record");
       }
-    } catch {
-      toast.error("Failed to delete attendance record");
-    }
-  }, [fetchAttendance]);
+    },
+    [fetchAttendance]
+  );
 
-  // ── Attendance: filtered records + stats (memoized) ──
   const filteredAttendance = useMemo(
-    () => attUserFilter === "all" ? attendance : attendance.filter(a => a.userId === attUserFilter),
+    () =>
+      attUserFilter === "all"
+        ? attendance
+        : attendance.filter((a) => a.userId === attUserFilter),
     [attUserFilter, attendance]
   );
-  const attStats = useMemo(() => ({
-    total: filteredAttendance.length,
-    present: filteredAttendance.filter(a => a.status === "PRESENT").length,
-    absent: filteredAttendance.filter(a => a.status === "ABSENT").length,
-    halfDay: filteredAttendance.filter(a => a.status === "HALF_DAY").length,
-    leave: filteredAttendance.filter(a => a.status === "LEAVE").length,
-  }), [filteredAttendance]);
 
-  // ── Export CSV ──
+  const attStats = useMemo(
+    () => ({
+      total: filteredAttendance.length,
+      present: filteredAttendance.filter((a) => a.status === "PRESENT").length,
+      absent: filteredAttendance.filter((a) => a.status === "ABSENT").length,
+      halfDay: filteredAttendance.filter((a) => a.status === "HALF_DAY").length,
+      leave: filteredAttendance.filter((a) => a.status === "LEAVE").length,
+    }),
+    [filteredAttendance]
+  );
+
   const exportCSV = useCallback(() => {
-    const headers = ["Employee", "Project", "Description", "Date", "Clock In", "Clock Out", "Duration (hours)"];
-    const rows = teamEntries.map((e) => [
-      e.user?.name || "Unknown",
-      e.project?.name || "No Project",
-      e.description || "",
+    const headers = [
+      "Employee",
+      "Project",
+      "Description",
+      "Date",
+      "Clock In",
+      "Clock Out",
+      "Duration (hours)",
+    ];
+    const rows = timesheetEntries.map((e) => [
+      safeText(e.user?.name, "Unknown"),
+      safeText(e.project?.name, "No Project"),
+      safeText(e.description),
       formatDate(e.date),
       formatTime(e.clockIn),
       e.clockOut ? formatTime(e.clockOut) : "Active",
-      e.totalHours ? e.totalHours.toFixed(2) : "0",
+      e.totalHours ? safeNumber(e.totalHours).toFixed(2) : "0",
     ]);
-
-    // [FIX M3: Proper CSV escaping]
     const csv = [headers, ...rows].map((r) => r.map(escapeCSV).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -988,83 +814,72 @@ export default function TimeTrackingPage() {
     a.download = `time-entries-${getDateStr(new Date())}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [teamEntries]);
+  }, [timesheetEntries]);
 
-  // ── Computed stats (memoized) ──
-  // [FIX: Move date computations inside useMemo to avoid stale closure over
-  //  external variables that are NOT in the dependency array. Previously,
-  // today/startOfToday/weekDays/endOfWeek were computed outside useMemo but
-  //  referenced inside it with only [entries] as the dependency — meaning
-  //  date changes wouldn't trigger recomputation.]
-  const { todayHours, weekHours, activeProjectIds, completedEntries, weeklyGrid, myTodayEntries,
-          today, startOfToday, weekDays, endOfWeek } = useMemo(() => {
+  // Today stats from default week fetch
+  const { todayHours, weekHours, weeklyGrid, myTodayEntries } = useMemo(() => {
     const today = new Date();
-    const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const weekDays = getWeekDays();
-    const endOfWeek = new Date(weekDays[6].getTime() + 86400000);
+    const { start: startOfToday, end: endOfToday } = dayBounds(today);
+    const currentWeek = getWeekDays();
+    const endOfWeek = new Date(currentWeek[6].getTime() + 86400000);
 
-    const todayHours = entries
+    const completed = entries.filter((e) => e.status === "COMPLETED");
+
+    const todayHours = completed
       .filter((e) => {
         const d = new Date(e.date);
-        return d >= startOfToday && d < new Date(startOfToday.getTime() + 86400000);
+        return d >= startOfToday && d < endOfToday;
       })
-      .reduce((sum, e) => sum + (e.totalHours || 0), 0);
+      .reduce((sum, e) => sum + safeNumber(e.totalHours), 0);
 
-    const weekHours = entries
+    const weekHours = completed
       .filter((e) => {
         const d = new Date(e.date);
-        return d >= weekDays[0] && d < endOfWeek;
+        return d >= currentWeek[0] && d < endOfWeek;
       })
-      .reduce((sum, e) => sum + (e.totalHours || 0), 0);
+      .reduce((sum, e) => sum + safeNumber(e.totalHours), 0);
 
-    const activeProjectIds = new Set(
-      entries
-        .filter((e) => {
-          const d = new Date(e.date);
-          return d >= weekDays[0] && d < endOfWeek && e.projectId;
-        })
-        .map((e) => e.projectId)
-    );
-
-    const completedEntries = entries.filter((e) => e.status === "COMPLETED");
-
-    const weeklyGrid = weekDays.map((day) => {
-      const dayStart = day.getTime();
-      const dayEnd = dayStart + 86400000;
-      const dayEntries = completedEntries.filter((e) => {
+    const weeklyGrid = currentWeek.map((day) => {
+      const { start, end } = dayBounds(day);
+      const dayEntries = completed.filter((e) => {
         const d = new Date(e.date).getTime();
-        return d >= dayStart && d < dayEnd;
+        return d >= start.getTime() && d < end.getTime();
       });
-      const total = dayEntries.reduce((sum, e) => sum + (e.totalHours || 0), 0);
-      const isToday = day.toDateString() === today.toDateString();
-      return { day, total, entries: dayEntries, isToday };
+      const total = dayEntries.reduce((sum, e) => sum + safeNumber(e.totalHours), 0);
+      return {
+        day,
+        total,
+        isToday: day.toDateString() === today.toDateString(),
+      };
     });
 
-    const myTodayEntries = completedEntries.filter((e) => {
+    const myTodayEntries = completed.filter((e) => {
       const d = new Date(e.date);
-      return d >= startOfToday && d < new Date(startOfToday.getTime() + 86400000);
+      return d >= startOfToday && d < endOfToday;
     });
 
-    return { todayHours, weekHours, activeProjectIds, completedEntries, weeklyGrid, myTodayEntries,
-             today, startOfToday, weekDays, endOfWeek };
+    return { todayHours, weekHours, weeklyGrid, myTodayEntries };
   }, [entries]);
 
-  // Add active timer hours to today and week
   const activeTimerHours = activeEntry ? elapsed / (1000 * 60 * 60) : 0;
   const todayTotal = todayHours + activeTimerHours;
   const weekTotal = weekHours + activeTimerHours;
 
-  // [FIX C2: Show loading skeleton during session loading or data loading]
+  const handleTabChange = (v: string) => {
+    if (v === "attendance" && !isAdminUser) return;
+    setActiveTab(v as TimeTrackingTab);
+  };
+
   if (sessionStatus === "loading" || loading) {
     return (
-      <div className="space-y-4 sm:space-y-6">
-        <h1 className="text-xl sm:text-2xl font-bold">Time Tracking</h1>
-        <div className="grid gap-3 sm:gap-4 grid-cols-2 lg:grid-cols-4">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="h-24 sm:h-28 bg-muted animate-pulse rounded-lg" />
-          ))}
+      <div className="space-y-4 sm:space-y-6 th-page-enter">
+        <div className="space-y-2">
+          <div className="h-7 w-48 bg-muted/50 animate-pulse rounded-lg" />
+          <div className="h-4 w-72 bg-muted/40 animate-pulse rounded" />
         </div>
-        <div className="h-48 sm:h-64 bg-muted animate-pulse rounded-lg" />
+        <div className="h-12 bg-muted/40 animate-pulse rounded-xl" />
+        <div className="h-48 sm:h-56 bg-muted/50 animate-pulse rounded-2xl" />
+        <div className="h-32 bg-muted/40 animate-pulse rounded-xl" />
       </div>
     );
   }
@@ -1073,1452 +888,260 @@ export default function TimeTrackingPage() {
     return (
       <div className="flex flex-col items-center justify-center min-h-[300px] sm:min-h-[400px] gap-3 sm:gap-4 px-4">
         <AlertCircle className="h-10 w-10 sm:h-12 sm:w-12 text-destructive" />
-        <p className="text-sm sm:text-base text-muted-foreground text-center">{error}</p>
-        <Button variant="outline" onClick={() => { setError(null); setLoading(true); fetchEntries(); }}>
+        <p className="text-sm sm:text-base text-muted-foreground text-center">{safeText(error)}</p>
+        <Button
+          variant="outline"
+          onClick={() => {
+            setError(null);
+            setLoading(true);
+            fetchEntries();
+          }}
+        >
           Try Again
         </Button>
       </div>
     );
   }
 
-  // ── Render ──
   return (
-    <div className="space-y-4 sm:space-y-6">
-      {/* Header */}
-      <PageHeader title="Time Tracking" description="Track your work hours and manage time entries">
-        <div className="flex flex-wrap items-center gap-2">
-          {isAdminUser && (
-            <Button size="sm" onClick={() => setAddEntryOpen(true)} className="bg-green-600 hover:bg-green-700 text-white">
-              <Plus className="h-3.5 w-3.5 mr-1.5" /> <span className="hidden sm:inline">Add Entry</span><span className="sm:hidden">Add</span>
-            </Button>
-          )}
-          {/* [FIX M7: Add refresh button] */}
-          <Button variant="outline" size="sm" onClick={() => { setLoading(true); fetchEntries(); }}>
-            <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${loading ? "animate-spin" : ""}`} /> <span className="hidden sm:inline">Refresh</span>
-          </Button>
-
-          {/* Active Timer Status — compact on mobile */}
-          {activeEntry && (
-            <div className="flex items-center gap-2 sm:gap-3 px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
-              <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
-                <span className="relative flex h-2.5 w-2.5 sm:h-3 sm:w-3 shrink-0">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 sm:h-3 sm:w-3 bg-green-500" />
-                </span>
-                <span className="text-xs sm:text-sm font-medium text-green-700 dark:text-green-300 truncate max-w-[80px] sm:max-w-none">
-                  {activeEntry.project?.name || "Working"}
-                </span>
-              </div>
-              <span className="text-sm sm:text-lg font-bold text-green-700 dark:text-green-300 tabular-nums tracking-wider">
-                {formatDuration(elapsed)}
-              </span>
-              <Button
-                size="sm"
-                variant="destructive"
-                className="h-7 sm:h-8 px-2 sm:px-3"
-                onClick={handleClockOutClick}
-                disabled={stopping}
-              >
-                <Square className="h-3 w-3 sm:h-3.5 sm:w-3.5 sm:mr-1.5" />
-                <span className="hidden sm:inline">{stopping ? "Stopping..." : "CLOCK OUT"}</span>
-              </Button>
-            </div>
-          )}
-        </div>
+    <div className="space-y-4 sm:space-y-6 th-page-enter">
+      <PageHeader title="Time Tracking" description="Clock in, review your week, and see where time goes">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setLoading(true);
+            fetchEntries();
+            if (activeTab === "timesheet") fetchTimesheet();
+            if (activeTab === "insights") fetchAnalytics();
+            if (activeTab === "attendance") fetchAttendance();
+          }}
+        >
+          <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+          <span className="hidden sm:inline">Refresh</span>
+        </Button>
       </PageHeader>
 
-      {/* Stats Cards */}
-      <div className="grid gap-3 sm:gap-4 grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="text-[10px] sm:text-xs">Today&apos;s Hours</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-2 sm:gap-3">
-              <div className="h-8 w-8 sm:h-10 sm:w-10 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center shrink-0">
-                <Timer className="h-4 w-4 sm:h-5 sm:w-5 text-green-600 dark:text-green-400" />
-              </div>
-              <span className="text-xl sm:text-2xl font-bold tabular-nums">{formatHours(todayTotal)}</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="text-[10px] sm:text-xs">This Week</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-2 sm:gap-3">
-              <div className="h-8 w-8 sm:h-10 sm:w-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
-                <TrendingUp className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600 dark:text-blue-400" />
-              </div>
-              <span className="text-xl sm:text-2xl font-bold tabular-nums">{formatHours(weekTotal)}</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="text-[10px] sm:text-xs">Active Projects</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-2 sm:gap-3">
-              <div className="h-8 w-8 sm:h-10 sm:w-10 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center shrink-0">
-                <FolderKanban className="h-4 w-4 sm:h-5 sm:w-5 text-purple-600 dark:text-purple-400" />
-              </div>
-              <span className="text-xl sm:text-2xl font-bold">{activeProjectIds.size}</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="text-[10px] sm:text-xs">{isAdminUser ? "Team Entries" : "My Entries"}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-2 sm:gap-3">
-              <div className="h-8 w-8 sm:h-10 sm:w-10 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
-                <Users className="h-4 w-4 sm:h-5 sm:w-5 text-amber-600 dark:text-amber-400" />
-              </div>
-              <span className="text-xl sm:text-2xl font-bold">{completedEntries.length}</span>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Running Sessions - Admin Only (Phase A3) */}
-      {isAdminUser && activeEntries && activeEntries.length > 0 && (
-        <Card className="border-l-4 border-l-green-500">
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-              <CardTitle className="text-base flex items-center gap-2">
-                <UserCheck className="h-4 w-4 text-green-600" />
-                Running Sessions
-              </CardTitle>
-              <Badge variant="outline" className="bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800">
-                {activeEntries.length} active
-              </Badge>
-            </div>
-            <CardDescription className="text-xs">
-              Users currently clocked in. Use &ldquo;End Session&rdquo; to force clock-out a user who forgot.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {activeEntries.map((entry) => {
-                const isEnding = endingEntryId === entry.id;
-                const sourceLabel =
-                  entry.source === "AGENT_OTP" ? "OTP"
-                  : entry.source === "ADMIN_OVERRIDE" ? "Admin"
-                  : entry.clockInMethod === "OTP" ? "OTP"
-                  : "Manual";
-                const sourceBadgeClass =
-                  entry.source === "AGENT_OTP" || entry.clockInMethod === "OTP"
-                    ? "bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 border-violet-200 dark:border-violet-800"
-                    : "bg-slate-50 text-slate-700 dark:bg-slate-900/30 dark:text-slate-300 border-slate-200 dark:border-slate-800";
-                return (
-                  <div
-                    key={entry.id}
-                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <Avatar className="h-8 w-8 shrink-0">
-                        <AvatarImage src={entry.user?.avatar || ""} alt={entry.user?.name || ""} />
-                        <AvatarFallback className="text-xs">
-                          {entry.user?.name?.charAt(0)?.toUpperCase() || "?"}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="text-sm font-medium truncate">{entry.user?.name || "Unknown"}</p>
-                          <Badge variant="outline" className={`text-[10px] ${sourceBadgeClass}`}>
-                            {sourceLabel}
-                          </Badge>
-                        </div>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {entry.project?.name || "No project"} &bull; Since {new Date(entry.clockIn).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 justify-end shrink-0">
-                      <Badge variant="outline" className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 text-[10px] tabular-nums font-mono">
-                        {formatDuration(activeElapsedMap[entry.id] || 0)}
-                      </Badge>
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        className="h-7 text-xs"
-                        disabled={isEnding}
-                        onClick={() => setEndSessionConfirmId(entry.id)}
-                        aria-label={`End session for ${entry.user?.name || "user"}`}
-                      >
-                        {isEnding ? (
-                          <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Ending...</>
-                        ) : (
-                          <><StopCircle className="h-3 w-3 mr-1" />End Session</>
-                        )}
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Main Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="w-full sm:w-auto">
-          <TabsTrigger value="my-time" className="text-xs sm:text-sm">My Time</TabsTrigger>
-          {isAdminUser && <TabsTrigger value="team" className="text-xs sm:text-sm">Team Logs</TabsTrigger>}
-          <TabsTrigger value="analytics" className="text-xs sm:text-sm">Analytics</TabsTrigger>
-          {isAdminUser && <TabsTrigger value="attendance" className="text-xs sm:text-sm">Attendance</TabsTrigger>}
+      <Tabs value={activeTab} onValueChange={handleTabChange}>
+        <TabsList className="w-full sm:w-auto h-auto flex-wrap justify-start">
+          <TabsTrigger value="today" className="text-xs sm:text-sm">
+            Today
+          </TabsTrigger>
+          <TabsTrigger value="timesheet" className="text-xs sm:text-sm">
+            Timesheet
+          </TabsTrigger>
+          <TabsTrigger value="insights" className="text-xs sm:text-sm">
+            Insights
+          </TabsTrigger>
+          {isAdminUser && (
+            <TabsTrigger value="attendance" className="text-xs sm:text-sm">
+              Roster
+            </TabsTrigger>
+          )}
         </TabsList>
 
-        {/* ── Tab 1: My Time ── */}
-        <TabsContent value="my-time" className="space-y-6 mt-4">
-          {/* Timer Control */}
-          <Card ref={timerCardRef as any} className={activeEntry ? "border-green-200 dark:border-green-800 transition-shadow" : "transition-shadow"}>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm sm:text-base flex items-center gap-2">
-                <Timer className="h-4 w-4" />
-                {activeEntry ? "Timer Running" : "Start Timer"}
-                {fromWorkspace && !activeEntry && (
-                  <Badge variant="default" className="text-[10px] bg-green-500/10 text-green-600 border-green-500/20 ml-auto">
-                    Clock in to continue
-                  </Badge>
-                )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {activeEntry ? (
-                <div className="space-y-4">
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
-                    <div className="space-y-1.5 w-full">
-                      <div className="flex items-center gap-2 sm:gap-3">
-                        <span className="relative flex h-2.5 w-2.5 shrink-0">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500" />
-                        </span>
-                        <Badge variant="outline" className="bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800 text-xs">
-                          {activeEntry.project?.name || "No Project"}
-                        </Badge>
-                      </div>
-                      <p className="text-3xl sm:text-4xl font-bold tabular-nums text-green-600 dark:text-green-400 tracking-wide pl-5">
-                        {formatDuration(elapsed)}
-                      </p>
-                      {activeEntry.description && (
-                        <p className="text-xs sm:text-sm text-muted-foreground pl-5">{activeEntry.description}</p>
-                      )}
-                      <p className="text-[10px] sm:text-xs text-muted-foreground pl-5">
-                        Started at {formatTime(activeEntry.clockIn)} &bull;{" "}
-                        {formatDurationShort(elapsed)} elapsed
-                      </p>
-                    </div>
-                    <Button
-                      size="lg"
-                      variant="destructive"
-                      className="h-10 sm:h-12 px-6 sm:px-8 text-sm sm:text-base font-semibold w-full sm:w-auto"
-                      onClick={handleClockOutClick}
-                      disabled={stopping}
-                    >
-                      <StopCircle className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
-                      {stopping ? "Stopping..." : "CLOCK OUT"}
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                    <div>
-                      <Label className="text-xs sm:text-sm mb-1.5 block">Project (optional)</Label>
-                      <Select value={selectedProject} onValueChange={setSelectedProject}>
-                        <SelectTrigger className="h-9 sm:h-10">
-                          <SelectValue placeholder="Select a project..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">No Project</SelectItem>
-                          {projects.map((p) => (
-                            <SelectItem key={p.id} value={p.id}>
-                              {p.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label className="text-xs sm:text-sm mb-1.5 block">Description (optional)</Label>
-                      <Input
-                        placeholder="What are you working on?"
-                        value={timerDescription}
-                        onChange={(e) => setTimerDescription(e.target.value)}
-                        className="h-9 sm:h-10 text-sm"
-                      />
-                    </div>
-                  </div>
-                  <Button
-                    size="lg"
-                    className="h-10 sm:h-12 px-6 sm:px-8 text-sm sm:text-base font-semibold bg-green-600 hover:bg-green-700 text-white w-full sm:w-auto"
-                    onClick={handleStart}
-                    disabled={starting}
-                  >
-                    <Play className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
-                    {starting ? "Starting..." : "START"}
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Weekly Timesheet Grid */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm sm:text-base flex items-center gap-2">
-                <CalendarDays className="h-4 w-4" />
-                Weekly Overview
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-7 gap-1 sm:gap-2">
-                {weeklyGrid.map(({ day, total, isToday }, i) => {
-                  return (
-                    <div
-                      key={day.toISOString()}
-                      className={`text-center p-1.5 sm:p-3 rounded-lg border transition-colors ${
-                        isToday
-                          ? "bg-primary/5 border-primary/30"
-                          : total > 0
-                          ? "bg-muted/50"
-                          : ""
-                      }`}
-                    >
-                      <div className={`text-[9px] sm:text-xs font-medium ${isToday ? "text-primary" : "text-muted-foreground"}`}>
-                        {DAY_NAMES[i]}
-                      </div>
-                      <div className="text-[9px] sm:text-xs text-muted-foreground mt-0.5">
-                        {day.getDate()}
-                      </div>
-                      <div className={`text-[10px] sm:text-sm font-bold mt-1 ${total > 0 ? "text-foreground" : "text-muted-foreground"}`}>
-                        {total > 0 ? formatHours(total) : "\u2014"}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="mt-3 pt-3 border-t flex items-center justify-between">
-                <span className="text-xs sm:text-sm text-muted-foreground">Week Total</span>
-                <span className="text-xs sm:text-sm font-bold">{formatHours(weekTotal)}</span>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Today's Entries */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Today&apos;s Entries</CardTitle>
-              <CardDescription>
-                {myTodayEntries.length === 0 ? "No completed entries today" : `${myTodayEntries.length} completed entr${myTodayEntries.length === 1 ? "y" : "ies"}`}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {myTodayEntries.length === 0 ? (
-                <div className="text-center py-6">
-                  <Clock className="h-10 w-10 mx-auto text-muted-foreground opacity-40 mb-2" />
-                  <p className="text-sm text-muted-foreground">Start a timer to begin tracking</p>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <Table aria-label="Today's time entries">
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Project</TableHead>
-                        <TableHead>Description</TableHead>
-                        <TableHead>Clock In</TableHead>
-                        <TableHead>Clock Out</TableHead>
-                        <TableHead>Duration</TableHead>
-                        {isAdminUser && <TableHead className="w-20">Actions</TableHead>}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {myTodayEntries.map((entry) => (
-                        <TableRow key={entry.id}>
-                          <TableCell>
-                            <Badge variant="outline" className="text-xs">
-                              {entry.project?.name || "No Project"}
-                            </Badge>
-                          </TableCell>
-                          <TableCell
-                            className="text-sm text-muted-foreground max-w-[200px] truncate cursor-pointer hover:underline hover:text-foreground transition-colors"
-                            onClick={() => entry.description && setViewDescriptionEntry(entry)}
-                            tabIndex={0}
-                            onKeyDown={(e) => { if (e.key === 'Enter') entry.description && setViewDescriptionEntry(entry) }}
-                            role="button"
-                          >
-                            {entry.description || "\u2014"}
-                          </TableCell>
-                          <TableCell className="text-sm tabular-nums">{formatTime(entry.clockIn)}</TableCell>
-                          <TableCell className="text-sm tabular-nums">
-                            {entry.clockOut ? formatTime(entry.clockOut) : "\u2014"}
-                          </TableCell>
-                          <TableCell className="text-sm font-medium tabular-nums">
-                            {formatHours(entry.totalHours)}
-                          </TableCell>
-                          {isAdminUser && (
-                            <TableCell>
-                              <div className="flex items-center gap-1">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7 text-muted-foreground hover:text-primary"
-                                  onClick={() => openEditDialog(entry)}
-                                  aria-label="Edit time entry"
-                                >
-                                  <Pencil className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                                  onClick={() => setDeleteId(entry.id)}
-                                  aria-label="Delete time entry"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </Button>
-                              </div>
-                            </TableCell>
-                          )}
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+        <TabsContent value="today" className="mt-4">
+          <TodayView
+            timerRef={timerCardRef}
+            activeEntry={activeEntry}
+            elapsed={elapsed}
+            projects={projects}
+            selectedProject={selectedProject}
+            timerDescription={timerDescription}
+            starting={starting}
+            stopping={stopping}
+            fromWorkspace={fromWorkspace}
+            todayTotal={todayTotal}
+            weekTotal={weekTotal}
+            weeklyGrid={weeklyGrid}
+            todayEntries={myTodayEntries}
+            isAdmin={isAdminUser}
+            activeEntries={activeEntries}
+            activeElapsedMap={activeElapsedMap}
+            endingEntryId={endingEntryId}
+            onProjectChange={setSelectedProject}
+            onDescriptionChange={setTimerDescription}
+            onStart={handleStart}
+            onClockOutClick={handleClockOutClick}
+            onViewDescription={setViewDescriptionEntry}
+            onEditEntry={openEditDialog}
+            onDeleteEntry={setDeleteId}
+            onEndSessionConfirm={setEndSessionConfirmId}
+          />
         </TabsContent>
 
-        {/* ── Tab 2: Team Logs (Admin) ── */}
-        {isAdminUser && (
-          <TabsContent value="team" className="space-y-6 mt-4">
-            {/* Filters */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Filters</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
-                  <div>
-                    <Label className="text-xs mb-1.5 block">Employee</Label>
-                    <Select value={teamFilterUser} onValueChange={setTeamFilterUser}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="All employees" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All employees</SelectItem>
-                        {teamUsers.map((u) => (
-                          <SelectItem key={u.id} value={u.id}>
-                            {u.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label className="text-xs mb-1.5 block">Project</Label>
-                    <Select value={teamFilterProject} onValueChange={setTeamFilterProject}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="All projects" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All projects</SelectItem>
-                        {projects.map((p) => (
-                          <SelectItem key={p.id} value={p.id}>
-                            {p.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label className="text-xs mb-1.5 block">Start Date</Label>
-                    <Input
-                      type="date"
-                      value={teamFilterStartDate}
-                      onChange={(e) => setTeamFilterStartDate(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs mb-1.5 block">End Date</Label>
-                    <Input
-                      type="date"
-                      value={teamFilterEndDate}
-                      onChange={(e) => setTeamFilterEndDate(e.target.value)}
-                    />
-                  </div>
-                  <div className="flex items-end">
-                    <Button variant="outline" onClick={() => fetchTeamLogs()} className="w-full">
-                      Apply Filters
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Team Entries Table */}
-            <Card>
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base">
-                    Team Time Logs
-                    {teamEntries.length > 0 && (
-                      <span className="ml-2 text-sm font-normal text-muted-foreground">
-                        ({teamEntries.reduce((s, e) => s + (e.totalHours || 0), 0).toFixed(1)}h total)
-                      </span>
-                    )}
-                  </CardTitle>
-                  <div className="flex items-center gap-2">
-                    <Button size="sm" onClick={() => setAddEntryOpen(true)} className="bg-green-600 hover:bg-green-700 text-white">
-                      <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Entry
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={exportCSV} disabled={teamEntries.length === 0}>
-                      <Download className="h-3.5 w-3.5 mr-1.5" /> Export CSV
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {/* [FIX M6: Loading state for team logs] */}
-                {teamLoading ? (
-                  <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground">
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                    <span className="text-sm">Loading team logs...</span>
-                  </div>
-                ) : teamEntries.length === 0 ? (
-                  <div className="text-center py-8">
-                    <Users className="h-10 w-10 mx-auto text-muted-foreground opacity-40 mb-2" />
-                    <p className="text-sm text-muted-foreground">No entries found for the selected filters</p>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
-                    <Table aria-label="Team time logs">
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Employee</TableHead>
-                          <TableHead>Project</TableHead>
-                          <TableHead>Description</TableHead>
-                          <TableHead>Date</TableHead>
-                          <TableHead>Clock In</TableHead>
-                          <TableHead>Clock Out</TableHead>
-                          <TableHead>Duration</TableHead>
-                          <TableHead className="w-20">Actions</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {teamEntries.map((entry) => (
-                          <TableRow key={entry.id}>
-                            <TableCell className="text-sm font-medium">
-                              {entry.user?.name || "Unknown"}
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant="outline" className="text-xs">
-                                {entry.project?.name || "No Project"}
-                              </Badge>
-                            </TableCell>
-                            <TableCell
-                              className="text-sm text-muted-foreground max-w-[200px] truncate cursor-pointer hover:underline hover:text-foreground transition-colors"
-                              onClick={() => entry.description && setViewDescriptionEntry(entry)}
-                              tabIndex={0}
-                              onKeyDown={(e) => { if (e.key === 'Enter') entry.description && setViewDescriptionEntry(entry) }}
-                              role="button"
-                            >
-                              {entry.description || "\u2014"}
-                            </TableCell>
-                            <TableCell className="text-sm">{formatDate(entry.date)}</TableCell>
-                            <TableCell className="text-sm tabular-nums">{formatTime(entry.clockIn)}</TableCell>
-                            <TableCell className="text-sm tabular-nums">
-                              {entry.clockOut ? formatTime(entry.clockOut) : "\u2014"}
-                            </TableCell>
-                            <TableCell className="text-sm font-medium tabular-nums">
-                              {formatHours(entry.totalHours)}
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex items-center gap-1">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7 text-muted-foreground hover:text-primary"
-                                  onClick={() => openEditDialog(entry)}
-                                  aria-label="Edit time entry"
-                                >
-                                  <Pencil className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                                  onClick={() => setDeleteId(entry.id)}
-                                  aria-label="Delete time entry"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        )}
-
-        {/* ── Tab 3: Analytics ── */}
-        <TabsContent value="analytics" className="space-y-6 mt-4">
-          {/* Controls */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-            <Tabs value={analyticsTab} onValueChange={setAnalyticsTab}>
-              <TabsList>
-                <TabsTrigger value="employee">By Employee</TabsTrigger>
-                <TabsTrigger value="project">By Project</TabsTrigger>
-              </TabsList>
-            </Tabs>
-            <div className="flex items-center gap-2">
-              <Select value={dateRange} onValueChange={setDateRange}>
-                <SelectTrigger className="w-36">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="week">This Week</SelectItem>
-                  <SelectItem value="month">This Month</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* Analytics Content */}
-          {/* [FIX M6: Loading state for analytics] */}
-          {analyticsLoading ? (
-            <Card>
-              <CardContent className="py-12 flex items-center justify-center gap-2 text-muted-foreground">
-                <Loader2 className="h-5 w-5 animate-spin" />
-                <span className="text-sm">Loading analytics...</span>
-              </CardContent>
-            </Card>
-          ) : analyticsData && analyticsData.data.length > 0 ? (
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <BarChart3 className="h-4 w-4" />
-                  {analyticsTab === "employee" ? "Hours by Employee" : "Hours by Project"}
-                </CardTitle>
-                <CardDescription>
-                  Total: {formatHours(analyticsData.totalHours)} across {analyticsData.data.length} {analyticsTab === "employee" ? "employees" : "projects"}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {analyticsData.data.map((item, i) => {
-                  const name = analyticsTab === "employee" ? item.name : item.projectName;
-                  const hours = item.totalHours;
-                  const maxHours = analyticsData.data[0]?.totalHours || 1;
-                  const percentage = analyticsData.totalHours > 0
-                    ? Math.round((hours / analyticsData.totalHours) * 100)
-                    : 0;
-                  const barWidth = Math.max(2, (hours / maxHours) * 100);
-
-                  const color = COLORS[i % COLORS.length];
-                  // [FIX M2: Use stable key instead of array index]
-                  const stableKey = analyticsTab === "employee" ? item.userId : item.projectId;
-
-                  return (
-                    <div key={stableKey || i} className="space-y-1.5">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="font-medium truncate max-w-[200px]">{name || "Unknown"}</span>
-                        <div className="flex items-center gap-3">
-                          <span className="text-muted-foreground text-xs">{percentage}%</span>
-                          <span className="font-bold tabular-nums">{formatHours(hours)}</span>
-                        </div>
-                      </div>
-                      <div className="h-6 w-full bg-muted rounded-md overflow-hidden">
-                        <div
-                          className={`h-full ${color} rounded-md transition-all duration-500`}
-                          style={{ width: `${barWidth}%` }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </CardContent>
-            </Card>
-          ) : (
-            <Card>
-              <CardContent className="py-12 text-center">
-                <BarChart3 className="h-12 w-12 mx-auto text-muted-foreground opacity-40 mb-3" />
-                <p className="text-sm text-muted-foreground">
-                  No data available for the selected period
-                </p>
-              </CardContent>
-            </Card>
-          )}
+        <TabsContent value="timesheet" className="mt-4">
+          <TimesheetView
+            weekDays={weekDays}
+            entries={timesheetEntries}
+            loading={timesheetLoading}
+            isAdmin={isAdminUser}
+            teamUsers={teamUsers}
+            projects={projects}
+            filterUser={filterUser}
+            filterProject={filterProject}
+            onFilterUser={setFilterUser}
+            onFilterProject={setFilterProject}
+            onPrevWeek={() => setWeekAnchor((w) => shiftWeek(w, -1))}
+            onNextWeek={() => setWeekAnchor((w) => shiftWeek(w, 1))}
+            onThisWeek={() => setWeekAnchor(getWeekDays()[0])}
+            onExportCSV={exportCSV}
+            onAddEntry={() => setAddEntryOpen(true)}
+            onViewDescription={setViewDescriptionEntry}
+            onEditEntry={openEditDialog}
+            onDeleteEntry={setDeleteId}
+            canGoNext={canGoNextWeek}
+          />
         </TabsContent>
 
-        {/* ── Tab 4: Attendance (Admin) — moved from Team page ── */}
+        <TabsContent value="insights" className="mt-4">
+          <InsightsView
+            analyticsTab={analyticsTab}
+            dateRange={dateRange}
+            data={analyticsData}
+            loading={analyticsLoading}
+            isAdmin={isAdminUser}
+            onAnalyticsTab={setAnalyticsTab}
+            onDateRange={setDateRange}
+          />
+        </TabsContent>
+
         {isAdminUser && (
-          <TabsContent value="attendance" className="space-y-4 sm:space-y-6 mt-4">
-            {/* Header row with Add Record button */}
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <div>
-                <h3 className="text-sm sm:text-base font-medium flex items-center gap-2">
-                  <Calendar className="h-4 w-4" />
-                  Attendance Records
-                </h3>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Auto-computed from Time Tracking + Availability data
-                </p>
-              </div>
-              <Button
-                size="sm"
-                onClick={() => {
-                  setAttForm({ userId: "", date: toLocalDateStr(new Date()), status: "PRESENT", checkIn: "", checkOut: "", notes: "" });
-                  setAttDialogOpen(true);
-                }}
-                className="bg-primary hover:bg-primary/90"
-              >
-                <Plus className="h-3.5 w-3.5 mr-1.5" /> <span className="hidden sm:inline">Add Record</span><span className="sm:hidden">Add</span>
-              </Button>
-            </div>
-
-            {/* Summary cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-3">
-              <Card className="p-2 sm:p-3">
-                <p className="text-[10px] sm:text-xs text-muted-foreground">Total</p>
-                <p className="text-lg sm:text-xl font-bold">{attStats.total}</p>
-              </Card>
-              <Card className="p-2 sm:p-3">
-                <p className="text-[10px] sm:text-xs text-muted-foreground">Present</p>
-                <p className="text-lg sm:text-xl font-bold text-green-600">{attStats.present}</p>
-              </Card>
-              <Card className="p-2 sm:p-3">
-                <p className="text-[10px] sm:text-xs text-muted-foreground">Absent</p>
-                <p className="text-lg sm:text-xl font-bold text-red-600">{attStats.absent}</p>
-              </Card>
-              <Card className="p-2 sm:p-3">
-                <p className="text-[10px] sm:text-xs text-muted-foreground">Half Day</p>
-                <p className="text-lg sm:text-xl font-bold text-yellow-600">{attStats.halfDay}</p>
-              </Card>
-              <Card className="p-2 sm:p-3">
-                <p className="text-[10px] sm:text-xs text-muted-foreground">On Leave</p>
-                <p className="text-lg sm:text-xl font-bold text-blue-600">{attStats.leave}</p>
-              </Card>
-            </div>
-
-            {/* Filters row */}
-            <Card>
-              <CardContent className="p-3 sm:p-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 items-end">
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">From Date</Label>
-                    <Input type="date" value={attDateFrom} onChange={(e) => setAttDateFrom(e.target.value)} className="h-9" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">To Date</Label>
-                    <Input type="date" value={attDateTo} onChange={(e) => setAttDateTo(e.target.value)} className="h-9" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Employee</Label>
-                    <Select value={attUserFilter} onValueChange={setAttUserFilter}>
-                      <SelectTrigger className="h-9"><SelectValue placeholder="All employees" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Employees</SelectItem>
-                        {teamUsers.map((u) => (
-                          <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex items-end gap-2">
-                    {(attDateFrom || attDateTo || attUserFilter !== "all") && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-9 text-xs"
-                        onClick={() => { setAttDateFrom(""); setAttDateTo(""); setAttUserFilter("all"); }}
-                      >
-                        Clear Filters
-                      </Button>
-                    )}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-9 text-xs"
-                      onClick={() => fetchAttendance()}
-                      disabled={attendanceLoading}
-                    >
-                      <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${attendanceLoading ? "animate-spin" : ""}`} />
-                      Refresh
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Attendance records */}
-            <Card>
-              <CardContent className="p-3 sm:p-4">
-                {attendanceLoading ? (
-                  <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground">
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                    <span className="text-sm">Loading attendance...</span>
-                  </div>
-                ) : filteredAttendance.length === 0 ? (
-                  <div className="text-center py-12 text-muted-foreground">
-                    <Clock className="h-12 w-12 mx-auto mb-3 opacity-30" />
-                    <p className="text-sm">No attendance records found.</p>
-                    <p className="text-xs mt-1">Try adjusting the date filters or adding a manual record.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {filteredAttendance.map((record) => (
-                      <div
-                        key={record.id}
-                        className="flex items-center justify-between gap-2 sm:gap-3 p-2.5 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
-                      >
-                        <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
-                          <Avatar className="h-8 w-8 shrink-0">
-                            <AvatarImage src={record.user?.avatar || ""} alt={record.user?.name || ""} />
-                            <AvatarFallback className="text-[10px]">
-                              {record.user?.name?.charAt(0)?.toUpperCase() || "?"}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <p className="text-xs sm:text-sm font-medium truncate">{record.user?.name || "Unknown"}</p>
-                              {record.isManual && (
-                                <Badge variant="outline" className="text-[9px] px-1 py-0">Manual</Badge>
-                              )}
-                              <Badge className={`text-[10px] ${attStatusColors[record.status] || ""}`}>
-                                {(record.status || "").replace("_", " ")}
-                              </Badge>
-                            </div>
-                            <p className="text-[11px] sm:text-xs text-muted-foreground mt-0.5">
-                              {formatAttDate(record.date)}
-                              {record.checkIn && <span> &bull; In: {formatAttTime(record.checkIn)}</span>}
-                              {record.checkOut && <span> &bull; Out: {formatAttTime(record.checkOut)}</span>}
-                            </p>
-                            {/* Hours bar: required vs worked */}
-                            {record.requiredHours !== null && record.requiredHours !== undefined && record.requiredHours > 0 && (
-                              <div className="flex items-center gap-2 mt-1">
-                                <div className="flex-1 max-w-[150px] sm:max-w-[200px]">
-                                  <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                                    <div
-                                      className={`h-full rounded-full transition-all ${
-                                        (record.workedHours || 0) >= record.requiredHours
-                                          ? "bg-green-500"
-                                          : (record.workedHours || 0) >= record.requiredHours * 0.5
-                                            ? "bg-yellow-500"
-                                            : "bg-red-400"
-                                      }`}
-                                      style={{ width: `${Math.min(100, ((record.workedHours || 0) / record.requiredHours) * 100)}%` }}
-                                    />
-                                  </div>
-                                </div>
-                                <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                                  {record.workedHours || 0}h / {record.requiredHours}h
-                                </span>
-                              </div>
-                            )}
-                            {record.notes && (
-                              <p className="text-[10px] sm:text-xs text-muted-foreground/70 mt-0.5 truncate max-w-[200px] sm:max-w-[400px]">{record.notes}</p>
-                            )}
-                          </div>
-                        </div>
-                        {record.isManual && (
-                          <div className="flex items-center gap-1 shrink-0">
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-7 w-7 text-muted-foreground hover:text-primary"
-                              aria-label="Edit attendance"
-                              onClick={() => openEditAttDialog(record)}
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                              aria-label="Delete attendance"
-                              onClick={() => setDeleteAttId(record.id)}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+          <TabsContent value="attendance" className="mt-4">
+            <AttendanceView
+              records={filteredAttendance}
+              loading={attendanceLoading}
+              teamUsers={teamUsers}
+              dateFrom={attDateFrom}
+              dateTo={attDateTo}
+              userFilter={attUserFilter}
+              stats={attStats}
+              onDateFrom={setAttDateFrom}
+              onDateTo={setAttDateTo}
+              onUserFilter={setAttUserFilter}
+              onClearFilters={() => {
+                setAttDateFrom("");
+                setAttDateTo("");
+                setAttUserFilter("all");
+              }}
+              onRefresh={() => fetchAttendance()}
+              onAdd={() => {
+                setAttForm({
+                  userId: "",
+                  date: toLocalDateStr(new Date()),
+                  status: "PRESENT",
+                  checkIn: "",
+                  checkOut: "",
+                  notes: "",
+                });
+                setAttDialogOpen(true);
+              }}
+              onEdit={openEditAttDialog}
+              onDelete={setDeleteAttId}
+            />
           </TabsContent>
         )}
       </Tabs>
 
-      {/* ── Attendance Dialogs ── */}
+      {/* Dialogs */}
+      <ClockOutDialog
+        open={clockOutOpen}
+        onOpenChange={setClockOutOpen}
+        activeEntry={activeEntry}
+        elapsed={elapsed}
+        notes={clockOutNotes}
+        onNotesChange={(v) => {
+          setClockOutNotes(v);
+          clockOutNotesRef.current = v;
+        }}
+        stopping={stopping}
+        onConfirm={executeClockOut}
+      />
 
-      {/* Add Attendance Record Dialog */}
-      <Dialog open={attDialogOpen} onOpenChange={setAttDialogOpen}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>Add Attendance Record</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Employee *</Label>
-              <Select value={attForm.userId} onValueChange={(v) => setAttForm(p => ({ ...p, userId: v }))}>
-                <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
-                <SelectContent>
-                  {teamUsers.map((u) => (
-                    <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Date *</Label>
-                <Input type="date" value={attForm.date} onChange={(e) => setAttForm(p => ({ ...p, date: e.target.value }))} />
-              </div>
-              <div className="space-y-2">
-                <Label>Status *</Label>
-                <Select value={attForm.status} onValueChange={(v) => setAttForm(p => ({ ...p, status: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="PRESENT">Present</SelectItem>
-                    <SelectItem value="ABSENT">Absent</SelectItem>
-                    <SelectItem value="HALF_DAY">Half Day</SelectItem>
-                    <SelectItem value="LEAVE">On Leave</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Check-in Time</Label>
-                <Input type="time" value={attForm.checkIn} onChange={(e) => setAttForm(p => ({ ...p, checkIn: e.target.value }))} />
-              </div>
-              <div className="space-y-2">
-                <Label>Check-out Time</Label>
-                <Input type="time" value={attForm.checkOut} onChange={(e) => setAttForm(p => ({ ...p, checkOut: e.target.value }))} />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Notes (Optional)</Label>
-              <Textarea value={attForm.notes} onChange={(e) => setAttForm(p => ({ ...p, notes: e.target.value }))} rows={2} placeholder="Any additional notes..." />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAttDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleAddAttendance} disabled={!attForm.userId || !attForm.date || attLoading}>
-              {attLoading ? "Adding..." : "Add Record"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DeleteEntryDialog
+        open={!!deleteId}
+        onOpenChange={(open) => !open && setDeleteId(null)}
+        onConfirm={handleDelete}
+      />
 
-      {/* Edit Attendance Record Dialog */}
-      <Dialog open={editAttDialogOpen} onOpenChange={setEditAttDialogOpen}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>Edit Attendance Record</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Status *</Label>
-              <Select value={editAttForm.status} onValueChange={(v) => setEditAttForm(p => ({ ...p, status: v }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="PRESENT">Present</SelectItem>
-                  <SelectItem value="ABSENT">Absent</SelectItem>
-                  <SelectItem value="HALF_DAY">Half Day</SelectItem>
-                  <SelectItem value="LEAVE">On Leave</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Check-in Time</Label>
-                <Input type="time" value={editAttForm.checkIn} onChange={(e) => setEditAttForm(p => ({ ...p, checkIn: e.target.value }))} />
-              </div>
-              <div className="space-y-2">
-                <Label>Check-out Time</Label>
-                <Input type="time" value={editAttForm.checkOut} onChange={(e) => setEditAttForm(p => ({ ...p, checkOut: e.target.value }))} />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Notes</Label>
-              <Textarea value={editAttForm.notes} onChange={(e) => setEditAttForm(p => ({ ...p, notes: e.target.value }))} rows={2} placeholder="Any additional notes..." />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditAttDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleEditAttendance} disabled={!editAttForm.id || attEditLoading}>
-              {attEditLoading ? "Saving..." : "Save Changes"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Attendance Confirmation */}
-      <AlertDialog open={!!deleteAttId} onOpenChange={(open) => { if (!open) setDeleteAttId(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Attendance Record</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete this attendance record? This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => { if (deleteAttId) handleDeleteAttendance(deleteAttId); }}
-              className="bg-destructive hover:bg-destructive/90"
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Clock-Out Dialog */}
-      <Dialog open={clockOutOpen} onOpenChange={(open) => { setClockOutOpen(open); if (!open) setClockOutNotes(""); }}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <StopCircle className="h-5 w-5 text-destructive" />
-              Clock Out
-            </DialogTitle>
-            <DialogDescription>
-              {activeEntry ? (
-                <>
-                  You&apos;ve been working for{" "}
-                  <span className="font-semibold text-foreground">{formatDuration(elapsed)}</span>
-                  {activeEntry.project?.name && (
-                    <> on <span className="font-semibold text-foreground">{activeEntry.project.name}</span></>
-                  )}
-                  .
-                </>
-              ) : (
-                "Record your work summary for this session."
-              )}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label htmlFor="clock-out-notes">
-                Work Summary / Notes
-                <span className="text-muted-foreground font-normal ml-1">(optional)</span>
-              </Label>
-              <Textarea
-                id="clock-out-notes"
-                value={clockOutNotes}
-                onChange={(e) => {
-                  const val = e.target.value.slice(0, 500)
-                  setClockOutNotes(val)
-                  clockOutNotesRef.current = val
-                }}
-                placeholder="What did you work on during this session?"
-                rows={4}
-                maxLength={500}
-                className="resize-none"
-              />
-              <p className="text-xs text-muted-foreground">
-                Add a brief description of what you accomplished.
-              </p>
-            </div>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 rounded-lg p-3">
-              <Clock className="h-4 w-4 shrink-0" />
-              <span>
-                Clock-out time:{" "}
-                <span className="font-medium text-foreground tabular-nums">
-                  {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                </span>
-              </span>
-            </div>
-          </div>
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => { setClockOutOpen(false); setClockOutNotes(""); }}>
-              Cancel
-            </Button>
-            <Button onClick={executeClockOut} disabled={stopping}>
-              {stopping ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Stopping...
-                </>
-              ) : (
-                <>
-                  <StopCircle className="h-4 w-4 mr-2" />
-                  Clock Out
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Time Entry</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete this time entry? This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* End Session Confirmation Dialog (Admin Override) — Phase A3 */}
-      <AlertDialog
+      <EndSessionDialog
         open={!!endSessionConfirmId}
         onOpenChange={(open) => !open && setEndSessionConfirmId(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>End Running Session?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will force clock-out the user now and mark the entry as completed with
-              method <span className="font-medium">ADMIN_OVERRIDE</span>. The user&rsquo;s
-              session will be terminated. This action is audit-logged.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={!!endingEntryId}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => endSessionConfirmId && handleAdminEndSession(endSessionConfirmId)}
-              disabled={!!endingEntryId}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {endingEntryId ? (
-                <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Ending...</>
-              ) : (
-                <><StopCircle className="h-4 w-4 mr-2" />End Session</>
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        ending={!!endingEntryId}
+        onConfirm={() => endSessionConfirmId && handleAdminEndSession(endSessionConfirmId)}
+      />
 
-      {/* View Description Dialog */}
-      <Dialog open={!!viewDescriptionEntry} onOpenChange={(open) => !open && setViewDescriptionEntry(null)}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Eye className="h-5 w-5" />
-              Entry Details
-            </DialogTitle>
-          </DialogHeader>
-          {viewDescriptionEntry && (
-            <div className="space-y-4">
-              {viewDescriptionEntry.user && (
-                <div className="flex items-center gap-3">
-                  <Avatar className="h-9 w-9">
-                    <AvatarImage src={viewDescriptionEntry.user.avatar || ""} alt={viewDescriptionEntry.user.name || ""} />
-                    <AvatarFallback className="text-xs">
-                      {viewDescriptionEntry.user.name?.charAt(0)?.toUpperCase() || "?"}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <p className="text-sm font-medium">{viewDescriptionEntry.user.name}</p>
-                    {viewDescriptionEntry.project && (
-                      <p className="text-xs text-muted-foreground">{viewDescriptionEntry.project.name}</p>
-                    )}
-                  </div>
-                </div>
-              )}
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className="bg-muted/50 rounded-lg p-3">
-                  <p className="text-xs text-muted-foreground mb-1">Clock In</p>
-                  <p className="font-medium tabular-nums">{formatTime(viewDescriptionEntry.clockIn)}</p>
-                </div>
-                <div className="bg-muted/50 rounded-lg p-3">
-                  <p className="text-xs text-muted-foreground mb-1">Clock Out</p>
-                  <p className="font-medium tabular-nums">{viewDescriptionEntry.clockOut ? formatTime(viewDescriptionEntry.clockOut) : "Active"}</p>
-                </div>
-              </div>
-              <div className="bg-muted/50 rounded-lg p-3">
-                <p className="text-xs text-muted-foreground mb-1">Duration</p>
-                <p className="font-medium">{formatHours(viewDescriptionEntry.totalHours)}</p>
-              </div>
-              {viewDescriptionEntry.description && (
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1.5">Description</p>
-                  <div className="bg-muted/30 rounded-lg p-3 text-sm whitespace-pre-wrap max-h-[200px] overflow-y-auto">
-                    {viewDescriptionEntry.description}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setViewDescriptionEntry(null)}>Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ViewDescriptionDialog
+        entry={viewDescriptionEntry}
+        onClose={() => setViewDescriptionEntry(null)}
+      />
 
-      {/* Edit Entry Dialog (Admin) */}
-      <Dialog open={!!editEntry} onOpenChange={(open) => { if (!open) setEditEntry(null); }}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Pencil className="h-5 w-5" />
-              Edit Time Entry
-            </DialogTitle>
-            <DialogDescription>Modify this time entry. Changes will recalculate duration automatically.</DialogDescription>
-          </DialogHeader>
-          {editEntry && (
-            <div className="space-y-4">
-              {/* User info (read-only) */}
-              <div className="flex items-center gap-3 bg-muted/30 rounded-lg p-3">
-                <Avatar className="h-9 w-9">
-                  <AvatarImage src={editEntry.user?.avatar || ""} alt={editEntry.user?.name || ""} />
-                  <AvatarFallback className="text-xs">
-                    {editEntry.user?.name?.charAt(0)?.toUpperCase() || "?"}
-                  </AvatarFallback>
-                </Avatar>
-                <div>
-                  <p className="text-sm font-medium">{editEntry.user?.name || "Unknown"}</p>
-                  <p className="text-xs text-muted-foreground">{formatDate(editEntry.date)}</p>
-                </div>
-              </div>
+      <EditEntryDialog
+        entry={editEntry}
+        onClose={() => setEditEntry(null)}
+        projects={projects}
+        description={editDescription}
+        projectId={editProjectId}
+        clockIn={editClockIn}
+        clockOut={editClockOut}
+        saving={editSaving}
+        onDescription={setEditDescription}
+        onProjectId={setEditProjectId}
+        onClockIn={setEditClockIn}
+        onClockOut={setEditClockOut}
+        onSave={handleAdminEditEntry}
+      />
 
-              {/* Project */}
-              <div className="space-y-2">
-                <Label>Project</Label>
-                <Select value={editProjectId} onValueChange={setEditProjectId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select project..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">No Project</SelectItem>
-                    {projects.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+      <AddEntryDialog
+        open={addEntryOpen}
+        onOpenChange={setAddEntryOpen}
+        teamUsers={teamUsers}
+        projects={projects}
+        userId={addEntryUserId}
+        projectId={addEntryProjectId}
+        description={addEntryDescription}
+        clockIn={addEntryClockIn}
+        clockOut={addEntryClockOut}
+        saving={addEntrySaving}
+        onUserId={setAddEntryUserId}
+        onProjectId={setAddEntryProjectId}
+        onDescription={setAddEntryDescription}
+        onClockIn={setAddEntryClockIn}
+        onClockOut={setAddEntryClockOut}
+        onSave={handleAdminAddEntry}
+      />
 
-              {/* Description */}
-              <div className="space-y-2">
-                <Label>Description</Label>
-                <Textarea
-                  value={editDescription}
-                  onChange={(e) => setEditDescription(e.target.value.slice(0, 1000))}
-                  placeholder="What was worked on..."
-                  rows={3}
-                  maxLength={1000}
-                  className="resize-none"
-                />
-              </div>
+      <AddAttendanceDialog
+        open={attDialogOpen}
+        onOpenChange={setAttDialogOpen}
+        teamUsers={teamUsers}
+        form={attForm}
+        setForm={setAttForm}
+        loading={attLoading}
+        onSave={handleAddAttendance}
+      />
 
-              {/* Clock In / Clock Out */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Clock In</Label>
-                  <Input
-                    type="datetime-local"
-                    value={editClockIn}
-                    onChange={(e) => setEditClockIn(e.target.value)}
-                    className="tabular-nums"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Clock Out <span className="text-muted-foreground font-normal">(optional)</span></Label>
-                  <Input
-                    type="datetime-local"
-                    value={editClockOut}
-                    onChange={(e) => setEditClockOut(e.target.value)}
-                    className="tabular-nums"
-                  />
-                </div>
-              </div>
+      <EditAttendanceDialog
+        open={editAttDialogOpen}
+        onOpenChange={setEditAttDialogOpen}
+        form={editAttForm}
+        setForm={setEditAttForm}
+        loading={attEditLoading}
+        onSave={handleEditAttendance}
+      />
 
-              {/* Preview calculated duration */}
-              {editClockIn && editClockOut && (
-                <div className="text-sm text-muted-foreground bg-muted/30 rounded-lg p-3">
-                  Calculated duration:{" "}
-                  <span className="font-medium text-foreground">
-                    {(() => {
-                      const diff = new Date(editClockOut).getTime() - new Date(editClockIn).getTime();
-                      return diff > 0 ? formatHours(diff / (1000 * 60 * 60)) : "Invalid (clock-out before clock-in)";
-                    })()}
-                  </span>
-                </div>
-              )}
-            </div>
-          )}
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => setEditEntry(null)}>Cancel</Button>
-            <Button onClick={handleAdminEditEntry} disabled={editSaving || !editClockIn}>
-              {editSaving ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving...</> : "Save Changes"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DeleteAttendanceDialog
+        open={!!deleteAttId}
+        onOpenChange={(open) => !open && setDeleteAttId(null)}
+        onConfirm={() => deleteAttId && handleDeleteAttendance(deleteAttId)}
+      />
 
-      {/* Add Entry Dialog (Admin) */}
-      <Dialog open={addEntryOpen} onOpenChange={(open) => { if (!open) setAddEntryOpen(false); }}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Plus className="h-5 w-5" />
-              Add Time Entry
-            </DialogTitle>
-            <DialogDescription>Manually create a time entry for any team member.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            {/* Employee */}
-            <div className="space-y-2">
-              <Label>Employee <span className="text-destructive">*</span></Label>
-              <Select value={addEntryUserId} onValueChange={setAddEntryUserId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select employee..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {teamUsers.map((u) => (
-                    <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Project */}
-            <div className="space-y-2">
-              <Label>Project</Label>
-              <Select value={addEntryProjectId} onValueChange={setAddEntryProjectId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select project..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">No Project</SelectItem>
-                  {projects.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Description */}
-            <div className="space-y-2">
-              <Label>Description</Label>
-              <Textarea
-                value={addEntryDescription}
-                onChange={(e) => setAddEntryDescription(e.target.value.slice(0, 1000))}
-                placeholder="What was worked on..."
-                rows={3}
-                maxLength={1000}
-                className="resize-none"
-              />
-            </div>
-
-            {/* Clock In / Clock Out */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Clock In <span className="text-destructive">*</span></Label>
-                <Input
-                  type="datetime-local"
-                  value={addEntryClockIn}
-                  onChange={(e) => setAddEntryClockIn(e.target.value)}
-                  className="tabular-nums"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Clock Out <span className="text-muted-foreground font-normal">(optional)</span></Label>
-                <Input
-                  type="datetime-local"
-                  value={addEntryClockOut}
-                  onChange={(e) => setAddEntryClockOut(e.target.value)}
-                  className="tabular-nums"
-                />
-              </div>
-            </div>
-
-            <p className="text-xs text-muted-foreground">
-              {addEntryClockOut
-                ? "Entry will be created as completed with calculated duration."
-                : "Entry will be created as active (running timer) if no clock-out is set."}
-            </p>
-          </div>
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => setAddEntryOpen(false)}>Cancel</Button>
-            <Button
-              onClick={handleAdminAddEntry}
-              disabled={addEntrySaving || !addEntryUserId || !addEntryClockIn}
-              className="bg-green-600 hover:bg-green-700 text-white"
-            >
-              {addEntrySaving ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Creating...</> : <><Plus className="h-4 w-4 mr-2" />Create Entry</>}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Redirect to Workspace Popup — shown after clock-in from workspace deep-link */}
-      <Dialog open={showRedirectPopup} onOpenChange={setShowRedirectPopup}>
-        <DialogContent className="sm:max-w-[400px]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-base">
-              <ArrowLeft className="h-5 w-5 text-primary" />
-              Ready to Work!
-            </DialogTitle>
-            <DialogDescription>
-              You&apos;re now clocked in. Would you like to go back to the workspace to start your AI session?
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex items-center gap-3 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
-            <div className="flex items-center gap-2">
-              <span className="relative flex h-2.5 w-2.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500" />
-              </span>
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-medium text-green-700 dark:text-green-300">Timer Running</p>
-              <p className="text-xs text-green-600 dark:text-green-400">
-                {activeEntry?.project?.name || "No project"} &bull; {formatDuration(elapsed)}
-              </p>
-            </div>
-          </div>
-          <DialogFooter className="flex gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => setShowRedirectPopup(false)}>
-              Stay Here
-            </Button>
-            <Button
-              onClick={() => {
-                setShowRedirectPopup(false);
-                // Navigate to workspace — the page will refresh and detect the user is now clocked in
-                window.location.href = "/dashboard/workspace";
-              }}
-              className="bg-primary hover:bg-primary/90"
-            >
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Go to Workspace
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <RedirectWorkspaceDialog
+        open={showRedirectPopup}
+        onOpenChange={setShowRedirectPopup}
+        activeEntry={activeEntry}
+        elapsed={elapsed}
+      />
     </div>
   );
 }

@@ -1,0 +1,127 @@
+"use client";
+
+import { Loader2, StopCircle, UserCheck } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { safeText } from "@/lib/utils";
+import type { TimeEntry } from "./types";
+import { formatDuration, formatTime } from "./utils";
+
+interface RunningSessionsProps {
+  entries: TimeEntry[];
+  elapsedMap: Record<string, number>;
+  endingEntryId: string | null;
+  onEndSession: (entryId: string) => void;
+}
+
+function sourceMeta(entry: TimeEntry): { label: string; className: string } {
+  const isOtp = entry.source === "AGENT_OTP" || entry.clockInMethod === "OTP";
+  if (entry.source === "ADMIN_OVERRIDE") {
+    return {
+      label: "Admin",
+      className:
+        "bg-slate-50 text-slate-700 dark:bg-slate-900/30 dark:text-slate-300 border-slate-200 dark:border-slate-800",
+    };
+  }
+  if (isOtp) {
+    return {
+      label: "OTP",
+      className:
+        "bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 border-violet-200 dark:border-violet-800",
+    };
+  }
+  return {
+    label: "Manual",
+    className:
+      "bg-slate-50 text-slate-700 dark:bg-slate-900/30 dark:text-slate-300 border-slate-200 dark:border-slate-800",
+  };
+}
+
+export function RunningSessions({
+  entries,
+  elapsedMap,
+  endingEntryId,
+  onEndSession,
+}: RunningSessionsProps) {
+  if (!entries.length) return null;
+
+  return (
+    <section className="rounded-xl border border-border overflow-hidden">
+      <div className="flex items-center gap-2 px-3.5 py-2.5 border-b border-border bg-muted/20">
+        <span className="relative flex h-2 w-2">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+        </span>
+        <UserCheck className="h-3.5 w-3.5 text-emerald-600" />
+        <h3 className="text-sm font-medium">Running sessions</h3>
+        <Badge
+          variant="outline"
+          className="ml-auto text-[10px] bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800"
+        >
+          {entries.length} active
+        </Badge>
+      </div>
+      <div className="divide-y divide-border">
+        {entries.map((entry) => {
+          const isEnding = endingEntryId === entry.id;
+          const meta = sourceMeta(entry);
+          return (
+            <div
+              key={entry.id}
+              className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-3.5 py-2.5 hover:bg-muted/30 transition-colors"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <Avatar className="h-8 w-8 shrink-0">
+                  <AvatarImage src={entry.user?.avatar || ""} alt={safeText(entry.user?.name)} />
+                  <AvatarFallback className="text-xs">
+                    {safeText(entry.user?.name, "?").charAt(0).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-medium truncate">{safeText(entry.user?.name, "Unknown")}</p>
+                    <Badge variant="outline" className={`text-[10px] ${meta.className}`}>
+                      {meta.label}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {safeText(entry.project?.name, "No project")} · Since {formatTime(entry.clockIn)}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 justify-end shrink-0">
+                <Badge
+                  variant="outline"
+                  className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 text-[10px] tabular-nums font-mono"
+                >
+                  {formatDuration(elapsedMap[entry.id] || 0)}
+                </Badge>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  className="h-7 text-xs"
+                  disabled={isEnding}
+                  onClick={() => onEndSession(entry.id)}
+                  aria-label={`End session for ${safeText(entry.user?.name, "user")}`}
+                >
+                  {isEnding ? (
+                    <>
+                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                      Ending...
+                    </>
+                  ) : (
+                    <>
+                      <StopCircle className="h-3 w-3 mr-1" />
+                      End
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
