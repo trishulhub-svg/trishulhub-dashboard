@@ -26,9 +26,12 @@ import {
   fromDatetimeLocal,
   getDateStr,
   getWeekDays,
+  rangeLast7Days,
+  rangeThisWeek,
   shiftWeek,
   toDatetimeLocal,
   toLocalDateStr,
+  type DateRangeBounds,
 } from "./_components/utils";
 import { TodayView } from "./_components/today-view";
 import { TimesheetView } from "./_components/timesheet-view";
@@ -88,7 +91,9 @@ export default function TimeTrackingPage() {
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsTab, setAnalyticsTab] = useState("employee");
-  const [dateRange, setDateRange] = useState("week");
+  const [insightsRangeInit] = useState(() => rangeThisWeek());
+  const [insightsDateFrom, setInsightsDateFrom] = useState(insightsRangeInit.from);
+  const [insightsDateTo, setInsightsDateTo] = useState(insightsRangeInit.to);
 
   // Dialogs
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -116,8 +121,9 @@ export default function TimeTrackingPage() {
   // Attendance
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [attendanceLoading, setAttendanceLoading] = useState(false);
-  const [attDateFrom, setAttDateFrom] = useState("");
-  const [attDateTo, setAttDateTo] = useState("");
+  const [attRangeInit] = useState(() => rangeLast7Days());
+  const [attDateFrom, setAttDateFrom] = useState(attRangeInit.from);
+  const [attDateTo, setAttDateTo] = useState(attRangeInit.to);
   const [attUserFilter, setAttUserFilter] = useState("all");
   const [attDialogOpen, setAttDialogOpen] = useState(false);
   const [attForm, setAttForm] = useState({
@@ -410,6 +416,16 @@ export default function TimeTrackingPage() {
     return () => controller.abort();
   }, [activeTab, fetchTimesheet]);
 
+  const applyInsightsRange = useCallback((range: DateRangeBounds) => {
+    setInsightsDateFrom(range.from);
+    setInsightsDateTo(range.to);
+  }, []);
+
+  const applyAttendanceRange = useCallback((range: DateRangeBounds) => {
+    setAttDateFrom(range.from);
+    setAttDateTo(range.to);
+  }, []);
+
   // ── Insights ──
   const fetchAnalytics = useCallback(
     async (signal?: AbortSignal) => {
@@ -417,17 +433,8 @@ export default function TimeTrackingPage() {
       try {
         const params = new URLSearchParams();
         params.set("type", analyticsTab);
-        const now = new Date();
-        if (dateRange === "week") {
-          const days = getWeekDays();
-          params.set("startDate", getDateStr(days[0]));
-          params.set("endDate", getDateStr(days[6]));
-        } else {
-          const start = new Date(now.getFullYear(), now.getMonth(), 1);
-          const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-          params.set("startDate", getDateStr(start));
-          params.set("endDate", getDateStr(end));
-        }
+        params.set("startDate", insightsDateFrom);
+        params.set("endDate", insightsDateTo);
         const res = await fetch(`/api/time-tracking/analytics?${params}`, {
           credentials: "include",
           signal,
@@ -444,7 +451,7 @@ export default function TimeTrackingPage() {
         setAnalyticsLoading(false);
       }
     },
-    [analyticsTab, dateRange]
+    [analyticsTab, insightsDateFrom, insightsDateTo]
   );
 
   useEffect(() => {
@@ -462,8 +469,8 @@ export default function TimeTrackingPage() {
       try {
         const params = new URLSearchParams();
         params.set("type", "attendance");
-        if (attDateFrom) params.set("from", attDateFrom);
-        if (attDateTo) params.set("to", attDateTo);
+        params.set("from", attDateFrom);
+        params.set("to", attDateTo);
         const res = await fetch(`/api/team?${params.toString()}`, {
           credentials: "include",
           signal,
@@ -997,12 +1004,15 @@ export default function TimeTrackingPage() {
         <TabsContent value="insights" className="mt-4">
           <InsightsView
             analyticsTab={analyticsTab}
-            dateRange={dateRange}
+            dateFrom={insightsDateFrom}
+            dateTo={insightsDateTo}
             data={analyticsData}
             loading={analyticsLoading}
             isAdmin={isAdminUser}
             onAnalyticsTab={setAnalyticsTab}
-            onDateRange={setDateRange}
+            onDateFrom={setInsightsDateFrom}
+            onDateTo={setInsightsDateTo}
+            onApplyRange={applyInsightsRange}
           />
         </TabsContent>
 
@@ -1018,10 +1028,12 @@ export default function TimeTrackingPage() {
               stats={attStats}
               onDateFrom={setAttDateFrom}
               onDateTo={setAttDateTo}
+              onApplyRange={applyAttendanceRange}
               onUserFilter={setAttUserFilter}
               onClearFilters={() => {
-                setAttDateFrom("");
-                setAttDateTo("");
+                const range = rangeLast7Days();
+                setAttDateFrom(range.from);
+                setAttDateTo(range.to);
                 setAttUserFilter("all");
               }}
               onRefresh={() => fetchAttendance()}

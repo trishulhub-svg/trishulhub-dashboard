@@ -51,6 +51,20 @@ import { safeArray } from "@/lib/utils";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 
+/** Local YYYY-MM-DD inclusive last N days ending today (for leave list query). */
+function leavesRangeLastNDays(n: number): { startDate: string; endDate: string } {
+  const to = new Date();
+  const from = new Date(to.getFullYear(), to.getMonth(), to.getDate() - (n - 1));
+  const fmt = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return { startDate: fmt(from), endDate: fmt(to) };
+}
+
+function leavesListQuery(): string {
+  const { startDate, endDate } = leavesRangeLastNDays(30);
+  return `/api/leaves?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`;
+}
+
 // ━━ Helpers ━━
 
 interface LeaveRecord {
@@ -156,7 +170,7 @@ export default function LeaveManagementPage() {
 
     async function loadData() {
       try {
-        const leavesRes = await fetch("/api/leaves", { credentials: "include", signal });
+        const leavesRes = await fetch(leavesListQuery(), { credentials: "include", signal });
         if (leavesRes.ok) setLeaves(safeArray<LeaveRecord>(await leavesRes.json()));
 
         if (isUserAdmin) {
@@ -178,7 +192,7 @@ export default function LeaveManagementPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const leavesRes = await fetch("/api/leaves", { credentials: "include" });
+      const leavesRes = await fetch(leavesListQuery(), { credentials: "include" });
       if (leavesRes.status === 401) { router.push("/login"); return; }
       if (leavesRes.ok) setLeaves(safeArray<LeaveRecord>(await leavesRes.json()));
 

@@ -284,8 +284,7 @@ function CompactEarnings({
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { data: session, status } = useSession();
-  const isSessionLoading = status === "loading";
+  const { data: session, status: sessionStatus } = useSession();
   const [data, setData] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -298,6 +297,7 @@ export default function DashboardPage() {
   const isPm = userRole === "PROJECT_MANAGER";
   const isDeveloper = userRole === "DEVELOPER";
   const isViewer = userRole === "VIEWER";
+  const isAuthenticated = sessionStatus === "authenticated";
 
   const fetchDashboard = useCallback(async () => {
     try {
@@ -316,47 +316,77 @@ export default function DashboardPage() {
     }
   }, []);
 
+  // Start fetches once session is authenticated — don't gate forever on isSessionLoading.
+  // Dashboard unlocks paint ASAP; earnings may populate after.
   useEffect(() => {
-    fetchDashboard();
-    fetch("/api/earnings", { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (d) setEarnings(d);
-      })
-      .catch(() => {});
-  }, [fetchDashboard]);
+    if (!isAuthenticated) return;
+
+    let cancelled = false;
+
+    const load = async () => {
+      const dashPromise = fetch("/api/dashboard", { credentials: "include" })
+        .then(async (res) => {
+          if (cancelled) return;
+          if (res.ok) {
+            const json = await res.json();
+            if (!cancelled) setData(deepSanitize<Record<string, unknown>>(json));
+          } else if (!cancelled) {
+            setError(true);
+          }
+        })
+        .catch((err) => {
+          console.error("Dashboard fetch error:", err);
+          if (!cancelled) setError(true);
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+
+      const earningsPromise = fetch("/api/earnings", { credentials: "include" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (!cancelled && d) setEarnings(d);
+        })
+        .catch(() => {});
+
+      await Promise.all([dashPromise, earningsPromise]);
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated]);
 
   // Optional this-week hours hint for developers
   useEffect(() => {
-    if (!isDeveloper) return;
+    if (!isDeveloper || !isAuthenticated) return;
     fetch("/api/time-tracking/analytics?type=employee", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (d && typeof d.totalHours === "number") setWeekHours(safeNumber(d.totalHours));
       })
       .catch(() => {});
-  }, [isDeveloper]);
+  }, [isDeveloper, isAuthenticated]);
 
-  if (isSessionLoading || loading || (!data && !error)) {
+  // Only block on session while it's still resolving — once authenticated, wait on data only.
+  const waitingOnSession = sessionStatus === "loading" && !isAuthenticated;
+  if (waitingOnSession || loading || (!data && !error)) {
     return (
-      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-5">
-        <div className="relative">
-          <div className="h-16 w-16 animate-spin rounded-full border-[3px] border-muted border-t-primary" />
-          <div className="absolute inset-0 flex items-center justify-center">
-            <Rocket className="h-6 w-6 text-primary" />
-          </div>
-        </div>
-        <div className="text-center space-y-1">
-          <h3 className="text-base font-semibold">Preparing command center</h3>
-          <p className="text-sm text-muted-foreground animate-pulse">Syncing role workspace…</p>
-        </div>
+      <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3">
+        <div
+          className="h-7 w-7 animate-spin rounded-full border-2 border-muted border-t-primary"
+          style={{ animationDuration: "0.6s" }}
+          aria-hidden
+        />
+        <p className="text-sm text-muted-foreground">Loading…</p>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="mx-auto max-w-lg space-y-4 th-page-enter">
+      <div className="mx-auto max-w-lg space-y-4" style={{ animation: "fade-in 0.2s ease-out both" }}>
         <div className="rounded-xl border border-destructive/40 bg-destructive/[0.04] p-6 text-center">
           <AlertCircle className="mx-auto mb-2 h-7 w-7 text-destructive" />
           <p className="text-sm text-muted-foreground">Failed to load dashboard data</p>
@@ -367,7 +397,7 @@ export default function DashboardPage() {
             onClick={() => {
               setError(false);
               setLoading(true);
-              fetchDashboard();
+              void fetchDashboard();
             }}
           >
             Retry
@@ -405,7 +435,7 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="th-page-enter space-y-5 sm:space-y-6">
+    <div className="space-y-5 sm:space-y-6" style={{ animation: "fade-in 0.2s ease-out both" }}>
       {/* Welcome band */}
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 border-l-[2.5px] border-primary pl-3">

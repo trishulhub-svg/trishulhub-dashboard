@@ -152,3 +152,50 @@ export function dayBounds(d: Date): { start: Date; end: Date } {
   const end = new Date(start.getTime() + 86400000);
   return { start, end };
 }
+
+export type DateRangeBounds = { from: string; to: string };
+
+/** Inclusive last 7 local calendar days (today − 6 … today). */
+export function rangeLast7Days(ref: Date = new Date()): DateRangeBounds {
+  const to = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate());
+  const from = new Date(to);
+  from.setDate(to.getDate() - 6);
+  return { from: toLocalDateStr(from), to: toLocalDateStr(to) };
+}
+
+/** Monday–Sunday week containing `ref`. */
+export function rangeThisWeek(ref: Date = new Date()): DateRangeBounds {
+  const days = getWeekDays(ref);
+  return { from: toLocalDateStr(days[0]), to: toLocalDateStr(days[6]) };
+}
+
+/** Previous Monday–Sunday week. */
+export function rangeLastWeek(ref: Date = new Date()): DateRangeBounds {
+  const thisWeek = getWeekDays(ref);
+  const lastMonday = new Date(thisWeek[0]);
+  lastMonday.setDate(lastMonday.getDate() - 7);
+  return rangeThisWeek(lastMonday);
+}
+
+export function rangeForMonth(year: number, monthIndex0: number): DateRangeBounds {
+  const from = new Date(year, monthIndex0, 1);
+  const to = new Date(year, monthIndex0 + 1, 0);
+  return { from: toLocalDateStr(from), to: toLocalDateStr(to) };
+}
+
+export function rangeThisMonth(ref: Date = new Date()): DateRangeBounds {
+  return rangeForMonth(ref.getFullYear(), ref.getMonth());
+}
+
+export function rangeLastMonth(ref: Date = new Date()): DateRangeBounds {
+  const d = new Date(ref.getFullYear(), ref.getMonth() - 1, 1);
+  return rangeForMonth(d.getFullYear(), d.getMonth());
+}
+
+/** Inclusive last N local calendar days ending today. */
+export function rangeLastNDays(n: number, ref: Date = new Date()): DateRangeBounds {
+  const to = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate());
+  const from = new Date(to);
+  from.setDate(to.getDate() - Math.max(1, n) + 1);
+  return { from: toLocalDateStr(from), to: toLocalDateStr(to) };
+}

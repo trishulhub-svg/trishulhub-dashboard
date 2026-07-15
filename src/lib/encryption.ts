@@ -169,7 +169,7 @@ export function getCredentialKey(dbKey?: string): Buffer {
   }
   throw new Error(
     "No credential encryption key configured. " +
-    "Go to Access Hub → System Config → set the Credential Encryption Key."
+    "Set CREDENTIAL_ENCRYPTION_KEY (or ENCRYPTION_KEY) as a 64-char hex env var."
   );
 }
 

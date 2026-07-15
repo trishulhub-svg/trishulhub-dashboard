@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 
 /* ═══════════════════════════════════════════════════════════════
-   TRISHULHUB WORKSPACE v2.1 — Live AI + Dynamic Protocol
+   TRISHULHUB WORKSPACE v2.1 — Live AI + Dynamic Agents
    ═══════════════════════════════════════════════════════════════ */
 
 /* ── Simulated AI operational lines (expanded pool) ── */
@@ -31,7 +31,7 @@ const AI_LINES: { prefix: string; msg: string; type: LineType }[] = [
   { prefix: "TASK", msg: "Task queued — /tasks list refreshed", type: "info" },
   { prefix: "DEPLOY", msg: "Next.js build compiled — 0 TypeScript errors", type: "success" },
   { prefix: "STACK", msg: "Prisma migration applied to PostgreSQL", type: "success" },
-  { prefix: "PROTOCOL", msg: "ZAI Protocol v10.4 companion guide synced", type: "success" },
+  { prefix: "AGENT", msg: "ZAI Protocol v10.4 companion guide synced", type: "success" },
   { prefix: "ZAI", msg: "GLM-5 Turbo fast execution — 2.1s response time", type: "success" },
   { prefix: "COLLAB", msg: "Real-time sync: 2 files updated by remote user", type: "info" },
   { prefix: "TASK", msg: "Sprint backlog: 7 active, 3 pending, 12 done", type: "info" },
@@ -40,7 +40,7 @@ const AI_LINES: { prefix: string; msg: string; type: LineType }[] = [
   { prefix: "WORKSPACE", msg: "Blueprint state checkpoint saved", type: "success" },
   { prefix: "ZAI", msg: "GLM 5.1 switching to autonomous 8hr horizon mode", type: "info" },
   { prefix: "BLUEPRINT", msg: "Smart execution: 4 sub-tasks auto-generated", type: "info" },
-  { prefix: "PROTOCOL", msg: "Workspace credentials verified — access granted", type: "success" },
+  { prefix: "AGENT", msg: "Workspace credentials verified — access granted", type: "success" },
   { prefix: "COLLAB", msg: "Conflict prevention: edit merge resolved cleanly", type: "success" },
   { prefix: "TASK", msg: "Priority re-sort: critical tasks elevated to top", type: "info" },
   { prefix: "DEPLOY", msg: "CI/CD pipeline passed — all 14 checks green", type: "success" },
@@ -53,7 +53,7 @@ const AI_LINES: { prefix: string; msg: string; type: LineType }[] = [
   { prefix: "TASK", msg: "Auto-assigning task to available workspace member", type: "info" },
   { prefix: "COLLAB", msg: "WebSocket heartbeat — 3 connections stable", type: "success" },
   { prefix: "ZAI", msg: "Token usage this session: 14.2K / 128K", type: "info" },
-  { prefix: "PROTOCOL", msg: "Protocol integrity check passed — hash verified", type: "success" },
+  { prefix: "AGENT", msg: "Protocol integrity check passed — hash verified", type: "success" },
   { prefix: "WORKSPACE", msg: "Auto-save triggered — state persisted to cloud", type: "success" },
   { prefix: "DEPLOY", msg: "Docker image rebuilt — size 182MB", type: "success" },
   { prefix: "STACK", msg: "Database index optimized — query time -40%", type: "success" },
@@ -75,7 +75,7 @@ const AI_LINES: { prefix: string; msg: string; type: LineType }[] = [
   { prefix: "STACK", msg: "Cron job skipped — next run at 06:00", type: "idle" },
   { prefix: "WORKSPACE", msg: "Connection pool reduced to 2 — low traffic", type: "idle" },
   { prefix: "DEPLOY", msg: "No deployments queued — pipeline idle", type: "idle" },
-  { prefix: "PROTOCOL", msg: "Backup completed — 0 changes since last sync", type: "idle" },
+  { prefix: "AGENT", msg: "Backup completed — 0 changes since last sync", type: "idle" },
 ];
 
 /* ── Time-based activity level calculator ── */
@@ -189,22 +189,8 @@ export default function TrishulWorkspacePage() {
       : "light"
     : "dark";
 
-  /* ── Fetch protocol title from API ── */
-  const [protocolTitle, setProtocolTitle] = useState("Protocol");
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch("/api/protocol/init");
-        if (!res.ok) return;
-        const data = await res.json();
-        if (data.protocol?.fileName) {
-          // Extract clean name: "trishul-protocol-v10.4.0.pdf" → "v10.4.0"
-          const name = data.protocol.fileName.replace(/\.pdf$/i, "");
-          setProtocolTitle(name);
-        }
-      } catch { /* silent */ }
-    })();
-  }, []);
+  /* Display name — always Cursor Agent (no protocol/init fetch) */
+  const agentTitle = "Cursor Agent";
 
   /* ── Entrance stagger ── */
   const [entered, setEntered] = useState(false);
@@ -419,6 +405,7 @@ export default function TrishulWorkspacePage() {
         impact.sync += type === "idle" ? -r(3, 6) : r(4, 8);
         impact.api += type === "idle" ? -r(1, 3) : r(1, 4);
         break;
+      case "AGENT":
       case "PROTOCOL":
         impact.sync += type === "idle" ? -r(2, 4) : r(3, 6);
         break;
@@ -490,7 +477,7 @@ export default function TrishulWorkspacePage() {
     };
   }, [entered]);
 
-  /* ── 8hr Horizon long-running tasks ── */
+  /* ── Long Horizon long-running tasks ── */
   const horizonStartRef = useRef(Date.now() - 1000 * 60 * 60 * 2.4 - 1000 * 47); // ~2h 47m ago
   const [horizonElapsed, setHorizonElapsed] = useState("");
   useEffect(() => {
@@ -674,7 +661,7 @@ export default function TrishulWorkspacePage() {
             <div className="ws-header-left">
               <div className={`ws-header-badge ws-header-badge--${mode}`}>
                 <div className={`ws-pulse-dot ws-pulse-dot--${mode}`} />
-                <span>{protocolTitle}</span>
+                <span>{agentTitle}</span>
               </div>
             </div>
             <div className="ws-header-right">
@@ -769,10 +756,10 @@ export default function TrishulWorkspacePage() {
               </div>
               <div className="ws-stat-body">
                 <span className={`ws-stat-label ws-stat-label--${mode}`}>
-                  Autonomous Mode
+                  Fully Autonomous
                 </span>
                 <span className={`ws-stat-value ws-stat-value--${mode}`}>
-                  8hr Horizon
+                  Long Horizon
                 </span>
               </div>
             </div>
@@ -913,7 +900,7 @@ export default function TrishulWorkspacePage() {
               </div>
             </div>
 
-            {/* ─── 8HR HORIZON CARD ─── */}
+            {/* ─── LONG HORIZON CARD ─── */}
             <div
               className={`ws-card ws-horizon-card ${entered ? "ws-in" : ""}`}
               style={{ transitionDelay: "0.39s" }}
@@ -922,7 +909,7 @@ export default function TrishulWorkspacePage() {
                 <div className="ws-horizon-title-row">
                   <Clock size={13} className={`ws-horizon-icon ws-horizon-icon--${mode}`} />
                   <h3 className={`ws-horizon-heading ws-horizon-heading--${mode}`}>
-                    8hr Horizon
+                    Long Horizon · Fully Autonomous
                   </h3>
                 </div>
                 <span className={`ws-horizon-count ws-horizon-count--${mode}`}>
@@ -1077,7 +1064,7 @@ export default function TrishulWorkspacePage() {
             </span>
             <span className={`ws-footer-sep`}>·</span>
             <span className={`ws-footer-text ws-footer-text--${mode}`}>
-              {protocolTitle}
+              {agentTitle}
             </span>
             <span className={`ws-footer-sep`}>·</span>
             <span className={`ws-footer-text ws-footer-text--${mode}`}>
@@ -1746,7 +1733,7 @@ export default function TrishulWorkspacePage() {
           vertical-align: middle;
         }
 
-        /* 8hr Horizon Card */
+        /* Long Horizon Card */
         .ws-horizon-card { padding: 0; grid-column: 1 / -1; }
         @media (min-width: 1024px) {
           .ws-horizon-card { grid-column: span 2; }

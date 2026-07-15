@@ -3,7 +3,7 @@
 // LeadStatus, ClientStatus, ApprovalStatus, ApiKeyStatus, ApiKeyProvider,
 // LeaveType, LeaveRequestType, ExpenseCategory, SubscriptionFrequency, SubscriptionStatus,
 // DealStage, Currency, PaymentMethod, NotificationType,
-// ProjectMemberRole, TrainingTestLevel, AssignmentStatus, etc.
+// ProjectMemberRole, etc.
 
 generator client {
   provider = "prisma-client-js"
@@ -46,10 +46,6 @@ model User {
   availabilityOverrides    AvailabilityOverride[]
   availabilityDateRanges   AvailabilityDateRange[]
   assignedDeals         Deal[]
-  trainingDocuments    TrainingDocument[] @relation("TrainingDocGenerator")
-  trainingTests        TrainingTest[]     @relation("TrainingTestGenerator")
-  trainingAssigned     TrainingAssignment[] @relation("TrainingEmployee")
-  trainingAssignedBy   TrainingAssignment[] @relation("TrainingAssigner")
   expenses                Expense[]             @relation("ExpenseEmployee")
   protocolVersions    ProtocolVersion[]  @relation("ProtocolVersions")
   protocolInvites     ProtocolInvite[]     @relation("ProtocolInvites")
@@ -1049,84 +1045,6 @@ model AvailabilityDateRange {
   @@index([startDate])
   @@index([endDate])
   @@map("AvailabilityDateRange")
-}
-
-// ━━ Training System ━━
-model TrainingDocument {
-  id            String   @id @default(cuid())
-  topic         String
-  content       String
-  summary       String?
-  imageUrl      String?
-  imageUrls     String   @default("[]")
-  status        String   @default("DRAFT") // DRAFT, READY, ARCHIVED
-  generatedBy   String
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  generator      User     @relation("TrainingDocGenerator", fields: [generatedBy], references: [id], onDelete: Cascade)
-  tests          TrainingTest[]
-  assignments    TrainingAssignment[]
-
-  @@map("TrainingDocument")
-}
-
-model TrainingTest {
-  id            String   @id @default(cuid())
-  documentId    String
-  level         String   // LOW, MEDIUM, HIGH
-  questions     String
-  timeLimit     Int      @default(20)
-  generatedBy   String
-  createdAt     DateTime @default(now())
-
-  document      TrainingDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  generator     User     @relation("TrainingTestGenerator", fields: [generatedBy], references: [id], onDelete: Cascade)
-  assignments   TrainingAssignment[]
-
-  @@unique([documentId, level])
-  @@map("TrainingTest")
-}
-
-model TrainingAssignment {
-  id            String   @id @default(cuid())
-  documentId    String
-  testId        String?
-  assignedTo    String
-  assignedBy    String
-  testLevel     String   @default("LOW")
-  timeLimit     Int?     @default(20) // Per-assignment override; null uses test's timeLimit
-  dueDate       DateTime?
-  status        String   @default("ASSIGNED") // ASSIGNED, READ, TEST_STARTED, COMPLETED, PASSED, FAILED
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  document      TrainingDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  test          TrainingTest?    @relation(fields: [testId], references: [id])
-  employee      User     @relation("TrainingEmployee", fields: [assignedTo], references: [id], onDelete: Cascade)
-  assigner      User     @relation("TrainingAssigner", fields: [assignedBy], references: [id], onDelete: Cascade)
-  attempts      TestAttempt[]
-
-  @@index([assignedTo])
-  @@index([status])
-  @@index([assignedTo, status])
-  @@map("TrainingAssignment")
-}
-
-model TestAttempt {
-  id            String   @id @default(cuid())
-  assignmentId  String
-  answers       String
-  score         Int
-  total         Int      @default(10)
-  timeTaken     Int?
-  passed        Boolean  @default(false)
-  createdAt     DateTime @default(now())
-
-  assignment    TrainingAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
-
-  @@index([assignmentId])
-  @@map("TestAttempt")
 }
 
 // ━━ Protocol Management ━━

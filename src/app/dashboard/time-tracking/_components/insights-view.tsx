@@ -1,56 +1,52 @@
 "use client";
 
 import { BarChart3, Loader2 } from "lucide-react";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { safeNumber, safeText } from "@/lib/utils";
 import type { AnalyticsData } from "./types";
 import { BAR_COLORS } from "./types";
+import { RangePresetToolbar, type RangePresetToolbarProps } from "./range-preset-toolbar";
 import { formatHours } from "./utils";
 
-interface InsightsViewProps {
+export type { RangePresetToolbarProps };
+
+interface InsightsViewProps extends RangePresetToolbarProps {
   analyticsTab: string;
-  dateRange: string;
   data: AnalyticsData | null;
   loading: boolean;
   isAdmin: boolean;
   onAnalyticsTab: (v: string) => void;
-  onDateRange: (v: string) => void;
 }
 
 export function InsightsView({
   analyticsTab,
-  dateRange,
+  dateFrom,
+  dateTo,
   data,
   loading,
   isAdmin,
   onAnalyticsTab,
-  onDateRange,
+  onDateFrom,
+  onDateTo,
+  onApplyRange,
 }: InsightsViewProps) {
   return (
     <div className="space-y-5">
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
+      <div className="flex flex-col gap-3">
         <Tabs value={analyticsTab} onValueChange={onAnalyticsTab}>
           <TabsList>
             <TabsTrigger value="employee">{isAdmin ? "By employee" : "My hours"}</TabsTrigger>
             <TabsTrigger value="project">By project</TabsTrigger>
           </TabsList>
         </Tabs>
-        <Select value={dateRange} onValueChange={onDateRange}>
-          <SelectTrigger className="w-full sm:w-40 h-9">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="week">This week</SelectItem>
-            <SelectItem value="month">This month</SelectItem>
-          </SelectContent>
-        </Select>
+        <RangePresetToolbar
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          onDateFrom={onDateFrom}
+          onDateTo={onDateTo}
+          onApplyRange={onApplyRange}
+          showMonthPicker
+        />
       </div>
 
       {loading ? (
