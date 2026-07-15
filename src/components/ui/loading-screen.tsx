@@ -9,16 +9,12 @@ interface LoadingScreenProps {
 export function LoadingScreen({ message }: LoadingScreenProps) {
   return (
     <div role="status" aria-live="polite" aria-label="Loading application" className="animate-loading-fade-in fixed inset-0 z-50 flex min-h-screen items-center justify-center bg-background">
-      {/* Subtle radial glow behind the logo */}
-      <div className="pointer-events-none absolute flex flex-col items-center">
-        <div className="absolute -inset-16 rounded-full bg-primary/5 blur-3xl" />
-        <div className="absolute -inset-6 rounded-full bg-primary/[0.08] blur-2xl" />
-      </div>
+      {/* Quiet brand wash behind the logo */}
+      <div className="pointer-events-none absolute h-40 w-40 rounded-full bg-primary/[0.06] blur-2xl" />
 
       <div className="relative flex flex-col items-center gap-5">
         {/* Logo */}
         <div className="relative h-16 w-40">
-          <div className="animate-logo-glow absolute -inset-2 rounded-xl bg-gradient-to-br from-primary/20 via-transparent to-primary/10 opacity-0 blur-xl" />
           <Image
             src="/200px.png"
             alt="TrishulHub"
@@ -29,7 +25,7 @@ export function LoadingScreen({ message }: LoadingScreenProps) {
         </div>
 
         {/* Brand name */}
-        <h1 className="animate-loading-fade-in text-2xl font-bold tracking-tight text-primary [animation-delay:200ms]">
+        <h1 className="animate-loading-fade-in text-2xl font-semibold tracking-tight text-foreground [animation-delay:200ms]">
           TrishulHub
         </h1>
 
@@ -45,7 +41,7 @@ export function LoadingScreen({ message }: LoadingScreenProps) {
           {[0, 1, 2].map((i) => (
             <span
               key={i}
-              className="h-1.5 w-1.5 rounded-full bg-primary/60"
+              className="h-1.5 w-1.5 rounded-full bg-primary/50"
               style={{
                 animation: `loading-dot-pulse 1s ease-in-out ${i * 120}ms infinite`,
               }}
@@ -67,18 +63,6 @@ export function LoadingScreen({ message }: LoadingScreenProps) {
           }
         }
 
-        @keyframes logo-glow {
-          0%,
-          100% {
-            opacity: 0;
-            transform: scale(0.95);
-          }
-          50% {
-            opacity: 1;
-            transform: scale(1.02);
-          }
-        }
-
         @keyframes loading-dot-pulse {
           0%,
           80%,
@@ -94,10 +78,6 @@ export function LoadingScreen({ message }: LoadingScreenProps) {
 
         .animate-loading-fade-in {
           animation: loading-fade-in 0.3s ease-out both;
-        }
-
-        .animate-logo-glow {
-          animation: logo-glow 1.6s ease-in-out 0.2s infinite;
         }
       `}</style>
     </div>

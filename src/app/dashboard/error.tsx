@@ -27,7 +27,9 @@ export default function DashboardError({
           </div>
         </div>
         <div className="space-y-2">
-          <h2 className="text-xl font-bold text-foreground">Dashboard Error</h2>
+          <h2 className="text-xl font-bold tracking-tight text-foreground">
+            Dashboard Error
+          </h2>
           <p className="text-muted-foreground text-sm">
             Something went wrong in the dashboard. Try refreshing or go back.
           </p>
@@ -43,7 +45,7 @@ export default function DashboardError({
           )}
         </div>
         <div className="flex gap-3 justify-center">
-          <Button onClick={reset} className="gap-2">
+          <Button variant="default" onClick={reset} className="gap-2">
             <RefreshCw className="h-4 w-4" /> Try Again
           </Button>
           <Button variant="outline" onClick={() => router.push("/dashboard")} className="gap-2">
