@@ -1,6 +1,6 @@
 // TODO: Convert to Prisma enums when feasible: UserRole, ProjectStatus, TaskStatus, TaskPriority,
 // InvoiceStatus,
-// LeadStatus, ClientStatus, ApprovalStatus, ApiKeyStatus, ApiKeyProvider,
+// LeadStatus, ClientStatus, ApprovalStatus,
 // LeaveType, LeaveRequestType, ExpenseCategory, SubscriptionFrequency, SubscriptionStatus,
 // DealStage, Currency, PaymentMethod, NotificationType,
 // ProjectMemberRole, etc.
@@ -62,26 +62,7 @@ model User {
   @@map("User")
 }
 
-// ━━ API Keys ━━
-model ApiKey {
-  id             String   @id @default(cuid())
-  provider       String   // OPENROUTER, ZAI, GOOGLE_AI, OTHER
-  keyName        String
-  keyValue       String
-  monthlyBudget  Float    @default(18.0)
-  currentSpend   Float    @default(0)
-  status         String   @default("ACTIVE") // ACTIVE, EXHAUSTED, ERROR
-  priority       Int      @default(1)
-  assignedAgents String   @default("[]") // JSON array of agent types this key is assigned to
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  usageLogs ApiUsageLog[]
-  agents   Agent[]
-}
-
 // ━━ Encrypted secret vault (generic API keys / credentials storage) ━━
-// Separate from ApiKey so agent runtime / cron paths keep using ApiKey unchanged.
 model VaultSecret {
   id        String   @id @default(cuid())
   name      String
@@ -105,13 +86,10 @@ model Agent {
   model        String   @default("glm-4.5-flash")
   systemPrompt String
   status       String   @default("IDLE") // IDLE, RUNNING, WAITING_APPROVAL, ERROR
-  apiKeyId     String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  apiKey          ApiKey?            @relation(fields: [apiKeyId], references: [id])
   chats           Chat[]
-  usageLogs       ApiUsageLog[]
   roleConfig      AgentRoleConfig?
   userAccess      UserAgentAccess[]
   scheduledTasks  ScheduledTask[]
@@ -649,21 +627,6 @@ model Contact {
   @@index([leadId])
 
   @@map("Contact")
-}
-
-// ━━ API Usage Tracking ━━
-model ApiUsageLog {
-  id           String   @id @default(cuid())
-  apiKeyId     String
-  model        String
-  inputTokens  Int      @default(0)
-  outputTokens Int      @default(0)
-  cost         Float    @default(0)
-  createdAt    DateTime @default(now())
-
-  apiKey       ApiKey   @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
-  agent        Agent?   @relation(fields: [agentId], references: [id])
-  agentId      String?
 }
 
 // ━━ Support Tickets ━━

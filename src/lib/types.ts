@@ -32,8 +32,6 @@ export type ClientStatus = "ACTIVE" | "INACTIVE" | "ONBOARDING" | "PAUSED" | "CO
 /** Invoice lifecycle status: DRAFT→SENT→PAID/OVERDUE */
 export type InvoiceStatus = "DRAFT" | "SENT" | "PAID" | "OVERDUE";
 export type TicketStatus = "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CLOSED";
-export type ApiKeyStatus = "ACTIVE" | "EXHAUSTED" | "ERROR";
-export type ApiKeyProvider = "OPENROUTER" | "ZAI" | "GOOGLE_AI" | "NVIDIA" | "OTHER";
 
 export type ApprovalStatus = "PENDING" | "APPROVED" | "REJECTED" | "NEEDS_IMPROVEMENT";
 export type ApprovalType = "TASK" | "INVOICE" | "EMAIL" | "QUOTATION" | "PROJECT_PLAN" | "CODE_REVIEW" | "LEAD_OUTREACH" | "CONTENT_PIECE" | "CHAT_DELETION";

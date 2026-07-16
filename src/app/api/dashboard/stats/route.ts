@@ -83,17 +83,16 @@ export async function GET() {
       })
     )
 
-    // All 7 queries run in parallel (vs 19 in full dashboard endpoint)
+    // All queries run in parallel (old ApiKey aggregate removed — totalApiSpend is always 0)
     const [
       totalRevenue,
       pendingAmount,
       overdueAmount,
       totalExpenses,
-      totalApiSpend,
       invoices,
       recentExpenses,
     ] = await Promise.all([
-      // 5 aggregate queries
+      // 4 aggregate queries
       admin
         ? db.invoice.aggregate({ where: { ...invoiceWhere, status: "PAID" }, _sum: { total: true } }).then(r => r._sum.total || 0)
         : Promise.resolve(0),
@@ -107,9 +106,6 @@ export async function GET() {
       // endpoint, which shows total expenses across all projects for admin reporting.
       admin
         ? db.expense.aggregate({ _sum: { amount: true } }).then(r => r._sum.amount || 0)
-        : Promise.resolve(0),
-      admin
-        ? db.apiKey.aggregate({ _sum: { currentSpend: true } }).then(r => r._sum.currentSpend || 0)
         : Promise.resolve(0),
       // Recent invoices for "Recent Invoices" list (10 records, select-only)
       admin
@@ -132,6 +128,7 @@ export async function GET() {
         : Promise.resolve([] as unknown[]),
     ])
 
+    const totalApiSpend = 0
     const stats = { totalRevenue, pendingAmount, overdueAmount, totalExpenses, totalApiSpend }
 
     return NextResponse.json(sanitizeForJson({

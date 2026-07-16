@@ -26,7 +26,6 @@ export async function GET(req: NextRequest) {
           ...(!["SUPER_ADMIN", "ADMIN"].includes(userRole) ? { userAccess: { some: { userId, canView: true } } } : {}),
         },
         include: {
-          apiKey: { select: { id: true, keyName: true, provider: true, status: true } },
           roleConfig: true,
           _count: {
             select: { conversations: true, chats: { where: { status: "ACTIVE" } } }
@@ -53,7 +52,6 @@ export async function GET(req: NextRequest) {
 
     const agents = await db.agent.findMany({
       include: {
-        apiKey: { select: { id: true, keyName: true, provider: true, status: true } },
         roleConfig: true,
         _count: {
           select: {
@@ -137,7 +135,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     // SECURITY: Whitelist allowed fields for agent update (prevent mass assignment)
-    const allowedAgentFields = ["name", "description", "systemPrompt", "model", "status", "apiKeyId"]
+    const allowedAgentFields = ["name", "description", "systemPrompt", "model", "status"]
     const sanitizedAgentData: Record<string, any> = {}
     for (const key of allowedAgentFields) {
       if (data[key] !== undefined) {

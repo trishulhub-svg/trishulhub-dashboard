@@ -58,7 +58,7 @@ export async function GET() {
 
     // Each query wrapped in safeQuery — if one fails, dashboard still loads with partial data
     const [
-      projects, clients, invoices, expenses, apiKeys, supportTickets, leads,
+      projects, clients, invoices, expenses, supportTickets, leads,
       newLeadsCount, activeProjects, atRiskProjects, openTickets, totalLeadsCount, totalClientCount,
       totalRevenue, pendingAmount, overdueAmount, totalExpenses, teamMembers,
     ] = await Promise.all([
@@ -92,13 +92,6 @@ export async function GET() {
             where: expenseWhere, take: 5, orderBy: { createdAt: "desc" },
             select: { id: true, amount: true, category: true, createdAt: true },
           }), [] as unknown[], "expenses")
-        : Promise.resolve([] as unknown[]),
-
-      // API keys — wrap in safeQuery in case table doesn't exist
-      admin
-        ? safeQuery(() => db.apiKey.findMany({
-            select: { id: true, keyName: true, currentSpend: true, monthlyBudget: true, provider: true, status: true },
-          }), [] as unknown[], "apiKeys")
         : Promise.resolve([] as unknown[]),
 
       admin
@@ -170,9 +163,9 @@ export async function GET() {
         : Promise.resolve(0),
     ])
 
-    const typedApiKeys = apiKeys as Array<{ currentSpend: number; monthlyBudget: number }>
-    const totalApiSpend = admin ? typedApiKeys.reduce((sum, k) => sum + k.currentSpend, 0) : 0
-    const monthlyBudget = admin ? typedApiKeys.reduce((sum, k) => sum + k.monthlyBudget, 0) : 0
+    // Old ApiKey spend tracking removed — return zeros / empty
+    const totalApiSpend = 0
+    const monthlyBudget = 0
 
     const safeResponse = sanitizeForJson({
       role,
@@ -181,7 +174,7 @@ export async function GET() {
       leads,
       invoices: admin ? invoices : [],
       expenses: admin ? expenses : [],
-      apiKeys: admin ? apiKeys : [],
+      apiKeys: [],
       supportTickets: admin ? supportTickets : [],
       stats: {
         totalRevenue, pendingAmount, overdueAmount, totalExpenses,
