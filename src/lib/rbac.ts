@@ -168,11 +168,6 @@ export function canManageApprovals(role: string): boolean {
   return isAdminOrProjectManager(role)
 }
 
-/** Check if user can manage API keys (create, update, rotate, delete) — restricted to super admins */
-export function canManageApiKeys(role: string): boolean {
-  return isSuperAdmin(role)
-}
-
 /** Check if user can manage protocol settings (versions, invites, access) — restricted to super admins */
 export function canManageProtocol(role: string): boolean {
   return isSuperAdmin(role)

@@ -5,7 +5,6 @@ import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
-import { callAIWithFailover } from "@/lib/ai/openrouter"
 import { after } from "next/server"
 import { deepSanitize } from "@/lib/utils"
 import { createContractSchema, updateContractSchema, validateRequest } from "@/lib/validations"
@@ -155,105 +154,14 @@ export async function POST(req: NextRequest) {
     }
   })
 
-  // If useAI, generate contract content in background
+  // If useAI was requested: old ApiKey runtime removed — leave contract as created without AI content.
+  // MUST NOT throw into the main create path (CRM / contract create stay healthy).
   if (useAI) {
     after(async () => {
-      try {
-        const apiKeys = await db.apiKey.findMany({
-          where: { status: { in: ["ACTIVE"] } },
-          orderBy: { priority: "asc" },
-        })
-
-        if (!apiKeys?.length) {
-          console.warn("[contracts] AI content generation failed for contract:", contract.id, "— no active API keys")
-          return
-        }
-
-        const projectDesc = latestProject?.description || `Web development project for ${client.name}`
-
-        // Issue #9: AI prompt injection mitigation — sanitize user content before injecting into prompt
-        const sanitizedTemplate = templateText
-          ? String(templateText).replace(/[<{}]/g, ' ').slice(0, 10000)
-          : null
-        const sanitizedDesc = projectDesc
-          ? String(projectDesc).replace(/[<>{}]/g, ' ').slice(0, 5000)
-          : null
-
-        const AI_MODEL = process.env.AI_CONTRACT_MODEL || "glm-4.7-flash"
-
-        const result = await callAIWithFailover(
-          [
-            {
-              role: "system",
-              content: "You are a legal contract drafting expert. Generate professional, comprehensive service agreements. Use formal legal language. Output must be valid markdown.",
-            },
-            {
-              role: "user",
-              content: `Generate a professional service agreement contract with the following details:
-
-**Client:** ${client.name} (${client.email})
-${client.company ? `**Company:** ${client.company}` : ""}
-${client.phone ? `**Phone:** ${client.phone}` : ""}
-
-**Project:** ${latestProject?.name || "To be determined"}
-**Project Type:** ${client.projectType || "IT Services"}
-${client.projectMethod ? `**Technology:** ${client.projectMethod.name}` : ""}
-${client.projectStartDate ? `**Start Date:** ${new Date(client.projectStartDate).toLocaleDateString()}` : ""}
-${client.deliveryDate ? `**Delivery Date:** ${new Date(client.deliveryDate).toLocaleDateString()}` : ""}
-
-**Project Description:** ${sanitizedDesc}
-
-${sanitizedTemplate ? `**Reference Template (base the contract on this):**\n---\n${sanitizedTemplate}\n---\n\n` : ""}
-Generate the following sections:
-1. **Parties** - Identification of both parties (TrishulHub as service provider)
-2. **Scope of Work** - Detailed description of services to be provided
-3. **Payment Terms** - Payment structure, milestones, due dates, late fees
-4. **Timeline & Deliverables** - Project phases and delivery schedule
-5. **Intellectual Property** - IP ownership and licensing
-6. **Confidentiality** - NDA provisions
-7. **Warranties & Liabilities** - Service warranties and limitation of liability
-8. **Termination** - Conditions for contract termination
-9. **Dispute Resolution** - Governing law and dispute resolution mechanism
-10. **Miscellaneous** - Force majeure, amendments, entire agreement
-11. **Signatures** - Signature blocks for both parties
-
-Use markdown formatting with ## for section headers. Make it professional and legally sound.
-${sanitizedTemplate ? "IMPORTANT: Base the structure and clauses on the provided template, but customize all details for this specific client and project." : ""}`,
-            },
-          ],
-          AI_MODEL,
-          apiKeys,
-          { maxTokens: 8000, temperature: 0.5 }
-        )
-
-        if (result.content) {
-          await db.contract.update({
-            where: { id: contract.id },
-            data: {
-              termsAndConditions: result.content,
-              scopeOfWork: "See Terms & Conditions below",
-            },
-          })
-          // Track API usage
-          if (result.apiKeyId && result.cost > 0) {
-            await db.apiKey.update({
-              where: { id: result.apiKeyId },
-              data: { currentSpend: { increment: result.cost } },
-            })
-            await db.apiUsageLog.create({
-              data: {
-                apiKeyId: result.apiKeyId,
-                model: result.model,
-                inputTokens: result.inputTokens,
-                outputTokens: result.outputTokens,
-                cost: result.cost,
-              },
-            })
-          }
-        }
-      } catch (err: unknown) {
-        console.warn("[contracts] AI content generation failed for contract:", contract.id)
-      }
+      console.warn(
+        "[contracts] AI contract generation is disabled / not configured (old ApiKey system removed). Contract left as created without AI content:",
+        contract.id
+      )
     })
   }
 

@@ -11,7 +11,6 @@ import { rateLimit } from "@/lib/rate-limit"
  */
 const ALLOWED_TABLE_NAMES = new Set([
   "User",
-  "ApiKey",
   "Chat",
   "ChatMessage",
   "ScheduledTask",
@@ -23,7 +22,6 @@ const ALLOWED_TABLE_NAMES = new Set([
   "Lead",
   "LeadEmail",
 
-  "ApiUsageLog",
   "SupportTicket",
   "TicketMessage",
   "LeaveRequest",
@@ -250,23 +248,7 @@ export async function PATCH() {
       }
     }
 
-    // Also reset EXHAUSTED API keys to ACTIVE (Z.ai model errors were marking keys as exhausted)
-    const resetKeys = await db.apiKey.updateMany({
-      where: { status: "EXHAUSTED" },
-      data: { status: "ACTIVE", currentSpend: 0 },
-    })
-    if (resetKeys.count > 0) logs.push(`Reset ${resetKeys.count} exhausted API keys to ACTIVE`)
-
-    // Reset ERROR keys too
-    const resetErrorKeys = await db.apiKey.updateMany({
-      where: { status: "ERROR" },
-      data: { status: "ACTIVE" },
-    })
-    if (resetErrorKeys.count > 0) logs.push(`Reset ${resetErrorKeys.count} error API keys to ACTIVE`)
-
-    if (resetKeys.count === 0 && resetErrorKeys.count === 0) {
-      logs.push("No migration needed - everything is up to date")
-    }
+    logs.push("No migration needed - everything is up to date")
 
     return NextResponse.json({ status: "success", logs })
   } catch (error: unknown) {

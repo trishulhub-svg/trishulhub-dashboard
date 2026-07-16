@@ -581,21 +581,6 @@ export const patchApprovalSchema = z.object({
   feedback: z.string().max(2000).optional(),
 })
 
-// API Key
-export const createApiKeySchema = z.object({
-  name: z.string().min(1).max(100),
-  provider: z.enum(["OPENROUTER", "GOOGLE_AI", "ZAI", "ANTHROPIC", "OPENAI", "CUSTOM"]).optional(),
-  keyValue: z.string().min(1).max(500),
-  budgetLimit: z.number().min(0).optional(),
-})
-
-export const updateApiKeySchema = z.object({
-  name: z.string().min(1).max(100).optional(),
-  provider: z.string().max(50).optional(),
-  status: z.enum(["ACTIVE", "INACTIVE", "EXHAUSTED"]).optional(),
-  budgetLimit: z.number().min(0).optional(),
-})
-
 // Notification Preference
 const hhMmRegex = /^([01]\d|2[0-3]):([0-5]\d)$/
 
