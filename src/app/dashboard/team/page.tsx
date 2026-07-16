@@ -97,7 +97,7 @@ interface TeamUser {
 interface LeaveRecord {
   id: string;
   userId: string;
-  type: string;
+  leaveType: string;
   startDate: string;
   endDate: string;
   reason?: string | null;
@@ -105,6 +105,17 @@ interface LeaveRecord {
   status: string;
   approvedBy?: string | null;
   user?: { id: string; name: string; email: string; role: string };
+  approver?: { id: string; name: string } | null;
+}
+
+const LEAVE_TYPE_UI_MAP: Record<string, string> = {
+  CASUAL: "CASUAL_LEAVE",
+  SICK: "SICK_LEAVE",
+  PAID: "ANNUAL_LEAVE",
+};
+
+function formatLeaveTypeLabel(leaveType: string): string {
+  return leaveType.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 // Role colors for badge styling — primary/muted treatments (no purple pastel wells)
@@ -198,7 +209,7 @@ export default function TeamPage() {
         isAdminUser
           ? fetch("/api/team", { credentials: "include", signal })
           : Promise.resolve({ ok: true, json: async () => [] }),
-        fetch("/api/team?type=leaves", { credentials: "include", signal }),
+        fetch("/api/leaves", { credentials: "include", signal }),
       ]);
 
       if (userRes.ok) {
@@ -398,11 +409,11 @@ export default function TeamPage() {
     if (mutating) return;
     setMutating(true);
     try {
-      const res = await fetch("/api/team", {
+      const res = await fetch(`/api/leaves/${encodeURIComponent(id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ type: "leave", id, status, feedback }),
+        body: JSON.stringify({ status, feedback }),
       });
       if (res.ok) {
         toast.success(`Leave ${status.toLowerCase()}`);
@@ -426,11 +437,18 @@ export default function TeamPage() {
     if (mutating) return;
     setMutating(true);
     try {
-      const res = await fetch("/api/team", {
+      const apiLeaveType = LEAVE_TYPE_UI_MAP[leaveForm.leaveType] || leaveForm.leaveType;
+      const res = await fetch("/api/leaves", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ type: "leave", ...leaveForm }),
+        body: JSON.stringify({
+          leaveType: apiLeaveType,
+          startDate: leaveForm.startDate,
+          endDate: leaveForm.endDate,
+          reason: leaveForm.reason || undefined,
+          ...(leaveForm.userId ? { userId: leaveForm.userId } : {}),
+        }),
       });
       if (res.ok) {
         toast.success("Leave request submitted");
@@ -810,7 +828,7 @@ export default function TeamPage() {
                         <div className="min-w-0">
                           <p className="text-sm font-medium leading-tight">{safeText(leave.user?.name)}</p>
                           <p className="text-xs text-muted-foreground">
-                            {safeText(leave.type)} · {formatDate(leave.startDate)} – {formatDate(leave.endDate)}
+                            {formatLeaveTypeLabel(leave.leaveType)} · {formatDate(leave.startDate)} – {formatDate(leave.endDate)}
                             <span className="ml-1 text-muted-foreground/70">({getLeaveDays(leave.startDate, leave.endDate)}d)</span>
                           </p>
                           {leave.reason && <p className="text-xs mt-0.5 truncate max-w-[240px] sm:max-w-[360px] text-muted-foreground">{safeText(leave.reason)}</p>}

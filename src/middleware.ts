@@ -5,8 +5,8 @@ import { getToken } from "next-auth/jwt"
 // Paths where middleware doesn't enforce auth (route handlers may have their own auth)
 // /api/setup must remain public — its own auth logic handles first-time seeding (SETUP_TOKEN) and requires SUPER_ADMIN when users exist.
 // /api/agent-auth and /api/agent use their own JWT-based auth (Bearer token), not NextAuth cookies.
-// /api/cron uses its own CRON_SECRET Bearer auth (Vercel Cron has no session cookie).
-const publicPaths = ["/login", "/api/auth", "/api/health", "/api/setup", "/reset-password", "/api/password-reset", "/api/protocol-auth", "/api/protocol", "/api/agent-auth", "/api/agent", "/api/cron"]
+// /api/agent-auth and /api/agent use their own JWT-based auth (Bearer token), not NextAuth cookies.
+const publicPaths = ["/login", "/api/auth", "/api/health", "/api/setup", "/reset-password", "/api/password-reset", "/api/agent-auth", "/api/agent"]
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -114,7 +114,7 @@ export async function middleware(request: NextRequest) {
       "/dashboard/projects",
       "/dashboard/demo",
       "/dashboard/approvals",
-      "/dashboard/credentials",
+      "/dashboard/access-hub",
       "/dashboard/availability", // PM has read-only access — API enforces no mutations
     ]
 

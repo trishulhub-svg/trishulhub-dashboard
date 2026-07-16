@@ -538,7 +538,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           // Backward compat: also populate old format for any other consumers
           setPendingCounts({
             approvals: (data["/dashboard/approvals"] || 0) as number,
-            leaveRequests: (data["/dashboard/team"] || 0) as number,
+            leaveRequests: (data["/dashboard/leaves"] || 0) as number,
 
             total: Object.values(data).reduce((sum: number, v) => sum + (v as number), 0),
           });

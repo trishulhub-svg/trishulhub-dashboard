@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
     const statusParam = searchParams.get("status")
     const type = searchParams.get("type")
     // W27: Validate type against whitelist of valid approval types
-    const validApprovalTypes = ["TASK", "INVOICE", "EMAIL", "QUOTATION", "PROJECT_PLAN", "CODE_REVIEW", "LEAD_OUTREACH", "CONTENT_PIECE", "CHAT_DELETION", "TASK_EXECUTION", "EXPENSE_APPROVAL", "INVOICE_SENDING", "EMAIL_SENDING", "CODE_DEPLOYMENT", "DATA_EXPORT", "SCHEDULED_ACTION", "CROSS_AGENT_REQUEST"]
+    const validApprovalTypes = ["TASK", "INVOICE", "EMAIL", "QUOTATION", "PROJECT_PLAN", "CODE_REVIEW", "LEAD_OUTREACH", "CONTENT_PIECE", "EXPENSE_APPROVAL", "INVOICE_SENDING", "EMAIL_SENDING", "CODE_DEPLOYMENT", "DATA_EXPORT", "SCHEDULED_ACTION"]
     if (type && !validApprovalTypes.includes(type)) {
       return NextResponse.json({ error: "Invalid approval type" }, { status: 400 })
     }
@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
     }
 
     // SECURITY: Validate approval type and requester type
-    const validApprovalTypes = ["TASK", "INVOICE", "EMAIL", "QUOTATION", "PROJECT_PLAN", "CODE_REVIEW", "LEAD_OUTREACH", "CONTENT_PIECE", "CHAT_DELETION", "TASK_EXECUTION", "EXPENSE_APPROVAL", "INVOICE_SENDING", "EMAIL_SENDING", "CODE_DEPLOYMENT", "DATA_EXPORT", "SCHEDULED_ACTION", "CROSS_AGENT_REQUEST"]
+    const validApprovalTypes = ["TASK", "INVOICE", "EMAIL", "QUOTATION", "PROJECT_PLAN", "CODE_REVIEW", "LEAD_OUTREACH", "CONTENT_PIECE", "EXPENSE_APPROVAL", "INVOICE_SENDING", "EMAIL_SENDING", "CODE_DEPLOYMENT", "DATA_EXPORT", "SCHEDULED_ACTION"]
     if (!validApprovalTypes.includes(type)) {
       return NextResponse.json({ error: "Invalid approval type" }, { status: 400 })
     }
@@ -211,21 +211,6 @@ export async function PATCH(req: NextRequest) {
           approvedBy: { select: { id: true, name: true } },
         }
       })
-
-      // C17: Chat deletion inside transaction for atomicity
-      if (approval.type === "CHAT_DELETION" && status === "APPROVED") {
-        try {
-          let approvalData: { chatId?: string; [key: string]: unknown } = {}
-          try { approvalData = JSON.parse(approval.data); } catch (parseErr) { console.warn("[approvals] Failed to parse approval data:", parseErr); }
-          const chatId = approvalData.chatId;
-          if (chatId) {
-            await tx.chatMessage.deleteMany({ where: { chatId } })
-            await tx.chat.delete({ where: { id: chatId } }).catch((err) => console.error("[approvals] Chat deletion failed:", err))
-          }
-        } catch (deleteErr: unknown) {
-          console.error("[approvals] Failed to delete chat during approval:", deleteErr)
-        }
-      }
 
       return { updated, approval }
     })

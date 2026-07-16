@@ -37,9 +37,6 @@ const { dbMock, sessionMock } = vi.hoisted(() => ({
     leave: {
       findMany: vi.fn(),
     },
-    leaveRequest: {
-      findMany: vi.fn(),
-    },
     timeEntry: {
       findMany: vi.fn(),
     },
@@ -137,7 +134,6 @@ describe("PM availability access — GET routes allow PROJECT_MANAGER", () => {
     dbMock.availabilityDateRange.findMany.mockResolvedValue([])
     dbMock.timeEntry.findMany.mockResolvedValue([])
     dbMock.leave.findMany.mockResolvedValue([])
-    dbMock.leaveRequest.findMany.mockResolvedValue([])
     dbMock.user.findMany.mockResolvedValue([])
     dbMock.user.count.mockResolvedValue(0)
     const res = await GetSchedule(makeRequest("/api/availability/schedule?date=2026-06-24&type=week"))

@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
 
     await Promise.all([
       ensureTable("Approval"),
-      ensureTable("LeaveRequest"),
+      ensureTable("Leave"),
     ])
 
     const badges: Record<string, number> = {}
@@ -43,21 +43,18 @@ export async function GET(req: NextRequest) {
     // ADMIN / SUPER_ADMIN badges — full visibility of approvals + leaves
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     if (isAdmin(userRole)) {
-      const [approvals, leaveRequests] = await Promise.all([
+      const [approvals, pendingLeaves] = await Promise.all([
         db.approval.count({ where: { status: "PENDING" } }),
-        db.leaveRequest.count({ where: { status: "PENDING" } }),
+        db.leave.count({ where: { status: "PENDING" } }),
       ])
 
-      const total = approvals + leaveRequests
+      const total = approvals + pendingLeaves
 
       // Approvals page: all pending combined
       if (total > 0) badges["/dashboard/approvals"] = total
 
-      // Team page: pending leave requests (admin needs to act)
-      if (leaveRequests > 0) badges["/dashboard/team"] = leaveRequests
-
       // Leaves page: pending leaves
-      if (leaveRequests > 0) badges["/dashboard/leaves"] = leaveRequests
+      if (pendingLeaves > 0) badges["/dashboard/leaves"] = pendingLeaves
 
       return NextResponse.json(badges)
     }
@@ -69,7 +66,7 @@ export async function GET(req: NextRequest) {
     if (canManageApprovals(userRole)) {
       const [approvals, myPendingLeaves] = await Promise.all([
         db.approval.count({ where: { status: "PENDING" } }),
-        db.leaveRequest.count({ where: { userId, status: "PENDING" } }),
+        db.leave.count({ where: { userId, status: "PENDING" } }),
       ])
 
       const total = approvals + myPendingLeaves
@@ -86,25 +83,12 @@ export async function GET(req: NextRequest) {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // DEVELOPER / VIEWER badges
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    const [
-      myPendingLeaves,
-      myResolvedApprovals,
-    ] = await Promise.all([
-      // My pending leave requests
-      db.leaveRequest.count({
-        where: {
-          userId,
-          status: "PENDING",
-        },
-      }),
-      // My approvals that got resolved (for notification on Approvals page)
-      db.approval.count({
-        where: {
-          requesterId: userId,
-          status: { in: ["APPROVED", "REJECTED", "NEEDS_IMPROVEMENT"] },
-        },
-      }),
-    ])
+    const myPendingLeaves = await db.leave.count({
+      where: {
+        userId,
+        status: "PENDING",
+      },
+    })
 
     // ── Map to nav badges ──
 
@@ -112,8 +96,7 @@ export async function GET(req: NextRequest) {
     if (myPendingLeaves > 0) badges["/dashboard/leaves"] = myPendingLeaves
 
     // Approvals: my pending leaves (things to check)
-    const myApprovalItems = myPendingLeaves
-    if (myApprovalItems > 0) badges["/dashboard/approvals"] = myApprovalItems
+    if (myPendingLeaves > 0) badges["/dashboard/approvals"] = myPendingLeaves
 
     return NextResponse.json(badges)
   } catch (error: unknown) {
