@@ -1,9 +1,10 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import {
+  AlertTriangle,
   ClipboardList,
   GraduationCap,
   Loader2,
@@ -12,6 +13,7 @@ import {
   Trash2,
   Clock,
   RefreshCw,
+  UserRound,
 } from "lucide-react"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/page-header"
@@ -35,10 +37,19 @@ type Assignment = {
 
 type TeamMember = { id: string; name: string; email: string; role: string }
 
+type UserGroup = {
+  userId: string
+  name: string
+  email: string
+  open: Assignment[]
+  done: Assignment[]
+  overdueCount: number
+}
+
 function statusBadge(status: string) {
   if (status === "DONE") return <Badge className="bg-success/15 text-success border-0">Done</Badge>
   if (status === "OVERDUE") return <Badge variant="destructive">Overdue</Badge>
-  return <Badge variant="secondary">Assigned</Badge>
+  return <Badge variant="secondary">Open</Badge>
 }
 
 function dueLabel(dueDate: string) {
@@ -51,6 +62,47 @@ function dueLabel(dueDate: string) {
   } catch {
     return formatDateTime(dueDate)
   }
+}
+
+function personLabel(a: Assignment) {
+  return a.user?.name || a.user?.email || "Unknown"
+}
+
+function sortByDueAsc(a: Assignment, b: Assignment) {
+  return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()
+}
+
+function groupByUser(list: Assignment[]): UserGroup[] {
+  const map = new Map<string, UserGroup>()
+  for (const a of list) {
+    const key = a.userId || "unknown"
+    let g = map.get(key)
+    if (!g) {
+      g = {
+        userId: key,
+        name: a.user?.name || a.user?.email || "Unknown",
+        email: a.user?.email || "",
+        open: [],
+        done: [],
+        overdueCount: 0,
+      }
+      map.set(key, g)
+    }
+    if (a.status === "DONE") g.done.push(a)
+    else {
+      g.open.push(a)
+      if (a.status === "OVERDUE") g.overdueCount += 1
+    }
+  }
+  for (const g of map.values()) {
+    g.open.sort(sortByDueAsc)
+    g.done.sort((a, b) => new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime())
+  }
+  return Array.from(map.values()).sort((a, b) => {
+    if (b.overdueCount !== a.overdueCount) return b.overdueCount - a.overdueCount
+    if (b.open.length !== a.open.length) return b.open.length - a.open.length
+    return a.name.localeCompare(b.name)
+  })
 }
 
 export default function AssignTrainingPage() {
@@ -206,6 +258,67 @@ export default function AssignTrainingPage() {
       setDeletingId(null)
     }
   }
+
+  const needsAttention = useMemo(() => {
+    return assignments
+      .filter((a) => a.status !== "DONE")
+      .slice()
+      .sort((a, b) => {
+        const aOver = a.status === "OVERDUE" ? 0 : 1
+        const bOver = b.status === "OVERDUE" ? 0 : 1
+        if (aOver !== bOver) return aOver - bOver
+        return sortByDueAsc(a, b)
+      })
+  }, [assignments])
+
+  const overdueOnly = useMemo(
+    () => needsAttention.filter((a) => a.status === "OVERDUE"),
+    [needsAttention]
+  )
+
+  const byUser = useMemo(() => groupByUser(assignments), [assignments])
+
+  const renderAssignmentRow = (a: Assignment, opts?: { showPerson?: boolean }) => (
+    <li
+      key={a.id}
+      className="flex flex-col gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm sm:flex-row sm:flex-wrap sm:items-center"
+    >
+      <div className="min-w-0 flex-1 space-y-0.5">
+        <p className="font-medium truncate">{a.title}</p>
+        {opts?.showPerson !== false && (
+          <p className="text-xs text-muted-foreground truncate inline-flex items-center gap-1">
+            <UserRound className="h-3 w-3 shrink-0" />
+            {personLabel(a)}
+          </p>
+        )}
+        {a.notes ? (
+          <p className="text-xs text-muted-foreground line-clamp-2">{a.notes}</p>
+        ) : null}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {statusBadge(a.status)}
+        <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
+          <Clock className="h-3 w-3" />
+          Due {dueLabel(a.dueDate)}
+        </span>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="h-7 w-7 text-destructive"
+          disabled={deletingId === a.id}
+          onClick={() => void deleteAssignment(a.id)}
+          aria-label="Delete assignment"
+        >
+          {deletingId === a.id ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Trash2 className="h-3.5 w-3.5" />
+          )}
+        </Button>
+      </div>
+    </li>
+  )
 
   if (sessionStatus === "loading") {
     return (
@@ -393,60 +506,109 @@ export default function AssignTrainingPage() {
         </Button>
       </section>
 
-      <section className="space-y-4">
-        <div className="flex items-center gap-2">
-          <ClipboardList className="h-4 w-4 text-primary" />
-          <h2 className="text-base font-semibold tracking-tight">All assignments</h2>
+      {loading ? (
+        <div className="rounded-xl border border-border bg-card p-8 flex justify-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          Loading assignments…
         </div>
+      ) : assignments.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground">
+          No assignments yet.
+        </div>
+      ) : (
+        <>
+          {/* Overdue + incomplete across everyone */}
+          <section className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <AlertTriangle
+                className={`h-4 w-4 ${overdueOnly.length > 0 ? "text-destructive" : "text-primary"}`}
+              />
+              <h2 className="text-base font-semibold tracking-tight">Needs attention</h2>
+              <Badge variant={overdueOnly.length > 0 ? "destructive" : "secondary"} className="text-xs">
+                {overdueOnly.length} overdue · {needsAttention.length} open
+              </Badge>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              All due and not-completed training across the team, overdue first.
+            </p>
+            {needsAttention.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-border bg-card px-4 py-6 text-center text-sm text-muted-foreground">
+                Everyone is caught up — no open training.
+              </div>
+            ) : (
+              <ul className="space-y-2">
+                {needsAttention.map((a) => renderAssignmentRow(a, { showPerson: true }))}
+              </ul>
+            )}
+          </section>
 
-        {loading ? (
-          <div className="rounded-xl border border-border bg-card p-8 flex justify-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-5 w-5 animate-spin" />
-            Loading…
-          </div>
-        ) : assignments.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground">
-            No assignments yet.
-          </div>
-        ) : (
-          <ul className="space-y-2">
-            {assignments.map((a) => (
-              <li
-                key={a.id}
-                className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm"
-              >
-                <span className="font-medium truncate min-w-0 flex-1">
-                  {a.title}
-                  <span className="text-muted-foreground font-normal">
-                    {" "}
-                    · {a.user?.name || a.user?.email || "Unknown"}
-                  </span>
-                </span>
-                {statusBadge(a.status)}
-                <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
-                  <Clock className="h-3 w-3" />
-                  Due {dueLabel(a.dueDate)}
-                </span>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  className="h-7 w-7 text-destructive"
-                  disabled={deletingId === a.id}
-                  onClick={() => void deleteAssignment(a.id)}
-                  aria-label="Delete assignment"
+          {/* Grouped by user */}
+          <section className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <ClipboardList className="h-4 w-4 text-primary" />
+              <h2 className="text-base font-semibold tracking-tight">By person</h2>
+              <Badge variant="secondary" className="text-xs">
+                {byUser.length} {byUser.length === 1 ? "person" : "people"}
+              </Badge>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Each person&apos;s training listed under their name.
+            </p>
+            <div className="space-y-4">
+              {byUser.map((g) => (
+                <div
+                  key={g.userId}
+                  className="rounded-2xl border border-border bg-card overflow-hidden"
                 >
-                  {deletingId === a.id ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Trash2 className="h-3.5 w-3.5" />
-                  )}
-                </Button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+                  <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-border bg-muted/30">
+                    <UserRound className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold truncate">{g.name}</p>
+                      {g.email && g.email !== g.name ? (
+                        <p className="text-xs text-muted-foreground truncate">{g.email}</p>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {g.overdueCount > 0 && (
+                        <Badge variant="destructive" className="text-xs">
+                          {g.overdueCount} overdue
+                        </Badge>
+                      )}
+                      <Badge variant="secondary" className="text-xs">
+                        {g.open.length} open
+                      </Badge>
+                      <Badge className="bg-success/15 text-success border-0 text-xs">
+                        {g.done.length} done
+                      </Badge>
+                    </div>
+                  </div>
+                  <div className="p-3 space-y-3">
+                    {g.open.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-xs font-medium text-muted-foreground px-1">Open</p>
+                        <ul className="space-y-2">
+                          {g.open.map((a) => renderAssignmentRow(a, { showPerson: false }))}
+                        </ul>
+                      </div>
+                    )}
+                    {g.done.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-xs font-medium text-muted-foreground px-1">Completed</p>
+                        <ul className="space-y-2 opacity-80">
+                          {g.done.map((a) => renderAssignmentRow(a, { showPerson: false }))}
+                        </ul>
+                      </div>
+                    )}
+                    {g.open.length === 0 && g.done.length === 0 && (
+                      <p className="text-sm text-muted-foreground px-1 py-2">No items</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        </>
+      )}
     </div>
   )
 }
