@@ -1,7 +1,7 @@
 // TODO: Convert to Prisma enums when feasible: UserRole, ProjectStatus, TaskStatus, TaskPriority,
 // InvoiceStatus,
 // LeadStatus, ClientStatus, ApprovalStatus,
-// LeaveType, LeaveRequestType, ExpenseCategory, SubscriptionFrequency, SubscriptionStatus,
+// LeaveType, ExpenseCategory, SubscriptionFrequency, SubscriptionStatus,
 // DealStage, Currency, PaymentMethod, NotificationType,
 // ProjectMemberRole, etc.
 
@@ -28,9 +28,7 @@ model User {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  chats              Chat[]
   sentInvoices       Invoice[]
-  leaveRequests      LeaveRequest[]
   attendanceRecords  Attendance[]
   notifications      Notification[]
   approvalActions    Approval[]       @relation("ApprovalActions")
@@ -47,16 +45,9 @@ model User {
   availabilityDateRanges   AvailabilityDateRange[]
   assignedDeals         Deal[]
   expenses                Expense[]             @relation("ExpenseEmployee")
-  protocolVersions    ProtocolVersion[]  @relation("ProtocolVersions")
-  protocolInvites     ProtocolInvite[]     @relation("ProtocolInvites")
-  protocolUsedInvites ProtocolInvite[]     @relation("InviteUsedBy")
-  protocolAccess      UserProtocolAccess?
   userCredentials     UserCredential[]
   linkedClients        Client[]            @relation("ClientLinkedUser")
   notificationPreferences NotificationPreference?
-  agentAccess        UserAgentAccess[]
-  scheduledTasks    ScheduledTask[]
-  agentConversations AgentConversation[]
   userDetail         UserDetail?
   trainingQrs        TrainingQr[]
   trainingQrRequests TrainingQrRequest[]
@@ -137,239 +128,12 @@ model VaultSecret {
   @@index([category])
   @@map("VaultSecret")
 }
-
-// ━━ AI Agents ━━
-model Agent {
-  id           String   @id @default(cuid())
-  name         String
-  type         String   @unique // DEV, CLIENT_HUNTER, FINANCE, PROJECT_MANAGER, HR, CONTENT, SUPPORT
-  description  String
-  model        String   @default("glm-4.5-flash")
-  systemPrompt String
-  status       String   @default("IDLE") // IDLE, RUNNING, WAITING_APPROVAL, ERROR
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  chats           Chat[]
-  roleConfig      AgentRoleConfig?
-  userAccess      UserAgentAccess[]
-  scheduledTasks  ScheduledTask[]
-  sentMessages    CrossAgentMessage[] @relation("FromAgent")
-  receivedMessages CrossAgentMessage[] @relation("ToAgent")
-  approvals       Approval[]
-  autonomyConfig  AgentAutonomyConfig?
-  activityLogs    AgentActivityLog[]
-  autonomousPrompts AgentAutonomousPrompt[]
-  conversations    AgentConversation[]
-}
-
-// ━━ Agent Role Configuration ━━
-model AgentRoleConfig {
-  id               String  @id @default(cuid())
-  agentId          String  @unique
-  rolePrompt       String  // Enhanced role-specific system prompt
-  quickActions     String  @default("[]") // JSON: [{id, label, prompt}]
-  specialCommands  String  @default("[]") // JSON: [{id, label, prompt, icon}]
-  features         String  @default("{}") // JSON: {webSearch, autoTask, crossAgent, approvalRequired, ...}
-  autoWorkflows    String  @default("[]") // JSON: [{id, name, trigger, actions}]
-  suggestedPrompts String  @default("[]") // JSON: [{id, label, prompt}] - role-specific suggestion prompts
-
-  // GitHub integration settings
-  githubRepo      String  @default("") // GitHub repo URL (e.g., "https://github.com/user/repo")
-  githubToken     String  @default("") // GitHub personal access token
-  autoPushEnabled Boolean @default(false) // Auto-push code changes to GitHub
-
-  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
-}
-
-// ━━ Chat System ━━
-model Chat {
-  id        String   @id @default(cuid())
-  agentId   String
-  userId    String
-  title     String   @default("New Chat")
-  isShared  Boolean  @default(false) // Can be accessed by other agents
-  status    String   @default("ACTIVE") // ACTIVE, ARCHIVED, ENDED
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Chat locking - prevents concurrent access by different users
-  lockedBy    String?   // User ID who is currently active on this chat
-  lockedAt    DateTime? // When the lock was acquired
-  lockedByName String?  // Display name of the user who locked it
-
-  // Persistent TODO items - survives navigation away and back
-  todoItems     String  @default("[]") // JSON array of TODO items with status
-  isProcessing  Boolean @default(false) // Whether agent is currently processing
-
-  agent          Agent            @relation(fields: [agentId], references: [id])
-  user           User             @relation(fields: [userId], references: [id])
-  messages       ChatMessage[]
-  crossMessages  CrossAgentMessage[]
-
-  @@index([agentId, userId])
-  @@index([userId, status])
-  @@index([lockedBy])
-}
-
-model ChatMessage {
-  id        String   @id @default(cuid())
-  chatId    String
-  role      String   // user, assistant, system
-  content   String
-  metadata  String?  // JSON: {tokens, cost, model, attachments, approvalId}
-  createdAt DateTime @default(now())
-
-  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
-
-  @@index([chatId, createdAt])
-}
-
-// ━━ Cross-Agent Communication ━━
-model CrossAgentMessage {
-  id              String   @id @default(cuid())
-  fromAgentId     String
-  toAgentId       String
-  chatId          String?  // Optional link to a chat (from side)
-  linkedChatId    String?  // Optional link to a specific chat on the receiving agent for data sharing
-  message         String
-  type            String   // INFO, REQUEST, RESULT, ALERT
-  status          String   @default("PENDING") // PENDING, PROCESSED, IGNORED
-  shareFullChat   Boolean  @default(false) // Whether to share full chat context with the receiving agent
-  isAutonomous    Boolean  @default(false) // Was this message generated autonomously?
-  createdAt       DateTime @default(now())
-
-  fromAgent  Agent  @relation("FromAgent", fields: [fromAgentId], references: [id])
-  toAgent    Agent  @relation("ToAgent", fields: [toAgentId], references: [id])
-  chat       Chat?  @relation(fields: [chatId], references: [id])
-
-  @@index([toAgentId, status])
-  @@index([fromAgentId])
-}
-
-// ━━ Agent Autonomy ━━
-model AgentAutonomyConfig {
-  id            String    @id @default(cuid())
-  agentId       String    @unique
-  enabled       Boolean   @default(false)       // Is autonomy enabled for this agent?
-  interval      Int       @default(5)           // Minutes between thinking cycles
-  lastRunAt     DateTime? // Last time the thinking cycle ran
-  nextRunAt     DateTime? // Next scheduled run
-  totalRuns     Int       @default(0)           // Total thinking cycles executed
-  totalErrors   Int       @default(0)           // Total errors encountered
-  lastError     String?   // Last error message
-  status        String    @default("PAUSED")    // RUNNING, PAUSED, ERROR
-  startedBy      String?   // userId who started the agent
-  startedByRole  String?   // Role of the user who started (SUPER_ADMIN, ADMIN, DEVELOPER)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-
-  agent             Agent             @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  activityLogs      AgentActivityLog[]
-}
-
-// ━━ Agent Autonomous Prompts ━━
-model AgentAutonomousPrompt {
-  id        String   @id @default(cuid())
-  agentId   String
-  title     String
-  content   String   // The actual prompt/instructions for autonomous mode
-  isActive  Boolean  @default(false) // Only ONE active prompt per agent
-  isDefault Boolean  @default(false) // System default — cannot be deleted
-  createdBy String?  // userId of the admin who created it
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
-
-  @@index([agentId, isActive])
-}
-
-model AgentActivityLog {
-  id            String    @id @default(cuid())
-  agentId       String
-  configId      String
-  action        String    // thinking_cycle, tool_call, message_sent, report_generated, error
-  title         String    // Short human-readable title
-  description   String?   // Detailed description of what happened
-  result        String?   // JSON: Result data from the action
-  status        String    @default("SUCCESS") // SUCCESS, FAILED, SKIPPED, PENDING_APPROVAL
-  tokensUsed    Int       @default(0)
-  cost          Float     @default(0)
-  duration      Int       @default(0)          // Execution time in ms
-  createdAt     DateTime  @default(now())
-
-  config AgentAutonomyConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
-  agent  Agent               @relation(fields: [agentId], references: [id], onDelete: Cascade)
-
-  @@index([agentId, createdAt])
-  @@index([configId, createdAt])
-}
-
-// ━━ Agent Conversations (Legacy - kept for migration) ━━
-model AgentConversation {
-  id        String   @id @default(cuid())
-  agentId   String
-  userId    String
-  title     String?
-  messages  String   @default("[]") // JSON array of messages
-  status    String   @default("ACTIVE") // ACTIVE, ARCHIVED
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  agent     Agent    @relation(fields: [agentId], references: [id])
-  user      User     @relation(fields: [userId], references: [id])
-}
-
-// ━━ User-Agent Access (RBAC) ━━
-model UserAgentAccess {
-  id         String  @id @default(cuid())
-  userId     String
-  agentId    String
-  canChat    Boolean @default(true)
-  canView    Boolean @default(true)
-  canApprove Boolean @default(false)
-
-  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  agent Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, agentId])
-}
-
-// ━━ Scheduled Tasks ━━
-model ScheduledTask {
-  id               String    @id @default(cuid())
-  agentId          String
-  userId           String
-  title            String
-  description      String?
-  dueDate          DateTime
-  status           String    @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, OVERDUE, CANCELLED
-  progress         Int       @default(0) // 0-100
-  priority         String    @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
-  result           String?   // AI output / result of the task
-  notifyAt         DateTime? // When to notify
-  completedAt      DateTime?
-  attachments      String    @default("[]") // JSON array: [{name, url, size, type}]
-  crossAgentAccess String    @default("[]") // JSON array of agentIds that can view/execute this task
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-
-  agent Agent @relation(fields: [agentId], references: [id])
-  user  User  @relation(fields: [userId], references: [id])
-
-  @@index([agentId, status])
-  @@index([userId, status])
-  @@index([dueDate])
-}
-
 // ━━ Approval System ━━
 model Approval {
   id             String   @id @default(cuid())
-  type           String   // TASK, INVOICE, EMAIL, QUOTATION, PROJECT_PLAN, CODE_REVIEW, LEAD_OUTREACH, CONTENT_PIECE
+  type           String   // TASK, INVOICE, EMAIL, QUOTATION, PROJECT_PLAN, CODE_REVIEW, LEAD_OUTREACH, CONTENT_PIECE, EXPENSE_APPROVAL, ...
   requesterType  String   // AI, HUMAN
-  requesterId    String?  // agentId or userId
-  agentId        String?
+  requesterId    String?  // userId
   title          String
   description    String?  // Summary of what needs approval
   data           String   @default("{}") // JSON: the item needing approval
@@ -380,12 +144,10 @@ model Approval {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  agent       Agent?  @relation(fields: [agentId], references: [id])
   approvedBy  User?   @relation("ApprovalActions", fields: [approvedById], references: [id])
 
   @@index([status])
   @@index([requesterType])
-  @@index([agentId])
   @@index([requesterId, status])
   @@map("Approval")
 }
@@ -723,31 +485,6 @@ model TicketMessage {
 
   ticket    SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
 }
-
-// ━━ HR ━━
-model LeaveRequest {
-  id          String   @id @default(cuid())
-  userId      String
-  type        String   @default("CASUAL") // CASUAL, SICK, PAID
-  startDate   DateTime
-  endDate     DateTime
-  reason      String?
-  status      String   @default("PENDING") // PENDING, APPROVED, REJECTED
-  approvedBy  String?
-  feedback    String?  // Reason for rejection or notes
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([status])
-  @@map("LeaveRequest")
-}
-
-// TODO: Phase 7 — LeaveRequest (legacy) and Leave (enhanced) are both active.
-// Migrate LeaveRequest data to Leave model, update /api/team/route.ts, then drop LeaveRequest.
-
 // ━━ Time Tracking ━━
 model TimeEntry {
   id          String   @id @default(cuid())
@@ -1013,6 +750,7 @@ model Leave {
   approvedBy  String?
   approver    User?    @relation("ApprovedLeaves", fields: [approvedBy], references: [id])
   approvedAt  DateTime?
+  feedback    String?  // Admin note on approve/reject
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -1086,81 +824,6 @@ model AvailabilityDateRange {
   @@index([endDate])
   @@map("AvailabilityDateRange")
 }
-
-// ━━ Protocol Management ━━
-model ProtocolVersion {
-  id                String   @id @default(cuid())
-  version           String   @unique  // e.g., "5.0"
-  title             String   @default("Trishul Protocol")
-  content           String   @default("") // Full protocol markdown content
-  stageDescriptions String   @default("[]") // JSON: [{stage: 0, title: "...", description: "...", deliverables: "..."}]
-  agentSkills       String   @default("[]") // JSON: [{agentType: "DEV", name: "Dev Agent", skills: ["..."]}]
-  isActive          Boolean  @default(true)
-  createdBy         String
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  creator           User     @relation("ProtocolVersions", fields: [createdBy], references: [id])
-  invites           ProtocolInvite[]
-  accessLogs        ProtocolAccessLog[]
-  userAccessList    UserProtocolAccess[]
-}
-
-model ProtocolInvite {
-  id            String    @id @default(cuid())
-  protocolId    String
-  inviteCode    String    @unique  // e.g., "TRISHUL-A3X9K2"
-  targetEmail   String    // User email this invite is for
-  targetName    String?   // User name
-  agentAccess   String    @default("[]") // JSON: ["DEV", "CLIENT_HUNTER", ...] - which agents user can access
-  expiresAt     DateTime
-  usedAt        DateTime?
-  usedBy        String?   // userId who used this invite
-  createdBy     String    // SUPER_ADMIN userId
-  status        String    @default("PENDING") // PENDING, USED, EXPIRED, REVOKED
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-
-  creator       User           @relation("ProtocolInvites", fields: [createdBy], references: [id])
-  usedByUser    User?          @relation("InviteUsedBy", fields: [usedBy], references: [id])
-  protocol      ProtocolVersion @relation(fields: [protocolId], references: [id])
-  accessLogs    ProtocolAccessLog[]
-}
-
-model ProtocolAccessLog {
-  id            String   @id @default(cuid())
-  inviteId      String
-  protocolId    String
-  userEmail     String
-  agentAccess   String   @default("[]") // Snapshot of agent access at time of access
-  ipAddress     String?
-  createdAt     DateTime @default(now())
-
-  invite        ProtocolInvite @relation(fields: [inviteId], references: [id])
-  protocol      ProtocolVersion @relation(fields: [protocolId], references: [id])
-
-  @@index([protocolId])
-  @@index([userEmail])
-  @@index([createdAt])
-}
-
-// ━━ User Protocol Access (persistent) ━━
-model UserProtocolAccess {
-  id            String   @id @default(cuid())
-  userId        String   @unique  // One protocol access per user
-  userEmail     String
-  userName      String?
-  protocolId    String
-  agentAccess   String   @default("[]") // JSON: ["DEV", "FINANCE", ...] - SUPER_ADMIN controls this
-  isActive      Boolean  @default(true)
-  verifiedAt    DateTime @default(now())
-  verifiedVia   String   // invite code used
-  lastAccessAt  DateTime @updatedAt
-
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  protocol      ProtocolVersion @relation(fields: [protocolId], references: [id])
-}
-
 // ━━ Project Attachments (PDF files) ━━
 model ProjectAttachment {
   id        String   @id @default(cuid())

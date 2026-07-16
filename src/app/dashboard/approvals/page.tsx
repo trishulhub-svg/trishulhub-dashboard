@@ -51,10 +51,10 @@ interface Approval {
   approvedBy?: { id: string; name: string } | null;
 }
 
-interface LeaveRequest {
+interface Leave {
   id: string;
   userId: string;
-  type: string;
+  leaveType: string;
   startDate: string;
   endDate: string;
   reason: string | null;
@@ -63,6 +63,7 @@ interface LeaveRequest {
   feedback: string | null;
   createdAt: string;
   user?: { id: string; name: string; email: string; role: string; avatar: string | null } | null;
+  approver?: { id: string; name: string } | null;
 }
 
 interface PendingCounts {
@@ -114,10 +115,25 @@ const statusBadgeVariant: Record<string, "default" | "secondary" | "destructive"
 };
 
 const leaveTypeBadge: Record<string, string> = {
+  CASUAL_LEAVE: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300",
+  SICK_LEAVE: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
+  ANNUAL_LEAVE: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
+  PUBLIC_HOLIDAY: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300",
+  MATERNITY_LEAVE: "bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300",
+  PATERNITY_LEAVE: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300",
+  COMPENSATORY_OFF: "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300",
+  HALF_DAY: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
+  WORK_FROM_HOME: "bg-slate-100 text-slate-700 dark:bg-slate-900/30 dark:text-slate-300",
+  OTHER: "bg-muted text-muted-foreground",
+  // Legacy short labels (in case any remain)
   CASUAL: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300",
   SICK: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
   PAID: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
 };
+
+function formatLeaveType(leaveType: string): string {
+  return leaveType.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 const sourceTypeConfig: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
   LEAVE: {
@@ -158,7 +174,7 @@ interface UnifiedPendingItem {
   requesterName: string;
   requesterAvatar: string | null;
   createdAt: string;
-  raw: Approval | LeaveRequest;
+  raw: Approval | Leave;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -209,9 +225,9 @@ export default function ApprovalsPage() {
 
   // Data states
   const [aiApprovals, setAiApprovals] = useState<Approval[]>([]);
-  const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
+  const [leaveRequests, setLeaveRequests] = useState<Leave[]>([]);
   const [historyItems, setHistoryItems] = useState<Approval[]>([]);
-  const [leaveHistory, setLeaveHistory] = useState<LeaveRequest[]>([]);
+  const [leaveHistory, setLeaveHistory] = useState<Leave[]>([]);
 
   // UI states
   const [loading, setLoading] = useState(true);
@@ -251,8 +267,8 @@ export default function ApprovalsPage() {
     ...(isAdminUser ? pendingLeaves : myPendingLeaves).map((l) => ({
       id: l.id,
       source: "LEAVE" as const,
-      title: `${safeText(l.user?.name, "Unknown")} — ${l.type} Leave`,
-      description: l.reason || `${l.type} leave from ${new Date(l.startDate).toLocaleDateString()} to ${new Date(l.endDate).toLocaleDateString()}`,
+      title: `${safeText(l.user?.name, "Unknown")} — ${formatLeaveType(l.leaveType)}`,
+      description: l.reason || `${formatLeaveType(l.leaveType)} from ${new Date(l.startDate).toLocaleDateString()} to ${new Date(l.endDate).toLocaleDateString()}`,
       requesterName: safeText(l.user?.name, "Unknown"),
       requesterAvatar: l.user?.avatar || null,
       createdAt: l.createdAt,
@@ -293,7 +309,7 @@ export default function ApprovalsPage() {
         fetch("/api/approvals?status=APPROVED", { credentials: "include" }),
         fetch("/api/approvals?status=REJECTED", { credentials: "include" }),
         fetch("/api/approvals?status=NEEDS_IMPROVEMENT", { credentials: "include" }),
-        fetch("/api/team?type=leaves", { credentials: "include" }),
+        fetch("/api/leaves", { credentials: "include" }),
       ]);
 
       // Handle approvals
@@ -317,17 +333,17 @@ export default function ApprovalsPage() {
       );
 
       // Handle leaves — use for both pending list and history
-      let rawLeaves: LeaveRequest[] = [];
+      let rawLeaves: Leave[] = [];
       if (leavesRes.status === "fulfilled" && leavesRes.value.ok) {
-        rawLeaves = safeArray<LeaveRequest>(await leavesRes.value.json());
+        rawLeaves = safeArray<Leave>(await leavesRes.value.json());
         setLeaveRequests(rawLeaves);
       }
 
       // Build leave history: approved/rejected leaves
       setLeaveHistory(
         rawLeaves
-          .filter((l: LeaveRequest) => l.status === "APPROVED" || l.status === "REJECTED")
-          .sort((a: LeaveRequest, b: LeaveRequest) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+          .filter((l: Leave) => l.status === "APPROVED" || l.status === "REJECTED")
+          .sort((a: Leave, b: Leave) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       );
 
     } catch (err) {
@@ -393,11 +409,11 @@ export default function ApprovalsPage() {
     setActionLoadingState(id, true);
     try {
       const feedback = feedbackTexts[id] || undefined;
-      const res = await fetch("/api/team", {
+      const res = await fetch(`/api/leaves/${encodeURIComponent(id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ type: "leave", id, status: action, feedback }),
+        body: JSON.stringify({ status: action, feedback }),
       });
 
       if (res.ok) {
@@ -584,7 +600,7 @@ export default function ApprovalsPage() {
     );
   };
 
-  const renderLeaveCard = (leave: LeaveRequest, showActions: boolean = true) => {
+  const renderLeaveCard = (leave: Leave, showActions: boolean = true) => {
     const isPending = leave.status === "PENDING";
     return (
       <Card key={leave.id} className={`border ${statusColors[leave.status] || ""}`}>
@@ -598,8 +614,8 @@ export default function ApprovalsPage() {
               <div>
                 <p className="text-sm font-medium">{safeText(leave.user?.name, "Unknown Employee")}</p>
                 <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                  <Badge variant="secondary" className={`text-[10px] ${leaveTypeBadge[leave.type] || ""}`}>
-                    {leave.type}
+                  <Badge variant="secondary" className={`text-[10px] ${leaveTypeBadge[leave.leaveType] || ""}`}>
+                    {formatLeaveType(leave.leaveType)}
                   </Badge>
                   <div className="flex items-center gap-1 text-xs text-muted-foreground">
                     <Calendar className="h-3 w-3" />
@@ -617,6 +633,9 @@ export default function ApprovalsPage() {
               <p className="text-xs text-muted-foreground mt-1">
                 {new Date(leave.createdAt).toLocaleString()}
               </p>
+              {leave.approver?.name && (
+                <p className="text-xs text-muted-foreground">by {safeText(leave.approver.name)}</p>
+              )}
             </div>
           </div>
 
@@ -670,7 +689,7 @@ export default function ApprovalsPage() {
   const renderUnifiedCard = (item: UnifiedPendingItem) => {
     const src = sourceTypeConfig[item.source] || sourceTypeConfig.AI;
     if (item.source === "LEAVE") {
-      return renderLeaveCard(item.raw as LeaveRequest, isAdminUser);
+      return renderLeaveCard(item.raw as Leave, isAdminUser);
     }
     // AI approval — render inline with source badge
     const approval = item.raw as Approval;
@@ -807,14 +826,14 @@ export default function ApprovalsPage() {
     ...leaveHistory.map((l) => ({
       id: l.id,
       source: "LEAVE" as const,
-      title: `${safeText(l.user?.name, "Unknown")} — ${l.type} Leave`,
+      title: `${safeText(l.user?.name, "Unknown")} — ${formatLeaveType(l.leaveType)}`,
       status: l.status,
       statusLabel: l.status.replace(/_/g, " "),
       updatedAt: l.createdAt,
       feedback: l.feedback,
-      approvedByName: null,
+      approvedByName: l.approver?.name || null,
       userName: l.user?.name || null,
-      leaveType: l.type,
+      leaveType: l.leaveType,
       startDate: l.startDate,
       endDate: l.endDate,
     })),

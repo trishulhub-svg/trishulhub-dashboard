@@ -26,7 +26,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     let body
     try { body = await req.json() } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }) }
-    const { status, reason } = body
+    const { status, reason, feedback } = body
 
     const validStatuses = ["APPROVED", "REJECTED", "CANCELLED"]
     if (!validStatuses.includes(status)) {
@@ -62,10 +62,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         throw new Error("Rejected leaves can only be cancelled")
       }
 
+      const rejectNote =
+        typeof feedback === "string"
+          ? feedback.trim().slice(0, 1000)
+          : typeof reason === "string" && status === "REJECTED"
+            ? reason.trim().slice(0, 1000)
+            : undefined
+
       const updateData: Parameters<typeof db.leave.update>[0]["data"] = {
         status,
         ...(status === "APPROVED" || status === "REJECTED" ? { approvedBy: userId, approvedAt: new Date() } : {}),
         ...(reason && status === "CANCELLED" ? { reason } : {}),
+        ...(rejectNote && (status === "REJECTED" || status === "APPROVED") ? { feedback: rejectNote } : {}),
       }
 
       return await tx.leave.update({
@@ -99,7 +107,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         await notifyUsers({
           userIds: leave.userId,
           title: `Leave ${status === "APPROVED" ? "Approved" : "Rejected"}`,
-          message: `Your ${leave.leaveType.replace("_", " ").toLowerCase()} leave request from ${new Date(leave.startDate).toLocaleDateString()} to ${new Date(leave.endDate).toLocaleDateString()} has been ${status.toLowerCase()}.`,
+          message: `Your ${leave.leaveType.replace(/_/g, " ").toLowerCase()} leave request from ${new Date(leave.startDate).toLocaleDateString()} to ${new Date(leave.endDate).toLocaleDateString()} has been ${status.toLowerCase()}${leave.feedback ? `. Feedback: ${leave.feedback}` : ""}.`,
           type: status === "APPROVED" ? "SUCCESS" : "WARNING",
           link: "/dashboard/leaves",
           metadata: { leaveId: leave.id },

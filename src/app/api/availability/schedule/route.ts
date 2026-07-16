@@ -59,7 +59,6 @@ export async function GET(req: NextRequest) {
       ensureTable("AvailabilityDateRange"),
       ensureTable("TimeEntry"),
       ensureTable("Leave"),
-      ensureTable("LeaveRequest"),
     ])
 
     // ── Rate limit ──
@@ -136,7 +135,6 @@ async function handleDailyView(dateStr: string, dateObj: Date, userId: string) {
     dateRanges,
     timeEntries,
     leaves,
-    leaveRequests,
   ] = await Promise.all([
     // 1. Weekly availability for this day
     db.availability.findMany({
@@ -183,16 +181,6 @@ async function handleDailyView(dateStr: string, dateObj: Date, userId: string) {
         startDate: { lte: endOfDay },
         endDate: { gte: startOfDay },
       },
-    }),
-
-    // 6. Leave requests for this user (all statuses for context)
-    db.leaveRequest.findMany({
-      where: {
-        userId,
-        startDate: { lte: endOfDay },
-        endDate: { gte: startOfDay },
-      },
-      orderBy: { createdAt: "desc" },
     }),
   ])
 

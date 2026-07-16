@@ -8,7 +8,6 @@ import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { VALID_DEPARTMENT_VALUES } from "@/lib/types"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
-import { notifyRoles, notifyUsers } from "@/lib/notify"
 
 // [C3] Helper: convert Date to local YYYY-MM-DD string (avoids UTC timezone issue)
 function toLocalDateStr(d: Date): string {
@@ -139,20 +138,12 @@ export async function GET(req: NextRequest) {
       const userIds = activeUsers.map(u => u.id)
 
       // 2-5. Fetch remaining data sources in parallel for performance
-      const [allAvailability, leaveRequests, leaves, timeEntries, manualAttendance] = await Promise.all([
+      const [allAvailability, leaves, timeEntries, manualAttendance] = await Promise.all([
         // 2. Fetch all availability schedules for these users
         db.availability.findMany({
           where: { userId: { in: userIds }, isAvailable: true },
         }),
-        // 3. Fetch all approved leaves (both LeaveRequest and Leave models) overlapping the date range
-        db.leaveRequest.findMany({
-          where: {
-            userId: { in: userIds },
-            status: "APPROVED",
-            startDate: { lte: dateTo },
-            endDate: { gte: dateFrom },
-          },
-        }),
+        // 3. Fetch all approved leaves overlapping the date range
         db.leave.findMany({
           where: {
             userId: { in: userIds },
@@ -188,16 +179,6 @@ export async function GET(req: NextRequest) {
       }
 
       const leaveDaysByUser = new Map<string, Set<string>>()
-      for (const lr of leaveRequests) {
-        const key = lr.userId
-        const set = leaveDaysByUser.get(key) || new Set<string>()
-        const start = new Date(lr.startDate)
-        const end = new Date(lr.endDate)
-        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-          set.add(toLocalDateStr(d))
-        }
-        leaveDaysByUser.set(key, set)
-      }
       for (const l of leaves) {
         const key = l.userId
         const set = leaveDaysByUser.get(key) || new Set<string>()
@@ -344,34 +325,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(records.slice(0, 500))
     }
 
-    if (type === "leaves") {
-      // Admin-only: all leave requests; developers see own only
-      const userRole = session.user.role
-      const userId = session.user.id
-      if (!isAdmin(userRole)) {
-        // TODO: Add cursor-based pagination for large datasets
-        const leaves = await db.leaveRequest.findMany({
-          where: { userId },
-          include: {
-            user: { select: { id: true, name: true, email: true, role: true } },
-          },
-          orderBy: { createdAt: "desc" },
-          take: 100,
-        })
-        return NextResponse.json(leaves)
-      }
-      // TODO: Add cursor-based pagination for large datasets
-      const leaves = await db.leaveRequest.findMany({
-        include: {
-          user: { select: { id: true, name: true, email: true, role: true } },
-        },
-        orderBy: { createdAt: "desc" },
-        take: 100,
-      })
-      return NextResponse.json(leaves)
-    }
-
     // Default: return team members (admin-only)
+    // Leave list/create/approve: use /api/leaves instead
     const userRole = session.user.role
     if (!isAdmin(userRole)) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
@@ -380,7 +335,7 @@ export async function GET(req: NextRequest) {
     const users = await db.user.findMany({
       where: { role: { not: "CLIENT" } },
       include: {
-        _count: { select: { leaveRequests: true } },
+        _count: { select: { leaves: true } },
       },
       orderBy: { name: "asc" },
       take: 100,
@@ -419,81 +374,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
     }
     const { type, ...data } = body
-
-    if (type === "leave") {
-      // SECURITY: Non-admin users can only create leave for themselves
-      const sessionUserId = session.user.id
-      const sessionUserRole = session.user.role
-      const leaveUserId = !isAdmin(sessionUserRole) ? sessionUserId : (data.userId || sessionUserId)
-
-      // [FIX C3: Validate start/end dates]
-      if (!data.startDate || !data.endDate) {
-        return NextResponse.json({ error: "Start date and end date are required" }, { status: 400 })
-      }
-      const parsedStart = new Date(data.startDate as string)
-      const parsedEnd = new Date(data.endDate as string)
-      if (isNaN(parsedStart.getTime()) || isNaN(parsedEnd.getTime())) {
-        return NextResponse.json({ error: "Invalid date format" }, { status: 400 })
-      }
-      if (parsedStart > parsedEnd) {
-        return NextResponse.json({ error: "End date must be on or after start date" }, { status: 400 })
-      }
-
-      // [T9] Limit leave duration to 30 days
-      const diffDays = Math.ceil((parsedEnd.getTime() - parsedStart.getTime()) / (1000 * 60 * 60 * 24)) + 1
-      if (diffDays > 30) {
-        return NextResponse.json({ error: "Leave duration cannot exceed 30 days" }, { status: 400 })
-      }
-
-      // [FIX H7: Validate leave type against allowed values]
-      const validLeaveTypes = ["CASUAL", "SICK", "PAID"]
-      const leaveType = (data.leaveType as string) || "CASUAL"
-      if (!validLeaveTypes.includes(leaveType)) {
-        return NextResponse.json({ error: "Invalid leave type. Must be CASUAL, SICK, or PAID" }, { status: 400 })
-      }
-
-      // [W11] Audit log when admin creates leave on behalf of another user
-      if (leaveUserId !== sessionUserId) {
-        console.log(`[team] Admin ${sessionUserId} creating leave for user ${leaveUserId}`);
-      }
-
-      const leave = await db.leaveRequest.create({
-        data: {
-          userId: leaveUserId as string,
-          type: leaveType,
-          startDate: parsedStart,
-          endDate: parsedEnd,
-          reason: (data.reason as string)?.slice(0, 1000) || null,
-          status: "PENDING",
-        },
-      })
-
-      // Audit: log leave request creation (fire-and-forget)
-      void logAudit({
-        userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
-        department: "HR_PEOPLE", page: "team", action: "CREATE",
-        entityType: "LeaveRequest", entityId: leave.id,
-        description: `Created leave request (${leaveType}) on behalf of user ${leaveUserId} from ${parsedStart.toLocaleDateString()} to ${parsedEnd.toLocaleDateString()}`,
-        ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
-      })
-
-      // Notify admins about new leave request (fire-and-forget — non-blocking)
-      try {
-        const user = await db.user.findUnique({ where: { id: leaveUserId as string } })
-        await notifyRoles(["SUPER_ADMIN", "ADMIN"], {
-          title: "New Leave Request",
-          message: `${user?.name || "A team member"} requested ${leaveType} leave from ${parsedStart.toLocaleDateString()} to ${parsedEnd.toLocaleDateString()}`,
-          type: "INFO",
-          link: "/dashboard/team",
-          metadata: { leaveId: leave.id },
-        })
-      } catch (notifyErr: unknown) {
-        // [T2] Fixed error: any → error: unknown
-        console.error("[team] leave notification error (non-blocking):", notifyErr instanceof Error ? notifyErr.message : String(notifyErr))
-      }
-
-      return NextResponse.json(leave, { status: 201 })
-    }
 
     if (type === "attendance") {
       // SECURITY: Only admins can create attendance records
@@ -673,93 +553,6 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Email changes are not allowed here. Use /api/email-change." }, { status: 400 })
     }
 
-    if (type === "leave") {
-      // [FIX C5: Validate leave status against allowed values]
-      const validLeaveStatuses = ["PENDING", "APPROVED", "REJECTED"]
-      if (data.status && !validLeaveStatuses.includes(data.status as string)) {
-        return NextResponse.json({ error: "Invalid leave status. Must be PENDING, APPROVED, or REJECTED" }, { status: 400 })
-      }
-      // SECURITY: Only admins can approve/reject leave requests
-      const leavePatchRole = session.user.role
-      if (data.status && !isAdmin(leavePatchRole)) {
-        return NextResponse.json({ error: "Forbidden: Only admins can approve/reject leave requests" }, { status: 403 })
-      }
-      // [FIX H9: Prevent admin from approving their own leave]
-      if (data.status === "APPROVED" || data.status === "REJECTED") {
-        const targetLeave = await db.leaveRequest.findUnique({ where: { id: id as string } })
-        if (!targetLeave) {
-          return NextResponse.json({ error: "Leave request not found" }, { status: 404 })
-        }
-        if (targetLeave.userId === session.user.id) {
-          return NextResponse.json({ error: "You cannot approve or reject your own leave request" }, { status: 403 })
-        }
-        // Prevent updating already-decided leaves
-        if (targetLeave.status === "APPROVED" || targetLeave.status === "REJECTED") {
-          return NextResponse.json({ error: `Leave request is already ${targetLeave.status.toLowerCase()}` }, { status: 400 })
-        }
-      }
-      // [T8] Sanitize and length-limit feedback (500 chars max)
-      const sanitizedFeedback = typeof data.feedback === 'string'
-        ? data.feedback.trim().slice(0, 500) || undefined
-        : undefined
-
-      // SECURITY: Set approvedBy ONLY when status actually changes
-      const updatePayload: Prisma.LeaveRequestUncheckedUpdateInput = { feedback: sanitizedFeedback }
-      if (data.status && data.status !== "PENDING") {
-        updatePayload.status = data.status as string
-        updatePayload.approvedBy = session.user.id
-      }
-
-      // Wrap leave approve/reject in transaction to prevent TOCTOU
-      const leave = await db.$transaction(async (tx) => {
-        if (data.status && (data.status === "APPROVED" || data.status === "REJECTED")) {
-          const targetLeave = await tx.leaveRequest.findUnique({ where: { id: id as string } })
-          if (!targetLeave) return null
-          if (targetLeave.userId === session.user.id) {
-            throw new Error("You cannot approve or reject your own leave request")
-          }
-          if (targetLeave.status === "APPROVED" || targetLeave.status === "REJECTED") {
-            throw new Error(`Leave request is already ${targetLeave.status.toLowerCase()}`)
-          }
-        }
-        return await tx.leaveRequest.update({
-          where: { id: id as string },
-          data: updatePayload,
-        })
-      })
-
-      if (!leave) {
-        return NextResponse.json({ error: "Leave request not found" }, { status: 404 })
-      }
-
-      // Notify the user about leave decision (fire-and-forget — non-blocking)
-      try {
-        await notifyUsers({
-          userIds: leave.userId,
-          title: `Leave ${data.status}`,
-          message: `Your ${leave.type} leave request has been ${(data.status as string)?.toLowerCase()}.${sanitizedFeedback ? ` Feedback: ${sanitizedFeedback}` : ""}`,
-          type: data.status === "APPROVED" ? "SUCCESS" : data.status === "REJECTED" ? "ERROR" : "INFO",
-          link: "/dashboard/leaves",
-          metadata: { leaveId: leave.id },
-        })
-      } catch (notifyErr: unknown) {
-        // [T2] Fixed error: any → error: unknown
-        console.error("[team] leave decision notification error (non-blocking):", notifyErr instanceof Error ? notifyErr.message : String(notifyErr))
-      }
-
-      // Audit: log leave decision (approve/reject) — fire-and-forget
-      void logAudit({
-        userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
-        department: "HR_PEOPLE", page: "team", action: "STATUS_CHANGE",
-        entityType: "LeaveRequest", entityId: id as string,
-        description: `Changed leave request status to ${data.status} (type: ${leave.type}, user: ${leave.userId})`,
-        newValue: data.status as string,
-        ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
-      })
-
-      return NextResponse.json(leave)
-    }
-
     if (type === "attendance") {
       // SECURITY: Only admins can update attendance records
       const attPatchRole = session.user.role
@@ -887,18 +680,6 @@ export async function PATCH(req: NextRequest) {
 
     return NextResponse.json(user)
   } catch (error: unknown) {
-    // Handle authorization/validation errors thrown inside transaction
-    if (error instanceof Error) {
-      const msg = error.message
-      if (msg.includes("cannot approve or reject your own")) {
-        console.error("[team] PATCH error:", msg)
-        return NextResponse.json({ error: "You cannot approve or reject your own leave request" }, { status: 403 })
-      }
-      if (msg.includes("already ")) {
-        console.error("[team] PATCH error:", msg)
-        return NextResponse.json({ error: "Leave request is already decided" }, { status: 400 })
-      }
-    }
     // [T2] Fixed error: any → error: unknown
     console.error("[team] PATCH error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "Team operation failed" }, { status: 500 })

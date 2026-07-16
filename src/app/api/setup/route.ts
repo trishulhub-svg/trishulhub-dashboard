@@ -24,7 +24,6 @@ const ALLOWED_TABLE_NAMES = new Set([
 
   "SupportTicket",
   "TicketMessage",
-  "LeaveRequest",
   "TimeEntry",
   "Attendance",
   "Notification",

@@ -70,6 +70,7 @@ const CRITICAL_COLUMNS: Array<{ table: string; column: string; sql: string }> = 
   { table: "Project", column: "isDemo", sql: "ALTER TABLE Project ADD COLUMN isDemo BOOLEAN NOT NULL DEFAULT 0" },
   // Attendance — updatedAt column (added in schema but missing from older DBs)
   { table: "Attendance", column: "updatedAt", sql: `ALTER TABLE "Attendance" ADD COLUMN "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP` },
+  { table: "Leave", column: "feedback", sql: `ALTER TABLE "Leave" ADD COLUMN "feedback" TEXT` },
 ]
 
 /** Tables to create if missing (simplified CREATE TABLE IF NOT EXISTS) */
@@ -256,6 +257,7 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
       "status" TEXT NOT NULL DEFAULT 'PENDING',
       "approvedBy" TEXT,
       "approvedAt" DATETIME,
+      "feedback" TEXT,
       "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE,
@@ -295,24 +297,6 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
   {
     name: "AvailabilityDateRange",
     sql: `CREATE TABLE IF NOT EXISTS "AvailabilityDateRange" ("id" TEXT NOT NULL PRIMARY KEY, "userId" TEXT NOT NULL, "startDate" DATETIME NOT NULL, "endDate" DATETIME NOT NULL, "startTime" TEXT, "endTime" TEXT, "isAvailable" BOOLEAN NOT NULL DEFAULT 1, "reason" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL, FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE)`
-  },
-  // HR — LeaveRequest (legacy)
-  {
-    name: "LeaveRequest",
-    sql: `CREATE TABLE IF NOT EXISTS "LeaveRequest" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "userId" TEXT NOT NULL,
-      "type" TEXT NOT NULL DEFAULT 'CASUAL',
-      "startDate" DATETIME NOT NULL,
-      "endDate" DATETIME NOT NULL,
-      "reason" TEXT,
-      "status" TEXT NOT NULL DEFAULT 'PENDING',
-      "approvedBy" TEXT,
-      "feedback" TEXT,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
-    )`
   },
   // HR — Attendance
   {
