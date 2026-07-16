@@ -444,18 +444,6 @@ export default function ClientsPage() {
   // CLI-002: AbortController ref for fetchDetail
   const detailAbortRef = useRef<AbortController | null>(null);
 
-  // Refs for contract polling cleanup on unmount
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Cleanup contract polling on unmount
-  useEffect(() => {
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-      if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
-    };
-  }, []);
-
   // Form state
   const [formData, setFormData] = useState({
     name: "",
@@ -885,35 +873,19 @@ export default function ClientsPage() {
         body: JSON.stringify({
           clientId: contractClient.id,
           title: `Service Agreement - ${contractClient.name}`,
-          useAI: true,
           templateText: contractTemplate || undefined,
           templateFileName: contractTemplateFile || undefined,
           ...contractForm,
         }),
       });
       if (res.ok) {
-        toast.success("Contract generated \u2014 AI is writing the terms & conditions.");
+        toast.success("Contract created. Add or edit terms in the contract editor.");
         const listRes = await fetch(`/api/contracts?clientId=${contractClient.id}`, { credentials: "include" });
         if (listRes.ok) {
           const data = await listRes.json();
           setContracts(Array.isArray(data) ? data : []);
         }
         setContractForm({});
-        // Poll for AI-generated content (tracked via refs for cleanup on unmount)
-        pollRef.current = setInterval(async () => {
-          try {
-            const pollRes = await fetch(`/api/contracts?clientId=${contractClient.id}`, { credentials: "include" });
-            if (pollRes.ok) {
-              const pollData = await pollRes.json();
-              const latest = Array.isArray(pollData) ? pollData[0] : null;
-              if (latest && (latest.termsAndConditions as string)?.length > 50) {
-                setContracts(Array.isArray(pollData) ? pollData : []);
-                if (pollRef.current) clearInterval(pollRef.current);
-              }
-            }
-          } catch { if (pollRef.current) clearInterval(pollRef.current); }
-        }, 5000);
-        pollTimeoutRef.current = setTimeout(() => { if (pollRef.current) clearInterval(pollRef.current); }, 60000);
       } else {
         const data = await res.json().catch(() => ({}));
         toast.error(((data as Record<string, string>).error || "Failed to generate contract").slice(0, 100));
@@ -1008,23 +980,22 @@ export default function ClientsPage() {
       toast.error("File must be less than 5MB");
       return;
     }
+    // Only plain-text templates are supported client-side (no upload API).
+    const isText =
+      file.type.startsWith("text/") ||
+      /\.(txt|md|html?|csv)$/i.test(file.name);
+    if (!isText) {
+      toast.error("Paste template text, or upload a .txt / .md file");
+      return;
+    }
     setUploadingTemplate(true);
     try {
-      const formD = new FormData();
-      formD.append("file", file);
-      // TODO: Create /api/contracts/upload endpoint for template file processing
-      const res = await fetch("/api/contracts/upload", { method: "POST", credentials: "include", body: formD });
-      if (res.ok) {
-        const data = await res.json();
-        setContractTemplate(data.text as string);
-        setContractTemplateFile(data.fileName as string);
-        toast.success(`Template loaded: ${data.fileName}`);
-      } else {
-        const data = await res.json().catch(() => ({}));
-        toast.error(((data as Record<string, string>).error || "Failed to process template").slice(0, 100));
-      }
+      const text = await file.text();
+      setContractTemplate(text);
+      setContractTemplateFile(file.name);
+      toast.success(`Template loaded: ${file.name}`);
     } catch {
-      toast.error("Failed to upload template");
+      toast.error("Failed to read template file");
     } finally {
       setUploadingTemplate(false);
     }

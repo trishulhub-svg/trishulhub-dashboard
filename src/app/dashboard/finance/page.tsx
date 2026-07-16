@@ -58,7 +58,6 @@ interface DashboardData {
     pendingAmount: number;
     overdueAmount: number;
     totalExpenses: number;
-    totalApiSpend: number;
     monthlyBudget: number;
   };
   invoices: {
@@ -759,7 +758,7 @@ export default function FinancePage() {
   // Summary cards now compute from subscription/expense data directly
 
   // ─── Computed summary values (from actual subscription + expense data, no heavy /api/dashboard call) ────
-  const stats = data?.stats || { totalRevenue: 0, pendingAmount: 0, overdueAmount: 0, totalExpenses: 0, totalApiSpend: 0, monthlyBudget: 0 };
+  const stats = data?.stats || { totalRevenue: 0, pendingAmount: 0, overdueAmount: 0, totalExpenses: 0, monthlyBudget: 0 };
   const invoices = data?.invoices || [];
   const totalManualExpenses = statsTotal; // From expense stats API — already computed
   const totalSubscriptionMonthly = subTotalMonthly;

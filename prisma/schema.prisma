@@ -239,7 +239,6 @@ model Project {
   expenses     Expense[]
   subscriptions Subscription[]
   members      ProjectMember[]
-  attachments  ProjectAttachment[]
   credentials  ProjectCredential[]
   websites     ProjectWebsite[]
   infrastructure ProjectInfrastructure?
@@ -824,20 +823,6 @@ model AvailabilityDateRange {
   @@index([endDate])
   @@map("AvailabilityDateRange")
 }
-// ━━ Project Attachments (PDF files) ━━
-model ProjectAttachment {
-  id        String   @id @default(cuid())
-  projectId String
-  fileName  String
-  fileData  String   // base64 encoded PDF content (for SQLite storage)
-  fileSize  Int      // bytes
-  createdAt DateTime @default(now())
-
-  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-
-  @@index([projectId])
-}
-
 // ━━ Project Credentials (encrypted ID/password storage) ━━
 model ProjectCredential {
   id        String   @id @default(cuid())

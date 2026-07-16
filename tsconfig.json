@@ -38,18 +38,11 @@
   ],
   "exclude": [
     "node_modules",
-    "skills",
-    "examples",
-    "mini-services",
-    "animation-spec",
     "seed.js",
     "app.js",
     "standalone-start.js",
     "copy-standalone.js",
     "hostinger-setup.sh",
-    "scripts",
-    "trishulhub-dashboard",
-    "trishulhub-dash-repo",
-    "trishulhub-repo"
+    "scripts"
   ]
 }

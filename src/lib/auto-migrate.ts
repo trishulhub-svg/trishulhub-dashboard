@@ -108,10 +108,6 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
     sql: `CREATE TABLE IF NOT EXISTS "ProjectMethod" ("id" TEXT NOT NULL PRIMARY KEY, "name" TEXT NOT NULL UNIQUE, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`
   },
   {
-    name: "ProjectAttachment",
-    sql: `CREATE TABLE IF NOT EXISTS "ProjectAttachment" ("id" TEXT NOT NULL PRIMARY KEY, "projectId" TEXT NOT NULL, "fileName" TEXT NOT NULL, "fileData" TEXT NOT NULL, "fileSize" INTEGER NOT NULL, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE CASCADE)`
-  },
-  {
     name: "ProjectCredential",
     sql: `CREATE TABLE IF NOT EXISTS "ProjectCredential" ("id" TEXT NOT NULL PRIMARY KEY, "projectId" TEXT NOT NULL, "title" TEXT NOT NULL, "username" TEXT NOT NULL, "password" TEXT NOT NULL, "iv" TEXT NOT NULL, "tag" TEXT NOT NULL, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL, FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE CASCADE)`
   },
@@ -175,14 +171,6 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
       "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
     )`
-  },
-  {
-    name: "FileMetadata",
-    sql: `CREATE TABLE IF NOT EXISTS "FileMetadata" ("id" TEXT NOT NULL PRIMARY KEY, "driveFileId" TEXT NOT NULL UNIQUE, "name" TEXT NOT NULL, "mimeType" TEXT NOT NULL, "size" INTEGER NOT NULL DEFAULT 0, "parentId" TEXT, "trashed" BOOLEAN NOT NULL DEFAULT 0, "starred" BOOLEAN NOT NULL DEFAULT 0, "description" TEXT, "thumbnailLink" TEXT, "webViewLink" TEXT, "createdBy" TEXT NOT NULL, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL)`
-  },
-  {
-    name: "FilePermission",
-    sql: `CREATE TABLE IF NOT EXISTS "FilePermission" ("id" TEXT NOT NULL PRIMARY KEY, "fileId" TEXT NOT NULL, "driveFileId" TEXT NOT NULL, "userId" TEXT NOT NULL, "accessLevel" TEXT NOT NULL DEFAULT 'VIEW', "grantedBy" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY ("fileId") REFERENCES "FileMetadata"("id") ON DELETE CASCADE)`
   },
   {
     name: "_ProjectMethodToProject",
@@ -546,43 +534,6 @@ export async function ensureAllTables(): Promise<void> {
       console.warn(`[auto-migrate] Project.clientId nullable check: ${getErrMsg(err)}`)
     }
 
-    // 1f. Create indexes for FileMetadata
-    try {
-      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "FileMetadata_parentId_idx" ON "FileMetadata"("parentId")`)
-    } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes('already exists')) {
-        console.warn(`[auto-migrate] FileMetadata_parentId_idx index: ${getErrMsg(err)}`)
-      }
-    }
-    try {
-      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "FileMetadata_createdBy_idx" ON "FileMetadata"("createdBy")`)
-    } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes('already exists')) {
-        console.warn(`[auto-migrate] FileMetadata_createdBy_idx index: ${getErrMsg(err)}`)
-      }
-    }
-    try {
-      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "FileMetadata_trashed_idx" ON "FileMetadata"("trashed")`)
-    } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes('already exists')) {
-        console.warn(`[auto-migrate] FileMetadata_trashed_idx index: ${getErrMsg(err)}`)
-      }
-    }
-    try {
-      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "FilePermission_userId_idx" ON "FilePermission"("userId")`)
-    } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes('already exists')) {
-        console.warn(`[auto-migrate] FilePermission_userId_idx index: ${getErrMsg(err)}`)
-      }
-    }
-    try {
-      await db.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "FilePermission_fileId_userId_key" ON "FilePermission"("fileId", "userId")`)
-    } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes('already exists')) {
-        console.warn(`[auto-migrate] FilePermission_fileId_userId_key index: ${getErrMsg(err)}`)
-      }
-    }
-
     // 1g. Migrate _ProjectMethodToProject to add PRIMARY KEY for existing DBs
     // SQLite doesn't support ALTER TABLE ADD PRIMARY KEY, so we recreate the table
     // Wrapped in a transaction for atomicity (L13)
@@ -654,14 +605,6 @@ export async function ensureAllTables(): Promise<void> {
         console.warn(`[auto-migrate] ProjectWebsite_projectId_index: ${getErrMsg(err)}`)
       }
     }
-    // ProjectAttachment indexes
-    try {
-      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ProjectAttachment_projectId_index" ON "ProjectAttachment"("projectId")`)
-    } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes('already exists')) {
-        console.warn(`[auto-migrate] ProjectAttachment_projectId_index: ${getErrMsg(err)}`)
-      }
-    }
     // ProjectCredential indexes
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ProjectCredential_projectId_index" ON "ProjectCredential"("projectId")`)
@@ -705,14 +648,6 @@ export async function ensureAllTables(): Promise<void> {
     } catch (err: unknown) {
       if (!getErrMsg(err)?.includes('already exists')) {
         console.warn(`[auto-migrate] EmailLog_triggeredBy_index: ${getErrMsg(err)}`)
-      }
-    }
-    // FilePermission indexes
-    try {
-      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "FilePermission_driveFileId_index" ON "FilePermission"("driveFileId")`)
-    } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes('already exists')) {
-        console.warn(`[auto-migrate] FilePermission_driveFileId_index: ${getErrMsg(err)}`)
       }
     }
     // CRM — ClientWebsite indexes
@@ -933,28 +868,6 @@ export async function ensureAllTables(): Promise<void> {
     } catch (err: unknown) {
       if (!getErrMsg(err)?.includes('already exists')) {
         console.warn(`[auto-migrate] idx_approval_requesterId_status: ${getErrMsg(err)}`)
-      }
-    }
-    // ProtocolAccessLog indexes
-    try {
-      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_protocolaccesslog_protocolId" ON "ProtocolAccessLog"("protocolId")`)
-    } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes('already exists')) {
-        console.warn(`[auto-migrate] idx_protocolaccesslog_protocolId: ${getErrMsg(err)}`)
-      }
-    }
-    try {
-      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_protocolaccesslog_userEmail" ON "ProtocolAccessLog"("userEmail")`)
-    } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes('already exists')) {
-        console.warn(`[auto-migrate] idx_protocolaccesslog_userEmail: ${getErrMsg(err)}`)
-      }
-    }
-    try {
-      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "idx_protocolaccesslog_createdAt" ON "ProtocolAccessLog"("createdAt")`)
-    } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes('already exists')) {
-        console.warn(`[auto-migrate] idx_protocolaccesslog_createdAt: ${getErrMsg(err)}`)
       }
     }
     // AvailabilityOverride index (composite userId+date — UNIQUE already covers this, but add explicit for clarity)
