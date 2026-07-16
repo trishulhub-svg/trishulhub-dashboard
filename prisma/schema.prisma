@@ -933,30 +933,6 @@ model Contract {
 
   @@map("Contract")
 }
-
-// ━━ Protocol OTP (serverless-safe OTP storage) ━━
-model ProtocolOtp {
-  id        String   @id @default(cuid())
-  email     String
-  otp       String
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-
-  @@index([email])
-  @@index([expiresAt])
-}
-
-// ━━ Protocol Rate Limiting (serverless-safe) ━━
-model ProtocolRateLimit {
-  id          String   @id @default(cuid())
-  key         String   @unique
-  count       Int      @default(0)
-  windowStart String
-  updatedAt   DateTime @updatedAt
-
-  @@index([key])
-}
-
 // ━━ User Details (HR & People — country, gov ID, bank account) ━━
 // Each user has at most one UserDetail row (one-to-one with User).
 // Country selection is one-time: once countryLocked is true, only an admin can change it.

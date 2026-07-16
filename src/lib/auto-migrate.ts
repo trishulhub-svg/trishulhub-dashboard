@@ -189,26 +189,6 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
     sql: `CREATE TABLE IF NOT EXISTS "_ProjectMethodToProject" ("A" TEXT NOT NULL, "B" TEXT NOT NULL, PRIMARY KEY("A","B"), FOREIGN KEY ("A") REFERENCES "ProjectMethod"("id") ON DELETE CASCADE, FOREIGN KEY ("B") REFERENCES "Project"("id") ON DELETE CASCADE)`
   },
   // Protocol auth tables (serverless-friendly)
-  {
-    name: "ProtocolOtp",
-    sql: `CREATE TABLE IF NOT EXISTS "ProtocolOtp" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "email" TEXT NOT NULL,
-      "otp" TEXT NOT NULL,
-      "expiresAt" TEXT NOT NULL,
-      "createdAt" TEXT NOT NULL DEFAULT (datetime('now'))
-    )`
-  },
-  {
-    name: "ProtocolRateLimit",
-    sql: `CREATE TABLE IF NOT EXISTS "ProtocolRateLimit" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "key" TEXT NOT NULL,
-      "count" INTEGER NOT NULL DEFAULT 0,
-      "windowStart" TEXT NOT NULL,
-      "updatedAt" TEXT NOT NULL DEFAULT (datetime('now'))
-    )`
-  },
   // ActiveSession (serverless session tracking — also created in session-manager.ts)
   {
     name: "ActiveSession",
@@ -831,22 +811,6 @@ export async function ensureAllTables(): Promise<void> {
     } catch (err: unknown) {
       if (!getErrMsg(err)?.includes('already exists')) {
         console.warn(`[auto-migrate] idx_ticketmessage_ticketId: ${getErrMsg(err)}`)
-      }
-    }
-    // ProtocolOtp indexes
-    try {
-      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ProtocolOtp_expiresAt_index" ON "ProtocolOtp"("expiresAt")`)
-    } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes('already exists')) {
-        console.warn(`[auto-migrate] ProtocolOtp_expiresAt_index: ${getErrMsg(err)}`)
-      }
-    }
-    // ProtocolRateLimit indexes
-    try {
-      await db.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "ProtocolRateLimit_key_index" ON "ProtocolRateLimit"("key")`)
-    } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes('already exists')) {
-        console.warn(`[auto-migrate] ProtocolRateLimit_key_index: ${getErrMsg(err)}`)
       }
     }
 
