@@ -18,6 +18,7 @@ import { toast } from "sonner"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { AssignmentDetailDialog } from "@/components/training/assignment-detail-dialog"
 import { formatDateTime } from "@/lib/format"
 import {
   isTourDone,
@@ -63,6 +64,8 @@ type Assignment = {
   dueDate: string
   status: string
   completedAt: string | null
+  createdAt?: string | null
+  updatedAt?: string | null
   assignedBy?: { id: string; name: string } | null
 }
 
@@ -92,6 +95,7 @@ export default function MyTrainingPage() {
   const [loading, setLoading] = useState(true)
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [markingId, setMarkingId] = useState<string | null>(null)
+  const [detail, setDetail] = useState<Assignment | null>(null)
   const isAdmin =
     session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN"
 
@@ -150,6 +154,7 @@ export default function MyTrainingPage() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || "Failed to mark done")
       toast.success("Marked as done — admins notified")
+      setDetail(null)
       await load()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed")
@@ -306,7 +311,11 @@ export default function MyTrainingPage() {
                 key={a.id}
                 className="rounded-xl border border-border bg-card p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3"
               >
-                <div className="min-w-0 flex-1 space-y-1">
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 space-y-1 text-left rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => setDetail(a)}
+                >
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="font-semibold tracking-tight truncate">{a.title}</h3>
                     {statusBadge(a.status)}
@@ -316,8 +325,11 @@ export default function MyTrainingPage() {
                     Due {dueLabel(a.dueDate)}
                     {a.assignedBy?.name ? ` · by ${a.assignedBy.name}` : ""}
                   </p>
-                  {a.notes && <p className="text-sm text-muted-foreground">{a.notes}</p>}
-                </div>
+                  {a.notes && (
+                    <p className="text-sm text-muted-foreground line-clamp-2">{a.notes}</p>
+                  )}
+                  <p className="text-[11px] text-primary/80 pt-0.5">Tap for full details</p>
+                </button>
                 {a.status !== "DONE" ? (
                   <Button
                     type="button"
@@ -342,6 +354,17 @@ export default function MyTrainingPage() {
           </ul>
         )}
       </section>
+
+      <AssignmentDetailDialog
+        assignment={detail}
+        open={!!detail}
+        onOpenChange={(open) => {
+          if (!open) setDetail(null)
+        }}
+        showAssignee={false}
+        onMarkDone={(id) => void markDone(id)}
+        marking={!!detail && markingId === detail.id}
+      />
     </div>
   )
 }

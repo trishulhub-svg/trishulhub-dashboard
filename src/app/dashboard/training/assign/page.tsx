@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import {
   AlertTriangle,
+  ChevronDown,
   ClipboardList,
   GraduationCap,
   Loader2,
@@ -22,7 +23,9 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { AssignmentDetailDialog } from "@/components/training/assignment-detail-dialog"
 import { formatDateTime } from "@/lib/format"
+import { cn } from "@/lib/utils"
 
 type Assignment = {
   id: string
@@ -31,6 +34,9 @@ type Assignment = {
   notes: string | null
   dueDate: string
   status: string
+  completedAt?: string | null
+  createdAt?: string | null
+  updatedAt?: string | null
   user?: { id: string; name: string; email: string } | null
   assignedBy?: { id: string; name: string } | null
 }
@@ -115,10 +121,12 @@ export default function AssignTrainingPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
+  const [formOpen, setFormOpen] = useState(false)
   const [formUserIds, setFormUserIds] = useState<string[]>([])
   const [formTitle, setFormTitle] = useState("")
   const [formDue, setFormDue] = useState("")
   const [formNotes, setFormNotes] = useState("")
+  const [detail, setDetail] = useState<Assignment | null>(null)
 
   const role = session?.user?.role || ""
   const canAccess = role === "SUPER_ADMIN" || role === "ADMIN"
@@ -230,6 +238,7 @@ export default function AssignTrainingPage() {
       setFormTitle("")
       setFormDue("")
       setFormNotes("")
+      setFormOpen(false)
       // keep selected people for faster repeat assigns
       await load()
     } catch (err) {
@@ -251,6 +260,7 @@ export default function AssignTrainingPage() {
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.detail || data.error || "Failed to delete")
       toast.success("Assignment removed")
+      if (detail?.id === id) setDetail(null)
       await load()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed")
@@ -279,43 +289,50 @@ export default function AssignTrainingPage() {
   const byUser = useMemo(() => groupByUser(assignments), [assignments])
 
   const renderAssignmentRow = (a: Assignment, opts?: { showPerson?: boolean }) => (
-    <li
-      key={a.id}
-      className="flex flex-col gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm sm:flex-row sm:flex-wrap sm:items-center"
-    >
-      <div className="min-w-0 flex-1 space-y-0.5">
-        <p className="font-medium truncate">{a.title}</p>
-        {opts?.showPerson !== false && (
-          <p className="text-xs text-muted-foreground truncate inline-flex items-center gap-1">
-            <UserRound className="h-3 w-3 shrink-0" />
-            {personLabel(a)}
-          </p>
-        )}
-        {a.notes ? (
-          <p className="text-xs text-muted-foreground line-clamp-2">{a.notes}</p>
-        ) : null}
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        {statusBadge(a.status)}
-        <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
-          <Clock className="h-3 w-3" />
-          Due {dueLabel(a.dueDate)}
-        </span>
-        <Button
+    <li key={a.id}>
+      <div className="flex flex-col gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm sm:flex-row sm:flex-wrap sm:items-center">
+        <button
           type="button"
-          size="icon"
-          variant="ghost"
-          className="h-7 w-7 text-destructive"
-          disabled={deletingId === a.id}
-          onClick={() => void deleteAssignment(a.id)}
-          aria-label="Delete assignment"
+          className="min-w-0 flex-1 space-y-0.5 text-left rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={() => setDetail(a)}
         >
-          {deletingId === a.id ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Trash2 className="h-3.5 w-3.5" />
+          <p className="font-medium truncate">{a.title}</p>
+          {opts?.showPerson !== false && (
+            <p className="text-xs text-muted-foreground truncate inline-flex items-center gap-1">
+              <UserRound className="h-3 w-3 shrink-0" />
+              {personLabel(a)}
+            </p>
           )}
-        </Button>
+          {a.notes ? (
+            <p className="text-xs text-muted-foreground line-clamp-2">{a.notes}</p>
+          ) : null}
+          <p className="text-[11px] text-primary/80 pt-0.5">Tap for full details</p>
+        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {statusBadge(a.status)}
+          <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
+            <Clock className="h-3 w-3" />
+            Due {dueLabel(a.dueDate)}
+          </span>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7 text-destructive"
+            disabled={deletingId === a.id}
+            onClick={(e) => {
+              e.stopPropagation()
+              void deleteAssignment(a.id)
+            }}
+            aria-label="Delete assignment"
+          >
+            {deletingId === a.id ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        </div>
       </div>
     </li>
   )
@@ -363,148 +380,182 @@ export default function AssignTrainingPage() {
         </div>
       </PageHeader>
 
-      <section className="rounded-2xl border border-border bg-card p-5 sm:p-6 space-y-5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex items-start gap-3 min-w-0">
-            <div className="th-stat-icon shrink-0">
+      <section className="rounded-2xl border border-border bg-card overflow-hidden">
+        <div className="flex items-stretch gap-1 p-2 sm:p-3">
+          <button
+            type="button"
+            className="flex flex-1 items-start gap-3 min-w-0 rounded-xl px-3 py-2.5 text-left hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => setFormOpen((v) => !v)}
+            aria-expanded={formOpen}
+            aria-controls="new-assignment-panel"
+          >
+            <div className="th-stat-icon shrink-0 mt-0.5">
               <Plus className="h-5 w-5" />
             </div>
-            <div>
-              <h2 className="text-base font-semibold tracking-tight">New assignment</h2>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-semibold tracking-tight">New assignment</h2>
+                <Badge variant="secondary" className="text-[10px] shrink-0">
+                  {formOpen ? "Open" : "Collapsed"}
+                </Badge>
+              </div>
               <p className="text-sm text-muted-foreground">
-                Pick one or more people, title, and due date. Everyone selected gets a notification.
+                {formOpen
+                  ? "Pick people, title, and due date — expand only when you need to assign."
+                  : "Tap to assign training to one or more people."}
               </p>
             </div>
-          </div>
+            <ChevronDown
+              className={cn(
+                "h-5 w-5 shrink-0 text-muted-foreground mt-1 transition-transform",
+                formOpen && "rotate-180"
+              )}
+            />
+          </button>
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            className="gap-1.5 shrink-0"
+            className="gap-1.5 shrink-0 self-start mt-1"
             onClick={() => void load()}
             disabled={loading}
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-            Retry
+            <span className="sr-only sm:not-sr-only">Retry</span>
           </Button>
         </div>
 
-        {loadError && (
-          <p className="text-sm text-destructive rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-            {loadError}
-          </p>
-        )}
-
-        <div className="grid sm:grid-cols-2 gap-4">
-          <div className="space-y-2 sm:col-span-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <Label>Team members</Label>
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 px-2 text-xs"
-                  disabled={loading || team.length === 0}
-                  onClick={selectAllUsers}
-                >
-                  Select all
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 px-2 text-xs"
-                  disabled={formUserIds.length === 0}
-                  onClick={clearUsers}
-                >
-                  Clear
-                </Button>
-              </div>
-            </div>
-            <div
-              role="group"
-              aria-label="Select team members"
-              className="max-h-56 overflow-y-auto rounded-md border border-input bg-background divide-y divide-border"
-            >
-              {loading ? (
-                <p className="px-3 py-4 text-sm text-muted-foreground">Loading team…</p>
-              ) : team.length === 0 ? (
-                <p className="px-3 py-4 text-sm text-muted-foreground">No team members found</p>
-              ) : (
-                team.map((m) => {
-                  const checked = formUserIds.includes(m.id)
-                  return (
-                    <label
-                      key={m.id}
-                      className="flex items-center gap-3 px-3 py-2.5 text-sm cursor-pointer hover:bg-muted/40"
-                    >
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 rounded border-input accent-primary"
-                        checked={checked}
-                        onChange={() => toggleUser(m.id)}
-                      />
-                      <span className="min-w-0 flex-1 truncate font-medium">
-                        {m.name || m.email}
-                      </span>
-                      <span className="text-xs text-muted-foreground shrink-0">
-                        {(m.role || "").replace(/_/g, " ")}
-                      </span>
-                    </label>
-                  )
-                })
-              )}
-            </div>
-            {team.length > 0 && (
-              <p className="text-xs text-muted-foreground">
-                {formUserIds.length === 0
-                  ? `${team.length} people available — select one or more`
-                  : `${formUserIds.length} of ${team.length} selected`}
+        {formOpen && (
+          <div id="new-assignment-panel" className="space-y-5 px-5 pb-5 sm:px-6 sm:pb-6 border-t border-border pt-5">
+            {loadError && (
+              <p className="text-sm text-destructive rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+                {loadError}
               </p>
             )}
+
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div className="space-y-2 sm:col-span-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <Label>Team members</Label>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      disabled={loading || team.length === 0}
+                      onClick={selectAllUsers}
+                    >
+                      Select all
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      disabled={formUserIds.length === 0}
+                      onClick={clearUsers}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                </div>
+                <div
+                  role="group"
+                  aria-label="Select team members"
+                  className="max-h-56 overflow-y-auto rounded-md border border-input bg-background divide-y divide-border"
+                >
+                  {loading ? (
+                    <p className="px-3 py-4 text-sm text-muted-foreground">Loading team…</p>
+                  ) : team.length === 0 ? (
+                    <p className="px-3 py-4 text-sm text-muted-foreground">No team members found</p>
+                  ) : (
+                    team.map((m) => {
+                      const checked = formUserIds.includes(m.id)
+                      return (
+                        <label
+                          key={m.id}
+                          className="flex items-center gap-3 px-3 py-2.5 text-sm cursor-pointer hover:bg-muted/40"
+                        >
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-input accent-primary"
+                            checked={checked}
+                            onChange={() => toggleUser(m.id)}
+                          />
+                          <span className="min-w-0 flex-1 truncate font-medium">
+                            {m.name || m.email}
+                          </span>
+                          <span className="text-xs text-muted-foreground shrink-0">
+                            {(m.role || "").replace(/_/g, " ")}
+                          </span>
+                        </label>
+                      )
+                    })
+                  )}
+                </div>
+                {team.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {formUserIds.length === 0
+                      ? `${team.length} people available — select one or more`
+                      : `${formUserIds.length} of ${team.length} selected`}
+                  </p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="assign-due">Due date</Label>
+                <Input
+                  id="assign-due"
+                  type="date"
+                  value={formDue}
+                  onChange={(e) => setFormDue(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="assign-title">Training title</Label>
+                <Input
+                  id="assign-title"
+                  placeholder="e.g. Prompt-Driven Development"
+                  value={formTitle}
+                  onChange={(e) => setFormTitle(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="assign-notes">Notes (optional)</Label>
+                <Textarea
+                  id="assign-notes"
+                  placeholder="Playlist name or extra instructions"
+                  value={formNotes}
+                  onChange={(e) => setFormNotes(e.target.value)}
+                  rows={2}
+                />
+              </div>
+            </div>
+            <Button
+              type="button"
+              className="gap-2 w-full sm:w-auto"
+              disabled={saving || loading || team.length === 0 || formUserIds.length === 0}
+              onClick={() => void assign()}
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+              {formUserIds.length > 1
+                ? `Assign to ${formUserIds.length} people`
+                : "Assign training"}
+            </Button>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="assign-due">Due date</Label>
-            <Input
-              id="assign-due"
-              type="date"
-              value={formDue}
-              onChange={(e) => setFormDue(e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="assign-title">Training title</Label>
-            <Input
-              id="assign-title"
-              placeholder="e.g. Prompt-Driven Development"
-              value={formTitle}
-              onChange={(e) => setFormTitle(e.target.value)}
-            />
-          </div>
-          <div className="space-y-2 sm:col-span-2">
-            <Label htmlFor="assign-notes">Notes (optional)</Label>
-            <Textarea
-              id="assign-notes"
-              placeholder="Playlist name or extra instructions"
-              value={formNotes}
-              onChange={(e) => setFormNotes(e.target.value)}
-              rows={2}
-            />
-          </div>
-        </div>
-        <Button
-          type="button"
-          className="gap-2 w-full sm:w-auto"
-          disabled={saving || loading || team.length === 0 || formUserIds.length === 0}
-          onClick={() => void assign()}
-        >
-          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-          {formUserIds.length > 1
-            ? `Assign to ${formUserIds.length} people`
-            : "Assign training"}
-        </Button>
+        )}
       </section>
+
+      <AssignmentDetailDialog
+        assignment={detail}
+        open={!!detail}
+        onOpenChange={(open) => {
+          if (!open) setDetail(null)
+        }}
+        showAssignee
+        onDelete={(id) => void deleteAssignment(id)}
+        deleting={!!detail && deletingId === detail.id}
+      />
 
       {loading ? (
         <div className="rounded-xl border border-border bg-card p-8 flex justify-center gap-2 text-sm text-muted-foreground">
