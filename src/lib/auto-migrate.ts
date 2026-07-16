@@ -424,6 +424,24 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
       FOREIGN KEY ("fulfilledByQrId") REFERENCES "TrainingQr"("id") ON DELETE SET NULL
     )`
   },
+  {
+    name: "TrainingAssignment",
+    sql: `CREATE TABLE IF NOT EXISTS "TrainingAssignment" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "title" TEXT NOT NULL,
+      "notes" TEXT,
+      "dueDate" DATETIME NOT NULL,
+      "status" TEXT NOT NULL DEFAULT 'ASSIGNED',
+      "assignedById" TEXT NOT NULL,
+      "completedAt" DATETIME,
+      "overdueNotifiedAt" DATETIME,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE,
+      FOREIGN KEY ("assignedById") REFERENCES "User"("id") ON DELETE CASCADE
+    )`
+  },
 ]
 
 /**
@@ -1090,6 +1108,20 @@ export async function ensureAllTables(): Promise<void> {
     } catch (err: unknown) {
       if (!getErrMsg(err)?.includes('already exists')) {
         console.warn(`[auto-migrate] TrainingQrRequest_userId_status_idx: ${getErrMsg(err)}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "TrainingAssignment_userId_status_idx" ON "TrainingAssignment"("userId", "status")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] TrainingAssignment_userId_status_idx: ${getErrMsg(err)}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "TrainingAssignment_dueDate_status_idx" ON "TrainingAssignment"("dueDate", "status")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] TrainingAssignment_dueDate_status_idx: ${getErrMsg(err)}`)
       }
     }
 
