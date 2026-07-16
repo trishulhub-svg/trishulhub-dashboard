@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { handleFetchError } from "@/lib/fetch-utils";
 import {
   Plus, Send, CheckCircle2, FileText, AlertCircle, Trash2, X, Pencil,
@@ -29,7 +29,6 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn, safeText, safeNumber } from "@/lib/utils";
-import { useRef } from "react";
 
 // ━━ Configurable Constants ━━
 const COMPANY_NAME = process.env.NEXT_PUBLIC_COMPANY_NAME || "TrishulHub";
@@ -257,6 +256,7 @@ function TotalsDisplay({
 export default function InvoicesPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const userRole = session?.user?.role || "DEVELOPER";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
@@ -398,6 +398,18 @@ export default function InvoicesPage() {
     fetchData(controller.signal);
     return () => controller.abort();
   }, [fetchData]);
+
+  // Deep-link from Clients: /dashboard/finance/invoices?clientId=xxx → open create with client prefilled
+  useEffect(() => {
+    if (!isAdminUser || status !== "authenticated") return;
+    const clientId = searchParams.get("clientId");
+    if (!clientId) return;
+    setCreateClientId(clientId);
+    const match = clients.find((c) => c.id === clientId);
+    if (match) setClientSearch(match.name);
+    setAddOpen(true);
+    router.replace("/dashboard/finance/invoices", { scroll: false });
+  }, [isAdminUser, status, searchParams, router, clients]);
 
   // ━━ Create form helpers ━━
   const subtotal = lineItems.reduce((sum, item) => sum + item.amount, 0);

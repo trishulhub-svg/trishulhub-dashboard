@@ -376,6 +376,14 @@ function toDateString(d: Date): string {
   return d.toISOString().split("T")[0];
 }
 
+function parseContractsList(payload: unknown): Record<string, unknown>[] {
+  if (Array.isArray(payload)) return payload as Record<string, unknown>[]
+  if (payload && typeof payload === "object" && Array.isArray((payload as { data?: unknown }).data)) {
+    return (payload as { data: Record<string, unknown>[] }).data
+  }
+  return []
+}
+
 // ━━ Form Errors ━━
 interface FormErrors {
   name?: string;
@@ -465,8 +473,7 @@ export default function ClientsPage() {
   });
 
   const [showMediator, setShowMediator] = useState(false);
-
-
+  const [websitesFullyLoaded, setWebsitesFullyLoaded] = useState(false);
 
   // Contract panel state
   const [contractClient, setContractClient] = useState<ClientRow | null>(null);
@@ -570,6 +577,7 @@ export default function ClientsPage() {
     setEditingClient(null);
     setFormErrors({});
     setShowMediator(false);
+    setWebsitesFullyLoaded(true);
     setFormData({
       name: "", email: "", phone: "", company: "", website: "",
       websites: [""],
@@ -583,33 +591,99 @@ export default function ClientsPage() {
   };
 
   // ━━ Open edit dialog ━━
-  const handleEdit = (client: ClientRow | ClientDetail) => {
+  const handleEdit = async (client: ClientRow | ClientDetail) => {
     setEditingClient(client);
     setFormErrors({});
     setShowMediator(!!(client.mediatorName || client.mediatorPhone));
-    // Read websites — prefer full websites array from ClientDetail (H-CLI-3 + L-CLI-4)
-    let parsedWebsites: string[] = [""];
     if ('websites' in client && Array.isArray(client.websites) && client.websites.length > 0) {
-      parsedWebsites = client.websites.map((w: ClientWebsite) => w.url);
-    } else if (client.primaryWebsite) {
-      parsedWebsites = [client.primaryWebsite.url];
-    } else if (client.website) {
-      parsedWebsites = [client.website];
+      // ClientDetail already has the full websites array — use directly
+      const parsedWebsites = client.websites.map((w: ClientWebsite) => w.url);
+      setWebsitesFullyLoaded(true);
+      setFormData({
+        name: client.name, email: client.email,
+        phone: client.phone || "", company: client.company || "",
+        website: client.website || "",
+        websites: parsedWebsites,
+        status: (client.status as ClientStatus) || "ACTIVE",
+        projectType: client.projectType || "",
+        deliveryDate: client.deliveryDate ? client.deliveryDate.split("T")[0] : "",
+        mediatorName: client.mediatorName || "",
+        mediatorPhone: client.mediatorPhone || "",
+        mediatorEmail: client.mediatorEmail || "",
+        notes: client.notes || "",
+        createdAt: "",
+      });
+    } else {
+      // Table row only — fetch full detail to get all websites before opening form
+      setSubmitting(true);
+      try {
+        const res = await fetch(`/api/clients/${client.id}`, { credentials: "include" });
+        if (res.ok) {
+          const detail = await res.json() as ClientDetail;
+          const parsedWebsites = detail.websites?.length > 0
+            ? detail.websites.map((w: ClientWebsite) => w.url)
+            : client.primaryWebsite ? [client.primaryWebsite.url]
+            : client.website ? [client.website]
+            : [""];
+          setWebsitesFullyLoaded(true);
+          setFormData({
+            name: detail.name, email: detail.email,
+            phone: detail.phone || "", company: detail.company || "",
+            website: detail.website || "",
+            websites: parsedWebsites,
+            status: (detail.status as ClientStatus) || "ACTIVE",
+            projectType: detail.projectType || "",
+            deliveryDate: detail.deliveryDate ? detail.deliveryDate.split("T")[0] : "",
+            mediatorName: detail.mediatorName || "",
+            mediatorPhone: detail.mediatorPhone || "",
+            mediatorEmail: detail.mediatorEmail || "",
+            notes: detail.notes || "",
+            createdAt: "",
+          });
+        } else {
+          // Fetch failed — fall back to table row data, mark websites as incomplete
+          const parsedWebsites = client.primaryWebsite
+            ? [client.primaryWebsite.url]
+            : client.website ? [client.website] : [""];
+          setWebsitesFullyLoaded(false);
+          setFormData({
+            name: client.name, email: client.email,
+            phone: client.phone || "", company: client.company || "",
+            website: client.website || "",
+            websites: parsedWebsites,
+            status: (client.status as ClientStatus) || "ACTIVE",
+            projectType: client.projectType || "",
+            deliveryDate: client.deliveryDate ? client.deliveryDate.split("T")[0] : "",
+            mediatorName: client.mediatorName || "",
+            mediatorPhone: client.mediatorPhone || "",
+            mediatorEmail: client.mediatorEmail || "",
+            notes: client.notes || "",
+            createdAt: "",
+          });
+        }
+      } catch {
+        const parsedWebsites = client.primaryWebsite
+          ? [client.primaryWebsite.url]
+          : client.website ? [client.website] : [""];
+        setWebsitesFullyLoaded(false);
+        setFormData({
+          name: client.name, email: client.email,
+          phone: client.phone || "", company: client.company || "",
+          website: client.website || "",
+          websites: parsedWebsites,
+          status: (client.status as ClientStatus) || "ACTIVE",
+          projectType: client.projectType || "",
+          deliveryDate: client.deliveryDate ? client.deliveryDate.split("T")[0] : "",
+          mediatorName: client.mediatorName || "",
+          mediatorPhone: client.mediatorPhone || "",
+          mediatorEmail: client.mediatorEmail || "",
+          notes: client.notes || "",
+          createdAt: "",
+        });
+      } finally {
+        setSubmitting(false);
+      }
     }
-    setFormData({
-      name: client.name, email: client.email,
-      phone: client.phone || "", company: client.company || "",
-      website: client.website || "",
-      websites: parsedWebsites,
-      status: (client.status as ClientStatus) || "ACTIVE",
-      projectType: client.projectType || "",
-      deliveryDate: client.deliveryDate ? client.deliveryDate.split("T")[0] : "",
-      mediatorName: client.mediatorName || "",
-      mediatorPhone: client.mediatorPhone || "",
-      mediatorEmail: client.mediatorEmail || "",
-      notes: client.notes || "",
-      createdAt: "",
-    });
     setDialogOpen(true);
   };
 
@@ -669,12 +743,14 @@ export default function ClientsPage() {
             notes: formData.notes || null,
             projectType: formData.projectType || null,
             deliveryDate: formData.deliveryDate || null,
-            // Transform string array to API-expected object array
-            websites: formData.websites.filter(w => w.trim()).map((url, idx) => ({
-              url,
-              label: null,
-              isPrimary: idx === 0,
-            })),
+            // Only include websites when we loaded the full list — omitting key prevents API deleteMany wipe
+            ...(websitesFullyLoaded ? {
+              websites: formData.websites.filter(w => w.trim()).map((url, idx) => ({
+                url,
+                label: null,
+                isPrimary: idx === 0,
+              })),
+            } : {}),
             mediatorName: formData.mediatorName || null,
             mediatorPhone: formData.mediatorPhone || null,
             mediatorEmail: formData.mediatorEmail || null,
@@ -859,7 +935,7 @@ export default function ClientsPage() {
       const res = await fetch(`/api/contracts?clientId=${client.id}`, { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
-        setContracts(Array.isArray(data) ? data : []);
+        setContracts(parseContractsList(data));
       }
     } catch (err) {
       console.error("Failed to fetch contracts:", err);
@@ -889,7 +965,7 @@ export default function ClientsPage() {
         const listRes = await fetch(`/api/contracts?clientId=${contractClient.id}`, { credentials: "include" });
         if (listRes.ok) {
           const data = await listRes.json();
-          setContracts(Array.isArray(data) ? data : []);
+          setContracts(parseContractsList(data));
         }
         setContractForm({});
       } else {
@@ -916,7 +992,7 @@ export default function ClientsPage() {
         toast.success("Contract sent to client via email!");
         if (contractClient) {
           const listRes = await fetch(`/api/contracts?clientId=${contractClient.id}`, { credentials: "include" });
-          if (listRes.ok) setContracts(await listRes.json());
+          if (listRes.ok) setContracts(parseContractsList(await listRes.json()));
         }
       } else {
         const data = await res.json().catch(() => ({}));
@@ -1168,7 +1244,7 @@ export default function ClientsPage() {
             placeholder="Search clients..."
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            className="pl-8 w-52 h-8 text-sm bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50 focus:bg-white dark:focus:bg-white/[0.06] transition-all"
+            className="pl-8 w-full max-w-[13rem] sm:w-52 h-8 text-sm bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border-gray-200/80 dark:border-gray-700/50 focus:bg-white dark:focus:bg-white/[0.06] transition-all"
             aria-label="Search clients"
           />
           {searchInput && (
@@ -1187,7 +1263,7 @@ export default function ClientsPage() {
       </PageHeader>
 
       {/* ━━ Stats Bar — Glassmorphism pills ━━ */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className={`grid grid-cols-2 gap-3 ${isFinanceAdmin ? "md:grid-cols-4" : "md:grid-cols-3"}`}>
         <div className="rounded-xl p-3 transition-all bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 hover:shadow-md">
           <div className="flex items-center gap-1.5 mb-1">
             <Users className="h-3.5 w-3.5 text-muted-foreground" />
@@ -1202,13 +1278,15 @@ export default function ClientsPage() {
           </div>
           <p className="text-xl font-bold tracking-tight text-green-600 dark:text-green-400">{safeNumber(stats.active)}</p>
         </div>
-        <div className="rounded-xl p-3 transition-all bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-amber-200/40 dark:border-amber-500/20 hover:shadow-md">
-          <div className="flex items-center gap-1.5 mb-1">
-            <DollarSign className="h-3.5 w-3.5 text-amber-500" />
-            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Revenue</span>
+        {isFinanceAdmin && (
+          <div className="rounded-xl p-3 transition-all bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-amber-200/40 dark:border-amber-500/20 hover:shadow-md">
+            <div className="flex items-center gap-1.5 mb-1">
+              <DollarSign className="h-3.5 w-3.5 text-amber-500" />
+              <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Revenue</span>
+            </div>
+            <p className="text-xl font-bold tracking-tight text-amber-600 dark:text-amber-400">{stats.revenue != null ? formatCurrency(stats.revenue) : "—"}</p>
           </div>
-          <p className="text-xl font-bold tracking-tight text-amber-600 dark:text-amber-400">{stats.revenue != null ? formatCurrency(stats.revenue) : "—"}</p>
-        </div>
+        )}
         {/* CLI-010: Renamed "Invoices" to "Total Invoices" */}
         <div className="rounded-xl p-3 transition-all bg-card border border-border hover:shadow-md">
           <div className="flex items-center gap-1.5 mb-1">
@@ -1323,16 +1401,18 @@ export default function ClientsPage() {
                   </TableHead>
                   <TableHead className="hidden md:table-cell text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Type</TableHead>
                   <TableHead className="text-center text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Projects</TableHead>
-                  <TableHead
-                    className="cursor-pointer select-none text-right text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
-                    onClick={() => toggleSort("revenue")}
-                    aria-sort={sortBy === "revenue" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
-                  >
-                    <div className="flex items-center justify-end gap-1">
-                      Revenue
-                      <SortIcon field="revenue" sortBy={sortBy} sortOrder={sortOrder} />
-                    </div>
-                  </TableHead>
+                  {isFinanceAdmin && (
+                    <TableHead
+                      className="cursor-pointer select-none text-right text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
+                      onClick={() => toggleSort("revenue")}
+                      aria-sort={sortBy === "revenue" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                    >
+                      <div className="flex items-center justify-end gap-1">
+                        Revenue
+                        <SortIcon field="revenue" sortBy={sortBy} sortOrder={sortOrder} />
+                      </div>
+                    </TableHead>
+                  )}
                   <TableHead className="text-center text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Status</TableHead>
                   <TableHead
                     className="cursor-pointer select-none hidden lg:table-cell text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
@@ -1389,11 +1469,13 @@ export default function ClientsPage() {
                         {safeNumber(client._count?.projects ?? 0)}
                       </span>
                     </TableCell>
-                    <TableCell className="text-right">
-                      <span className="text-sm font-semibold tabular-nums">
-                        {(client.revenue ?? 0) > 0 ? formatCurrency(client.revenue ?? 0) : "—"}
-                      </span>
-                    </TableCell>
+                    {isFinanceAdmin && (
+                      <TableCell className="text-right">
+                        <span className="text-sm font-semibold tabular-nums">
+                          {(client.revenue ?? 0) > 0 ? formatCurrency(client.revenue ?? 0) : "—"}
+                        </span>
+                      </TableCell>
+                    )}
                     <TableCell className="text-center">
                       <Badge className={`text-[10px] ${statusColors[client.status] || defaultBadgeColor}`}>
                         {statusLabels[client.status] || safeText(client.status)}
@@ -1643,7 +1725,7 @@ export default function ClientsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Deactivate Client</AlertDialogTitle>
             <AlertDialogDescription>
-              This will deactivate &quot;{safeText(deleteTarget?.name)}&quot; (mark as churned). This is a terminal status and cannot be undone.
+              This will set &quot;{safeText(deleteTarget?.name)}&quot; to Churned status. You can reactivate the client at any time via Edit.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1702,7 +1784,7 @@ export default function ClientsPage() {
 
       {/* ━━ Client Detail Drawer ━━ */}
       <Sheet
-        open={!!detailClient}
+        open={detailLoading || !!detailClient}
         onOpenChange={(open) => {
           if (!open) {
             // CLI-002: abort fetchDetail on Sheet close
@@ -1782,7 +1864,9 @@ export default function ClientsPage() {
                   )}
                 </div>
                 <div className="flex items-center gap-4 mt-2 text-sm">
-                  <span className="text-muted-foreground">Revenue: <span className="font-semibold text-foreground">{(detailClient.revenue ?? 0) > 0 ? formatCurrency(detailClient.revenue ?? 0) : "—"}</span></span>
+                  {isFinanceAdmin && (
+                    <span className="text-muted-foreground">Revenue: <span className="font-semibold text-foreground">{(detailClient.revenue ?? 0) > 0 ? formatCurrency(detailClient.revenue ?? 0) : "—"}</span></span>
+                  )}
                   <span className="text-muted-foreground">Since: <span className="font-medium text-foreground">{formatDate(detailClient.createdAt)}</span></span>
                 </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-xs text-muted-foreground">
@@ -2092,14 +2176,14 @@ export default function ClientsPage() {
                     </div>
                   ) : (
                     <div className="relative">
-                      <input type="file" accept=".pdf,.txt,.md,.docx" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadTemplate(f); e.target.value = ""; }} disabled={uploadingTemplate} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+                      <input type="file" accept=".txt,.md,.html,.csv" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadTemplate(f); e.target.value = ""; }} disabled={uploadingTemplate} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
                       <div className="flex items-center justify-center gap-2 p-3 border-2 border-dashed rounded-xl hover:border-primary/50 cursor-pointer border-white/20 dark:border-white/10">
                         {uploadingTemplate ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4 text-muted-foreground" />}
-                        <span className="text-xs text-muted-foreground">{uploadingTemplate ? "Processing..." : "Upload demo/template PDF, DOCX, TXT (max 5MB)"}</span>
+                        <span className="text-xs text-muted-foreground">{uploadingTemplate ? "Processing..." : "Upload template .txt, .md, .html or .csv (max 5MB)"}</span>
                       </div>
                     </div>
                   )}
-                  <p className="text-xs text-muted-foreground">AI will use this template to structure the contract.</p>
+                  <p className="text-xs text-muted-foreground">Optional template text for this draft contract.</p>
                 </div>
               )}
 
@@ -2107,7 +2191,7 @@ export default function ClientsPage() {
               {!editingContract && (
                 <Button onClick={handleGenerateContract} disabled={contractGenerating} className="w-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white">
                   {contractGenerating ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Sparkles className="h-4 w-4 mr-2" />}
-                  {contractGenerating ? "Generating Contract..." : "Generate Smart Contract"}
+                  {contractGenerating ? "Creating Contract..." : "Create Draft Contract"}
                 </Button>
               )}
 
@@ -2126,7 +2210,7 @@ export default function ClientsPage() {
                             {c.sentAt ? `Sent: ${new Date(c.sentAt as string).toLocaleDateString()}` : `Created: ${new Date(c.createdAt as string).toLocaleDateString()}`}
                           </p>
                           {(c.termsAndConditions as string)?.length > 50 && (
-                            <p className="text-xs text-green-600 mt-1">AI content generated ✓</p>
+                            <p className="text-xs text-green-600 mt-1">Has terms</p>
                           )}
                         </div>
                         <div className="flex gap-1 shrink-0">
@@ -2153,7 +2237,7 @@ export default function ClientsPage() {
                 <div className="text-center py-8 text-muted-foreground">
                   <FileSignature className="h-10 w-10 mx-auto mb-2 opacity-30" />
                   <p className="text-sm">No contracts yet for this client.</p>
-                  <p className="text-xs">Click &quot;Generate Smart Contract&quot; to create one.</p>
+                  <p className="text-xs">Click &quot;Create Draft Contract&quot; to create one.</p>
                 </div>
               )}
 
@@ -2171,8 +2255,8 @@ export default function ClientsPage() {
                     </Button>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1 col-span-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1 col-span-1 sm:col-span-2">
                       <Label className="text-xs">Title</Label>
                       <Input value={(contractForm.title as string) || ""} onChange={(e) => setContractForm({ ...contractForm, title: e.target.value })} />
                     </div>

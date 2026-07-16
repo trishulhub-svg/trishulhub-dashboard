@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { updateClientSchema, validateRequest } from "@/lib/validations"
-import { isAdminOrProjectManager, getAssignedClientIds } from "@/lib/rbac"
+import { isAdmin, isAdminOrProjectManager, getAssignedClientIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { deepSanitize } from "@/lib/utils"
@@ -55,10 +55,11 @@ export async function GET(
       }
     }
 
-    // API-015: Conditionally build include object to skip unnecessary queries for developers
-    // PROJECT_MANAGER sees the same client detail level as ADMIN (including
-    // budget/revenue data — they have full client-management access).
+    // API-015: Conditionally build include object to skip unnecessary queries for developers.
+    // PROJECT_MANAGER gets client management includes (projects/invoices lists/deals/contacts).
+    // Revenue totals remain ADMIN/SUPER_ADMIN only (finance).
     const adminOnly = isAdminOrProjectManager(role)
+    const canSeeRevenue = isAdmin(role)
 
     const includeObj: Record<string, unknown> = {
       websites: {
@@ -157,9 +158,9 @@ export async function GET(
       })
     }
 
-    // API-016: Compute revenue from DB-level filtered PAID invoices instead of JS filter
-    let revenue = 0
-    if (adminOnly) {
+    // API-016: Revenue is finance — ADMIN/SUPER_ADMIN only
+    let revenue: number | undefined
+    if (canSeeRevenue) {
       const paidInvoiceSum = await db.invoice.aggregate({
         where: { clientId: id, status: "PAID" },
         _sum: { total: true },

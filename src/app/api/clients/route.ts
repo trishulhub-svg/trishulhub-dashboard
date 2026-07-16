@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { createClientSchema, validateRequest } from "@/lib/validations"
-import { isAdminOrProjectManager, getAssignedClientIds } from "@/lib/rbac"
+import { isAdmin, isAdminOrProjectManager, getAssignedClientIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { deepSanitize } from "@/lib/utils"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
@@ -165,8 +165,8 @@ export async function GET(req: NextRequest) {
       primaryWebsite: websites.length > 0 ? websites[0] : null,
       projectMethodId: projectMethod?.id || null,
       projectMethod,
-      // Hide revenue for developers. PROJECT_MANAGER sees revenue (admin-like access).
-      revenue: isAdminOrProjectManager(role) ? revenue : undefined,
+      // Revenue is finance data — ADMIN/SUPER_ADMIN only (not PROJECT_MANAGER)
+      revenue: isAdmin(role) ? revenue : undefined,
     }
   })
 
@@ -174,6 +174,9 @@ export async function GET(req: NextRequest) {
   // API-008: Revenue sort support — when sorting by revenue, we must sort across ALL
   // matching clients, not just the current page. Fetch all (up to safety cap), sort, then paginate.
   if (sortBy === "revenue") {
+    if (!isAdmin(role)) {
+      return NextResponse.json({ error: "Forbidden: revenue sort requires admin" }, { status: 403 })
+    }
     const REVENUE_SORT_CAP = 500
     const allClients = await db.client.findMany({
       where,
@@ -188,7 +191,7 @@ export async function GET(req: NextRequest) {
     const allEnriched = allClients.map((client) => {
       const revenue = client.invoices.reduce((sum, inv) => sum + inv.total, 0)
       const { invoices, websites, projectMethod, ...rest } = client
-      return { ...rest, primaryWebsite: websites.length > 0 ? websites[0] : null, projectMethod, projectMethodId: projectMethod?.id || null, revenue: isAdminOrProjectManager(role) ? revenue : undefined }
+      return { ...rest, primaryWebsite: websites.length > 0 ? websites[0] : null, projectMethod, projectMethodId: projectMethod?.id || null, revenue }
     })
     allEnriched.sort((a, b) => {
       const revA = (a.revenue as number) ?? 0
@@ -215,7 +218,7 @@ export async function GET(req: NextRequest) {
   ])
 
   let totalRevenue: number | undefined
-  if (isAdminOrProjectManager(role)) {
+  if (isAdmin(role)) {
     const revenueResult = await db.invoice.aggregate({
       where: { client: statsWhere, status: "PAID" },
       _sum: { total: true },
