@@ -12,7 +12,7 @@ import { deepSanitize } from "@/lib/utils"
 const ALLOWED_FIELDS = ["name", "email", "company", "website", "phone", "source", "score", "status", "notes", "clientId"] as const
 
 const VALID_STATUSES = ["NEW", "CONTACTED", "INTERESTED", "PROPOSAL", "NEGOTIATING", "WON", "LOST"] as const
-const VALID_SOURCES = ["MANUAL", "AI_FOUND", "REFERRAL", "SOCIAL_MEDIA"] as const
+const VALID_SOURCES = ["MANUAL", "AI_FOUND", "REFERRAL", "SOCIAL_MEDIA", "WEBSITE", "LINKEDIN", "OTHER"] as const
 
 // ━━ Shared update logic for PATCH & PUT ━━
     // TODO: Consolidate lead update logic with leads/[id]/route.ts to reduce duplication

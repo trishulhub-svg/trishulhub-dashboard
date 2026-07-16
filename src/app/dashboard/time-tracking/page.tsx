@@ -185,7 +185,11 @@ export default function TimeTrackingPage() {
           arr = safeArray<TimeEntry>(data);
         }
         setEntries(arr);
-        const active = arr.find((e) => e.status === "ACTIVE");
+        // Only the current user's ACTIVE timer drives the hero (admins see others in Running sessions)
+        const myId = session?.user?.id;
+        const active = arr.find(
+          (e) => e.status === "ACTIVE" && (!myId || e.userId === myId)
+        );
         setActiveEntry(active || null);
       } else {
         const errData = await res.json().catch(() => null);
@@ -199,7 +203,7 @@ export default function TimeTrackingPage() {
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
-  }, []);
+  }, [session?.user?.id]);
 
   const fetchProjects = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -339,9 +343,16 @@ export default function TimeTrackingPage() {
 
   const executeClockOut = useCallback(async () => {
     if (!activeEntry) return;
-    const notes = clockOutNotesRef.current;
+    const notes = clockOutNotesRef.current.trim();
     setStopping(true);
     try {
+      // Append clock-out notes; never wipe the original start description
+      const existing = (activeEntry.description || "").trim();
+      const description = notes
+        ? existing
+          ? `${existing}\n\nClock-out notes: ${notes}`
+          : notes
+        : undefined;
       const res = await fetch(`/api/time-tracking/${activeEntry.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -349,7 +360,7 @@ export default function TimeTrackingPage() {
         body: JSON.stringify({
           id: activeEntry.id,
           status: "COMPLETED",
-          description: notes || undefined,
+          ...(description !== undefined ? { description } : {}),
         }),
       });
       if (res.ok) {

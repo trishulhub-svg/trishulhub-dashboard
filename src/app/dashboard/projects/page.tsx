@@ -216,7 +216,7 @@ function KanbanProjectCard({
       {Array.isArray(project.methods) && (project.methods as Array<{name: string}>).length > 0 && (
         <div className="mt-1.5 flex items-center gap-1 flex-wrap">
           {(project.methods as Array<{name: string}>).map((m, i) => (
-            <Badge key={i} className="text-[9px] px-1.5 py-0 leading-3 bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
+            <Badge key={i} className="text-[9px] px-1.5 py-0 leading-3 bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300 border border-teal-200/50 dark:border-teal-800/40">
               {m.name}
             </Badge>
           ))}
@@ -496,7 +496,7 @@ function ListViewRow({
             {Array.isArray(project.methods) && (project.methods as Array<{name: string}>).length > 0 && (
               <span className="flex items-center gap-0.5">
                 {(project.methods as Array<{name: string}>).map((m, i) => (
-                  <Badge key={i} className="text-[9px] px-1.5 py-0 leading-3 bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
+                  <Badge key={i} className="text-[9px] px-1.5 py-0 leading-3 bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300 border border-teal-200/50 dark:border-teal-800/40">
                     {m.name}
                   </Badge>
                 ))}
@@ -1184,6 +1184,15 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
     if (!editProject) return;
 
     const form = new FormData(e.currentTarget);
+    const nextIsDemo = form.get("isDemo") === "on";
+    const wasDemo = editProject.isDemo === true;
+    // Confirm before moving a demo project back to the main Projects board
+    if (wasDemo && !nextIsDemo) {
+      const ok = window.confirm(
+        "Remove Demo flag? This project will leave Demo Projects and appear on the main Projects board."
+      );
+      if (!ok) return;
+    }
     const data: Record<string, unknown> = {
       id: editProject.id,
       name: form.get("name") as string,
@@ -1194,7 +1203,7 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
       startDate: form.get("startDate") as string || null,
       deadline: form.get("deadline") as string || null,
       progress: parseInt(form.get("progress") as string) || 0,
-      isDemo: form.get("isDemo") === "on",
+      isDemo: nextIsDemo,
     };
     const liveUrl = (form.get("liveUrl") as string)?.trim();
 
@@ -1412,9 +1421,16 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
     if (!over) return;
 
     const projectId = active.id as string;
-    const newStatus = over.id as string;
-
-    if (!VALID_STATUSES.includes(newStatus)) return;
+    const overId = String(over.id);
+    // Drop on column OR on another card in a column
+    let newStatus = VALID_STATUSES.includes(overId) ? overId : "";
+    if (!newStatus) {
+      const overProject = (projects as Record<string, unknown>[]).find(
+        (p) => safeText(p.id, "") === overId
+      );
+      newStatus = overProject ? safeText(overProject.status, "") : "";
+    }
+    if (!newStatus || !VALID_STATUSES.includes(newStatus)) return;
 
     const project = (projects as Record<string, unknown>[]).find((p) => safeText(p.id, "") === projectId);
     if (!project) return;
@@ -1552,7 +1568,7 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
             {isDemoView ? "Demo Projects" : "Projects"}
           </h1>
           {isDemoView && (
-            <Badge className="ml-1 text-[10px] font-bold tracking-wider px-2 py-0.5 bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white shadow-sm" title="Demo projects are full-fledged projects used for walkthroughs and demos">
+            <Badge className="ml-1 text-[10px] font-bold tracking-wider px-2 py-0.5 border border-teal-500/30 bg-teal-500/10 text-teal-700 dark:text-teal-300 shadow-sm" title="Demo projects are full-fledged projects used for walkthroughs and demos">
               DEMO
             </Badge>
           )}
@@ -1605,7 +1621,14 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
               </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-[480px]">
-              <DialogHeader><DialogTitle>Create Project</DialogTitle><DialogDescription>Create a new web development project for your client.</DialogDescription></DialogHeader>
+              <DialogHeader>
+                <DialogTitle>Create Project</DialogTitle>
+                <DialogDescription>
+                  {isDemoView
+                    ? "Creating in Demo Projects — this project will appear on the Demo board."
+                    : "Create a new web development project for your client."}
+                </DialogDescription>
+              </DialogHeader>
               <CreateProjectForm
                 onSubmit={handleCreateProject}
                 clients={clients as { id: string; name: string; company?: string }[]}
