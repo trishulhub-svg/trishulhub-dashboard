@@ -6,13 +6,12 @@ import { useRouter } from "next/navigation"
 import {
   AlertTriangle,
   ChevronDown,
+  ChevronRight,
   ClipboardList,
   GraduationCap,
   Loader2,
   Plus,
   QrCode,
-  Trash2,
-  Clock,
   RefreshCw,
   UserRound,
 } from "lucide-react"
@@ -24,7 +23,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { AssignmentDetailDialog } from "@/components/training/assignment-detail-dialog"
-import { formatDateTime } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 type Assignment = {
@@ -50,24 +48,6 @@ type UserGroup = {
   open: Assignment[]
   done: Assignment[]
   overdueCount: number
-}
-
-function statusBadge(status: string) {
-  if (status === "DONE") return <Badge className="bg-success/15 text-success border-0">Done</Badge>
-  if (status === "OVERDUE") return <Badge variant="destructive">Overdue</Badge>
-  return <Badge variant="secondary">Open</Badge>
-}
-
-function dueLabel(dueDate: string) {
-  try {
-    return new Date(dueDate).toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    })
-  } catch {
-    return formatDateTime(dueDate)
-  }
 }
 
 function personLabel(a: Assignment) {
@@ -288,51 +268,44 @@ export default function AssignTrainingPage() {
 
   const byUser = useMemo(() => groupByUser(assignments), [assignments])
 
+  // Compact list: training name + assignee only. Full details open via Open button.
   const renderAssignmentRow = (a: Assignment, opts?: { showPerson?: boolean }) => (
     <li key={a.id}>
-      <div className="flex flex-col gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm sm:flex-row sm:flex-wrap sm:items-center">
+      <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2.5">
         <button
           type="button"
-          className="min-w-0 flex-1 space-y-0.5 text-left rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="min-w-0 flex-1 space-y-0.5 text-left rounded-md py-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={() => setDetail(a)}
+          aria-label={`Open details for ${a.title}`}
         >
-          <p className="font-medium truncate">{a.title}</p>
+          <p className="font-medium truncate text-sm">{a.title}</p>
           {opts?.showPerson !== false && (
             <p className="text-xs text-muted-foreground truncate inline-flex items-center gap-1">
               <UserRound className="h-3 w-3 shrink-0" />
               {personLabel(a)}
             </p>
           )}
-          {a.notes ? (
-            <p className="text-xs text-muted-foreground line-clamp-2">{a.notes}</p>
-          ) : null}
-          <p className="text-[11px] text-primary/80 pt-0.5">Tap for full details</p>
         </button>
-        <div className="flex flex-wrap items-center gap-2">
-          {statusBadge(a.status)}
-          <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
-            <Clock className="h-3 w-3" />
-            Due {dueLabel(a.dueDate)}
-          </span>
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            className="h-7 w-7 text-destructive"
-            disabled={deletingId === a.id}
-            onClick={(e) => {
-              e.stopPropagation()
-              void deleteAssignment(a.id)
-            }}
-            aria-label="Delete assignment"
-          >
-            {deletingId === a.id ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Trash2 className="h-3.5 w-3.5" />
-            )}
-          </Button>
-        </div>
+        {a.status === "OVERDUE" && (
+          <Badge variant="destructive" className="text-[10px] shrink-0">
+            Overdue
+          </Badge>
+        )}
+        {a.status === "DONE" && (
+          <Badge className="bg-success/15 text-success border-0 text-[10px] shrink-0">
+            Done
+          </Badge>
+        )}
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-8 gap-1 shrink-0 px-2.5"
+          onClick={() => setDetail(a)}
+        >
+          Open
+          <ChevronRight className="h-3.5 w-3.5" />
+        </Button>
       </div>
     </li>
   )
@@ -395,9 +368,11 @@ export default function AssignTrainingPage() {
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <h2 className="text-base font-semibold tracking-tight">New assignment</h2>
-                <Badge variant="secondary" className="text-[10px] shrink-0">
-                  {formOpen ? "Open" : "Collapsed"}
-                </Badge>
+                {!formOpen && (
+                  <Badge variant="secondary" className="text-[10px] shrink-0">
+                    Tap to expand
+                  </Badge>
+                )}
               </div>
               <p className="text-sm text-muted-foreground">
                 {formOpen
