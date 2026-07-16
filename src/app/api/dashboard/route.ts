@@ -163,10 +163,6 @@ export async function GET() {
         : Promise.resolve(0),
     ])
 
-    // Old ApiKey spend tracking removed — return zeros / empty
-    const totalApiSpend = 0
-    const monthlyBudget = 0
-
     const safeResponse = sanitizeForJson({
       role,
       projects,
@@ -174,11 +170,9 @@ export async function GET() {
       leads,
       invoices: admin ? invoices : [],
       expenses: admin ? expenses : [],
-      apiKeys: [],
       supportTickets: admin ? supportTickets : [],
       stats: {
         totalRevenue, pendingAmount, overdueAmount, totalExpenses,
-        totalApiSpend, monthlyBudget,
         newLeadsCount, activeProjects, atRiskProjects, openTickets,
         totalClients: admin ? totalClientCount : 0,
         totalLeads: totalLeadsCount,

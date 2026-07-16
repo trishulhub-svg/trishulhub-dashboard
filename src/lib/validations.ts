@@ -318,67 +318,9 @@ export function validateRequest<T>(schema: z.ZodSchema<T>, data: unknown): { suc
   return { success: true, data: result.data }
 }
 
-// ━━ Deals ━━
-export const createDealSchema = z.object({
-  title: z.string().min(1, "Deal title is required").max(300, "Title must be at most 300 characters"),
-  value: z.number().min(0, "Value must be positive").max(99_999_999).finite().optional(),
-  currency: z.enum(["USD", "GBP", "INR"]).optional(),
-  stage: z.enum(["LEAD", "QUALIFIED", "PROPOSAL", "NEGOTIATION", "CLOSED_WON", "CLOSED_LOST"]).optional(),
-  probability: z.number().int().min(0).max(100).optional(),
-  expectedCloseDate: z.string().optional().refine((val) => {
-    if (!val) return true
-    return !isNaN(Date.parse(val))
-  }, { message: "expectedCloseDate must be a valid date string" }),
-  clientId: z.string().optional(),
-  leadId: z.string().optional(),
-  assignedToId: z.string().optional(),
-  notes: z.string().max(5000, "Notes must be at most 5000 characters").optional(),
-})
-
-export const updateDealSchema = z.object({
-  id: z.string().min(1, "Deal ID is required"),
-  title: z.string().min(1).max(300).optional(),
-  value: z.number().min(0).max(99_999_999).finite().optional(),
-  currency: z.enum(["USD", "GBP", "INR"]).optional(),
-  stage: z.enum(["LEAD", "QUALIFIED", "PROPOSAL", "NEGOTIATION", "CLOSED_WON", "CLOSED_LOST"]).optional(),
-  probability: z.number().int().min(0).max(100).optional(),
-  expectedCloseDate: z.string().optional().refine((val) => { if (!val) return true; return !isNaN(Date.parse(val)); }, { message: "expectedCloseDate must be a valid date string" }),
-  actualCloseDate: z.string().optional().refine((val) => { if (!val) return true; return !isNaN(Date.parse(val)); }, { message: "actualCloseDate must be a valid date string" }),
-  clientId: z.string().nullable().optional(),
-  leadId: z.string().nullable().optional(),
-  assignedToId: z.string().nullable().optional(),
-  notes: z.string().max(5000).optional(),
-}).refine(hasAtLeastOneField, { message: "At least one field must be provided" })
-
-// ━━ Contacts ━━
-export const createContactSchema = z.object({
-  firstName: z.string().min(1, "First name is required").max(100, "First name must be at most 100 characters"),
-  lastName: z.string().max(100).optional(),
-  email: z.string().email("Valid email is required").max(200, "Email must be at most 200 characters"),
-  phone: z.string().max(50).optional(),
-  jobTitle: z.string().max(200).optional(),
-  clientId: z.string().optional(),
-  leadId: z.string().optional(),
-  notes: z.string().max(5000).optional(),
-  isPrimary: z.boolean().optional(),
-})
-
-export const updateContactSchema = z.object({
-  id: z.string().min(1, "Contact ID is required"),
-  firstName: z.string().min(1).max(100).optional(),
-  lastName: z.string().max(100).optional(),
-  email: z.string().email("Valid email is required").max(200).optional(),
-  phone: z.string().max(50).optional(),
-  jobTitle: z.string().max(200).optional(),
-  clientId: z.string().nullable().optional(),
-  leadId: z.string().nullable().optional(),
-  notes: z.string().max(5000).optional(),
-  isPrimary: z.boolean().optional(),
-}).refine(hasAtLeastOneField, { message: "At least one field must be provided" })
-
 // ━━ Contracts ━━
+// clientId is validated separately in the route (stripped before this schema runs)
 export const createContractSchema = z.object({
-  clientId: z.string().min(1, "Client ID is required"),
   title: z.string().max(500).optional(),
   scopeOfWork: z.string().max(50000).optional(),
   paymentTerms: z.string().max(10000).optional(),
@@ -390,7 +332,6 @@ export const createContractSchema = z.object({
   termsAndConditions: z.string().max(50000).optional(),
   templateText: z.string().max(50000).optional(),
   templateFileName: z.string().max(500).optional(),
-  useAI: z.boolean().optional(),
   // Backend auto-generates if not provided
   contractNumber: z.string().optional(),
 })

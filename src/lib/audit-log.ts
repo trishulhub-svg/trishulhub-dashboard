@@ -13,7 +13,7 @@ export const AUDIT_DEPARTMENTS = {
   TEAM_WORK: { label: "Team & Work", pages: ["projects", "tasks", "time-tracking", "approvals"] },
   HR_PEOPLE: { label: "HR & People", pages: ["team", "leaves", "availability"] },
   LEARNING: { label: "Learning", pages: ["training", "my-training"] },
-  SYSTEM: { label: "System", pages: ["settings", "api-keys", "workspace", "access-hub", "files", "protocol", "credentials", "notifications"] },
+  SYSTEM: { label: "System", pages: ["settings", "api-keys", "workspace", "access-hub", "credentials", "notifications"] },
 } as const
 
 export type AuditDepartment = keyof typeof AUDIT_DEPARTMENTS

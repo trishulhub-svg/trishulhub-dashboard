@@ -83,7 +83,7 @@ export async function GET() {
       })
     )
 
-    // All queries run in parallel (old ApiKey aggregate removed — totalApiSpend is always 0)
+    // All queries run in parallel
     const [
       totalRevenue,
       pendingAmount,
@@ -128,8 +128,7 @@ export async function GET() {
         : Promise.resolve([] as unknown[]),
     ])
 
-    const totalApiSpend = 0
-    const stats = { totalRevenue, pendingAmount, overdueAmount, totalExpenses, totalApiSpend }
+    const stats = { totalRevenue, pendingAmount, overdueAmount, totalExpenses }
 
     return NextResponse.json(sanitizeForJson({
       stats,

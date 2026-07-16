@@ -119,36 +119,6 @@ export async function ensureProjectCredentialTable(): Promise<void> {
   }
 }
 
-// ── Auto-migration: Create ProjectAttachment table if it doesn't exist ──
-let _projectAttachmentEnsured = false
-
-export async function ensureProjectAttachmentTable(): Promise<void> {
-  if (_projectAttachmentEnsured) return
-  try {
-    await db.$executeRawUnsafe(`
-      CREATE TABLE IF NOT EXISTS "ProjectAttachment" (
-        "id" TEXT NOT NULL PRIMARY KEY,
-        "projectId" TEXT NOT NULL,
-        "fileName" TEXT NOT NULL,
-        "fileData" TEXT NOT NULL,
-        "fileSize" INTEGER NOT NULL,
-        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-      );
-    `)
-    await db.$executeRawUnsafe(`
-      CREATE INDEX IF NOT EXISTS "idx_ProjectAttachment_projectId" ON "ProjectAttachment"("projectId");
-    `)
-    _projectAttachmentEnsured = true
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error)
-    if (msg.includes('already exists')) {
-      _projectAttachmentEnsured = true
-    } else {
-      console.error('[db] Failed to ensure ProjectAttachment table:', msg)
-    }
-  }
-}
-
 // ── Auto-migration: Create ProjectWebsite table if it doesn't exist ──
 let _projectWebsiteEnsured = false
 

@@ -5,7 +5,6 @@ import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
-import { after } from "next/server"
 import { deepSanitize } from "@/lib/utils"
 import { createContractSchema, updateContractSchema, validateRequest } from "@/lib/validations"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
@@ -74,7 +73,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
   }
 
-  const { clientId, useAI, templateText, ...contractData } = body as Record<string, unknown>
+  const { clientId, templateText, ...contractData } = body as Record<string, unknown>
 
   if (!clientId || typeof clientId !== "string") return NextResponse.json({ error: "clientId is required" }, { status: 400 })
 
@@ -154,23 +153,12 @@ export async function POST(req: NextRequest) {
     }
   })
 
-  // If useAI was requested: old ApiKey runtime removed — leave contract as created without AI content.
-  // MUST NOT throw into the main create path (CRM / contract create stay healthy).
-  if (useAI) {
-    after(async () => {
-      console.warn(
-        "[contracts] AI contract generation is disabled / not configured (old ApiKey system removed). Contract left as created without AI content:",
-        contract.id
-      )
-    })
-  }
-
   // Phase 7c: Audit log contract creation (fire-and-forget)
   void logAudit({
     userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
     department: "BUSINESS", page: "contracts", action: "CREATE",
     entityType: "Contract", entityId: contract.id,
-    description: `Created contract: ${contract.contractNumber} for ${client.name}${useAI ? " (AI generation triggered)" : ""}`,
+    description: `Created contract: ${contract.contractNumber} for ${client.name}`,
     ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
   })
 

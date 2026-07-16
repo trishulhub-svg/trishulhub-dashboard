@@ -77,9 +77,12 @@ export async function middleware(request: NextRequest) {
       return addSecurityHeaders(request, NextResponse.redirect(new URL("/portal", request.url)))
     }
 
-    // Legacy Agents page removed — Workspace is the agent hub
+    // Legacy routes removed — keep bookmarks working
     if (pathname.startsWith("/dashboard/agents")) {
       return addSecurityHeaders(request, NextResponse.redirect(new URL("/dashboard/workspace", request.url)))
+    }
+    if (pathname.startsWith("/dashboard/training/setup")) {
+      return addSecurityHeaders(request, NextResponse.redirect(new URL("/dashboard/training/my", request.url)))
     }
 
     // Granular role-based route protection.
@@ -185,7 +188,7 @@ function addSecurityHeaders(request: NextRequest, response: NextResponse): NextR
     "style-src 'self' 'unsafe-inline'; " +
     "img-src 'self' data: blob:; " +
     "font-src 'self' data:; " +
-    "connect-src 'self' https://api.openai.com https://*.turso.tech; " +
+    "connect-src 'self' https://*.turso.tech; " +
     "frame-ancestors 'self'"
   )
   return response

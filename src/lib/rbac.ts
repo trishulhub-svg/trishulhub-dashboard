@@ -51,9 +51,6 @@ export function isAdminOrProjectManager(role: string): boolean {
  * @returns Array of project IDs the user has access to, or null if admin/pm (all access)
  */
 export async function getAssignedProjectIds(userId: string, role: string): Promise<string[] | null> {
-  // NOTE: VIEWER role gets project IDs here which may grant indirect access to financial data.
-  // Consider adding canViewFinancialData() check in finance API routes.
-
   // SUPER_ADMIN, ADMIN, and PROJECT_MANAGER can see all projects
   if (isAdminOrProjectManager(role)) return null
 
@@ -102,75 +99,11 @@ export async function getAssignedClientIds(userId: string, role: string): Promis
   return [...new Set(projects.map(p => p.clientId).filter((id): id is string => !!id))]
 }
 
-/** Check if user can manage finance (invoices, expenses, subscriptions) */
-export function canManageFinance(role: string): boolean {
-  return ["SUPER_ADMIN", "ADMIN"].includes(role)
-}
-
-/** Check if user can manage contracts (restrict to admins) */
-export function canManageContracts(role: string): boolean {
-  return ["SUPER_ADMIN", "ADMIN"].includes(role)
-}
-
-/** Check if user can manage deals (CRM pipeline) */
-export function canManageDeals(role: string): boolean {
-  return ["SUPER_ADMIN", "ADMIN", "MANAGER"].includes(role)
-}
-
-/** Check if user can view financial data (reports, analytics) */
-export function canViewFinancialData(role: string): boolean {
-  return ["SUPER_ADMIN", "ADMIN", "MANAGER"].includes(role)
-}
-
-// === HR RBAC Functions ===
-
-export function canManageLeave(role: string): boolean {
-  return ["SUPER_ADMIN", "ADMIN", "MANAGER"].includes(role);
-}
-
-export function canApproveLeave(role: string, isOwnLeave: boolean): boolean {
-  // Users can cancel their own leaves. Admins/Managers can approve/reject.
-  // NOTE: PROJECT_MANAGER is intentionally NOT included — leave approvals
-  // are restricted to ADMIN/SUPER_ADMIN per requirements.
-  if (isOwnLeave) return true;
-  return ["SUPER_ADMIN", "ADMIN", "MANAGER"].includes(role);
-}
-
-export function canManageAttendance(role: string): boolean {
-  return ["SUPER_ADMIN", "ADMIN", "MANAGER"].includes(role);
-}
-
-export function canManageEmployees(role: string): boolean {
-  return ["SUPER_ADMIN", "ADMIN"].includes(role);
-}
-
-export function canViewHRData(role: string, isOwnData: boolean): boolean {
-  if (isOwnData) return true;
-  return ["SUPER_ADMIN", "ADMIN", "MANAGER"].includes(role);
-}
-
-// TODO: Phase 7 — Add own-data vs team-data separation function:
-// canViewTeamHRData(role, userId, targetUserId, teamMemberIds)
-// that checks if targetUserId is in the user's managed team
-
-// === Phase 8 RBAC Functions ===
-
-/** Check if user can manage support tickets (assign, resolve, close) */
-export function canManageSupport(role: string): boolean {
-  return isAdmin(role)
-}
-
 /** Check if user can manage approvals (approve, reject, request improvements).
- * PROJECT_MANAGER is included so they can manage non-leave approvals
- * (AI approvals, task approvals, etc.). Leave approvals are gated separately
- * via `canApproveLeave`. */
+ * PROJECT_MANAGER is included so they can manage non-leave approvals.
+ * Leave approvals are gated separately via /api/leaves + isAdmin. */
 export function canManageApprovals(role: string): boolean {
   return isAdminOrProjectManager(role)
-}
-
-/** Check if user can manage notifications (send, mark read, preferences) */
-export function canManageNotifications(role: string): boolean {
-  return isAdmin(role)
 }
 
 // === Audit Trail RBAC ===

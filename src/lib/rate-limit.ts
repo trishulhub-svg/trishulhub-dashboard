@@ -181,60 +181,13 @@ export function rateLimit(key: string, limit: number, windowMs: number): RateLim
 
 // Predefined limits for different endpoint types
 export const RATE_LIMITS = {
-  chat: { limit: 20, windowMs: 60 * 1000 },       // 20 per minute
-  agentChat: { limit: 10, windowMs: 60 * 1000 },   // 10 per minute
-  login: { limit: 5, windowMs: 60 * 1000 },         // 5 per minute
   general: { limit: 60, windowMs: 60 * 1000 },      // 60 per minute
-  webhook: { limit: 100, windowMs: 60 * 1000 },     // 100 per minute
   crm: { limit: 30, windowMs: 60 * 1000 },          // 30 per minute for CRM endpoints
   crmWrite: { limit: 10, windowMs: 60 * 1000 },     // 10 per minute for CRM write operations
   finance: { limit: 30, windowMs: 60 * 1000 },       // 30 per minute for finance endpoints
   financeWrite: { limit: 10, windowMs: 60 * 1000 },  // 10 per minute for finance write operations
   invoiceSend: { limit: 5, windowMs: 60 * 1000 },    // 5 per minute for invoice send operations
 } as const
-
-// HR rate limits (convenience wrappers using the existing rateLimit function)
-export function hrRateLimit(key: string): RateLimitResult {
-  return rateLimit(key, 60, 60_000)
-}
-
-export function leaveRateLimit(key: string): RateLimitResult {
-  return rateLimit(key, 30, 60_000)
-}
-
-export function attendanceRateLimit(key: string): RateLimitResult {
-  return rateLimit(key, 60, 60_000)
-}
-
-export function approvalRateLimit(key: string): RateLimitResult {
-  return rateLimit(key, 30, 60_000)
-}
-
-export function trainingRateLimit(key: string): RateLimitResult {
-  return rateLimit(key, 30, 60_000)
-}
-
-export function availabilityRateLimit(key: string): RateLimitResult {
-  return rateLimit(key, 60, 60_000)
-}
-
-// Phase 8 — Rate limit constants for new modules
-export const apiKeyRateLimit = { max: 3, windowMs: 60_000 } // 3 per minute
-export const supportTicketRateLimit = { max: 15, windowMs: 60_000 } // 15 per minute
-export const notificationRateLimit = { max: 30, windowMs: 60_000 } // 30 per minute
-
-// Phase 8 — Convenience wrappers for new modules
-export function apiKeyLimit(key: string): RateLimitResult {
-  return rateLimit(key, apiKeyRateLimit.max, apiKeyRateLimit.windowMs)
-}
-
-export function supportTicketLimit(key: string): RateLimitResult {
-  return rateLimit(key, supportTicketRateLimit.max, supportTicketRateLimit.windowMs)
-}
-
-export function notificationLimit(key: string): RateLimitResult {
-  return rateLimit(key, notificationRateLimit.max, notificationRateLimit.windowMs)
-}
 
 /**
  * DB-backed atomic rate limiter for cross-instance persistence.

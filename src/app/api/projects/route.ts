@@ -510,7 +510,6 @@ export async function DELETE(req: NextRequest) {
 
     // 1. Prisma ORM cleanup for current schema relations
     const childCleanup = [
-      () => db.projectAttachment.deleteMany({ where: { projectId: id } }),
       () => db.projectCredential.deleteMany({ where: { projectId: id } }),
       () => db.projectMember.deleteMany({ where: { projectId: id } }),
       () => db.projectWebsite.deleteMany({ where: { projectId: id } }),
@@ -535,6 +534,7 @@ export async function DELETE(req: NextRequest) {
     // project.delete() if we don't clean them up first.
     const orphanedTableCleanup = [
       // Tables removed from schema but may still exist in DB
+      `DELETE FROM "ProjectAttachment" WHERE "projectId" = ?`,
       `DELETE FROM "Task" WHERE "projectId" = ?`,
       `DELETE FROM "LarkTaskMapping" WHERE "projectId" = ?`,
       `DELETE FROM "Meeting" WHERE "projectId" = ?`,
