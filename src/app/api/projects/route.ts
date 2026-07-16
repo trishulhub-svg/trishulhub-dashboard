@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
-import { isAdmin, isAdminOrProjectManager, getAssignedProjectIds } from "@/lib/rbac"
+import { isAdminOrProjectManager, getAssignedProjectIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { createProjectSchema, updateProjectSchema } from "@/lib/validations"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
@@ -138,15 +138,14 @@ export async function GET(req: NextRequest) {
       } catch { /* non-fatal */ }
 
       const result = { ...serializeProjectDates(project), methods }
-      // For non-admins: hide budget
-      if (!isAdmin(userRole)) {
+      // Hide budget from non-managers
+      if (!isAdminOrProjectManager(userRole)) {
         (result as any).budget = undefined
       }
       return NextResponse.json(result)
     }
 
-    // LIST VIEW: Fast query — only select scalar fields + client name (no member joins)
-    // Members are fetched separately by the projects page via /api/projects/[id]/members
+    // LIST VIEW: scalars + client + websites (for Live buttons) — no member joins
     const projects = await db.project.findMany({
       where,
       select: {
@@ -163,17 +162,48 @@ export async function GET(req: NextRequest) {
         clientId: true,
         isDemo: true,
         client: { select: { id: true, name: true, company: true } },
+        websites: {
+          select: { id: true, url: true, label: true, isPrimary: true },
+          orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+        },
       },
       orderBy: { createdAt: "desc" },
       take: limit,
       skip: offset,
     })
 
-    // Serialize dates for JSON response
-    const serialized = serializeProjects(projects as any[])
+    // Batch-load methods for listed projects (join table)
+    const projectIds = projects.map((p) => p.id)
+    const methodsByProject = new Map<string, Array<{ id: string; name: string }>>()
+    if (projectIds.length > 0) {
+      try {
+        const placeholders = projectIds.map(() => "?").join(",")
+        const rows = await db.$queryRawUnsafe(
+          `SELECT j."B" as "projectId", pm."id", pm."name"
+           FROM "_ProjectMethodToProject" j
+           JOIN "ProjectMethod" pm ON j."A" = pm."id"
+           WHERE j."B" IN (${placeholders})`,
+          ...projectIds
+        ) as Array<{ projectId: string; id: string; name: string }>
+        for (const row of rows) {
+          const list = methodsByProject.get(row.projectId) || []
+          list.push({ id: row.id, name: row.name })
+          methodsByProject.set(row.projectId, list)
+        }
+      } catch {
+        // non-fatal — methods optional on cards
+      }
+    }
 
-    // For non-admins: hide budget
-    if (!isAdmin(userRole)) {
+    const serialized = serializeProjects(
+      projects.map((p) => ({
+        ...p,
+        methods: methodsByProject.get(p.id) || [],
+      })) as any[]
+    )
+
+    // Hide budget from non-managers (DEVELOPER/VIEWER/CLIENT). Admin + PM see budget.
+    if (!isAdminOrProjectManager(userRole)) {
       const filtered = serialized.map(({ budget, ...rest }: any) => ({
         ...rest,
         budget: undefined,
@@ -434,6 +464,18 @@ export async function PUT(req: NextRequest) {
       sanitizedData.deadline = (validated.deadline === null || validated.deadline === "")
         ? null
         : new Date(validated.deadline)
+    }
+    if (validated.startDate !== undefined) {
+      sanitizedData.startDate = (validated.startDate === null || validated.startDate === "")
+        ? null
+        : new Date(validated.startDate)
+    }
+    if (validated.clientId !== undefined) {
+      // "" / null → no client; otherwise keep the id
+      sanitizedData.clientId =
+        validated.clientId === null || validated.clientId === ""
+          ? null
+          : validated.clientId
     }
     if (validated.budget !== undefined) {
       // budget is nullable — null means "clear the budget"

@@ -33,8 +33,8 @@ export function isProjectManager(role: string): boolean {
  * Use this for features that should be available to project managers as well
  * as admins — e.g. project, client, credential, and non-leave approval
  * management. PROJECT_MANAGER has the same capabilities as ADMIN for these
- * features but is excluded from finance, CRM, team management, training,
- * leave approvals, availability, API keys, and protocol management.
+ * features but is excluded from finance, CRM, team management, training
+ * assign, leave approvals, availability mutations, and API keys vault.
  * @param role - The user's role string.
  * @returns true if the user has SUPER_ADMIN, ADMIN, or PROJECT_MANAGER role.
  */

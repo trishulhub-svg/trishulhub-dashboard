@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { isAdminOrProjectManager } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { notifyUsers } from "@/lib/notify"
+import { canAccessProject, canManageProjects, isValidProjectId } from "@/lib/project-access"
 
 // GET /api/projects/[projectId]/members - List project members
 export async function GET(
@@ -19,22 +19,14 @@ export async function GET(
     if (!rl.success) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
 
     const { projectId } = await params
-    // M-PRJ-7 FIX: Validate projectId format to prevent malformed ID database errors
-    if (!projectId || !/^[a-zA-Z0-9_-]{10,50}$/.test(projectId)) {
+    if (!projectId || !isValidProjectId(projectId)) {
       return NextResponse.json({ error: "Invalid project ID format" }, { status: 400 })
     }
     const userRole = session.user.role
     const userId = session.user.id
 
-    // SECURITY: Non-admin users must be a member of this project to view its members.
-    // PROJECT_MANAGER has admin-like project visibility (no membership check needed).
-    if (!isAdminOrProjectManager(userRole)) {
-      const membership = await db.projectMember.findFirst({
-        where: { userId, projectId },
-      })
-      if (!membership) {
-        return NextResponse.json({ error: "Forbidden: You can only view members of your assigned projects" }, { status: 403 })
-      }
+    if (!(await canAccessProject(userId, userRole, projectId))) {
+      return NextResponse.json({ error: "Forbidden: You can only view members of your assigned projects" }, { status: 403 })
     }
 
     const members = await db.projectMember.findMany({
@@ -63,8 +55,7 @@ export async function POST(
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    const userRole = session.user.role
-    if (!isAdminOrProjectManager(userRole)) {
+    if (!canManageProjects(session.user.role)) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
 
@@ -72,8 +63,7 @@ export async function POST(
     if (!rl.success) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
 
     const { projectId } = await params
-    // M-PRJ-7 FIX: Validate projectId format
-    if (!projectId || !/^[a-zA-Z0-9_-]{10,50}$/.test(projectId)) {
+    if (!projectId || !isValidProjectId(projectId)) {
       return NextResponse.json({ error: "Invalid project ID format" }, { status: 400 })
     }
     let parsedBody: { userId?: string; role?: string }
@@ -157,14 +147,12 @@ export async function DELETE(
     const rl = rateLimit(`project-members-del-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
     if (!rl.success) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
 
-    const userRole = session.user.role
-    if (!isAdminOrProjectManager(userRole)) {
+    if (!canManageProjects(session.user.role)) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
 
     const { projectId } = await params
-    // M-PRJ-7 FIX: Validate projectId format
-    if (!projectId || !/^[a-zA-Z0-9_-]{10,50}$/.test(projectId)) {
+    if (!projectId || !isValidProjectId(projectId)) {
       return NextResponse.json({ error: "Invalid project ID format" }, { status: 400 })
     }
     const { searchParams } = new URL(req.url)

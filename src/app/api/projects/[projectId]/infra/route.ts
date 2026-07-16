@@ -6,22 +6,7 @@ import { isAdminOrProjectManager } from "@/lib/rbac"
 import { encryptCredential } from "@/lib/encryption"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-
-// ── Helpers ──
-
-function isValidProjectId(id: string): boolean {
-  return /^[a-zA-Z0-9_-]{10,50}$/.test(id)
-}
-
-/** Check if user is a member of the project, an admin, or a project manager */
-async function canAccessProject(userId: string, role: string, projectId: string): Promise<boolean> {
-  if (isAdminOrProjectManager(role)) return true
-  const membership = await db.projectMember.findFirst({
-    where: { userId, projectId },
-    select: { id: true },
-  })
-  return !!membership
-}
+import { canAccessProject, isValidProjectId } from "@/lib/project-access"
 
 /** Serialize infrastructure for API response — masks all token fields */
 function serializeInfra(infra: any) {

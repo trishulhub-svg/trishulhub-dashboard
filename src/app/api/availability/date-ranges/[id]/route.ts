@@ -30,6 +30,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       return NextResponse.json({ error: "Too many requests" }, { status: 429 })
     }
 
+    // Mutations are ADMIN/SUPER_ADMIN only (PROJECT_MANAGER is read-only)
+    if (!isAdmin(session.user.role)) {
+      return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+    }
+
     const { id } = await params
     if (!/^[a-zA-Z0-9_-]{1,100}$/.test(id)) {
       return NextResponse.json({ error: "Invalid ID format" }, { status: 400 })
@@ -93,11 +98,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       const existing = await tx.availabilityDateRange.findUnique({ where: { id } })
       if (!existing) {
         throw new Error("NOT_FOUND")
-      }
-
-      // Ownership check: non-admins can only modify their own date ranges
-      if (!isAdmin(session.user.role) && existing.userId !== session.user.id) {
-        throw new Error("FORBIDDEN")
       }
 
       // Cross-field validation: startDate <= endDate
@@ -194,6 +194,10 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
       return NextResponse.json({ error: "Too many requests" }, { status: 429 })
     }
 
+    if (!isAdmin(session.user.role)) {
+      return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+    }
+
     const { id } = await params
     if (!/^[a-zA-Z0-9_-]{1,100}$/.test(id)) {
       return NextResponse.json({ error: "Invalid ID format" }, { status: 400 })
@@ -202,11 +206,6 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     const existing = await db.availabilityDateRange.findUnique({ where: { id } })
     if (!existing) {
       return NextResponse.json({ error: "Date range not found" }, { status: 404 })
-    }
-
-    // Ownership check
-    if (!isAdmin(session.user.role) && existing.userId !== session.user.id) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
     await db.availabilityDateRange.delete({ where: { id } })

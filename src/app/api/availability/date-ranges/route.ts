@@ -94,6 +94,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 })
     }
 
+    // Mutations are ADMIN/SUPER_ADMIN only (PROJECT_MANAGER is read-only on Availability)
+    if (!isAdmin(session.user.role)) {
+      return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+    }
+
     let body
     try { body = await req.json() } catch {
       return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
@@ -105,14 +110,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "startDate and endDate are required" }, { status: 400 })
     }
 
-    // Resolve target userId: admins can specify any user; non-admins only create for themselves.
+    // Admins may create for any user; default to self when omitted.
     let targetUserId: string
     if (bodyUserId) {
       if (!/^[a-zA-Z0-9_-]{1,100}$/.test(bodyUserId)) {
         return NextResponse.json({ error: "Invalid userId format" }, { status: 400 })
-      }
-      if (!isAdmin(session.user.role) && bodyUserId !== session.user.id) {
-        return NextResponse.json({ error: "Forbidden: can only create date ranges for yourself" }, { status: 403 })
       }
       targetUserId = bodyUserId
     } else {

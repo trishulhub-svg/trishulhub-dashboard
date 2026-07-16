@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
-import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
+import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { createInvoiceSchema, updateInvoiceSchema, validateRequest } from "@/lib/validations"
 // Note: deepSanitize is actually a deep clone, not XSS sanitization
@@ -11,7 +11,8 @@ import { deepSanitize } from "@/lib/utils"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
-// GET /api/invoices - List invoices (ADMIN/SUPER_ADMIN see all, CLIENT sees own, DEVELOPER sees assigned projects)
+// GET /api/invoices — CLIENT sees own; staff finance is ADMIN/SUPER_ADMIN only
+// (PROJECT_MANAGER / DEVELOPER / VIEWER must not read finance data)
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -57,9 +58,11 @@ export async function GET(req: NextRequest) {
       })
     }
 
-    // DEVELOPER users only see invoices from their assigned projects' clients
-    const assignedClientIds = await getAssignedClientIds(userId, userRole)
-    const where: Prisma.InvoiceWhereInput = assignedClientIds ? { clientId: { in: assignedClientIds } } : {}
+    if (!isAdmin(userRole)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
+
+    const where: Prisma.InvoiceWhereInput = {}
     if (status && status !== "ALL") where.status = status
 
     const [invoices, total] = await Promise.all([
