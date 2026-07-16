@@ -94,15 +94,38 @@ export async function GET(req: NextRequest) {
       ? { ...where, createdAt: { ...(where.createdAt as Prisma.DateTimeFilter | undefined), lt: new Date(cursor) } }
       : where
 
-    // Fetch data
-    const [logs, total] = await Promise.all([
-      db.auditLog.findMany({
-        where: cursorFilter,
-        orderBy: { createdAt: "desc" },
-        take: limit,
-      }),
-      db.auditLog.count({ where }),
-    ])
+    const includeTotal = searchParams.get("includeTotal") === "1"
+
+    // Lean select for list views (skip bulky optional fields)
+    const select = {
+      id: true,
+      userId: true,
+      userName: true,
+      userRole: true,
+      userDepartment: true,
+      department: true,
+      page: true,
+      action: true,
+      entityType: true,
+      entityId: true,
+      description: true,
+      ipAddress: true,
+      status: true,
+      createdAt: true,
+      oldValue: true,
+      newValue: true,
+    } as const
+
+    const logsPromise = db.auditLog.findMany({
+      where: cursorFilter,
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      select,
+    })
+
+    const [logs, total] = includeTotal
+      ? await Promise.all([logsPromise, db.auditLog.count({ where })])
+      : [await logsPromise, undefined as number | undefined]
 
     // Determine next cursor
     const nextCursor = logs.length === limit && logs.length > 0
@@ -112,7 +135,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       data: logs,
       nextCursor,
-      total,
+      ...(typeof total === "number" ? { total } : {}),
     })
   } catch (error: unknown) {
     console.error("[audit-trail] GET error:", error instanceof Error ? error.message : error)

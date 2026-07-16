@@ -10,13 +10,13 @@ export async function GET() {
     return NextResponse.json({
       status: "ok",
       timestamp: new Date().toISOString(),
-      service: "TrishulHub Dashboard",
+      service: "TrishulHub Technology",
     })
   } catch {
     return NextResponse.json({
       status: "degraded",
       timestamp: new Date().toISOString(),
-      service: "TrishulHub Dashboard",
+      service: "TrishulHub Technology",
     }, { status: 503 })
   }
 }
@@ -36,10 +36,10 @@ export async function POST() {
     const totalUsers = await db.user.count()
     diagnostics.database = "connected"
     diagnostics.totalUsers = totalUsers
-    return NextResponse.json({ status: "ok", timestamp: new Date().toISOString(), service: "TrishulHub Dashboard", diagnostics })
+    return NextResponse.json({ status: "ok", timestamp: new Date().toISOString(), service: "TrishulHub Technology", diagnostics })
   } catch (error: unknown) {
     diagnostics.database = "disconnected"
     diagnostics.error = "Database connection failed"
-    return NextResponse.json({ status: "degraded", timestamp: new Date().toISOString(), service: "TrishulHub Dashboard", diagnostics }, { status: 503 })
+    return NextResponse.json({ status: "degraded", timestamp: new Date().toISOString(), service: "TrishulHub Technology", diagnostics }, { status: 503 })
   }
 }

@@ -229,14 +229,7 @@ function LoginForm() {
             </div>
             <div className="login-brand-text">
               <h1 className="login-title">TrishulHub</h1>
-              <p className="login-subtitle">Project Management Dashboard</p>
-            </div>
-            <p className="login-tagline animate-login-fade-up" style={{ animationDelay: '150ms' }}>
-              Sign in to manage your projects, team, and workflow
-            </p>
-            <div className="login-security-badge animate-login-fade-up" style={{ animationDelay: '200ms' }}>
-              <Shield className="h-2.5 w-2.5" />
-              <span>Secure workspace access</span>
+              <p className="login-subtitle">Technology</p>
             </div>
           </div>
 

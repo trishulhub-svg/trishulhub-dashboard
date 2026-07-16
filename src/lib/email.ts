@@ -264,7 +264,7 @@ async function sendViaSmtp(
       // These headers help email providers verify the email is legitimate
       // and reduce the chance of being flagged as spam
       headers: {
-        "X-Mailer": "TrishulHub Dashboard",
+        "X-Mailer": "TrishulHub Technology",
         "X-Priority": "3", // Normal priority
         "X-Auto-Response-Suppress": "OOF, DR, RN, NRN", // Prevent auto-replies
         "List-Unsubscribe": "No", // Indicate this is not a mailing list
@@ -327,7 +327,7 @@ export async function sendOTPEmail(
         </div>
         <p style="color: #6b7280; font-size: 14px; margin: 12px 0 0;">This OTP expires in <strong>10 minutes</strong>. If you did not request this change, please ignore this email.</p>
       </div>
-      <p style="color: #9ca3af; font-size: 12px; text-align: center; margin-top: 16px;">This is an automated message from TrishulHub Dashboard. Do not reply.</p>
+      <p style="color: #9ca3af; font-size: 12px; text-align: center; margin-top: 16px;">This is an automated message from TrishulHub Technology. Do not reply.</p>
     </div>
   `
 
@@ -362,7 +362,7 @@ export async function sendPasswordChangeOTP(
         </div>
         <p style="color: #6b7280; font-size: 14px; margin: 12px 0 0;">This OTP expires in <strong>10 minutes</strong>. If you did not request this change, please contact your administrator immediately.</p>
       </div>
-      <p style="color: #9ca3af; font-size: 12px; text-align: center; margin-top: 16px;">This is an automated message from TrishulHub Dashboard. Do not reply.</p>
+      <p style="color: #9ca3af; font-size: 12px; text-align: center; margin-top: 16px;">This is an automated message from TrishulHub Technology. Do not reply.</p>
     </div>
   `
 
@@ -408,7 +408,7 @@ export async function sendPasswordResetEmail(
         <p style="color: #6b7280; font-size: 13px; margin: 8px 0 0;">If the button doesn't work, copy and paste this link into your browser:</p>
         <p style="color: #4f46e5; font-size: 13px; word-break: break-all; margin: 4px 0 0;">${resetLink}</p>
       </div>
-      <p style="color: #9ca3af; font-size: 12px; text-align: center; margin-top: 16px;">This is an automated message from TrishulHub Dashboard. Do not reply.</p>
+      <p style="color: #9ca3af; font-size: 12px; text-align: center; margin-top: 16px;">This is an automated message from TrishulHub Technology. Do not reply.</p>
     </div>
   `
 

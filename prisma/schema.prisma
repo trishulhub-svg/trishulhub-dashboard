@@ -80,6 +80,22 @@ model ApiKey {
   agents   Agent[]
 }
 
+// ━━ Encrypted secret vault (generic API keys / credentials storage) ━━
+// Separate from ApiKey so agent runtime / cron paths keep using ApiKey unchanged.
+model VaultSecret {
+  id        String   @id @default(cuid())
+  name      String
+  category  String   @default("OTHER") // BREVO, OPENROUTER, ZAI, SMTP, GOOGLE_AI, NVIDIA, OTHER
+  keyValue  String   // encrypted via encryptToJson
+  notes     String?
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+  @@map("VaultSecret")
+}
+
 // ━━ AI Agents ━━
 model Agent {
   id           String   @id @default(cuid())

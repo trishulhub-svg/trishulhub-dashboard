@@ -1249,7 +1249,7 @@ export default function SettingsPage() {
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Platform</span>
-              <span>Trishulhub Technology Everywhere</span>
+              <span>TrishulHub Technology</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Framework</span>

@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import {
   User, Calendar, CheckCircle2, XCircle, Plus, AlertCircle, RefreshCw, Pencil,
-  Key, Mail, Loader2, Eye, EyeOff, MoreHorizontal, ChevronDown,
+  Key, Mail, Loader2, Eye, EyeOff, MoreHorizontal, ChevronDown, Trash2,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,10 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -159,6 +163,9 @@ export default function TeamPage() {
   const [mutating, setMutating] = useState(false);
   const [togglingUserId, setTogglingUserId] = useState<string | null>(null);
   const [deactivatedOpen, setDeactivatedOpen] = useState(true);
+  const [deleteUserTarget, setDeleteUserTarget] = useState<TeamUser | null>(null);
+  const [deleteConfirmName, setDeleteConfirmName] = useState("");
+  const [deleteUserLoading, setDeleteUserLoading] = useState(false);
 
   // Edit user dialog state
   const [editUserOpen, setEditUserOpen] = useState(false);
@@ -290,6 +297,34 @@ export default function TeamPage() {
       setTogglingUserId(null);
     }
   }, [fetchData]);
+
+  const handleDeleteUser = useCallback(async () => {
+    if (!deleteUserTarget) return;
+    if (deleteConfirmName.trim() !== deleteUserTarget.name.trim()) {
+      toast.error("Type the member's name exactly to confirm");
+      return;
+    }
+    setDeleteUserLoading(true);
+    try {
+      const res = await fetch(`/api/team?type=user&id=${encodeURIComponent(deleteUserTarget.id)}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        toast.success(`${safeText(deleteUserTarget.name)} permanently deleted`);
+        setDeleteUserTarget(null);
+        setDeleteConfirmName("");
+        fetchData();
+      } else {
+        toast.error(data.error || "Failed to delete user");
+      }
+    } catch {
+      toast.error("Failed to delete user");
+    } finally {
+      setDeleteUserLoading(false);
+    }
+  }, [deleteUserTarget, deleteConfirmName, fetchData]);
 
   const openResetPasswordDialog = useCallback((user: TeamUser, action: "send_link" | "direct_reset" = "send_link") => {
     setResetPasswordUser(user);
@@ -564,6 +599,20 @@ export default function TeamPage() {
                     onClick={() => handleSetActive(user, false)}
                   >
                     Deactivate
+                  </DropdownMenuItem>
+                </>
+              )}
+              {isDeactivated && isSuperAdmin && user.role !== "SUPER_ADMIN" && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onClick={() => {
+                      setDeleteUserTarget(user);
+                      setDeleteConfirmName("");
+                    }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete permanently
                   </DropdownMenuItem>
                 </>
               )}
@@ -1116,6 +1165,65 @@ export default function TeamPage() {
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Permanent delete deactivated user (SUPER_ADMIN) */}
+      <AlertDialog
+        open={!!deleteUserTarget}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteUserTarget(null);
+            setDeleteConfirmName("");
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete permanently?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm text-muted-foreground">
+                <p>
+                  This will permanently remove{" "}
+                  <span className="font-medium text-foreground">{safeText(deleteUserTarget?.name)}</span>
+                  {" "}({safeText(deleteUserTarget?.email)}). This cannot be undone.
+                </p>
+                <div className="space-y-1.5">
+                  <Label htmlFor="delete-confirm-name" className="text-foreground">
+                    Type <span className="font-semibold">{safeText(deleteUserTarget?.name)}</span> to confirm
+                  </Label>
+                  <Input
+                    id="delete-confirm-name"
+                    value={deleteConfirmName}
+                    onChange={(e) => setDeleteConfirmName(e.target.value)}
+                    placeholder={deleteUserTarget?.name || ""}
+                    autoComplete="off"
+                  />
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteUserLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive hover:bg-destructive/90"
+              disabled={
+                deleteUserLoading ||
+                !deleteUserTarget ||
+                deleteConfirmName.trim() !== deleteUserTarget.name.trim()
+              }
+              onClick={(e) => {
+                e.preventDefault();
+                void handleDeleteUser();
+              }}
+            >
+              {deleteUserLoading ? (
+                <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Deleting...</>
+              ) : (
+                "Delete permanently"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

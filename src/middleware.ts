@@ -83,10 +83,10 @@ export async function middleware(request: NextRequest) {
     // PROJECT_MANAGER is a new tier between ADMIN and DEVELOPER. It can access
     // project/client/credential/approval management (admin-like) but is
     // excluded from finance, CRM, team, availability, audit trail,
-    // API keys, and protocol management.
+    // API keys vault, and protocol management.
     //
-    // Super admin only routes — strictly SUPER_ADMIN (e.g. API keys).
-    const superAdminOnlyRoutes = ["/dashboard/api-keys"]
+    // Super admin only routes — strictly SUPER_ADMIN.
+    const superAdminOnlyRoutes: string[] = []
 
     // Admin only routes — NOT accessible to PROJECT_MANAGER.
     // PROJECT_MANAGER is redirected to /dashboard if they try to access these.
@@ -96,6 +96,7 @@ export async function middleware(request: NextRequest) {
       "/dashboard/crm",
       "/dashboard/team",
       "/dashboard/audit-trail",
+      "/dashboard/api-keys",
     ]
 
     // Admin OR Project Manager routes — accessible to SUPER_ADMIN, ADMIN,
