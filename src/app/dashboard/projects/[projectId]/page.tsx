@@ -98,6 +98,8 @@ export default function ProjectDetailPage() {
   const [newWebsiteUrl, setNewWebsiteUrl] = useState("");
   const [newWebsiteLabel, setNewWebsiteLabel] = useState("");
   const [editingWebsiteId, setEditingWebsiteId] = useState<string | null>(null);
+  const [editingWebsiteUrl, setEditingWebsiteUrl] = useState("");
+  const [editingWebsiteLabel, setEditingWebsiteLabel] = useState("");
 
   // ── Infrastructure section state ──
   const [infraEditing, setInfraEditing] = useState(false);
@@ -175,7 +177,7 @@ export default function ProjectDetailPage() {
       return Array.isArray(ud) ? ud : (Array.isArray((ud as Record<string, unknown>)?.data) ? (ud as Record<string, unknown>).data as unknown[] : []);
     },
     // Enable on: dialog open OR prefetch trigger (hover/focus on add button)
-    enabled: !isInIframe && isAdminUser && (addMemberOpen || prefetchTeamUsers),
+    enabled: !isInIframe && canManageProject && (addMemberOpen || prefetchTeamUsers),
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
     refetchOnWindowFocus: false,
@@ -193,7 +195,7 @@ export default function ProjectDetailPage() {
       const raw = deepSanitize(await res.json());
       return Array.isArray(raw) ? raw as Record<string, unknown>[] : [];
     },
-    enabled: !isInIframe && !!projectId && isAdminUser,
+    enabled: !isInIframe && !!projectId && canManageProject,
     staleTime: 60 * 1000,
     gcTime: 10 * 60 * 1000,
     refetchOnWindowFocus: false,
@@ -532,7 +534,7 @@ export default function ProjectDetailPage() {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2.5 flex-wrap">
             <h1 className="text-xl font-bold tracking-tight">{safeText(projectName, "Untitled")}</h1>
-            {isAdminUser ? (
+            {canManageProject ? (
               <select
                 className="h-6 text-[10px] border rounded-full px-2.5 bg-background/80 font-semibold focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer appearance-none pr-5"
                 value={safeText(projectStatus, "PLANNING")}
@@ -557,38 +559,39 @@ export default function ProjectDetailPage() {
 
       {/* ═══════ Compact Stats Row (glassmorphism pills) ═══════ */}
       <div className="flex flex-wrap items-center gap-2">
-        {/* Progress pill — draggable for admins */}
+        {/* Progress pill — draggable for project managers (mouse + touch via pointer events) */}
         <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-sm">
           <Gauge className={cn("h-3.5 w-3.5", progressColorClass)} />
           {(() => {
             const displayProgress = dragProgress !== null ? dragProgress : safeNumber(projectProgress);
             const fillColor = displayProgress < 30 ? "bg-red-500" : displayProgress < 70 ? "bg-amber-500" : "bg-emerald-500";
             const handleShadow = displayProgress < 30 ? "shadow-red-500/30" : displayProgress < 70 ? "shadow-amber-500/30" : "shadow-emerald-500/30";
-            const cursorClass = isAdminUser ? "cursor-pointer" : "cursor-default";
+            const cursorClass = canManageProject ? "cursor-pointer" : "cursor-default";
             return (
               <div className="flex items-center gap-1.5">
                 <div
                   ref={progressTrackRef}
                   className={cn("relative h-2 w-24 rounded-full bg-black/10 dark:bg-white/10 select-none", cursorClass)}
-                  onMouseDown={isAdminUser ? (e) => {
+                  onPointerDown={canManageProject ? (e) => {
                     e.preventDefault();
-                    const getVal = (ev: MouseEvent | React.MouseEvent) => {
+                    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                    const getVal = (clientX: number) => {
                       if (!progressTrackRef.current) return 0;
                       const rect = progressTrackRef.current.getBoundingClientRect();
-                      const x = Math.max(0, Math.min(ev.clientX - rect.left, rect.width));
+                      const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
                       return Math.round((x / rect.width) * 100);
                     };
-                    const val = getVal(e);
+                    const val = getVal(e.clientX);
                     dragValueRef.current = val;
                     setDragProgress(val);
-                    const handleMove = (ev: MouseEvent) => {
-                      const v = getVal(ev);
+                    const handleMove = (ev: PointerEvent) => {
+                      const v = getVal(ev.clientX);
                       dragValueRef.current = v;
                       setDragProgress(v);
                     };
                     const handleUp = () => {
-                      document.removeEventListener("mousemove", handleMove);
-                      document.removeEventListener("mouseup", handleUp);
+                      document.removeEventListener("pointermove", handleMove);
+                      document.removeEventListener("pointerup", handleUp);
                       const finalVal = dragValueRef.current;
                       if (progressTimerRef.current) clearTimeout(progressTimerRef.current);
                       progressTimerRef.current = setTimeout(() => {
@@ -596,19 +599,19 @@ export default function ProjectDetailPage() {
                       }, 500);
                       setDragProgress(null);
                     };
-                    document.addEventListener("mousemove", handleMove);
-                    document.addEventListener("mouseup", handleUp);
+                    document.addEventListener("pointermove", handleMove);
+                    document.addEventListener("pointerup", handleUp);
                   } : undefined}
                 >
                   <div className={cn("absolute inset-y-0 left-0 rounded-full transition-[width] duration-75", fillColor, handleShadow)} style={{ width: `${displayProgress}%` }} />
-                  {isAdminUser && (
+                  {canManageProject && (
                     <div
                       className="absolute top-1/2 -translate-y-1/2 h-3 w-3 rounded-full border-2 border-white dark:border-gray-800 shadow-md transition-[left] duration-75 pointer-events-none"
                       style={{ left: `calc(${displayProgress}% - 6px)`, backgroundColor: displayProgress < 30 ? "#ef4444" : displayProgress < 70 ? "#f59e0b" : "#10b981" }}
                     />
                   )}
                 </div>
-                {isAdminUser ? (
+                {canManageProject ? (
                   <span className={cn("text-[11px] font-bold tabular-nums w-7 text-right", progressColorClass)}>{displayProgress}%</span>
                 ) : (
                   <span className={cn("text-[11px] font-bold tabular-nums", progressColorClass)}>{displayProgress}%</span>
@@ -618,8 +621,8 @@ export default function ProjectDetailPage() {
           })()}
         </div>
 
-        {/* Budget pill (admin only) */}
-        {isAdminUser && (
+        {/* Budget pill (admin + PM) */}
+        {canManageProject && (
           <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-sm">
             <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 tabular-nums">₹</span>
             <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 tabular-nums">
@@ -636,8 +639,8 @@ export default function ProjectDetailPage() {
           </span>
         </div>
 
-        {/* Team Size pill (non-admin) */}
-        {!isAdminUser && (
+        {/* Team Size pill (non-manager) */}
+        {!canManageProject && (
           <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-sm">
             <Users className="h-3.5 w-3.5 text-muted-foreground" />
             <span className="text-[11px] font-medium text-muted-foreground">{String(members.length)} members</span>
@@ -647,7 +650,7 @@ export default function ProjectDetailPage() {
         {/* Live button / Add Live URL (admin) */}
         {(() => {
           const projectWebsites = (project?.websites as Record<string, unknown>[] | undefined) || [];
-          const mergedWebsites = isAdminUser && websites.length > 0 ? websites : projectWebsites;
+          const mergedWebsites = canManageProject && websites.length > 0 ? websites : projectWebsites;
           if (mergedWebsites.length === 1) {
             const wUrl = extractStr(mergedWebsites[0], "url", "");
             const wLabel = extractStr(mergedWebsites[0], "label", "");
@@ -663,7 +666,7 @@ export default function ProjectDetailPage() {
                   {wLabel || "Live"}
                   <ExternalLink className="h-2.5 w-2.5 opacity-60" />
                 </a>
-                {isAdminUser && (
+                {canManageProject && (
                   <button
                     type="button"
                     onClick={() => { setWebsiteMgmtOpen(true); setEditingWebsiteId(null); }}
@@ -713,7 +716,7 @@ export default function ProjectDetailPage() {
                     })}
                   </DropdownMenuContent>
                 </DropdownMenu>
-                {isAdminUser && (
+                {canManageProject && (
                   <button
                     type="button"
                     onClick={() => { setWebsiteMgmtOpen(true); setEditingWebsiteId(null); }}
@@ -727,7 +730,7 @@ export default function ProjectDetailPage() {
             );
           }
           // 0 websites
-          if (isAdminUser) {
+          if (canManageProject) {
             return (
               <button
                 type="button"
@@ -753,7 +756,7 @@ export default function ProjectDetailPage() {
         </div>
       ) : (
         <div className="flex items-center gap-2 overflow-x-auto pb-1" style={{ animation: "card-enter 0.4s ease-out both", animationDelay: "150ms" }}>
-          {members.length === 0 && !isAdminUser && (
+          {members.length === 0 && !canManageProject && (
             <span className="text-xs text-muted-foreground/60 italic">No team members</span>
           )}
           {members.map((member) => {
@@ -772,7 +775,7 @@ export default function ProjectDetailPage() {
                   <AvatarFallback className={cn("text-[9px] font-bold text-white bg-gradient-to-br", avatarColor)}>{initials || "?"}</AvatarFallback>
                 </Avatar>
                 <span className="text-[11px] font-medium text-foreground/80 max-w-[80px] truncate">{mUserName}</span>
-                {isAdminUser && mUserId !== userId && (
+                {canManageProject && mUserId !== userId && (
                   <button
                     type="button"
                     title="Remove member"
@@ -786,7 +789,7 @@ export default function ProjectDetailPage() {
               </div>
             );
           })}
-          {isAdminUser && (
+          {canManageProject && (
             <Dialog open={addMemberOpen} onOpenChange={setAddMemberOpen}>
               <DialogTrigger asChild>
                 <Button
@@ -959,7 +962,8 @@ export default function ProjectDetailPage() {
                 </div>
               </div>
 
-              {/* GitHub Token */}
+              {/* GitHub Token — only visible to project managers */}
+              {canManageProject && (
               <div className="flex items-start gap-2 p-2.5 rounded-lg bg-white/40 dark:bg-white/[0.02] border border-black/[0.03] dark:border-white/[0.04]">
                 <Key className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
                 <div className="min-w-0 flex-1">
@@ -990,6 +994,7 @@ export default function ProjectDetailPage() {
                   )}
                 </div>
               </div>
+              )}
 
               {/* Turso URL */}
               <div className="flex items-start gap-2 p-2.5 rounded-lg bg-white/40 dark:bg-white/[0.02] border border-black/[0.03] dark:border-white/[0.04]">
@@ -1009,7 +1014,8 @@ export default function ProjectDetailPage() {
                 </div>
               </div>
 
-              {/* Turso Token */}
+              {/* Turso Token — only visible to project managers */}
+              {canManageProject && (
               <div className="flex items-start gap-2 p-2.5 rounded-lg bg-white/40 dark:bg-white/[0.02] border border-black/[0.03] dark:border-white/[0.04]">
                 <Key className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
                 <div className="min-w-0 flex-1">
@@ -1040,6 +1046,7 @@ export default function ProjectDetailPage() {
                   )}
                 </div>
               </div>
+              )}
 
               {/* Deploy URL */}
               {extractStr(infrastructure, "deployUrl", "") && (
@@ -1106,6 +1113,104 @@ export default function ProjectDetailPage() {
         </Dialog>
       )}
 
+
+      {/* ═══════ Website Management Dialog ═══════ */}
+      <Dialog open={websiteMgmtOpen} onOpenChange={(open) => { setWebsiteMgmtOpen(open); if (!open) { setEditingWebsiteId(null); setEditingWebsiteUrl(""); setEditingWebsiteLabel(""); } }}>
+        <DialogContent className="sm:max-w-lg bg-white/80 dark:bg-gray-950/80 backdrop-blur-xl border-white/20 dark:border-white/10">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold flex items-center gap-2">
+              <Globe className="h-4 w-4" /> Manage Websites
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Add, edit, or remove website URLs for this project.
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Add website form */}
+          <div className="space-y-2 pb-3 border-b border-border/50">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Add Website</p>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Input
+                placeholder="https://example.com"
+                value={newWebsiteUrl}
+                onChange={(e) => setNewWebsiteUrl(e.target.value)}
+                className="h-8 text-xs flex-1"
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddWebsite(); } }}
+              />
+              <Input
+                placeholder="Label (e.g. Production)"
+                value={newWebsiteLabel}
+                onChange={(e) => setNewWebsiteLabel(e.target.value)}
+                className="h-8 text-xs sm:w-36"
+              />
+              <Button size="sm" className="h-8 text-xs gap-1 shrink-0" onClick={handleAddWebsite} disabled={!newWebsiteUrl.trim()}>
+                <Plus className="h-3 w-3" /> Add
+              </Button>
+            </div>
+          </div>
+
+          {/* Existing websites list */}
+          <div className="space-y-1.5 max-h-60 overflow-y-auto">
+            {websites.length === 0 && (
+              <p className="text-xs text-muted-foreground text-center py-4">No websites added yet.</p>
+            )}
+            {websites.map((w) => {
+              const wId = extractStr(w, "id", "");
+              const wUrl = extractStr(w, "url", "");
+              const wLabel = extractStr(w, "label", "");
+              const wIsPrimary = w.isPrimary === true || extractStr(w, "isPrimary", "") === "true";
+              return (
+                <div key={wId} className="rounded-lg border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/[0.02] overflow-hidden">
+                  {editingWebsiteId === wId ? (
+                    <div className="flex flex-col sm:flex-row gap-2 p-2">
+                      <Input
+                        value={editingWebsiteUrl}
+                        onChange={(e) => setEditingWebsiteUrl(e.target.value)}
+                        placeholder="https://example.com"
+                        className="h-8 text-xs flex-1"
+                        autoFocus
+                      />
+                      <Input
+                        value={editingWebsiteLabel}
+                        onChange={(e) => setEditingWebsiteLabel(e.target.value)}
+                        placeholder="Label"
+                        className="h-8 text-xs sm:w-28"
+                      />
+                      <div className="flex gap-1 shrink-0">
+                        <Button size="sm" className="h-8 px-3 text-xs" onClick={() => {
+                          handleUpdateWebsite(wId, { url: editingWebsiteUrl, label: editingWebsiteLabel });
+                          setEditingWebsiteId(null);
+                        }}>Save</Button>
+                        <Button size="sm" variant="ghost" className="h-8 px-3 text-xs" onClick={() => setEditingWebsiteId(null)}>Cancel</Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 p-2">
+                      <Globe className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-medium truncate">{wLabel || wUrl}</p>
+                        <p className="text-[10px] text-muted-foreground truncate">{wUrl}</p>
+                      </div>
+                      {wIsPrimary && <span title="Primary"><Star className="h-3 w-3 text-amber-500 shrink-0" /></span>}
+                      {!wIsPrimary && (
+                        <Button type="button" variant="ghost" size="sm" className="h-6 px-1.5 text-[10px] shrink-0" onClick={() => handleSetPrimaryWebsite(wId)} title="Set as primary">
+                          Primary
+                        </Button>
+                      )}
+                      <Button type="button" variant="ghost" size="sm" className="h-6 w-6 shrink-0" onClick={() => { setEditingWebsiteId(wId); setEditingWebsiteUrl(wUrl); setEditingWebsiteLabel(wLabel); }} aria-label="Edit">
+                        <Pencil className="h-3 w-3" />
+                      </Button>
+                      <Button type="button" variant="ghost" size="sm" className="h-6 w-6 shrink-0 text-red-500 hover:text-red-600" onClick={() => setDeleteWebsiteId(wId)} aria-label="Delete">
+                        <Trash2Icon className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* ═══════ Remove Member Confirmation ═══════ */}
       {removeMemberUserId && (
