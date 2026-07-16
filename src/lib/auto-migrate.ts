@@ -490,6 +490,15 @@ export async function ensureAllTables(): Promise<void> {
       }
     }
 
+    // 1a. TrainingAssignment may exist as an incompatible legacy schema
+    // (documentId/assignedTo). Rebuild to Percipio assign columns (userId/title/…).
+    try {
+      const { ensureTrainingAssignmentSchema } = await import("@/lib/training-assignment-migrate")
+      await ensureTrainingAssignmentSchema()
+    } catch (err: unknown) {
+      console.warn(`[auto-migrate] TrainingAssignment schema migrate: ${getErrMsg(err)}`)
+    }
+
     // 1b. Create missing unique indexes for NotificationPreference
     try {
       await db.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "NotificationPreference_userId_key" ON "NotificationPreference"("userId")`)
