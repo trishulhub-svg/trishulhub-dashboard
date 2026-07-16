@@ -2,17 +2,15 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { ensureAllTables } from "@/lib/auto-migrate"
 import { notifyRoles } from "@/lib/notify"
 
 /**
  * POST /api/training/qr/request
  * Any staff user can request a fresh training QR.
- * Creates at most one PENDING request per user, then notifies all SuperAdmins.
+ * Creates at most one PENDING request per user, then notifies Admin + SuperAdmin.
  */
 export async function POST(req: NextRequest) {
   try {
-    await ensureAllTables()
     const session = await getServerSession(authOptions)
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -49,11 +47,11 @@ export async function POST(req: NextRequest) {
       select: { id: true, createdAt: true },
     })
 
-    const notifiedAdmins = await notifyRoles(["SUPER_ADMIN"], {
+    const notifiedAdmins = await notifyRoles(["SUPER_ADMIN", "ADMIN"], {
       title: "Training QR requested",
       message: `${userName} needs a new Percipio login QR. Upload a fresh code in Learning.`,
       type: "WARNING",
-      link: "/dashboard/training#manage-qr",
+      link: "/dashboard/training/qr",
       metadata: {
         kind: "training_qr_request",
         requestId: request.id,
