@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardList,
+  Clock,
   GraduationCap,
   Loader2,
   Plus,
@@ -24,6 +25,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { AssignmentDetailDialog } from "@/components/training/assignment-detail-dialog"
 import { cn } from "@/lib/utils"
+import { dueCountdown, dueToneClass, formatDueDate } from "@/lib/training-due"
 
 type Assignment = {
   id: string
@@ -102,11 +104,14 @@ export default function AssignTrainingPage() {
   const [loadError, setLoadError] = useState<string | null>(null)
 
   const [formOpen, setFormOpen] = useState(false)
+  const [needsOpen, setNeedsOpen] = useState(true)
+  const [byPersonOpen, setByPersonOpen] = useState(false)
   const [formUserIds, setFormUserIds] = useState<string[]>([])
   const [formTitle, setFormTitle] = useState("")
   const [formDue, setFormDue] = useState("")
   const [formNotes, setFormNotes] = useState("")
   const [detail, setDetail] = useState<Assignment | null>(null)
+  const [sectionsPrimed, setSectionsPrimed] = useState(false)
 
   const role = session?.user?.role || ""
   const canAccess = role === "SUPER_ADMIN" || role === "ADMIN"
@@ -268,47 +273,64 @@ export default function AssignTrainingPage() {
 
   const byUser = useMemo(() => groupByUser(assignments), [assignments])
 
-  // Compact list: training name + assignee only. Full details open via Open button.
-  const renderAssignmentRow = (a: Assignment, opts?: { showPerson?: boolean }) => (
-    <li key={a.id}>
-      <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2.5">
-        <button
-          type="button"
-          className="min-w-0 flex-1 space-y-0.5 text-left rounded-md py-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={() => setDetail(a)}
-          aria-label={`Open details for ${a.title}`}
-        >
-          <p className="font-medium truncate text-sm">{a.title}</p>
-          {opts?.showPerson !== false && (
-            <p className="text-xs text-muted-foreground truncate inline-flex items-center gap-1">
-              <UserRound className="h-3 w-3 shrink-0" />
-              {personLabel(a)}
+  // Smart defaults once data loads: expand Needs attention when something is overdue
+  useEffect(() => {
+    if (loading || sectionsPrimed || assignments.length === 0) return
+    setNeedsOpen(overdueOnly.length > 0 || needsAttention.length > 0)
+    setByPersonOpen(false)
+    setSectionsPrimed(true)
+  }, [loading, sectionsPrimed, assignments.length, overdueOnly.length, needsAttention.length])
+
+  // Compact list: title + assignee + due/days left. Full details via Open.
+  const renderAssignmentRow = (a: Assignment, opts?: { showPerson?: boolean }) => {
+    const cd = dueCountdown(a.dueDate, a.status)
+    return (
+      <li key={a.id}>
+        <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2.5">
+          <button
+            type="button"
+            className="min-w-0 flex-1 space-y-0.5 text-left rounded-md py-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => setDetail(a)}
+            aria-label={`Open details for ${a.title}`}
+          >
+            <p className="font-medium truncate text-sm">{a.title}</p>
+            {opts?.showPerson !== false && (
+              <p className="text-xs text-muted-foreground truncate inline-flex items-center gap-1">
+                <UserRound className="h-3 w-3 shrink-0" />
+                {personLabel(a)}
+              </p>
+            )}
+            <p className={`text-xs inline-flex items-center gap-1 ${dueToneClass(cd.tone)}`}>
+              <Clock className="h-3 w-3 shrink-0" />
+              <span>Due {formatDueDate(a.dueDate)}</span>
+              <span aria-hidden>·</span>
+              <span className="font-medium">{cd.label}</span>
             </p>
+          </button>
+          {a.status === "OVERDUE" && (
+            <Badge variant="destructive" className="text-[10px] shrink-0">
+              Overdue
+            </Badge>
           )}
-        </button>
-        {a.status === "OVERDUE" && (
-          <Badge variant="destructive" className="text-[10px] shrink-0">
-            Overdue
-          </Badge>
-        )}
-        {a.status === "DONE" && (
-          <Badge className="bg-success/15 text-success border-0 text-[10px] shrink-0">
-            Done
-          </Badge>
-        )}
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="h-8 gap-1 shrink-0 px-2.5"
-          onClick={() => setDetail(a)}
-        >
-          Open
-          <ChevronRight className="h-3.5 w-3.5" />
-        </Button>
-      </div>
-    </li>
-  )
+          {a.status === "DONE" && (
+            <Badge className="bg-success/15 text-success border-0 text-[10px] shrink-0">
+              Done
+            </Badge>
+          )}
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1 shrink-0 px-2.5"
+            onClick={() => setDetail(a)}
+          >
+            Open
+            <ChevronRight className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </li>
+    )
+  }
 
   if (sessionStatus === "loading") {
     return (
@@ -539,101 +561,157 @@ export default function AssignTrainingPage() {
         </div>
       ) : assignments.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground">
-          No assignments yet.
+          No assignments yet. Expand <span className="font-medium text-foreground">New assignment</span> to start.
         </div>
       ) : (
-        <>
-          {/* Overdue + incomplete across everyone */}
-          <section className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <AlertTriangle
-                className={`h-4 w-4 ${overdueOnly.length > 0 ? "text-destructive" : "text-primary"}`}
-              />
-              <h2 className="text-base font-semibold tracking-tight">Needs attention</h2>
-              <Badge variant={overdueOnly.length > 0 ? "destructive" : "secondary"} className="text-xs">
-                {overdueOnly.length} overdue · {needsAttention.length} open
-              </Badge>
+        <div className="space-y-4">
+          {/* Quick overview — admin only page */}
+          <div className="grid grid-cols-3 gap-2">
+            <div className="rounded-xl border border-border bg-card px-3 py-2.5 text-center">
+              <p className={`text-lg font-semibold tabular-nums ${overdueOnly.length > 0 ? "text-destructive" : ""}`}>
+                {overdueOnly.length}
+              </p>
+              <p className="text-[11px] text-muted-foreground">Overdue</p>
             </div>
-            <p className="text-sm text-muted-foreground">
-              All due and not-completed training across the team, overdue first.
-            </p>
-            {needsAttention.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-border bg-card px-4 py-6 text-center text-sm text-muted-foreground">
-                Everyone is caught up — no open training.
+            <div className="rounded-xl border border-border bg-card px-3 py-2.5 text-center">
+              <p className="text-lg font-semibold tabular-nums">{needsAttention.length}</p>
+              <p className="text-[11px] text-muted-foreground">Open</p>
+            </div>
+            <div className="rounded-xl border border-border bg-card px-3 py-2.5 text-center">
+              <p className="text-lg font-semibold tabular-nums">{byUser.length}</p>
+              <p className="text-[11px] text-muted-foreground">People</p>
+            </div>
+          </div>
+
+          {/* Needs attention — collapsible */}
+          <section className="rounded-2xl border border-border bg-card overflow-hidden">
+            <button
+              type="button"
+              className="flex w-full items-start gap-3 px-4 py-3.5 text-left hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => setNeedsOpen((v) => !v)}
+              aria-expanded={needsOpen}
+              aria-controls="needs-attention-panel"
+            >
+              <AlertTriangle
+                className={`h-4 w-4 mt-0.5 shrink-0 ${overdueOnly.length > 0 ? "text-destructive" : "text-primary"}`}
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-base font-semibold tracking-tight">Needs attention</h2>
+                  <Badge variant={overdueOnly.length > 0 ? "destructive" : "secondary"} className="text-xs">
+                    {overdueOnly.length} overdue · {needsAttention.length} open
+                  </Badge>
+                </div>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  Incomplete training across the team — overdue first.
+                </p>
               </div>
-            ) : (
-              <ul className="space-y-2">
-                {needsAttention.map((a) => renderAssignmentRow(a, { showPerson: true }))}
-              </ul>
+              <ChevronDown
+                className={cn(
+                  "h-5 w-5 shrink-0 text-muted-foreground mt-0.5 transition-transform",
+                  needsOpen && "rotate-180"
+                )}
+              />
+            </button>
+            {needsOpen && (
+              <div id="needs-attention-panel" className="border-t border-border px-3 pb-3 pt-3 space-y-2">
+                {needsAttention.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    Everyone is caught up — no open training.
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                    {needsAttention.map((a) => renderAssignmentRow(a, { showPerson: true }))}
+                  </ul>
+                )}
+              </div>
             )}
           </section>
 
-          {/* Grouped by user */}
-          <section className="space-y-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <ClipboardList className="h-4 w-4 text-primary" />
-              <h2 className="text-base font-semibold tracking-tight">By person</h2>
-              <Badge variant="secondary" className="text-xs">
-                {byUser.length} {byUser.length === 1 ? "person" : "people"}
-              </Badge>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              Each person&apos;s training listed under their name.
-            </p>
-            <div className="space-y-4">
-              {byUser.map((g) => (
-                <div
-                  key={g.userId}
-                  className="rounded-2xl border border-border bg-card overflow-hidden"
-                >
-                  <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-border bg-muted/30">
-                    <UserRound className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold truncate">{g.name}</p>
-                      {g.email && g.email !== g.name ? (
-                        <p className="text-xs text-muted-foreground truncate">{g.email}</p>
-                      ) : null}
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {g.overdueCount > 0 && (
-                        <Badge variant="destructive" className="text-xs">
-                          {g.overdueCount} overdue
-                        </Badge>
-                      )}
-                      <Badge variant="secondary" className="text-xs">
-                        {g.open.length} open
-                      </Badge>
-                      <Badge className="bg-success/15 text-success border-0 text-xs">
-                        {g.done.length} done
-                      </Badge>
-                    </div>
-                  </div>
-                  <div className="p-3 space-y-3">
-                    {g.open.length > 0 && (
-                      <div className="space-y-2">
-                        <p className="text-xs font-medium text-muted-foreground px-1">Open</p>
-                        <ul className="space-y-2">
-                          {g.open.map((a) => renderAssignmentRow(a, { showPerson: false }))}
-                        </ul>
-                      </div>
-                    )}
-                    {g.done.length > 0 && (
-                      <div className="space-y-2">
-                        <p className="text-xs font-medium text-muted-foreground px-1">Completed</p>
-                        <ul className="space-y-2 opacity-80">
-                          {g.done.map((a) => renderAssignmentRow(a, { showPerson: false }))}
-                        </ul>
-                      </div>
-                    )}
-                    {g.open.length === 0 && g.done.length === 0 && (
-                      <p className="text-sm text-muted-foreground px-1 py-2">No items</p>
-                    )}
-                  </div>
+          {/* By person — collapsible */}
+          <section className="rounded-2xl border border-border bg-card overflow-hidden">
+            <button
+              type="button"
+              className="flex w-full items-start gap-3 px-4 py-3.5 text-left hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => setByPersonOpen((v) => !v)}
+              aria-expanded={byPersonOpen}
+              aria-controls="by-person-panel"
+            >
+              <ClipboardList className="h-4 w-4 mt-0.5 shrink-0 text-primary" />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-base font-semibold tracking-tight">By person</h2>
+                  <Badge variant="secondary" className="text-xs">
+                    {byUser.length} {byUser.length === 1 ? "person" : "people"}
+                  </Badge>
                 </div>
-              ))}
-            </div>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  Each person&apos;s open and completed training.
+                </p>
+              </div>
+              <ChevronDown
+                className={cn(
+                  "h-5 w-5 shrink-0 text-muted-foreground mt-0.5 transition-transform",
+                  byPersonOpen && "rotate-180"
+                )}
+              />
+            </button>
+            {byPersonOpen && (
+              <div id="by-person-panel" className="border-t border-border p-3 space-y-3">
+                {byUser.map((g) => (
+                  <div
+                    key={g.userId}
+                    className="rounded-xl border border-border overflow-hidden bg-background/40"
+                  >
+                    <div className="flex flex-wrap items-center gap-2 px-3 py-2.5 border-b border-border bg-muted/30">
+                      <UserRound className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold truncate">{g.name}</p>
+                        {g.email && g.email !== g.name ? (
+                          <p className="text-xs text-muted-foreground truncate">{g.email}</p>
+                        ) : null}
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {g.overdueCount > 0 && (
+                          <Badge variant="destructive" className="text-xs">
+                            {g.overdueCount} overdue
+                          </Badge>
+                        )}
+                        <Badge variant="secondary" className="text-xs">
+                          {g.open.length} open
+                        </Badge>
+                        <Badge className="bg-success/15 text-success border-0 text-xs">
+                          {g.done.length} done
+                        </Badge>
+                      </div>
+                    </div>
+                    <div className="p-2.5 space-y-3">
+                      {g.open.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-xs font-medium text-muted-foreground px-1">Open</p>
+                          <ul className="space-y-2">
+                            {g.open.map((a) => renderAssignmentRow(a, { showPerson: false }))}
+                          </ul>
+                        </div>
+                      )}
+                      {g.done.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-xs font-medium text-muted-foreground px-1">Completed</p>
+                          <ul className="space-y-2 opacity-80">
+                            {g.done.map((a) => renderAssignmentRow(a, { showPerson: false }))}
+                          </ul>
+                        </div>
+                      )}
+                      {g.open.length === 0 && g.done.length === 0 && (
+                        <p className="text-sm text-muted-foreground px-1 py-2">No items</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
-        </>
+        </div>
       )}
     </div>
   )

@@ -18,6 +18,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { formatDateTime } from "@/lib/format"
+import { dueCountdown, dueToneClass, formatDueDate } from "@/lib/training-due"
 
 export type TrainingAssignmentDetail = {
   id: string
@@ -41,14 +42,12 @@ function statusBadge(status: string) {
 
 function dateLabel(value?: string | null) {
   if (!value) return "—"
+  const formatted = formatDueDate(value)
+  if (formatted !== "—") return formatted
   try {
-    return new Date(value).toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    })
-  } catch {
     return formatDateTime(value)
+  } catch {
+    return "—"
   }
 }
 
@@ -106,10 +105,15 @@ export function AssignmentDetailDialog({
 
             <div className="flex flex-wrap items-center gap-2">
               {statusBadge(assignment.status)}
-              <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
-                <Clock className="h-3.5 w-3.5" />
-                Due {dateLabel(assignment.dueDate)}
-              </span>
+              {(() => {
+                const cd = dueCountdown(assignment.dueDate, assignment.status)
+                return (
+                  <span className={`text-xs inline-flex items-center gap-1 ${dueToneClass(cd.tone)}`}>
+                    <Clock className="h-3.5 w-3.5" />
+                    Due {dateLabel(assignment.dueDate)} · {cd.label}
+                  </span>
+                )
+              })()}
             </div>
 
             <dl className="space-y-3 rounded-xl border border-border bg-muted/20 p-4">
@@ -127,7 +131,17 @@ export function AssignmentDetailDialog({
               <DetailRow label="Assigned by">
                 {assignment.assignedBy?.name || "Admin"}
               </DetailRow>
-              <DetailRow label="Due date">{dateLabel(assignment.dueDate)}</DetailRow>
+              <DetailRow label="Due date">
+                {(() => {
+                  const cd = dueCountdown(assignment.dueDate, assignment.status)
+                  return (
+                    <span>
+                      {dateLabel(assignment.dueDate)}{" "}
+                      <span className={dueToneClass(cd.tone)}>({cd.label})</span>
+                    </span>
+                  )
+                })()}
+              </DetailRow>
               <DetailRow label="Status">
                 {assignment.status === "DONE"
                   ? "Completed"
