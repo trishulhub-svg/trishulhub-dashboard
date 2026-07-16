@@ -5,9 +5,8 @@ import { useSession, signOut } from "next-auth/react";
 import { useTheme } from "next-themes";
 import {
   Settings, User, Bell, Palette, Shield, Moon, Sun, Monitor,
-  Users, UserPlus, Loader2, Pencil, Trash2, CheckCircle2, XCircle,
-  Mail, Server, Plus, TestTube, AlertCircle, Key, Clock, Filter, Eye, EyeOff,
-  Upload, Camera,
+  Loader2, CheckCircle2, Mail, Server, Plus, TestTube, AlertCircle,
+  Eye, EyeOff, Upload, Camera, Pencil, Trash2,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -24,44 +23,17 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { PageHeader } from "@/components/page-header";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { safeArray } from "@/lib/utils";
 
-// ─── Module-Level Constants ─────────────────────────────────────
 const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-// TODO: Read from package.json via env var
 const APP_VERSION = "1.0.0";
 const APP_NAME = "TrishulHub";
+const PREFS_FETCH_TIMEOUT_MS = 10000;
+const QUIET_HOURS_DEBOUNCE_MS = 300;
 
-// ─── Team Member Type ──────────────────────────────────────────
-interface TeamMember {
-  id: string;
-  name: string;
-  email: string;
-  role: string;
-  department: string | null;
-  isActive: boolean;
-  createdAt: string;
-}
-
-// ─── SMTP Config Type ─────────────────────────────────────────
 interface SmtpConfig {
   id: string;
   host: string;
@@ -77,38 +49,18 @@ interface SmtpConfig {
   passwordSet?: boolean;
 }
 
-// ─── Email Log Type ────────────────────────────────────────────
-interface EmailLog {
-  id: string;
-  to: string;
-  subject: string;
-  type: string;
-  status: string;
-  smtpHost: string | null;
-  method: string | null;
-  error: string | null;
-  triggeredBy: string | null;
-  createdAt: string;
+interface NotificationPrefs {
+  emailNotifications: boolean;
+  budgetAlerts: boolean;
+  meetingReminders: boolean;
+  taskReminders: boolean;
+  approvalAlerts: boolean;
+  invoiceReminders: boolean;
+  quietHoursEnabled: boolean;
+  quietHoursStart: string;
+  quietHoursEnd: string;
 }
 
-// ─── Relative Time Helper ──────────────────────────────────────
-function getRelativeTime(dateStr: string): string {
-  const now = new Date();
-  const date = new Date(dateStr);
-  const diffMs = now.getTime() - date.getTime();
-  const diffSec = Math.floor(diffMs / 1000);
-  const diffMin = Math.floor(diffSec / 60);
-  const diffHr = Math.floor(diffMin / 60);
-  const diffDay = Math.floor(diffHr / 24);
-
-  if (diffSec < 60) return "just now";
-  if (diffMin < 60) return `${diffMin} minute${diffMin > 1 ? "s" : ""} ago`;
-  if (diffHr < 24) return `${diffHr} hour${diffHr > 1 ? "s" : ""} ago`;
-  if (diffDay < 30) return `${diffDay} day${diffDay > 1 ? "s" : ""} ago`;
-  return date.toLocaleDateString();
-}
-
-// ─── Password Strength Helper ───────────────────────────────────
 function getPasswordStrength(password: string): { label: string; color: string; width: string } {
   if (!password) return { label: "", color: "", width: "0%" };
   let score = 0;
@@ -132,15 +84,6 @@ const roleBadgeColors: Record<string, string> = {
   CLIENT: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
 };
 
-const emailTypeLabels: Record<string, string> = {
-  OTP: "OTP",
-  PASSWORD_CHANGE: "Password Change",
-  EMAIL_CHANGE: "Email Change",
-  RESET_LINK: "Reset Link",
-  DIRECT_RESET: "Direct Reset",
-};
-
-// ─── PasswordStrengthMeter Component ────────────────────────────
 function PasswordStrengthMeter({ password }: { password: string }) {
   if (!password) return null;
   const strength = getPasswordStrength(password);
@@ -156,7 +99,6 @@ function PasswordStrengthMeter({ password }: { password: string }) {
   );
 }
 
-// ─── PasswordToggle Component ─────────────────────────────────────
 function PasswordToggle({ visible, onToggle }: { visible: boolean; onToggle: () => void }) {
   return (
     <Button
@@ -173,25 +115,27 @@ function PasswordToggle({ visible, onToggle }: { visible: boolean; onToggle: () 
   );
 }
 
+const DEFAULT_PREFS: NotificationPrefs = {
+  emailNotifications: true,
+  budgetAlerts: true,
+  meetingReminders: true,
+  taskReminders: true,
+  approvalAlerts: true,
+  invoiceReminders: true,
+  quietHoursEnabled: false,
+  quietHoursStart: "22:00",
+  quietHoursEnd: "08:00",
+};
+
 export default function SettingsPage() {
   const { data: session, status, update: updateSession } = useSession();
   const { theme, setTheme } = useTheme();
   const [name, setName] = useState(session?.user?.name || "");
-  const [prefs, setPrefs] = useState({
-    emailNotifications: true,
-    budgetAlerts: true,
-    meetingReminders: true,
-    taskReminders: true,
-    approvalAlerts: true,
-    invoiceReminders: true,
-    quietHoursEnabled: false,
-    quietHoursStart: "22:00",
-    quietHoursEnd: "08:00",
-  });
+  const [prefs, setPrefs] = useState<NotificationPrefs>(DEFAULT_PREFS);
   const [prefsLoading, setPrefsLoading] = useState(true);
   const [prefsSaving, setPrefsSaving] = useState(false);
+  const [prefsError, setPrefsError] = useState<string | null>(null);
 
-  // ── Change Password state (OTP flow) ──
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -199,23 +143,6 @@ export default function SettingsPage() {
   const [passwordOtpSent, setPasswordOtpSent] = useState(false);
   const [passwordOtpCode, setPasswordOtpCode] = useState("");
 
-  // Team Management state
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
-  const [teamLoading, setTeamLoading] = useState(false);
-  const [addUserOpen, setAddUserOpen] = useState(false);
-  const [addUserLoading, setAddUserLoading] = useState(false);
-  const [newUserName, setNewUserName] = useState("");
-  const [newUserEmail, setNewUserEmail] = useState("");
-  const [newUserPassword, setNewUserPassword] = useState("");
-  const [newUserRole, setNewUserRole] = useState("DEVELOPER");
-  const [newUserDepartment, setNewUserDepartment] = useState("");
-
-  // Edit role state
-  const [editingUserId, setEditingUserId] = useState<string | null>(null);
-  const [editRoleValue, setEditRoleValue] = useState("");
-  const [editRoleLoading, setEditRoleLoading] = useState(false);
-
-  // Email Change state
   const [changeEmailOpen, setChangeEmailOpen] = useState(false);
   const [newEmailAddress, setNewEmailAddress] = useState("");
   const [emailChangePassword, setEmailChangePassword] = useState("");
@@ -223,7 +150,6 @@ export default function SettingsPage() {
   const [otpSent, setOtpSent] = useState(false);
   const [emailChangeLoading, setEmailChangeLoading] = useState(false);
 
-  // SMTP Config state (SUPER_ADMIN only)
   const [smtpConfigs, setSmtpConfigs] = useState<SmtpConfig[]>([]);
   const [smtpLoading, setSmtpLoading] = useState(false);
   const [smtpDialogOpen, setSmtpDialogOpen] = useState(false);
@@ -234,89 +160,80 @@ export default function SettingsPage() {
   const [smtpDeleteConfirm, setSmtpDeleteConfirm] = useState<string | null>(null);
   const [smtpDeleteLoading, setSmtpDeleteLoading] = useState(false);
 
-  // Email Logs state (SUPER_ADMIN only)
-  const [emailLogs, setEmailLogs] = useState<EmailLog[]>([]);
-  const [emailLogsTotal, setEmailLogsTotal] = useState(0);
-  const [emailLogsLoading, setEmailLogsLoading] = useState(false);
-  const [emailLogTypeFilter, setEmailLogTypeFilter] = useState<string>("ALL");
-  const [emailLogStatusFilter, setEmailLogStatusFilter] = useState<string>("ALL");
-  const [clearingLogs, setClearingLogs] = useState(false);
-  const [clearLogsConfirm, setClearLogsConfirm] = useState(false);
-
-  // Password Reset Dialog state (SUPER_ADMIN only)
-  const [resetPasswordOpen, setResetPasswordOpen] = useState(false);
-  const [resetPasswordUser, setResetPasswordUser] = useState<TeamMember | null>(null);
-  const [resetPasswordAction, setResetPasswordAction] = useState<"send_link" | "direct_reset">("send_link");
-  const [resetPasswordNewPwd, setResetPasswordNewPwd] = useState("");
-  const [resetPasswordConfirmPwd, setResetPasswordConfirmPwd] = useState("");
-  const [resetPasswordLoading, setResetPasswordLoading] = useState(false);
-
-  // Password visibility toggles
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [showNewUserPassword, setShowNewUserPassword] = useState(false);
-  const [showResetPwd, setShowResetPwd] = useState(false);
-  const [showResetPwdConfirm, setShowResetPwdConfirm] = useState(false);
   const [showEmailChangePassword, setShowEmailChangePassword] = useState(false);
   const [showSmtpPassword, setShowSmtpPassword] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [togglingUserId, setTogglingUserId] = useState<string | null>(null);
 
-  // ── Profile Image (avatar) state ──
-  // Available to ALL users (developers included) — let users upload their own picture.
   const [avatar, setAvatar] = useState<string | null>(null);
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [avatarSaving, setAvatarSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const quietHoursDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prefsAbortRef = useRef<AbortController | null>(null);
+  const prefsSnapshotRef = useRef<NotificationPrefs>(DEFAULT_PREFS);
 
   const userRole = session?.user?.role || "DEVELOPER";
   const isSuperAdmin = userRole === "SUPER_ADMIN";
   const isAdminOrAbove = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
-  // Only SUPER_ADMIN can change roles, toggle active, reset passwords
 
-  // ── Refs for OTP auto-submit handlers (avoids stale closures + dep loops) ──
   const handlePasswordVerifyOtpRef = useRef<(() => void) | null>(null);
   const handleVerifyOTPRef = useRef<(() => void) | null>(null);
 
-  // Auto-submit password OTP when 6 digits entered
+  useEffect(() => {
+    prefsSnapshotRef.current = prefs;
+  }, [prefs]);
+
   useEffect(() => {
     if (passwordOtpSent && passwordOtpCode.length === 6 && !changingPassword) {
       handlePasswordVerifyOtpRef.current?.();
     }
   }, [passwordOtpCode, passwordOtpSent, changingPassword]);
 
-  // Auto-submit email change OTP when 6 digits entered
   useEffect(() => {
     if (otpSent && otpCode.length === 6 && !emailChangeLoading) {
       handleVerifyOTPRef.current?.();
     }
   }, [otpCode, otpSent, emailChangeLoading]);
 
-  // Sync name with session
   useEffect(() => {
     if (session?.user?.name) setName(session.user.name);
   }, [session?.user?.name]);
 
-  // Track any form modification for beforeunload warning
   const isDirtyRef = useRef(false);
 
-  // Warn before leaving with unsaved changes
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (isDirtyRef.current) {
         e.preventDefault();
       }
     };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, []);
 
-  // ── Fetch Notification Preferences ──
+  useEffect(() => {
+    return () => {
+      if (quietHoursDebounceRef.current) clearTimeout(quietHoursDebounceRef.current);
+      prefsAbortRef.current?.abort();
+    };
+  }, []);
+
   const fetchPrefs = useCallback(async () => {
+    prefsAbortRef.current?.abort();
+    const controller = new AbortController();
+    prefsAbortRef.current = controller;
+    const timeoutId = setTimeout(() => controller.abort(), PREFS_FETCH_TIMEOUT_MS);
+
+    setPrefsLoading(true);
+    setPrefsError(null);
     try {
-      setPrefsLoading(true);
-      const res = await fetch("/api/notification-preferences", { credentials: "include" });
+      const res = await fetch("/api/notification-preferences", {
+        credentials: "include",
+        signal: controller.signal,
+      });
       if (res.ok) {
         const data = await res.json().catch(() => ({}));
         setPrefs({
@@ -330,42 +247,87 @@ export default function SettingsPage() {
           quietHoursStart: data.quietHoursStart || "22:00",
           quietHoursEnd: data.quietHoursEnd || "08:00",
         });
+        setPrefsError(null);
+      } else {
+        setPrefsError("Failed to load notification preferences");
       }
     } catch (err) {
-      console.error("[settings] Failed to fetch notification preferences:", err);
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setPrefsError("Timed out loading notification preferences");
+      } else {
+        console.error("[settings] Failed to fetch notification preferences:", err);
+        setPrefsError("Failed to load notification preferences");
+      }
     } finally {
+      clearTimeout(timeoutId);
       setPrefsLoading(false);
     }
   }, []);
 
-  const savePrefs = useCallback(async (key: string, value: boolean | string | null) => {
-    const oldValue = prefs[key];
-    isDirtyRef.current = true;
-    setPrefs(prev => ({ ...prev, [key]: value }));
+  const patchPrefs = useCallback(async (payload: Partial<NotificationPrefs>, rollback: NotificationPrefs) => {
     setPrefsSaving(true);
     try {
       const res = await fetch("/api/notification-preferences", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ [key]: value }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
-        setPrefs(prev => ({ ...prev, [key]: oldValue }));
-        toast.error("Failed to save preference");
+        setPrefs(rollback);
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to save preference");
       }
     } catch {
-      setPrefs(prev => ({ ...prev, [key]: oldValue }));
+      setPrefs(rollback);
+      toast.error("Failed to save preference");
     } finally {
       setPrefsSaving(false);
     }
-  }, [prefs]);
+  }, []);
+
+  const savePrefs = useCallback(async (key: keyof NotificationPrefs, value: boolean | string) => {
+    const oldPrefs = prefsSnapshotRef.current;
+    isDirtyRef.current = true;
+
+    const next = { ...oldPrefs, [key]: value } as NotificationPrefs;
+    setPrefs(next);
+
+    // When enabling quiet hours, API requires start/end in the same PATCH
+    if (key === "quietHoursEnabled" && value === true) {
+      await patchPrefs(
+        {
+          quietHoursEnabled: true,
+          quietHoursStart: oldPrefs.quietHoursStart,
+          quietHoursEnd: oldPrefs.quietHoursEnd,
+        },
+        oldPrefs
+      );
+      return;
+    }
+
+    await patchPrefs({ [key]: value } as Partial<NotificationPrefs>, oldPrefs);
+  }, [patchPrefs]);
+
+  const handleQuietHoursTimeChange = useCallback((key: "quietHoursStart" | "quietHoursEnd", value: string) => {
+    const oldPrefs = prefsSnapshotRef.current;
+    isDirtyRef.current = true;
+    setPrefs((prev) => ({ ...prev, [key]: value }));
+
+    if (quietHoursDebounceRef.current) clearTimeout(quietHoursDebounceRef.current);
+    quietHoursDebounceRef.current = setTimeout(() => {
+      const snapshot = prefsSnapshotRef.current;
+      const payload = { [key]: value } as Partial<NotificationPrefs>;
+      // Prefer latest local value for the changed key
+      payload[key] = value;
+      patchPrefs(payload, { ...snapshot, [key]: oldPrefs[key] });
+    }, QUIET_HOURS_DEBOUNCE_MS);
+  }, [patchPrefs]);
 
   useEffect(() => {
     fetchPrefs();
   }, [fetchPrefs]);
 
-  // ── Fetch current user's avatar (any role) ──
   const fetchAvatar = useCallback(async () => {
     if (!session?.user?.id) return;
     setAvatarLoading(true);
@@ -386,20 +348,16 @@ export default function SettingsPage() {
     fetchAvatar();
   }, [fetchAvatar]);
 
-  // ── Avatar Upload: read file → validate → convert to data URL → PATCH ──
   const handleAvatarFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    // Reset input so the same file can be selected again later
     if (fileInputRef.current) fileInputRef.current.value = "";
 
-    // Validate type
     const allowedTypes = ["image/png", "image/jpeg", "image/webp", "image/gif"];
     if (!allowedTypes.includes(file.type)) {
       toast.error("Please upload a PNG, JPEG, WebP, or GIF image");
       return;
     }
-    // Validate size: 2 MB max
     const MAX_BYTES = 2 * 1024 * 1024;
     if (file.size > MAX_BYTES) {
       toast.error("Image too large. Max size is 2 MB.");
@@ -408,7 +366,6 @@ export default function SettingsPage() {
 
     setAvatarSaving(true);
     try {
-      // Convert to base64 data URL
       const dataUrl: string = await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(reader.result as string);
@@ -416,7 +373,6 @@ export default function SettingsPage() {
         reader.readAsDataURL(file);
       });
 
-      // Save via /api/team PATCH (self-profile update — server enforces self-only).
       const res = await fetch("/api/team", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -438,7 +394,6 @@ export default function SettingsPage() {
     }
   };
 
-  // ── Avatar Remove: clear the user's avatar ──
   const handleAvatarRemove = async () => {
     setAvatarSaving(true);
     try {
@@ -463,30 +418,6 @@ export default function SettingsPage() {
     }
   };
 
-  // ── Fetch Team Members ──
-  const fetchTeamMembers = useCallback(async () => {
-    if (!isAdminOrAbove) return;
-    setTeamLoading(true);
-    try {
-      const res = await fetch("/api/team?type=users", { credentials: "include" });
-      if (res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setTeamMembers(safeArray(data));
-      } else {
-        toast.error("Failed to load team members");
-      }
-    } catch (err) {
-      console.error("[settings] Failed to fetch team members:", err);
-    } finally {
-      setTeamLoading(false);
-    }
-  }, [isAdminOrAbove]);
-
-  useEffect(() => {
-    fetchTeamMembers();
-  }, [fetchTeamMembers]);
-
-  // ── Fetch SMTP Configs ──
   const fetchSmtpConfigs = useCallback(async () => {
     if (!isSuperAdmin) return;
     setSmtpLoading(true);
@@ -509,140 +440,6 @@ export default function SettingsPage() {
     fetchSmtpConfigs();
   }, [fetchSmtpConfigs]);
 
-  // ── Fetch Email Logs ──
-  const fetchEmailLogs = useCallback(async () => {
-    if (!isSuperAdmin) return;
-    setEmailLogsLoading(true);
-    try {
-      const params = new URLSearchParams({ limit: "100", offset: "0" });
-      if (emailLogTypeFilter !== "ALL") params.set("type", emailLogTypeFilter);
-      if (emailLogStatusFilter !== "ALL") params.set("status", emailLogStatusFilter);
-      const res = await fetch(`/api/email-logs?${params.toString()}`, { credentials: "include" });
-      if (res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setEmailLogs(data.logs || []);
-        setEmailLogsTotal(data.total || 0);
-      } else {
-        toast.error("Failed to load email logs");
-      }
-    } catch (err) {
-      console.error("[settings] Failed to fetch email logs:", err);
-    } finally {
-      setEmailLogsLoading(false);
-    }
-  }, [isSuperAdmin, emailLogTypeFilter, emailLogStatusFilter]);
-
-  useEffect(() => {
-    fetchEmailLogs();
-  }, [fetchEmailLogs]);
-
-  // ── Add User ──
-  const handleAddUser = async () => {
-    if (!newUserName || !newUserEmail || !newUserPassword) {
-      toast.error("Please fill in all required fields");
-      return;
-    }
-    if (newUserPassword.length < 8) {
-      toast.error("Password must be at least 8 characters");
-      return;
-    }
-    if (!EMAIL_REGEX.test(newUserEmail)) {
-      toast.error("Please enter a valid email address");
-      return;
-    }
-
-    setAddUserLoading(true);
-    try {
-      const res = await fetch("/api/team", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          type: "user",
-          name: newUserName,
-          email: newUserEmail,
-          password: newUserPassword,
-          role: newUserRole,
-          department: newUserDepartment || null,
-        }),
-      });
-
-      if (res.ok) {
-        toast.success("User added successfully");
-        setAddUserOpen(false);
-        setNewUserName("");
-        setNewUserEmail("");
-        setNewUserPassword("");
-        setNewUserRole("DEVELOPER");
-        setNewUserDepartment("");
-        setShowNewUserPassword(false);
-        fetchTeamMembers();
-      } else {
-        const err = await res.json().catch(() => ({}));
-        toast.error(err.error || "Failed to add user");
-      }
-    } catch {
-      toast.error("Failed to add user");
-    } finally {
-      setAddUserLoading(false);
-    }
-  };
-
-  // ── Update User Role ──
-  const handleUpdateRole = async (userId: string, role: string) => {
-    setEditRoleLoading(true);
-    try {
-      const res = await fetch("/api/team", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ type: "user", id: userId, role }),
-      });
-
-      if (res.ok) {
-        toast.success("Role updated successfully");
-        setEditingUserId(null);
-        fetchTeamMembers();
-      } else {
-        const err = await res.json().catch(() => ({}));
-        toast.error(err.error || "Failed to update role");
-      }
-    } catch {
-      toast.error("Failed to update role");
-    } finally {
-      setEditRoleLoading(false);
-    }
-  };
-
-  // ── Toggle User Active ──
-  const handleToggleActive = async (userId: string, currentActive: boolean, memberRole: string) => {
-    if (memberRole === "SUPER_ADMIN") {
-      toast.error("Cannot deactivate SUPER_ADMIN users");
-      return;
-    }
-    setTogglingUserId(userId);
-    try {
-      const res = await fetch("/api/team", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ type: "user", id: userId, isActive: !currentActive }),
-      });
-
-      if (res.ok) {
-        toast.success(currentActive ? "User deactivated" : "User activated");
-        fetchTeamMembers();
-      } else {
-        const err = await res.json().catch(() => ({}));
-        toast.error(err.error || "Failed to update user status");
-      }
-    } catch {
-      toast.error("Failed to update user status");
-    } finally {
-      setTogglingUserId(null);
-    }
-  };
-
   const handleSave = async () => {
     if (!session?.user?.id) return;
     setSaving(true);
@@ -658,8 +455,6 @@ export default function SettingsPage() {
       });
       if (res.ok) {
         toast.success("Settings saved successfully!");
-        // updateSession({ name }) triggers JWT callback with trigger="update"
-        // which re-reads the user from DB, including the new name
         await updateSession({ name: name });
         isDirtyRef.current = false;
       } else {
@@ -673,7 +468,6 @@ export default function SettingsPage() {
     }
   };
 
-  // ── Change Password: Step 1 – Send OTP ──
   const handlePasswordSendOtp = async () => {
     if (!currentPassword || !newPassword || !confirmPassword) {
       toast.error("Please fill in all password fields");
@@ -687,8 +481,6 @@ export default function SettingsPage() {
       toast.error("Password must be at least 8 characters");
       return;
     }
-    // Client-side password complexity (must match server requirement):
-    // At least 3 of: uppercase letter, lowercase letter, number, special character
     const complexityChecks = [
       /[A-Z]/.test(newPassword),
       /[a-z]/.test(newPassword),
@@ -722,7 +514,6 @@ export default function SettingsPage() {
     }
   };
 
-  // ── Change Password: Step 2 – Verify OTP & Change ──
   const handlePasswordVerifyOtp = async () => {
     if (!passwordOtpCode) {
       toast.error("Please enter the OTP");
@@ -747,8 +538,6 @@ export default function SettingsPage() {
         setShowCurrentPassword(false);
         setShowNewPassword(false);
         setShowConfirmPassword(false);
-        // If server requires re-auth (session invalidated after password change),
-        // sign out and redirect to login
         if (data.requiresReauth) {
           setTimeout(() => {
             signOut({ callbackUrl: "/login?reason=password_changed" });
@@ -765,8 +554,6 @@ export default function SettingsPage() {
   };
   handlePasswordVerifyOtpRef.current = handlePasswordVerifyOtp;
 
-  // ── Change Password: Resend OTP (no password re-verification) ──
-  // OTP session persists server-side — no password re-verification needed
   const handleResendPasswordOtp = async () => {
     setChangingPassword(true);
     try {
@@ -789,13 +576,11 @@ export default function SettingsPage() {
     }
   };
 
-  // ── Email Change: Send OTP ──
   const handleSendOTP = async () => {
     if (!newEmailAddress || !emailChangePassword) {
       toast.error("New email and current password are required");
       return;
     }
-    // Client-side email format validation
     if (!EMAIL_REGEX.test(newEmailAddress)) {
       toast.error("Please enter a valid email address");
       return;
@@ -822,7 +607,6 @@ export default function SettingsPage() {
     }
   };
 
-  // ── Email Change: Verify OTP ──
   const handleVerifyOTP = async () => {
     if (!otpCode) {
       toast.error("Please enter the OTP");
@@ -844,7 +628,6 @@ export default function SettingsPage() {
         setEmailChangePassword("");
         setOtpCode("");
         setOtpSent(false);
-        // API always returns requiresReauth: true (session invalidated)
         setTimeout(() => {
           signOut({ callbackUrl: "/login?reason=email_changed" });
         }, 1500);
@@ -859,7 +642,6 @@ export default function SettingsPage() {
   };
   handleVerifyOTPRef.current = handleVerifyOTP;
 
-  // ── Email Change: Resend OTP (no password re-verification) ──
   const handleResendEmailOtp = async () => {
     setEmailChangeLoading(true);
     try {
@@ -882,13 +664,11 @@ export default function SettingsPage() {
     }
   };
 
-  // ── SMTP: Save Config ──
   const handleSaveSmtp = async () => {
     if (!smtpForm.host || !smtpForm.username || !smtpForm.fromEmail) {
       toast.error("Host, username, and from email are required");
       return;
     }
-    // Password is required for new configs, optional when editing (leave blank to keep current)
     if (!smtpEditId && !smtpForm.password) {
       toast.error("Password is required for new SMTP configurations");
       return;
@@ -901,7 +681,6 @@ export default function SettingsPage() {
         ? { id: smtpEditId, ...smtpForm }
         : smtpForm;
 
-      // SMTP credentials transmitted over HTTPS — transport encryption is adequate
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
@@ -914,11 +693,11 @@ export default function SettingsPage() {
         setSmtpDialogOpen(false);
         setSmtpEditId(null);
         setSmtpForm({ host: "", port: 587, username: "", password: "", fromEmail: "", fromName: APP_NAME, secure: false, isPrimary: true });
+        fetchSmtpConfigs();
       } else {
         toast.error(`${data.error || "Failed to save SMTP config"}`, { duration: 8000 });
       }
-    } catch (err: unknown) {
-      // Network error or timeout - likely Vercel function timeout
+    } catch {
       console.error("[settings] SMTP save failed");
       toast.error("Network error saving SMTP. This may be a timeout - try clicking Add again.", { duration: 8000 });
     } finally {
@@ -926,7 +705,6 @@ export default function SettingsPage() {
     }
   };
 
-  // ── SMTP: Test Connection ──
   const handleTestSmtp = async () => {
     if (!smtpForm.host || !smtpForm.username) {
       toast.error("Host and username are required to test");
@@ -938,7 +716,6 @@ export default function SettingsPage() {
     }
     setSmtpTesting(true);
     try {
-      // SMTP credentials transmitted over HTTPS — transport encryption is adequate
       const res = await fetch("/api/smtp/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -958,7 +735,6 @@ export default function SettingsPage() {
     }
   };
 
-  // ── SMTP: Delete Config ──
   const handleDeleteSmtp = async (id: string) => {
     setSmtpDeleteLoading(true);
     try {
@@ -978,7 +754,6 @@ export default function SettingsPage() {
     }
   };
 
-  // ── SMTP: Edit Config ──
   const handleEditSmtp = (config: SmtpConfig) => {
     setSmtpEditId(config.id);
     setShowSmtpPassword(false);
@@ -986,106 +761,13 @@ export default function SettingsPage() {
       host: config.host,
       port: config.port,
       username: config.username,
-      password: "", // Don't prefill password - user must re-enter
+      password: "",
       fromEmail: config.fromEmail,
       fromName: config.fromName,
       secure: config.secure,
       isPrimary: config.isPrimary,
     });
     setSmtpDialogOpen(true);
-  };
-
-  // ── Email Logs: Clear Old Logs ──
-  const handleClearOldLogs = async () => {
-    setClearingLogs(true);
-    try {
-      const res = await fetch("/api/email-logs?olderThanDays=30", {
-        method: "DELETE",
-        credentials: "include",
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        toast.success(data.message || `Deleted ${data.deleted} old log(s)`);
-        setClearLogsConfirm(false);
-        fetchEmailLogs();
-      } else {
-        toast.error(data.error || "Failed to clear logs");
-      }
-    } catch {
-      toast.error("Failed to clear logs");
-    } finally {
-      setClearingLogs(false);
-    }
-  };
-
-  // ── Password Reset: Handle Action ──
-  const handlePasswordReset = async () => {
-    if (!resetPasswordUser) return;
-
-    if (resetPasswordAction === "direct_reset") {
-      if (!resetPasswordNewPwd || !resetPasswordConfirmPwd) {
-        toast.error("Please fill in all password fields");
-        return;
-      }
-      if (resetPasswordNewPwd !== resetPasswordConfirmPwd) {
-        toast.error("Passwords do not match");
-        return;
-      }
-      if (resetPasswordNewPwd.length < 8) {
-        toast.error("Password must be at least 8 characters");
-        return;
-      }
-      if (!/[a-zA-Z]/.test(resetPasswordNewPwd) || !/[0-9]/.test(resetPasswordNewPwd)) {
-        toast.error("Password must contain at least one letter and one number");
-        return;
-      }
-    }
-
-    setResetPasswordLoading(true);
-    try {
-      const body: { userId: string; action: "send_link" | "direct_reset"; newPassword?: string } = {
-        userId: resetPasswordUser.id,
-        action: resetPasswordAction,
-      };
-      if (resetPasswordAction === "direct_reset") {
-        body.newPassword = resetPasswordNewPwd;
-      }
-
-      const res = await fetch("/api/password-reset", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(body),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        toast.success(data.message || "Password reset successful");
-        setResetPasswordOpen(false);
-        setResetPasswordUser(null);
-        setResetPasswordNewPwd("");
-        setResetPasswordConfirmPwd("");
-        setResetPasswordAction("send_link");
-        setShowResetPwd(false);
-        setShowResetPwdConfirm(false);
-      } else {
-        toast.error(data.error || "Failed to reset password");
-      }
-    } catch {
-      toast.error("Failed to reset password");
-    } finally {
-      setResetPasswordLoading(false);
-    }
-  };
-
-  // ── Open Reset Password Dialog ──
-  const openResetPasswordDialog = (member: TeamMember) => {
-    setResetPasswordUser(member);
-    setResetPasswordAction("send_link");
-    setResetPasswordNewPwd("");
-    setResetPasswordConfirmPwd("");
-    setShowResetPwd(false);
-    setShowResetPwdConfirm(false);
-    setResetPasswordOpen(true);
   };
 
   if (status === "loading" || !session) {
@@ -1095,7 +777,7 @@ export default function SettingsPage() {
           <Skeleton className="h-8 w-32 mb-2" />
           <Skeleton className="h-4 w-64" />
         </div>
-        {[1,2,3,4,5].map(i => <Skeleton key={i} className="h-40 w-full rounded-xl" />)}
+        {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-40 w-full rounded-xl" />)}
       </div>
     );
   }
@@ -1104,9 +786,7 @@ export default function SettingsPage() {
     <div className="space-y-6 max-w-4xl">
       <PageHeader title="Settings" description="Manage your account and application settings" />
 
-      {/* TODO: Extract to ProfileImageSection.tsx */}
-      {/* --- Profile Image Section Start --- */}
-      {/* Profile Image — available to ALL users (developers included) */}
+      {/* Profile Image */}
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
@@ -1167,10 +847,7 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
-      {/* --- Profile Image Section End --- */}
 
-      {/* TODO: Extract to ProfileSection.tsx */}
-      {/* --- Profile Section Start --- */}
       {/* Profile */}
       <Card>
         <CardHeader>
@@ -1198,7 +875,6 @@ export default function SettingsPage() {
               </Label>
               <div className="flex gap-2">
                 <Input id="profile-email" value={session?.user?.email || ""} disabled className="flex-1" />
-                {/* Email change is restricted to ADMIN and SUPER_ADMIN — developers cannot change their email */}
                 {isAdminOrAbove && (
                   <Button size="sm" variant="outline" onClick={() => { setChangeEmailOpen(true); setOtpSent(false); setNewEmailAddress(""); setEmailChangePassword(""); setOtpCode(""); }}>
                     <Mail className="h-4 w-4 mr-1" /> Change
@@ -1212,16 +888,13 @@ export default function SettingsPage() {
             <Badge variant="secondary" className={roleBadgeColors[userRole] || ""}>{userRole.replace(/_/g, " ")}</Badge>
           </div>
           <Button size="sm" onClick={handleSave} disabled={saving || !name.trim() || name === session?.user?.name}>
-            {saving ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Saving...</> : 
+            {saving ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Saving...</> :
              name === session?.user?.name ? "No Changes" : "Save Changes"}
           </Button>
         </CardContent>
       </Card>
-      {/* --- Profile Section End --- */}
 
-      {/* TODO: Extract to PasswordChangeSection.tsx */}
-      {/* --- Password Change Section Start --- */}
-      {/* Change Password - OTP Flow */}
+      {/* Change Password */}
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
@@ -1302,7 +975,7 @@ export default function SettingsPage() {
                 <Input
                   value={passwordOtpCode}
                   onChange={(e) => {
-                    const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+                    const val = e.target.value.replace(/\D/g, "").slice(0, 6);
                     setPasswordOtpCode(val);
                   }}
                   placeholder="Enter 6-digit OTP"
@@ -1347,11 +1020,8 @@ export default function SettingsPage() {
           )}
         </CardContent>
       </Card>
-      {/* --- Password Change Section End --- */}
 
-      {/* TODO: Extract to ThemeSection.tsx */}
-      {/* --- Theme Section Start --- */}
-      {/* Theme */}
+      {/* Appearance */}
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
@@ -1400,10 +1070,7 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
-      {/* --- Theme Section End --- */}
 
-      {/* TODO: Extract to NotificationsSection.tsx */}
-      {/* --- Notifications Section Start --- */}
       {/* Notification Preferences */}
       <Card>
         <CardHeader>
@@ -1416,18 +1083,28 @@ export default function SettingsPage() {
         <CardContent className="space-y-6">
           {prefsLoading ? (
             <div className="space-y-3">
-              {[1, 2, 3].map(i => <Skeleton key={i} className="h-8 w-full" />)}
+              {[1, 2, 3].map((i) => <Skeleton key={i} className="h-8 w-full" />)}
+            </div>
+          ) : prefsError ? (
+            <div className="flex flex-col items-start gap-3 py-2">
+              <div className="flex items-center gap-2 text-sm text-destructive">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>{prefsError}</span>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => fetchPrefs()}>
+                Retry
+              </Button>
             </div>
           ) : (
             <>
               <div className="space-y-4">
                 <h3 className="text-sm font-medium">Notification Types</h3>
                 {[
-                  { key: "emailNotifications", label: "Email Notifications", desc: "Receive email for important updates" },
-                  { key: "budgetAlerts", label: "Budget Alerts", desc: "Get notified when expenses approach budget limits" },
-                  { key: "taskReminders", label: "Task Updates", desc: "Notifications when tasks are assigned or updated" },
-                  { key: "approvalAlerts", label: "Approval Requests", desc: "Alerts when approvals are pending" },
-                  { key: "invoiceReminders", label: "Invoice Updates", desc: "Notifications for invoice status changes" },
+                  { key: "emailNotifications" as const, label: "Email Notifications", desc: "Receive email for important updates" },
+                  { key: "budgetAlerts" as const, label: "Budget Alerts", desc: "Get notified when expenses approach budget limits" },
+                  { key: "taskReminders" as const, label: "Task Updates", desc: "Notifications when tasks are assigned or updated" },
+                  { key: "approvalAlerts" as const, label: "Approval Requests", desc: "Alerts when approvals are pending" },
+                  { key: "invoiceReminders" as const, label: "Invoice Updates", desc: "Notifications for invoice status changes" },
                 ].map(({ key, label, desc }) => (
                   <div key={key} className="flex items-center justify-between">
                     <div>
@@ -1435,7 +1112,7 @@ export default function SettingsPage() {
                       <p className="text-xs text-muted-foreground">{desc}</p>
                     </div>
                     <Switch
-                      checked={prefs[key as keyof typeof prefs] as boolean}
+                      checked={prefs[key]}
                       onCheckedChange={(checked) => savePrefs(key, checked)}
                     />
                   </div>
@@ -1463,7 +1140,7 @@ export default function SettingsPage() {
                       <Input
                         type="time"
                         value={prefs.quietHoursStart}
-                        onChange={(e) => savePrefs("quietHoursStart", e.target.value)}
+                        onChange={(e) => handleQuietHoursTimeChange("quietHoursStart", e.target.value)}
                         className="w-32"
                       />
                     </div>
@@ -1473,7 +1150,7 @@ export default function SettingsPage() {
                       <Input
                         type="time"
                         value={prefs.quietHoursEnd}
-                        onChange={(e) => savePrefs("quietHoursEnd", e.target.value)}
+                        onChange={(e) => handleQuietHoursTimeChange("quietHoursEnd", e.target.value)}
                         className="w-32"
                       />
                     </div>
@@ -1488,179 +1165,7 @@ export default function SettingsPage() {
           )}
         </CardContent>
       </Card>
-      {/* --- Notifications Section End --- */}
 
-      {/* TODO: Extract to TeamManagementSection.tsx */}
-      {/* --- Team Management Section Start --- */}
-      {/* Team Management - ADMIN and above */}
-      {isAdminOrAbove && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Users className="h-5 w-5 text-muted-foreground" />
-                <div>
-                  <CardTitle className="text-base">Team Management</CardTitle>
-                  <CardDescription>Manage team members, roles, and access</CardDescription>
-                </div>
-              </div>
-              <Button size="sm" onClick={() => setAddUserOpen(true)}>
-                <UserPlus className="h-4 w-4 mr-1" /> Add User
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {teamLoading ? (
-              <div className="space-y-3">
-                {[1, 2, 3].map((i) => (
-                  <Skeleton key={i} className="h-12 w-full rounded-lg" />
-                ))}
-              </div>
-            ) : teamMembers.length === 0 ? (
-              <div className="text-center py-8">
-                <Users className="h-8 w-8 mx-auto text-muted-foreground opacity-50 mb-2" />
-                <p className="text-sm text-muted-foreground">No team members found</p>
-              </div>
-            ) : (
-              <div className="rounded-lg border overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="text-xs">Name</TableHead>
-                      <TableHead className="text-xs">Email</TableHead>
-                      <TableHead className="text-xs">Department</TableHead>
-                      <TableHead className="text-xs">Role</TableHead>
-                      <TableHead className="text-xs">Status</TableHead>
-                      <TableHead className="text-xs text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {teamMembers.map((member) => (
-                      <TableRow key={member.id}>
-                        <TableCell className="text-sm font-medium">
-                          <div className="flex items-center gap-2">
-                            <div className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-xs font-semibold shrink-0">
-                              {member.name.charAt(0).toUpperCase()}
-                            </div>
-                            <span className="truncate max-w-[120px]">{member.name}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground truncate max-w-[180px]">
-                          {member.email}
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground" title={member.department || undefined}>
-                          {member.department || "\u2014"}
-                        </TableCell>
-                        <TableCell>
-                          {editingUserId === member.id ? (
-                            <div className="flex items-center gap-1">
-                              <Select
-                                value={editRoleValue}
-                                onValueChange={(val) => setEditRoleValue(val)}
-                              >
-                                <SelectTrigger className="h-7 w-28 text-xs">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {isSuperAdmin && <SelectItem value="SUPER_ADMIN">Super Admin</SelectItem>}
-                                  <SelectItem value="ADMIN">Admin</SelectItem>
-                                  <SelectItem value="PROJECT_MANAGER">Project Manager</SelectItem>
-                                  <SelectItem value="DEVELOPER">Developer</SelectItem>
-                                </SelectContent>
-                              </Select>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-6 w-6"
-                                disabled={editRoleLoading}
-                                onClick={() => handleUpdateRole(member.id, editRoleValue)}
-                                aria-label="Confirm role change"
-                              >
-                                {editRoleLoading ? (
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                ) : (
-                                  <CheckCircle2 className="h-3 w-3 text-green-600" />
-                                )}
-                              </Button>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-6 w-6"
-                                onClick={() => setEditingUserId(null)}
-                                aria-label="Cancel role edit"
-                              >
-                                <XCircle className="h-3 w-3 text-muted-foreground" />
-                              </Button>
-                            </div>
-                          ) : (
-                            <Badge
-                              variant="secondary"
-                              className={`text-[10px] ${isSuperAdmin && member.role !== "SUPER_ADMIN" ? "cursor-pointer" : ""} ${roleBadgeColors[member.role] || ""}`}
-                              onClick={() => {
-                                if (member.role !== "SUPER_ADMIN" && isSuperAdmin) {
-                                  setEditingUserId(member.id);
-                                  setEditRoleValue(member.role);
-                                }
-                              }}
-                            >
-                              {member.role.replace(/_/g, " ")}
-                            </Badge>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Switch
-                              checked={member.isActive}
-                              onCheckedChange={() => handleToggleActive(member.id, member.isActive, member.role)}
-                              disabled={member.role === "SUPER_ADMIN" || togglingUserId === member.id || !isSuperAdmin}
-                            />
-                            <span className={`text-xs ${member.isActive ? "text-green-600" : "text-muted-foreground"}`}>
-                              {member.isActive ? "Active" : "Inactive"}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {member.role !== "SUPER_ADMIN" && isSuperAdmin && (
-                            <div className="flex items-center justify-end gap-1">
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-7 w-7"
-                                onClick={() => {
-                                  setEditingUserId(member.id);
-                                  setEditRoleValue(member.role);
-                                }}
-                                title="Change role"
-                                aria-label="Edit role"
-                              >
-                                <Pencil className="h-3 w-3" />
-                              </Button>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-7 w-7"
-                                onClick={() => openResetPasswordDialog(member)}
-                                title="Reset password"
-                                aria-label="Reset password"
-                              >
-                                <Key className="h-3 w-3" />
-                              </Button>
-                            </div>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-      {/* --- Team Management Section End --- */}
-
-      {/* TODO: Extract to SmtpConfigSection.tsx */}
-      {/* --- SMTP Config Section Start --- */}
       {/* SMTP Configuration - SUPER_ADMIN only */}
       {isSuperAdmin && (
         <Card>
@@ -1670,7 +1175,7 @@ export default function SettingsPage() {
                 <Server className="h-5 w-5 text-muted-foreground" />
                 <div>
                   <CardTitle className="text-base">SMTP Configuration</CardTitle>
-                  <CardDescription>Configure email servers for OTP delivery. Max 2 servers (primary + failover).</CardDescription>
+                  <CardDescription>Configure email servers for OTP delivery. Max 2 servers (primary + failover). Email delivery logs are under System → Email Logs.</CardDescription>
                 </div>
               </div>
               <Button
@@ -1727,152 +1232,8 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
       )}
-      {/* --- SMTP Config Section End --- */}
 
-      {/* TODO: Extract to EmailLogsSection.tsx */}
-      {/* --- Email Logs Section Start --- */}
-      {/* Email Logs - SUPER_ADMIN only */}
-      {isSuperAdmin && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Mail className="h-5 w-5 text-muted-foreground" />
-                <div>
-                  <CardTitle className="text-base">Email Logs</CardTitle>
-                  <CardDescription>Audit trail of all email activity</CardDescription>
-                </div>
-              </div>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setClearLogsConfirm(true)}
-                disabled={clearingLogs}
-              >
-                {clearingLogs ? (
-                  <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Clearing...</>
-                ) : (
-                  <><Trash2 className="h-4 w-4 mr-1" /> Clear Old Logs</>
-                )}
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Filters */}
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-2">
-                <Filter className="h-4 w-4 text-muted-foreground" />
-                <Select value={emailLogTypeFilter} onValueChange={setEmailLogTypeFilter}>
-                  <SelectTrigger className="h-8 w-40 text-xs">
-                    <SelectValue placeholder="Type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ALL">All Types</SelectItem>
-                    <SelectItem value="OTP">OTP</SelectItem>
-                    <SelectItem value="PASSWORD_CHANGE">Password Change</SelectItem>
-                    <SelectItem value="EMAIL_CHANGE">Email Change</SelectItem>
-                    <SelectItem value="RESET_LINK">Reset Link</SelectItem>
-                    <SelectItem value="DIRECT_RESET">Direct Reset</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <Select value={emailLogStatusFilter} onValueChange={setEmailLogStatusFilter}>
-                <SelectTrigger className="h-8 w-32 text-xs">
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">All Status</SelectItem>
-                  <SelectItem value="SENT">Sent</SelectItem>
-                  <SelectItem value="FAILED">Failed</SelectItem>
-                </SelectContent>
-              </Select>
-              <span className="text-xs text-muted-foreground">
-                Showing {emailLogs.length} of {emailLogsTotal} log{emailLogsTotal !== 1 ? "s" : ""}
-              </span>
-            </div>
-
-            {/* Logs Table */}
-            {emailLogsLoading ? (
-              <div className="space-y-3">
-                {[1, 2, 3, 4].map((i) => (
-                  <Skeleton key={i} className="h-10 w-full rounded-lg" />
-                ))}
-              </div>
-            ) : emailLogs.length === 0 ? (
-              <div className="text-center py-8 border-2 border-dashed rounded-lg">
-                <Mail className="h-8 w-8 mx-auto text-muted-foreground opacity-50 mb-2" />
-                <p className="text-sm text-muted-foreground">No email logs found</p>
-                <p className="text-xs text-muted-foreground mt-1">Email activity will appear here when emails are sent</p>
-              </div>
-            ) : (
-              <div className="rounded-lg border max-h-96 overflow-auto -mx-4 px-4 sm:mx-0 sm:px-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="text-xs">Type</TableHead>
-                      <TableHead className="text-xs">To</TableHead>
-                      <TableHead className="text-xs">Subject</TableHead>
-                      <TableHead className="text-xs">Status</TableHead>
-                      <TableHead className="text-xs">SMTP</TableHead>
-                      <TableHead className="text-xs">Time</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {emailLogs.map((log) => (
-                      <TableRow key={log.id}>
-                        <TableCell>
-                          <Badge variant="outline" className="text-[10px]">
-                            {emailTypeLabels[log.type] || log.type}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-xs text-muted-foreground truncate max-w-[150px]">
-                          {log.to}
-                        </TableCell>
-                        <TableCell className="text-xs truncate max-w-[180px]" title={log.subject}>
-                          {log.subject}
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant="secondary"
-                            className={`text-[10px] ${
-                              log.status === "SENT"
-                                ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
-                                : log.status === "FAILED"
-                                ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
-                                : ""
-                            }`}
-                          >
-                            {log.status}
-                          </Badge>
-                          {log.status === "FAILED" && log.error && (
-                            <p className="text-[10px] text-red-500 mt-0.5 truncate max-w-[200px] cursor-help" title={log.error}>
-                              {log.error}
-                            </p>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-xs text-muted-foreground truncate max-w-[120px]">
-                          {log.smtpHost || "—"}
-                        </TableCell>
-                        <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                          <div className="flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            {getRelativeTime(log.createdAt)}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-      {/* --- Email Logs Section End --- */}
-
-      {/* TODO: Extract to SystemInfoSection.tsx */}
-      {/* --- System Info Section Start --- */}
-      {/* System Info */}
+      {/* System Information */}
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
@@ -1888,7 +1249,7 @@ export default function SettingsPage() {
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Platform</span>
-              <span>{APP_NAME} Dashboard</span>
+              <span>Trishulhub Technology Everywhere</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Framework</span>
@@ -1901,106 +1262,7 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
-      {/* --- System Info Section End --- */}
 
-      {/* Add User Dialog */}
-      <Dialog open={addUserOpen} onOpenChange={setAddUserOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <UserPlus className="h-5 w-5" />
-              Add New User
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-1">
-              <Label className="text-xs">Name *</Label>
-              <Input
-                value={newUserName}
-                onChange={(e) => setNewUserName(e.target.value)}
-                placeholder="Full name"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Email *</Label>
-              <Input
-                type="email"
-                value={newUserEmail}
-                onChange={(e) => setNewUserEmail(e.target.value)}
-                placeholder="email@example.com"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Password *</Label>
-              <p className="text-[10px] text-muted-foreground">Min 8 chars, at least 1 letter & 1 number</p>
-              <div className="relative">
-                <Input
-                  type={showNewUserPassword ? "text" : "password"}
-                  value={newUserPassword}
-                  onChange={(e) => setNewUserPassword(e.target.value)}
-                  placeholder="Min. 8 characters"
-                  className="pr-10"
-                />
-                <PasswordToggle visible={showNewUserPassword} onToggle={() => setShowNewUserPassword(!showNewUserPassword)} />
-              </div>
-              <PasswordStrengthMeter password={newUserPassword} />
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <Label className="text-xs">Role</Label>
-                <Select value={newUserRole} onValueChange={setNewUserRole}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {isSuperAdmin && <SelectItem value="SUPER_ADMIN">Super Admin</SelectItem>}
-                    <SelectItem value="ADMIN">Admin</SelectItem>
-                    <SelectItem value="PROJECT_MANAGER">Project Manager</SelectItem>
-                    <SelectItem value="DEVELOPER">Developer</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Department</Label>
-                <Select value={newUserDepartment || "NONE"} onValueChange={(val) => setNewUserDepartment(val === "NONE" ? "" : val)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="NONE">None</SelectItem>
-                    <SelectItem value="DEV">Development</SelectItem>
-                    <SelectItem value="SALES">Sales</SelectItem>
-                    <SelectItem value="FINANCE">Finance</SelectItem>
-                    <SelectItem value="HR">HR</SelectItem>
-                    <SelectItem value="CONTENT">Content</SelectItem>
-                    <SelectItem value="SUPPORT">Support</SelectItem>
-                    <SelectItem value="MANAGEMENT">Management</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </div>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setAddUserOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleAddUser} disabled={addUserLoading}>
-              {addUserLoading ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-1 animate-spin" /> Adding...
-                </>
-              ) : (
-                <>
-                  <UserPlus className="h-4 w-4 mr-1" /> Add User
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* TODO: Extract to EmailChangeDialog.tsx */}
-      {/* --- Email Change Section Start --- */}
       {/* Email Change Dialog */}
       <Dialog open={changeEmailOpen} onOpenChange={(open) => {
           setChangeEmailOpen(open);
@@ -2056,7 +1318,7 @@ export default function SettingsPage() {
                 <Input
                   value={otpCode}
                   onChange={(e) => {
-                    const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+                    const val = e.target.value.replace(/\D/g, "").slice(0, 6);
                     setOtpCode(val);
                   }}
                   placeholder="Enter 6-digit OTP"
@@ -2112,7 +1374,6 @@ export default function SettingsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {/* --- Email Change Section End --- */}
 
       {/* SMTP Config Dialog */}
       <Dialog open={smtpDialogOpen} onOpenChange={setSmtpDialogOpen}>
@@ -2215,7 +1476,7 @@ export default function SettingsPage() {
             </div>
           </div>
           <div className="p-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
-            <p className="text-[11px] text-amber-700 dark:text-amber-300"><strong>Tip:</strong> Click "Test" first to verify your SMTP connection before adding.</p>
+            <p className="text-[11px] text-amber-700 dark:text-amber-300"><strong>Tip:</strong> Click &quot;Test&quot; first to verify your SMTP connection before adding.</p>
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => handleTestSmtp()} disabled={smtpTesting}>
@@ -2226,124 +1487,6 @@ export default function SettingsPage() {
             <Button onClick={handleSaveSmtp} disabled={smtpSaving}>
               {smtpSaving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-1" />}
               {smtpEditId ? "Update" : "Add"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Password Reset Dialog (SUPER_ADMIN) */}
-      <Dialog open={resetPasswordOpen} onOpenChange={setResetPasswordOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Key className="h-5 w-5" />
-              Reset Password
-            </DialogTitle>
-          </DialogHeader>
-          {resetPasswordUser && (
-            <div className="space-y-4">
-              <div className="p-3 bg-muted rounded-lg">
-                <p className="text-xs text-muted-foreground">User</p>
-                <p className="text-sm font-medium">{resetPasswordUser.name}</p>
-                <p className="text-xs text-muted-foreground">{resetPasswordUser.email}</p>
-              </div>
-
-              {/* Action selection */}
-              <div className="space-y-2">
-                <Label className="text-xs">Reset Method</Label>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <button
-                    type="button"
-                    onClick={() => setResetPasswordAction("send_link")}
-                    className={`p-3 rounded-lg border-2 text-left transition-colors ${
-                      resetPasswordAction === "send_link"
-                        ? "border-primary bg-primary/5"
-                        : "border-muted hover:border-muted-foreground/30"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 mb-1">
-                      <Mail className="h-4 w-4" />
-                      <span className="text-sm font-medium">Send Reset Link</span>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground">
-                      Send a password reset link to the user&apos;s registered email
-                    </p>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setResetPasswordAction("direct_reset")}
-                    className={`p-3 rounded-lg border-2 text-left transition-colors ${
-                      resetPasswordAction === "direct_reset"
-                        ? "border-primary bg-primary/5"
-                        : "border-muted hover:border-muted-foreground/30"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 mb-1">
-                      <Key className="h-4 w-4" />
-                      <span className="text-sm font-medium">Direct Reset</span>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground">
-                      Set a new password for the user directly
-                    </p>
-                  </button>
-                </div>
-              </div>
-
-              {/* Direct Reset fields */}
-              {resetPasswordAction === "direct_reset" && (
-                <>
-                  <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
-                    <div className="flex items-start gap-2">
-                      <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
-                      <p className="text-[11px] text-amber-700 dark:text-amber-300">
-                        Use this only if the user cannot access their email. The password will be set immediately.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">New Password *</Label>
-                    <p className="text-[10px] text-muted-foreground">Min 8 chars, 3 of: uppercase, lowercase, number, special char</p>
-                    <div className="relative">
-                      <Input
-                        type={showResetPwd ? "text" : "password"}
-                        value={resetPasswordNewPwd}
-                        onChange={(e) => setResetPasswordNewPwd(e.target.value)}
-                        placeholder="Min. 8 characters"
-                        className="pr-10"
-                      />
-                      <PasswordToggle visible={showResetPwd} onToggle={() => setShowResetPwd(!showResetPwd)} />
-                    </div>
-                    <PasswordStrengthMeter password={resetPasswordNewPwd} />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Confirm New Password *</Label>
-                    <div className="relative">
-                      <Input
-                        type={showResetPwdConfirm ? "text" : "password"}
-                        value={resetPasswordConfirmPwd}
-                        onChange={(e) => setResetPasswordConfirmPwd(e.target.value)}
-                        placeholder="Confirm new password"
-                        className="pr-10"
-                      />
-                      <PasswordToggle visible={showResetPwdConfirm} onToggle={() => setShowResetPwdConfirm(!showResetPwdConfirm)} />
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setResetPasswordOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handlePasswordReset} disabled={resetPasswordLoading}>
-              {resetPasswordLoading ? (
-                <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Processing...</>
-              ) : resetPasswordAction === "send_link" ? (
-                <><Mail className="h-4 w-4 mr-1" /> Send Reset Link</>
-              ) : (
-                <><Key className="h-4 w-4 mr-1" /> Reset Password</>
-              )}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2362,24 +1505,6 @@ export default function SettingsPage() {
             <Button variant="outline" onClick={() => setSmtpDeleteConfirm(null)}>Cancel</Button>
             <Button variant="destructive" onClick={() => smtpDeleteConfirm && handleDeleteSmtp(smtpDeleteConfirm)} disabled={smtpDeleteLoading}>
               {smtpDeleteLoading ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Deleting...</> : "Delete"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Clear Logs Confirmation Dialog */}
-      <Dialog open={clearLogsConfirm} onOpenChange={setClearLogsConfirm}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Clear Old Email Logs</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            Are you sure you want to permanently delete all email logs older than 30 days? This action cannot be undone.
-          </p>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setClearLogsConfirm(false)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleClearOldLogs} disabled={clearingLogs}>
-              {clearingLogs ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Clearing...</> : "Clear Old Logs"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -4,17 +4,25 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import {
   User, Calendar, CheckCircle2, XCircle, Plus, AlertCircle, RefreshCw, Pencil,
+  Key, Mail, Loader2, Eye, EyeOff, MoreHorizontal, ChevronDown,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Collapsible, CollapsibleContent, CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -24,6 +32,51 @@ import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { cn, safeArray, safeText } from "@/lib/utils";
 import { DEPARTMENTS } from "@/lib/types";
+
+function getPasswordStrength(password: string): { label: string; color: string; width: string } {
+  if (!password) return { label: "", color: "", width: "0%" };
+  let score = 0;
+  if (password.length >= 8) score++;
+  if (password.length >= 12) score++;
+  if (/[A-Z]/.test(password)) score++;
+  if (/[a-z]/.test(password)) score++;
+  if (/[0-9]/.test(password)) score++;
+  if (/[^A-Za-z0-9]/.test(password)) score++;
+  if (score <= 2) return { label: "Weak", color: "bg-red-500", width: "33%" };
+  if (score <= 4) return { label: "Medium", color: "bg-yellow-500", width: "66%" };
+  return { label: "Strong", color: "bg-green-500", width: "100%" };
+}
+
+function PasswordStrengthMeter({ password }: { password: string }) {
+  if (!password) return null;
+  const strength = getPasswordStrength(password);
+  return (
+    <div className="mt-1">
+      <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+        <div className={`h-full rounded-full transition-all ${strength.color}`} style={{ width: strength.width }} />
+      </div>
+      <p className="text-[10px] text-muted-foreground mt-0.5">
+        Password strength: {strength.label}
+      </p>
+    </div>
+  );
+}
+
+function PasswordToggle({ visible, onToggle }: { visible: boolean; onToggle: () => void }) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
+      onClick={onToggle}
+      tabIndex={-1}
+      aria-label={visible ? "Hide password" : "Show password"}
+    >
+      {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+    </Button>
+  );
+}
 
 // ── TypeScript Interfaces ──
 
@@ -93,6 +146,7 @@ export default function TeamPage() {
   const currentUserId = session?.user?.id || "";
   // [I11] useMemo to prevent unnecessary fetchData recomputation
   const isAdminUser = useMemo(() => session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN", [session?.user?.role]);
+  const isSuperAdmin = useMemo(() => session?.user?.role === "SUPER_ADMIN", [session?.user?.role]);
 
   // Default tab based on role — non-admins default to "leaves"
   const [tab, setTab] = useState<"team" | "leaves">(isAdminUser ? "team" : "leaves");
@@ -103,12 +157,24 @@ export default function TeamPage() {
   const [rejectFeedback, setRejectFeedback] = useState("");
   const [addMemberLoading, setAddMemberLoading] = useState(false);
   const [mutating, setMutating] = useState(false);
+  const [togglingUserId, setTogglingUserId] = useState<string | null>(null);
+  const [deactivatedOpen, setDeactivatedOpen] = useState(true);
 
   // Edit user dialog state
   const [editUserOpen, setEditUserOpen] = useState(false);
   const [editUser, setEditUser] = useState<TeamUser | null>(null);
   const [editForm, setEditForm] = useState({ name: "", role: "", department: "", isActive: true });
   const [editLoading, setEditLoading] = useState(false);
+
+  // Password reset dialog (SUPER_ADMIN) — migrated from Settings
+  const [resetPasswordOpen, setResetPasswordOpen] = useState(false);
+  const [resetPasswordUser, setResetPasswordUser] = useState<TeamUser | null>(null);
+  const [resetPasswordAction, setResetPasswordAction] = useState<"send_link" | "direct_reset">("send_link");
+  const [resetPasswordNewPwd, setResetPasswordNewPwd] = useState("");
+  const [resetPasswordConfirmPwd, setResetPasswordConfirmPwd] = useState("");
+  const [resetPasswordLoading, setResetPasswordLoading] = useState(false);
+  const [showResetPwd, setShowResetPwd] = useState(false);
+  const [showResetPwdConfirm, setShowResetPwdConfirm] = useState(false);
 
   // Leave status filter
   const [leaveFilter, setLeaveFilter] = useState<"all" | "PENDING" | "APPROVED" | "REJECTED">("all");
@@ -196,6 +262,102 @@ export default function TeamPage() {
     setEditForm({ name: user.name, role: user.role, department: user.department || "", isActive: user.isActive });
     setEditUserOpen(true);
   }, []);
+
+  // Reactivate / toggle active — SUPER_ADMIN only (API enforces same)
+  const handleSetActive = useCallback(async (user: TeamUser, isActive: boolean) => {
+    if (user.role === "SUPER_ADMIN" && !isActive) {
+      toast.error("Cannot deactivate SUPER_ADMIN users");
+      return;
+    }
+    setTogglingUserId(user.id);
+    try {
+      const res = await fetch("/api/team", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ type: "user", id: user.id, isActive }),
+      });
+      if (res.ok) {
+        toast.success(isActive ? `${safeText(user.name)} reactivated` : `${safeText(user.name)} deactivated`);
+        fetchData();
+      } else {
+        const err = await res.json().catch(() => null);
+        toast.error(err?.error || "Failed to update user status");
+      }
+    } catch {
+      toast.error("Failed to update user status");
+    } finally {
+      setTogglingUserId(null);
+    }
+  }, [fetchData]);
+
+  const openResetPasswordDialog = useCallback((user: TeamUser, action: "send_link" | "direct_reset" = "send_link") => {
+    setResetPasswordUser(user);
+    setResetPasswordAction(action);
+    setResetPasswordNewPwd("");
+    setResetPasswordConfirmPwd("");
+    setShowResetPwd(false);
+    setShowResetPwdConfirm(false);
+    setResetPasswordOpen(true);
+  }, []);
+
+  const handlePasswordReset = useCallback(async () => {
+    if (!resetPasswordUser) return;
+
+    if (resetPasswordAction === "direct_reset") {
+      if (!resetPasswordNewPwd || !resetPasswordConfirmPwd) {
+        toast.error("Please fill in all password fields");
+        return;
+      }
+      if (resetPasswordNewPwd !== resetPasswordConfirmPwd) {
+        toast.error("Passwords do not match");
+        return;
+      }
+      if (resetPasswordNewPwd.length < 8) {
+        toast.error("Password must be at least 8 characters");
+        return;
+      }
+      if (!/[a-zA-Z]/.test(resetPasswordNewPwd) || !/[0-9]/.test(resetPasswordNewPwd)) {
+        toast.error("Password must contain at least one letter and one number");
+        return;
+      }
+    }
+
+    setResetPasswordLoading(true);
+    try {
+      const body: { userId: string; action: "send_link" | "direct_reset"; newPassword?: string } = {
+        userId: resetPasswordUser.id,
+        action: resetPasswordAction,
+      };
+      if (resetPasswordAction === "direct_reset") {
+        body.newPassword = resetPasswordNewPwd;
+      }
+
+      const res = await fetch("/api/password-reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        toast.success(data.message || "Password reset successful");
+        setResetPasswordOpen(false);
+        setResetPasswordUser(null);
+        setResetPasswordNewPwd("");
+        setResetPasswordConfirmPwd("");
+        setResetPasswordAction("send_link");
+        setShowResetPwd(false);
+        setShowResetPwdConfirm(false);
+      } else {
+        toast.error(data.error || "Failed to reset password");
+      }
+    } catch {
+      toast.error("Failed to reset password");
+    } finally {
+      setResetPasswordLoading(false);
+    }
+  }, [resetPasswordUser, resetPasswordAction, resetPasswordNewPwd, resetPasswordConfirmPwd]);
 
   const handleLeaveAction = useCallback(async (id: string, status: string, feedback?: string) => {
     if (mutating) return;
@@ -307,6 +469,110 @@ export default function TeamPage() {
     [leaves, leaveFilter]
   );
   const pendingLeavesCount = useMemo(() => leaves.filter(l => l.status === "PENDING").length, [leaves]);
+  const activeUsers = useMemo(() => users.filter((u) => u.isActive), [users]);
+  const deactivatedUsers = useMemo(() => users.filter((u) => !u.isActive), [users]);
+
+  const renderMemberRow = (user: TeamUser, variant: "active" | "deactivated") => {
+    const isDeactivated = variant === "deactivated";
+    const canResetPassword = isSuperAdmin && user.role !== "SUPER_ADMIN";
+    const canToggleActive = isSuperAdmin && user.role !== "SUPER_ADMIN";
+
+    return (
+      <li
+        key={user.id}
+        className={cn(
+          "flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 transition-colors",
+          isDeactivated ? "opacity-70 hover:bg-muted/20" : "hover:bg-muted/40"
+        )}
+      >
+        <Avatar className="h-8 w-8 shrink-0">
+          <AvatarImage src={user.avatar || undefined} alt={safeText(user.name)} />
+          <AvatarFallback className={cn(
+            "text-[10px] font-semibold",
+            isDeactivated ? "bg-muted text-muted-foreground" : "bg-primary/10 text-primary"
+          )}>
+            {safeText(user.name)?.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2) || "?"}
+          </AvatarFallback>
+        </Avatar>
+        <div className="flex-1 min-w-0 basis-[calc(100%-3rem)] sm:basis-auto">
+          <p className={cn("text-sm font-medium truncate leading-tight", isDeactivated && "text-muted-foreground")}>
+            {safeText(user.name)}
+          </p>
+          <p className="text-xs text-muted-foreground truncate">
+            {safeText(user.email)}
+            {user.department ? ` · ${safeText(user.department)}` : ""}
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5 flex-shrink-0 w-full sm:w-auto justify-end pl-10 sm:pl-0">
+          <Badge className={`text-[10px] ${roleColors[user.role] || ""}`}>{user.role.replace("_", " ")}</Badge>
+          {isDeactivated ? (
+            <Badge variant="secondary" className="text-[10px] text-muted-foreground">Deactivated</Badge>
+          ) : (
+            canToggleActive && (
+              <div className="hidden sm:flex items-center gap-1.5">
+                <Switch
+                  checked={user.isActive}
+                  onCheckedChange={() => handleSetActive(user, !user.isActive)}
+                  disabled={togglingUserId === user.id}
+                  aria-label={`Toggle ${safeText(user.name)} active status`}
+                />
+              </div>
+            )
+          )}
+          {isDeactivated && isSuperAdmin && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              disabled={togglingUserId === user.id}
+              onClick={() => handleSetActive(user, true)}
+            >
+              {togglingUserId === user.id ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                "Reactivate"
+              )}
+            </Button>
+          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Member actions">
+                <MoreHorizontal className="h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem onClick={() => openEditDialog(user)}>
+                <Pencil className="h-3.5 w-3.5 mr-2" /> Edit
+              </DropdownMenuItem>
+              {canResetPassword && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => openResetPasswordDialog(user, "send_link")}>
+                    <Mail className="h-3.5 w-3.5 mr-2" /> Send reset link
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => openResetPasswordDialog(user, "direct_reset")}>
+                    <Key className="h-3.5 w-3.5 mr-2" /> Set password
+                  </DropdownMenuItem>
+                </>
+              )}
+              {!isDeactivated && canToggleActive && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="sm:hidden"
+                    disabled={togglingUserId === user.id}
+                    onClick={() => handleSetActive(user, false)}
+                  >
+                    Deactivate
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </li>
+    );
+  };
 
   // [I10] Consolidated loading skeleton
   if (sessionStatus === "loading" || loading) {
@@ -372,10 +638,10 @@ export default function TeamPage() {
 
         {/* ═══════════════ TEAM TAB ═══════════════ */}
         {isAdminUser && (
-          <TabsContent value="team" className="mt-0 space-y-3">
-            <Card className="liquid-glass-card border-border overflow-hidden">
-              <CardContent className="p-0">
-                {users.length === 0 ? (
+          <TabsContent value="team" className="mt-0 space-y-4">
+            {users.length === 0 ? (
+              <Card className="liquid-glass-card border-border overflow-hidden">
+                <CardContent className="p-0">
                   <div className="text-center py-12 text-muted-foreground">
                     <div className="th-stat-icon mx-auto mb-3">
                       <User className="h-5 w-5" />
@@ -386,41 +652,64 @@ export default function TeamPage() {
                       <Plus className="h-4 w-4 mr-1" /> Add Member
                     </Button>
                   </div>
-                ) : (
-                  <ul className="divide-y divide-border">
-                    {users.map((user) => (
-                      <li
-                        key={user.id}
-                        className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40 transition-colors"
+                </CardContent>
+              </Card>
+            ) : (
+              <>
+                {/* Active members */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between px-0.5">
+                    <h3 className="text-sm font-medium text-foreground">
+                      Active
+                      <span className="ml-1.5 text-xs font-normal text-muted-foreground">({activeUsers.length})</span>
+                    </h3>
+                  </div>
+                  <Card className="liquid-glass-card border-border overflow-hidden">
+                    <CardContent className="p-0">
+                      {activeUsers.length === 0 ? (
+                        <div className="text-center py-8 text-muted-foreground text-sm">
+                          No active members
+                        </div>
+                      ) : (
+                        <ul className="divide-y divide-border">
+                          {activeUsers.map((user) => renderMemberRow(user, "active"))}
+                        </ul>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Deactivated members — only when present */}
+                {deactivatedUsers.length > 0 && (
+                  <Collapsible open={deactivatedOpen} onOpenChange={setDeactivatedOpen} className="space-y-2">
+                    <CollapsibleTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex w-full items-center justify-between px-0.5 text-left group"
                       >
-                        <Avatar className="h-8 w-8 shrink-0">
-                          <AvatarImage src={user.avatar || undefined} alt={safeText(user.name)} />
-                          <AvatarFallback className="bg-primary/10 text-primary text-[10px] font-semibold">
-                            {safeText(user.name)?.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2) || "?"}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate leading-tight">{safeText(user.name)}</p>
-                          <p className="text-xs text-muted-foreground truncate">
-                            {safeText(user.email)}
-                            {user.department ? ` · ${safeText(user.department)}` : ""}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-1.5 flex-shrink-0">
-                          <Badge className={`text-[10px] ${roleColors[user.role] || ""}`}>{user.role.replace("_", " ")}</Badge>
-                          <Badge variant={user.isActive ? "default" : "secondary"} className="text-[10px] hidden sm:inline-flex">
-                            {user.isActive ? "Active" : "Inactive"}
-                          </Badge>
-                          <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Edit member" onClick={() => openEditDialog(user)}>
-                            <Pencil className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
+                        <h3 className="text-sm font-medium text-muted-foreground">
+                          Deactivated
+                          <span className="ml-1.5 text-xs font-normal">({deactivatedUsers.length})</span>
+                        </h3>
+                        <ChevronDown className={cn(
+                          "h-4 w-4 text-muted-foreground transition-transform",
+                          deactivatedOpen && "rotate-180"
+                        )} />
+                      </button>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <Card className="liquid-glass-card border-border/60 bg-muted/20 overflow-hidden">
+                        <CardContent className="p-0">
+                          <ul className="divide-y divide-border/60">
+                            {deactivatedUsers.map((user) => renderMemberRow(user, "deactivated"))}
+                          </ul>
+                        </CardContent>
+                      </Card>
+                    </CollapsibleContent>
+                  </Collapsible>
                 )}
-              </CardContent>
-            </Card>
+              </>
+            )}
           </TabsContent>
         )}
 
@@ -709,6 +998,124 @@ export default function TeamPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Password Reset Dialog (SUPER_ADMIN) — migrated from Settings */}
+      {isSuperAdmin && (
+        <Dialog open={resetPasswordOpen} onOpenChange={setResetPasswordOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Key className="h-5 w-5" />
+                Reset Password
+              </DialogTitle>
+            </DialogHeader>
+            {resetPasswordUser && (
+              <div className="space-y-4">
+                <div className="p-3 bg-muted rounded-lg">
+                  <p className="text-xs text-muted-foreground">User</p>
+                  <p className="text-sm font-medium">{safeText(resetPasswordUser.name)}</p>
+                  <p className="text-xs text-muted-foreground">{safeText(resetPasswordUser.email)}</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-xs">Reset Method</Label>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => setResetPasswordAction("send_link")}
+                      className={`p-3 rounded-lg border-2 text-left transition-colors ${
+                        resetPasswordAction === "send_link"
+                          ? "border-primary bg-primary/5"
+                          : "border-muted hover:border-muted-foreground/30"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <Mail className="h-4 w-4" />
+                        <span className="text-sm font-medium">Send Reset Link</span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        Send a password reset link to the user&apos;s registered email
+                      </p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setResetPasswordAction("direct_reset")}
+                      className={`p-3 rounded-lg border-2 text-left transition-colors ${
+                        resetPasswordAction === "direct_reset"
+                          ? "border-primary bg-primary/5"
+                          : "border-muted hover:border-muted-foreground/30"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <Key className="h-4 w-4" />
+                        <span className="text-sm font-medium">Set Password</span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        Set a new password for the user directly
+                      </p>
+                    </button>
+                  </div>
+                </div>
+
+                {resetPasswordAction === "direct_reset" && (
+                  <>
+                    <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                        <p className="text-[11px] text-amber-700 dark:text-amber-300">
+                          Use this only if the user cannot access their email. The password will be set immediately.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">New Password *</Label>
+                      <p className="text-[10px] text-muted-foreground">Min 8 chars, 3 of: uppercase, lowercase, number, special char</p>
+                      <div className="relative">
+                        <Input
+                          type={showResetPwd ? "text" : "password"}
+                          value={resetPasswordNewPwd}
+                          onChange={(e) => setResetPasswordNewPwd(e.target.value)}
+                          placeholder="Min. 8 characters"
+                          className="pr-10"
+                        />
+                        <PasswordToggle visible={showResetPwd} onToggle={() => setShowResetPwd(!showResetPwd)} />
+                      </div>
+                      <PasswordStrengthMeter password={resetPasswordNewPwd} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Confirm New Password *</Label>
+                      <div className="relative">
+                        <Input
+                          type={showResetPwdConfirm ? "text" : "password"}
+                          value={resetPasswordConfirmPwd}
+                          onChange={(e) => setResetPasswordConfirmPwd(e.target.value)}
+                          placeholder="Confirm new password"
+                          className="pr-10"
+                        />
+                        <PasswordToggle visible={showResetPwdConfirm} onToggle={() => setShowResetPwdConfirm(!showResetPwdConfirm)} />
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => setResetPasswordOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handlePasswordReset} disabled={resetPasswordLoading}>
+                {resetPasswordLoading ? (
+                  <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Processing...</>
+                ) : resetPasswordAction === "send_link" ? (
+                  <><Mail className="h-4 w-4 mr-1" /> Send Reset Link</>
+                ) : (
+                  <><Key className="h-4 w-4 mr-1" /> Set Password</>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }
