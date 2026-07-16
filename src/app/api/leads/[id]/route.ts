@@ -3,14 +3,14 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { updateLeadSchema, validateRequest } from "@/lib/validations"
-import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
+import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { deepSanitize } from "@/lib/utils"
 
 // ━━ Shared constants (mirrors leads/route.ts) ━━
 const VALID_STATUSES = ["NEW", "CONTACTED", "INTERESTED", "PROPOSAL", "NEGOTIATING", "WON", "LOST"] as const
-const VALID_SOURCES = ["MANUAL", "AI_FOUND", "REFERRAL", "SOCIAL_MEDIA"] as const
+const VALID_SOURCES = ["MANUAL", "AI_FOUND", "REFERRAL", "SOCIAL_MEDIA", "WEBSITE", "LINKEDIN", "OTHER"] as const
 const ALLOWED_FIELDS = ["name", "email", "company", "website", "phone", "source", "score", "status", "notes", "clientId"] as const
 
 // GET /api/leads/[id] - Single lead detail with relations

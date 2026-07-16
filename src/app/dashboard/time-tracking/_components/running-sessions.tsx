@@ -28,7 +28,7 @@ function sourceMeta(entry: TimeEntry): { label: string; className: string } {
     return {
       label: "OTP",
       className:
-        "bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 border-violet-200 dark:border-violet-800",
+        "bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300 border-teal-200 dark:border-teal-800",
     };
   }
   return {

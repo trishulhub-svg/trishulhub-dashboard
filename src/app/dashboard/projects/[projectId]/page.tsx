@@ -499,20 +499,20 @@ export default function ProjectDetailPage() {
       {/* ═══════ DEMO PROJECT banner (shown only when isDemo is true) ═══════ */}
       {project?.isDemo === true && (
         <div
-          className="flex items-center gap-2.5 rounded-xl border border-violet-300/50 dark:border-violet-500/30 bg-gradient-to-r from-violet-50 to-fuchsia-50 dark:from-violet-950/40 dark:to-fuchsia-950/30 px-3.5 py-2.5 shadow-sm"
+          className="flex items-center gap-2.5 rounded-xl border border-teal-300/50 dark:border-teal-500/30 bg-teal-50/80 dark:bg-teal-950/30 backdrop-blur-sm px-3.5 py-2.5 shadow-sm"
           role="status"
           aria-label="Demo project"
         >
-          <FlaskConical className="h-4 w-4 text-violet-600 dark:text-violet-300 shrink-0" />
+          <FlaskConical className="h-4 w-4 text-teal-600 dark:text-teal-300 shrink-0" />
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-bold tracking-wider text-violet-700 dark:text-violet-200 uppercase">
+            <p className="text-xs font-bold tracking-wider text-teal-700 dark:text-teal-200 uppercase">
               Demo Project
             </p>
-            <p className="text-[11px] text-violet-600/80 dark:text-violet-300/70 mt-0.5">
+            <p className="text-[11px] text-teal-600/80 dark:text-teal-300/70 mt-0.5">
               This is a demo project — it works exactly like a regular project (members, credentials, infrastructure) but is grouped under Demo Projects for walkthroughs.
             </p>
           </div>
-          <Badge className="text-[10px] font-bold tracking-wider px-2 py-0.5 bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white shrink-0">
+          <Badge className="text-[10px] font-bold tracking-wider px-2 py-0.5 border border-teal-500/30 bg-teal-500/15 text-teal-700 dark:text-teal-200 shrink-0">
             DEMO
           </Badge>
         </div>

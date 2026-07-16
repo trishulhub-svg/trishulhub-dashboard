@@ -236,6 +236,20 @@ export async function POST(req: NextRequest) {
         ? Math.round((new Date(clockOut).getTime() - clockInDate.getTime()) / (1000 * 60 * 60) * 100) / 100
         : null
 
+      // Prevent a second ACTIVE timer for the target user (same rule as self-start)
+      if (entryStatus === "ACTIVE") {
+        const existingActive = await db.timeEntry.findFirst({
+          where: { userId: targetUserId, status: "ACTIVE" },
+          select: { id: true },
+        })
+        if (existingActive) {
+          return NextResponse.json(
+            { error: "User already has an active timer. End it before creating another." },
+            { status: 409 }
+          )
+        }
+      }
+
       const entry = await db.timeEntry.create({
         data: {
           userId: targetUserId,

@@ -116,6 +116,16 @@ const sourceColors: Record<string, string> = {
   MANUAL: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
 };
 
+const SOURCE_LABELS: Record<string, string> = {
+  MANUAL: "Manual",
+  AI_FOUND: "AI Found",
+  WEBSITE: "Website",
+  REFERRAL: "Referral",
+  LINKEDIN: "LinkedIn",
+  SOCIAL_MEDIA: "Social Media",
+  OTHER: "Other",
+};
+
 // CRM-S01: Smart filter parser
 function parseSmartFilter(query: string, dateFilterStr: string) {
   const textParts: string[] = [];
@@ -241,7 +251,7 @@ function LeadCard({ lead, onClick, isDragging }: { lead: Lead; onClick: () => vo
       </div>
       <div className="flex items-center gap-2 mt-2">
         <Badge className={cn("text-[10px] font-medium", sourceColors[lead.source] || "bg-gray-100 text-gray-700")}>
-          {safeText(lead.source, "")}
+          {SOURCE_LABELS[lead.source] || safeText(lead.source, "")}
         </Badge>
       </div>
     </div>
@@ -377,7 +387,7 @@ function LeadListViewRow({ lead, onClick }: { lead: Lead; onClick: () => void })
       {/* Source Badge */}
       <div className="hidden sm:block shrink-0">
         <Badge className={cn("text-[10px] font-medium", sourceColors[lead.source] || "bg-gray-100 text-gray-700")}>
-          {safeText(lead.source, "")}
+          {SOURCE_LABELS[lead.source] || safeText(lead.source, "")}
         </Badge>
       </div>
 
@@ -419,6 +429,7 @@ export default function CRMPage() {
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
   const [leads, setLeads] = useState<Lead[]>([]);
+  const [leadsTotal, setLeadsTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
@@ -429,6 +440,7 @@ export default function CRMPage() {
   const [updating, setUpdating] = useState(false);
   // CRM-010: adding state for add lead operation
   const [adding, setAdding] = useState(false);
+  const [addSource, setAddSource] = useState("MANUAL");
   // CRM-004: Quick email state
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
@@ -447,6 +459,7 @@ export default function CRMPage() {
   // CRM-S04: Source and status filter states
   const [filterSource, setFilterSource] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
+  const [isMobile, setIsMobile] = useState(false);
   // View mode with localStorage persistence
   const [viewMode, setViewMode] = useState<"board" | "list">(() => {
     if (typeof window !== "undefined") {
@@ -470,7 +483,11 @@ export default function CRMPage() {
       if (res.ok) {
         const result = await res.json();
         // Handle paginated response format { data, total, page, limit, totalPages }
-        setLeads(Array.isArray(result) ? result : (result.data || []));
+        const leadsData = Array.isArray(result) ? result : (result.data || []);
+        setLeads(leadsData);
+        if (!Array.isArray(result) && typeof result.total === "number") {
+          setLeadsTotal(result.total);
+        }
       } else {
         // CRM-028: Handle non-ok fetchLeads response
         const data = await res.json().catch(() => ({}));
@@ -496,6 +513,14 @@ export default function CRMPage() {
     fetchLeads(controller.signal);
     return () => controller.abort();
   }, [fetchLeads]);
+
+  useEffect(() => {
+    const mql = window.matchMedia("(max-width: 768px)");
+    setIsMobile(mql.matches);
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mql.addEventListener("change", handler);
+    return () => mql.removeEventListener("change", handler);
+  }, []);
 
   // CRM-004: Clear email fields when selectedLead changes
   useEffect(() => {
@@ -633,9 +658,15 @@ export default function CRMPage() {
     if (!over) return;
 
     const leadId = active.id as string;
-    const newStatus = over.id as LeadStatus;
-
-    if (!LEAD_COLUMNS.includes(newStatus)) return;
+    const overId = String(over.id);
+    let newStatus: LeadStatus | null = null;
+    if (LEAD_COLUMNS.includes(overId as LeadStatus)) {
+      newStatus = overId as LeadStatus;
+    } else {
+      const overLead = leads.find((l) => l.id === overId);
+      if (overLead) newStatus = overLead.status as LeadStatus;
+    }
+    if (!newStatus) return;
 
     const lead = leads.find((l) => l.id === leadId);
     if (!lead || lead.status === newStatus) return;
@@ -700,7 +731,7 @@ export default function CRMPage() {
       company: form.get("company") as string,
       phone: form.get("phone") as string,
       website: form.get("website") as string,
-      source: form.get("source") as string || "MANUAL",
+      source: addSource,
       score: parseInt(form.get("score") as string) || 0,
       notes: form.get("notes") as string,
     };
@@ -720,6 +751,7 @@ export default function CRMPage() {
       if (res.ok) {
         toast.success("Lead added");
         setAddOpen(false);
+        setAddSource("MANUAL");
         fetchLeads();
       } else {
         const errData = await res.json().catch(() => ({}));
@@ -778,7 +810,7 @@ export default function CRMPage() {
       });
       if (handleFetchError(res, router)) return;
       if (res.ok) {
-        toast.success("Email saved as draft for approval");
+        toast.success("Email draft saved");
         setEmailSubject("");
         setEmailBody("");
       } else {
@@ -985,7 +1017,7 @@ export default function CRMPage() {
             </PopoverContent>
           </Popover>
           {/* Add Lead Dialog */}
-          <Dialog open={addOpen} onOpenChange={(open) => { setAddOpen(open); if (open) setFormErrors({}); }}>
+          <Dialog open={addOpen} onOpenChange={(open) => { setAddOpen(open); if (open) { setFormErrors({}); setAddSource("MANUAL"); } }}>
             <DialogTrigger asChild>
               <Button size="sm" disabled={adding} className="shadow-sm">
                 <Plus className="h-3.5 w-3.5 mr-1" /> Add Lead
@@ -998,7 +1030,7 @@ export default function CRMPage() {
                 <DialogDescription>Enter the details for the new lead.</DialogDescription>
               </DialogHeader>
               <form onSubmit={handleAddLead} className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label className="text-xs font-medium">Name *</Label>
                     <Input name="name" required className="h-8 text-sm" />
@@ -1030,13 +1062,16 @@ export default function CRMPage() {
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs font-medium">Source</Label>
-                  <Select name="source" defaultValue="MANUAL">
+                  <Select value={addSource} onValueChange={setAddSource}>
                     <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="MANUAL">Manual</SelectItem>
                       <SelectItem value="AI_FOUND">AI Found</SelectItem>
+                      <SelectItem value="WEBSITE">Website</SelectItem>
                       <SelectItem value="REFERRAL">Referral</SelectItem>
+                      <SelectItem value="LINKEDIN">LinkedIn</SelectItem>
                       <SelectItem value="SOCIAL_MEDIA">Social Media</SelectItem>
+                      <SelectItem value="OTHER">Other</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1134,6 +1169,12 @@ export default function CRMPage() {
         )}
       </div>
 
+      {leadsTotal !== null && leadsTotal > leads.length && (
+        <p className="text-xs text-muted-foreground/60 text-center">
+          Showing {leads.length} of {leadsTotal} leads
+        </p>
+      )}
+
       {/* ━━━━ Main Content Area ━━━━ */}
       {/* CRM-021: Board-level empty state */}
       {leads.length === 0 ? (
@@ -1161,7 +1202,7 @@ export default function CRMPage() {
             Clear All Filters
           </Button>
         </div>
-      ) : viewMode === "board" ? (
+      ) : viewMode === "board" && !isMobile ? (
         /* Kanban Board */
         <DndContext
           sensors={sensors}
@@ -1171,7 +1212,6 @@ export default function CRMPage() {
         >
           <div className="flex gap-3 overflow-x-auto pb-4 snap-x snap-mandatory">
             {orderedColumns.map((col) => {
-              const isDimmed = activeId !== null;
               return (
                 <DroppableKanbanColumn
                   key={col.key}
@@ -1179,7 +1219,7 @@ export default function CRMPage() {
                   leads={groupedLeads[col.key as LeadStatus] || []}
                   onLeadClick={setSelectedLead}
                   activeId={activeId}
-                  isDimmed={isDimmed}
+                  isDimmed={false}
                 />
               );
             })}
@@ -1221,7 +1261,7 @@ export default function CRMPage() {
               {editMode ? (
                 /* CRM-S05: Edit mode form */
                 <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="space-y-1.5">
                       <Label className="text-xs font-medium">Name *</Label>
                       <Input
@@ -1399,7 +1439,7 @@ export default function CRMPage() {
                       <span className="text-[10px] text-muted-foreground/60">Click to edit</span>
                     </>
                   )}
-                  <Badge variant="secondary" className="text-[11px]">{safeText(selectedLead.source, "")}</Badge>
+                  <Badge variant="secondary" className="text-[11px]">{SOURCE_LABELS[selectedLead.source] || safeText(selectedLead.source, "")}</Badge>
                 </div>
               )}
 
@@ -1458,7 +1498,7 @@ export default function CRMPage() {
                     onClick={handleQuickEmail}
                   >
                     {sendingEmail ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Send className="h-3 w-3 mr-1.5" />}
-                    {sendingEmail ? "Sending..." : "Send Email"}
+                    {sendingEmail ? "Saving..." : "Save email draft"}
                   </Button>
                 </div>
               )}
@@ -1468,7 +1508,7 @@ export default function CRMPage() {
               {/* Action buttons (view mode only) */}
               {!editMode && (
                 <div className="space-y-2">
-                  {!selectedLead.clientId && selectedLead.status !== "WON" && (
+                  {!selectedLead.clientId && (
                     <Button
                       size="sm"
                       className="w-full shadow-sm"
@@ -1513,7 +1553,7 @@ export default function CRMPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Lead</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete &quot;{safeText(deleteTarget?.name, "")}&quot; and all associated emails. This action cannot be undone.
+              This will permanently delete &quot;{safeText(deleteTarget?.name, "")}&quot;. Any related emails, deals, or contacts linked to this lead may also be removed. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
