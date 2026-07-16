@@ -11,6 +11,7 @@ import {
   QrCode,
   Trash2,
   Clock,
+  RefreshCw,
 } from "lucide-react"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/page-header"
@@ -19,13 +20,6 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { formatDateTime } from "@/lib/format"
 
 type Assignment = {
@@ -67,31 +61,51 @@ export default function AssignTrainingPage() {
   const [team, setTeam] = useState<TeamMember[]>([])
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const [formUserId, setFormUserId] = useState("")
   const [formTitle, setFormTitle] = useState("")
   const [formDue, setFormDue] = useState("")
   const [formNotes, setFormNotes] = useState("")
 
-  const canAccess =
-    session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN"
+  const role = session?.user?.role || ""
+  const canAccess = role === "SUPER_ADMIN" || role === "ADMIN"
 
   const load = useCallback(async () => {
     setLoading(true)
+    setLoadError(null)
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 15000)
+    const timeout = setTimeout(() => controller.abort(), 20000)
     try {
       const res = await fetch("/api/training/assignments", {
         credentials: "include",
         signal: controller.signal,
+        cache: "no-store",
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || "Failed to load")
-      setAssignments(Array.isArray(data.assignments) ? data.assignments : [])
-      setTeam(Array.isArray(data.team) ? data.team : [])
+      const nextTeam = Array.isArray(data.team) ? data.team : []
+      const nextAssignments = Array.isArray(data.assignments) ? data.assignments : []
+      setTeam(nextTeam)
+      setAssignments(nextAssignments)
+
+      if (!res.ok && nextTeam.length === 0) {
+        throw new Error(data.detail || data.error || "Failed to load")
+      }
+      if (data.warning) {
+        console.warn("[assign] warning:", data.warning)
+      }
+      if (nextTeam.length === 0) {
+        setLoadError("No team members returned. Tap Retry or check Team is active.")
+      }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load")
-      setAssignments([])
+      const msg =
+        err instanceof DOMException && err.name === "AbortError"
+          ? "Timed out loading — tap Retry"
+          : err instanceof Error
+            ? err.message
+            : "Failed to load"
+      setLoadError(msg)
+      toast.error(msg)
     } finally {
       clearTimeout(timeout)
       setLoading(false)
@@ -99,20 +113,29 @@ export default function AssignTrainingPage() {
   }, [])
 
   useEffect(() => {
-    if (sessionStatus === "authenticated") {
-      if (!canAccess) {
-        router.replace("/dashboard/training/my")
-        return
-      }
-      void load()
-    } else if (sessionStatus === "unauthenticated") {
+    if (sessionStatus === "loading") return
+    if (sessionStatus === "unauthenticated") {
       setLoading(false)
+      return
     }
+    if (!canAccess) {
+      router.replace("/dashboard/training/my")
+      return
+    }
+    void load()
   }, [sessionStatus, canAccess, load, router])
 
   const assign = async () => {
-    if (!formUserId || !formTitle.trim() || !formDue) {
-      toast.error("Select a person, title, and due date")
+    if (!formUserId) {
+      toast.error("Select a team member")
+      return
+    }
+    if (!formTitle.trim()) {
+      toast.error("Enter a training title")
+      return
+    }
+    if (!formDue) {
+      toast.error("Pick a due date")
       return
     }
     setSaving(true)
@@ -128,12 +151,15 @@ export default function AssignTrainingPage() {
           notes: formNotes.trim() || null,
         }),
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || "Failed to assign")
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.detail || data.error || "Failed to assign")
+      }
       toast.success("Training assigned — user notified")
       setFormTitle("")
       setFormDue("")
       setFormNotes("")
+      // keep selected user for faster repeat assigns
       await load()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to assign")
@@ -151,8 +177,8 @@ export default function AssignTrainingPage() {
         credentials: "include",
         body: JSON.stringify({ id, action: "DELETE" }),
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || "Failed to delete")
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.detail || data.error || "Failed to delete")
       toast.success("Assignment removed")
       await load()
     } catch (err) {
@@ -160,6 +186,14 @@ export default function AssignTrainingPage() {
     } finally {
       setDeletingId(null)
     }
+  }
+
+  if (sessionStatus === "loading") {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    )
   }
 
   if (sessionStatus === "authenticated" && !canAccess) {
@@ -198,49 +232,87 @@ export default function AssignTrainingPage() {
       </PageHeader>
 
       <section className="rounded-2xl border border-border bg-card p-5 sm:p-6 space-y-5">
-        <div className="flex items-start gap-3">
-          <div className="th-stat-icon shrink-0">
-            <Plus className="h-5 w-5" />
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3 min-w-0">
+            <div className="th-stat-icon shrink-0">
+              <Plus className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold tracking-tight">New assignment</h2>
+              <p className="text-sm text-muted-foreground">
+                Pick a team member, title, and due date. They&apos;ll get a notification.
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-base font-semibold tracking-tight">New assignment</h2>
-            <p className="text-sm text-muted-foreground">
-              Pick a team member, title, and due date. They’ll get a notification.
-            </p>
-          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="gap-1.5 shrink-0"
+            onClick={() => void load()}
+            disabled={loading}
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+            Retry
+          </Button>
         </div>
 
+        {loadError && (
+          <p className="text-sm text-destructive rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+            {loadError}
+          </p>
+        )}
+
         <div className="grid sm:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label>Team member</Label>
-            <Select value={formUserId} onValueChange={setFormUserId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select person" />
-              </SelectTrigger>
-              <SelectContent>
-                {team.map((m) => (
-                  <SelectItem key={m.id} value={m.id}>
-                    {m.name} · {m.role.replace("_", " ")}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label>Due date</Label>
-            <Input type="date" value={formDue} onChange={(e) => setFormDue(e.target.value)} />
-          </div>
           <div className="space-y-2 sm:col-span-2">
-            <Label>Training title</Label>
+            <Label htmlFor="assign-user">Team member</Label>
+            {/* Native select — reliable on mobile (Radix Select was empty / hard to use) */}
+            <select
+              id="assign-user"
+              value={formUserId}
+              onChange={(e) => setFormUserId(e.target.value)}
+              disabled={loading || team.length === 0}
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <option value="">
+                {loading
+                  ? "Loading team…"
+                  : team.length === 0
+                    ? "No team members found"
+                    : "Select person"}
+              </option>
+              {team.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name || m.email} · {(m.role || "").replace(/_/g, " ")}
+                </option>
+              ))}
+            </select>
+            {team.length > 0 && (
+              <p className="text-xs text-muted-foreground">{team.length} people available</p>
+            )}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="assign-due">Due date</Label>
             <Input
-              placeholder="e.g. Prompt-Driven Development Handbook"
+              id="assign-due"
+              type="date"
+              value={formDue}
+              onChange={(e) => setFormDue(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="assign-title">Training title</Label>
+            <Input
+              id="assign-title"
+              placeholder="e.g. Prompt-Driven Development"
               value={formTitle}
               onChange={(e) => setFormTitle(e.target.value)}
             />
           </div>
           <div className="space-y-2 sm:col-span-2">
-            <Label>Notes (optional)</Label>
+            <Label htmlFor="assign-notes">Notes (optional)</Label>
             <Textarea
+              id="assign-notes"
               placeholder="Playlist name or extra instructions"
               value={formNotes}
               onChange={(e) => setFormNotes(e.target.value)}
@@ -248,7 +320,12 @@ export default function AssignTrainingPage() {
             />
           </div>
         </div>
-        <Button type="button" className="gap-2" disabled={saving} onClick={() => void assign()}>
+        <Button
+          type="button"
+          className="gap-2 w-full sm:w-auto"
+          disabled={saving || loading || team.length === 0}
+          onClick={() => void assign()}
+        >
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
           Assign training
         </Button>
@@ -280,7 +357,7 @@ export default function AssignTrainingPage() {
                   {a.title}
                   <span className="text-muted-foreground font-normal">
                     {" "}
-                    · {a.user?.name || "Unknown"}
+                    · {a.user?.name || a.user?.email || "Unknown"}
                   </span>
                 </span>
                 {statusBadge(a.status)}
