@@ -31,10 +31,10 @@ export async function GET() {
       if (key) { isWorking = true; key.fill(0) }
     } catch { /* key not configured */ }
 
+    // SECURITY: Never return key substrings — only status flags.
     return NextResponse.json({
       hasKey: !!(dbKey || hasEnvKey),
       isDbKey: !!dbKey,
-      maskedKey: dbKey ? dbKey.substring(0, 8) + "••••••••••••••••••••" + dbKey.substring(56) : "",
       isWorking,
     })
   } catch (error: unknown) {

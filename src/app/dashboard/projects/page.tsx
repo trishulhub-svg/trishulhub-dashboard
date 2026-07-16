@@ -881,7 +881,8 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
   const isAdminUser = session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN" || session?.user?.role === "PROJECT_MANAGER";
 
   // Feature 3: Credentials state
-  const [credentials, setCredentials] = useState<{ id: string; title: string; username: string; password: string }[]>([]);
+  const [credentials, setCredentials] = useState<{ id: string; title: string; username: string; hasPassword?: boolean }[]>([]);
+  const [revealedPasswords, setRevealedPasswords] = useState<Record<string, string>>({});
   const [newCred, setNewCred] = useState<CredentialForm>({ title: "", username: "", password: "" });
   const [editingCredId, setEditingCredId] = useState<string | null>(null);
   const [editingCred, setEditingCred] = useState<CredentialForm>({ title: "", username: "", password: "" });
@@ -1058,18 +1059,48 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
     return false;
   }, []);
 
-  // ━━ Fetch credentials for a project ━━
+  // ━━ Fetch credentials for a project (passwords never included in list) ━━
   const fetchCredentials = useCallback(async (projectId: string) => {
     try {
       const res = await fetch(`/api/projects/credentials?projectId=${projectId}`, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
         setCredentials(Array.isArray(data) ? data : []);
+        setRevealedPasswords({});
+        setShowPasswords({});
       }
     } catch {
       // silently fail
     }
   }, []);
+
+  const revealProjectCredential = useCallback(async (credId: string): Promise<string | null> => {
+    if (revealedPasswords[credId]) return revealedPasswords[credId];
+    try {
+      const res = await fetch("/api/projects/credentials/reveal", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: credId }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.error || "Failed to reveal password");
+        return null;
+      }
+      const data = await res.json();
+      const password = typeof data.password === "string" ? data.password : "";
+      if (!password) {
+        toast.error("Failed to reveal password");
+        return null;
+      }
+      setRevealedPasswords((prev) => ({ ...prev, [credId]: password }));
+      return password;
+    } catch {
+      toast.error("Failed to reveal password");
+      return null;
+    }
+  }, [revealedPasswords]);
 
   const handleCreateProject = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -1902,11 +1933,22 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
                             <div className="flex items-center gap-2 text-xs text-muted-foreground">
                               <span>Username: <span className="font-mono text-foreground">{cred.username}</span></span>
                               <span className="mx-1">&bull;</span>
-                              <span>Password: <span className="font-mono text-foreground">{showPasswords[cred.id] ? cred.password : "&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;"}</span></span>
-                              <Button type="button" variant="ghost" size="sm" className="h-5 w-5 ml-auto" onClick={() => { setShowPasswords({ ...showPasswords, [cred.id]: !showPasswords[cred.id] }); }} title={showPasswords[cred.id] ? "Hide" : "Show"} aria-label={showPasswords[cred.id] ? "Hide password" : "Show password"}>
+                              <span>Password: <span className="font-mono text-foreground">{showPasswords[cred.id] && revealedPasswords[cred.id] ? revealedPasswords[cred.id] : "&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;"}</span></span>
+                              <Button type="button" variant="ghost" size="sm" className="h-5 w-5 ml-auto" onClick={async () => {
+                                if (showPasswords[cred.id]) {
+                                  setShowPasswords({ ...showPasswords, [cred.id]: false });
+                                  return;
+                                }
+                                const pwd = await revealProjectCredential(cred.id);
+                                if (pwd) setShowPasswords({ ...showPasswords, [cred.id]: true });
+                              }} title={showPasswords[cred.id] ? "Hide" : "Show"} aria-label={showPasswords[cred.id] ? "Hide password" : "Show password"}>
                                 {showPasswords[cred.id] ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
                               </Button>
-                              <Button type="button" variant="ghost" size="sm" className="h-5 w-5" onClick={async () => { try { await navigator.clipboard.writeText(cred.password); toast.success("Copied"); } catch { toast.error("Failed to copy to clipboard"); } }} title="Copy" aria-label="Copy password">
+                              <Button type="button" variant="ghost" size="sm" className="h-5 w-5" onClick={async () => {
+                                const pwd = await revealProjectCredential(cred.id);
+                                if (!pwd) return;
+                                try { await navigator.clipboard.writeText(pwd); toast.success("Copied"); } catch { toast.error("Failed to copy to clipboard"); }
+                              }} title="Copy" aria-label="Copy password">
                                 <Copy className="h-3 w-3" />
                               </Button>
                             </div>

@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { rateLimit } from "@/lib/rate-limit";
 import { logAudit, getIpAddress, getUserAgent, buildDescription } from "@/lib/audit-log";
+import { decryptFromJson } from "@/lib/encryption";
 
 export async function GET(
   req: NextRequest,
@@ -54,7 +55,12 @@ export async function GET(
       userAgent: getUserAgent(req),
     });
 
-    return NextResponse.json({ password: credential.password });
+    // decryptFromJson handles AES JSON envelopes and legacy plaintext values
+    const password = decryptFromJson(credential.password || "");
+    if (!password) {
+      return NextResponse.json({ error: "Failed to decrypt password" }, { status: 500 });
+    }
+    return NextResponse.json({ password });
   } catch (error: unknown) {
     console.error("[credentials] reveal error:", error);
     return NextResponse.json({ error: "Failed to reveal password" }, { status: 500 });
