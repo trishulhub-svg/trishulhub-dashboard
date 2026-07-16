@@ -397,6 +397,33 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
       "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`
   },
+  {
+    name: "TrainingQr",
+    sql: `CREATE TABLE IF NOT EXISTS "TrainingQr" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "imageData" TEXT NOT NULL,
+      "mimeType" TEXT NOT NULL DEFAULT 'image/png',
+      "uploadedById" TEXT NOT NULL,
+      "isActive" BOOLEAN NOT NULL DEFAULT 1,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("uploadedById") REFERENCES "User"("id") ON DELETE CASCADE
+    )`
+  },
+  {
+    name: "TrainingQrRequest",
+    sql: `CREATE TABLE IF NOT EXISTS "TrainingQrRequest" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "status" TEXT NOT NULL DEFAULT 'PENDING',
+      "note" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "fulfilledAt" DATETIME,
+      "fulfilledByQrId" TEXT,
+      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE,
+      FOREIGN KEY ("fulfilledByQrId") REFERENCES "TrainingQr"("id") ON DELETE SET NULL
+    )`
+  },
 ]
 
 /**
@@ -1040,6 +1067,29 @@ export async function ensureAllTables(): Promise<void> {
     } catch (err: unknown) {
       if (!getErrMsg(err)?.includes('already exists')) {
         console.warn(`[auto-migrate] VaultSecret_category_idx: ${getErrMsg(err)}`)
+      }
+    }
+
+    // Training QR indexes
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "TrainingQr_isActive_createdAt_idx" ON "TrainingQr"("isActive", "createdAt")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] TrainingQr_isActive_createdAt_idx: ${getErrMsg(err)}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "TrainingQrRequest_status_createdAt_idx" ON "TrainingQrRequest"("status", "createdAt")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] TrainingQrRequest_status_createdAt_idx: ${getErrMsg(err)}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "TrainingQrRequest_userId_status_idx" ON "TrainingQrRequest"("userId", "status")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] TrainingQrRequest_userId_status_idx: ${getErrMsg(err)}`)
       }
     }
 

@@ -58,8 +58,44 @@ model User {
   scheduledTasks    ScheduledTask[]
   agentConversations AgentConversation[]
   userDetail         UserDetail?
+  trainingQrs        TrainingQr[]
+  trainingQrRequests TrainingQrRequest[]
 
   @@map("User")
+}
+
+// ━━ Learning / Percipio training QR (SuperAdmin managed) ━━
+model TrainingQr {
+  id           String   @id @default(cuid())
+  imageData    String   // data:image/...;base64,...
+  mimeType     String   @default("image/png")
+  uploadedById String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  uploadedBy User               @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
+  requests   TrainingQrRequest[]
+
+  @@index([isActive, createdAt])
+  @@map("TrainingQr")
+}
+
+model TrainingQrRequest {
+  id              String    @id @default(cuid())
+  userId          String
+  status          String    @default("PENDING") // PENDING, FULFILLED
+  note            String?
+  createdAt       DateTime  @default(now())
+  fulfilledAt     DateTime?
+  fulfilledByQrId String?
+
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fulfilledByQr TrainingQr? @relation(fields: [fulfilledByQrId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([userId, status])
+  @@map("TrainingQrRequest")
 }
 
 // ━━ Encrypted secret vault (generic API keys / credentials storage) ━━
