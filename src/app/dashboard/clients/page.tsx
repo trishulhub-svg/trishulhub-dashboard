@@ -202,7 +202,7 @@ const projectTypeOptions = [
 const projectTypeBadgeColors: Record<string, string> = {
   ENGINEERING: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300",
   MEDICAL: "bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300",
-  RETAIL: "bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300",
+  RETAIL: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
   REAL_ESTATE: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
   FINANCE: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300",
   EDUCATION: "bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-300",
