@@ -764,7 +764,7 @@ function CreateProjectForm({ onSubmit, clients }: {
         <Label className="text-xs">Client</Label>
         <ClientSearchSelect name="clientId" clients={clients} />
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="space-y-1">
           <Label className="text-xs">Start Date</Label>
           <Input name="startDate" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
@@ -780,7 +780,7 @@ function CreateProjectForm({ onSubmit, clients }: {
           <span className="text-xs font-medium text-primary">Total Period: {period}</span>
         </div>
       )}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="space-y-1">
           <Label className="text-xs">Budget ({CURRENCY_SYMBOL})</Label>
           <Input name="budget" type="number" />
@@ -1175,6 +1175,7 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
       startDate: form.get("startDate") as string || null,
       deadline: form.get("deadline") as string || null,
       progress: parseInt(form.get("progress") as string) || 0,
+      isDemo: form.get("isDemo") === "on",
     };
     const liveUrl = (form.get("liveUrl") as string)?.trim();
 
@@ -1381,12 +1382,13 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
 
   // ━━ DnD handlers ━━
   const handleDragStart = (event: DragStartEvent) => {
-    if (updating) return;
+    if (updating || !isAdminUser) return;
     setActiveId(event.active.id as string);
   };
 
   const handleDragEnd = async (event: DragEndEvent) => {
     setActiveId(null);
+    if (!isAdminUser) return;
     const { active, over } = event;
     if (!over) return;
 
@@ -1755,7 +1757,7 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
           <DialogHeader><DialogTitle>Edit Project</DialogTitle><DialogDescription>Update project details, credentials, and methods.</DialogDescription></DialogHeader>
           {editProject && (
             <Tabs defaultValue="details">
-              <TabsList className="grid w-full grid-cols-3 bg-muted/50 p-1">
+              <TabsList className={cn("grid w-full bg-muted/50 p-1", isAdminUser ? "grid-cols-3" : "grid-cols-2")}>
                 <TabsTrigger value="details" className="gap-1.5 data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-md transition-all text-xs">
                   <Pencil className="h-3 w-3" /> Details
                 </TabsTrigger>
@@ -1864,6 +1866,18 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
                         return p ? `Total Period: ${p}` : "";
                       })()}</span>
                     </div>
+                    <div className="flex items-center gap-2 py-1">
+                      <input
+                        type="checkbox"
+                        id="edit-is-demo"
+                        name="isDemo"
+                        defaultChecked={editProject.isDemo === true}
+                        className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary/30 cursor-pointer"
+                      />
+                      <Label htmlFor="edit-is-demo" className="text-xs cursor-pointer select-none">
+                        Demo Project <span className="text-muted-foreground font-normal">(shows under Demo Projects)</span>
+                      </Label>
+                    </div>
                     <div className="flex gap-2 pt-2">
                       <Button type="button" variant="outline" className="flex-1" onClick={() => { setEditOpen(false); setEditProject(null); }}>Cancel</Button>
                       <Button type="submit" className="flex-1">Save Changes</Button>
@@ -1930,10 +1944,10 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
                                 </Button>
                               </div>
                             </div>
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                               <span>Username: <span className="font-mono text-foreground">{cred.username}</span></span>
-                              <span className="mx-1">&bull;</span>
-                              <span>Password: <span className="font-mono text-foreground">{showPasswords[cred.id] && revealedPasswords[cred.id] ? revealedPasswords[cred.id] : "&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;"}</span></span>
+                              <span className="hidden sm:inline mx-1">&bull;</span>
+                              <span>Password: <span className="font-mono text-foreground">{showPasswords[cred.id] && revealedPasswords[cred.id] ? revealedPasswords[cred.id] : "••••••••"}</span></span>
                               <Button type="button" variant="ghost" size="sm" className="h-5 w-5 ml-auto" onClick={async () => {
                                 if (showPasswords[cred.id]) {
                                   setShowPasswords({ ...showPasswords, [cred.id]: false });

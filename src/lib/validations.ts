@@ -42,10 +42,13 @@ export const updateProjectSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1).max(200).optional(),
   description: z.string().max(2000).optional().nullable(),
+  // Allow "" / null to clear client ("No Client")
+  clientId: z.string().optional().or(z.literal("")).nullable(),
   status: z.enum(["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"]).optional(),
   progress: z.number().int().min(0).max(100).optional(),
   isDemo: z.boolean().optional(),
   deadline: z.string().optional().nullable(),
+  startDate: z.string().optional().nullable(),
   budget: z.number().min(0).optional().nullable(),
 })
 

@@ -87,17 +87,18 @@ export async function middleware(request: NextRequest) {
 
     // Granular role-based route protection.
     //
-    // PROJECT_MANAGER is a new tier between ADMIN and DEVELOPER. It can access
+    // PROJECT_MANAGER is a tier between ADMIN and DEVELOPER. It can access
     // project/client/credential/approval management (admin-like) but is
-    // excluded from finance, CRM, team, availability, audit trail,
-    // API keys vault, and protocol management.
+    // excluded from finance, CRM, team, audit trail, and API keys vault.
+    // Availability: PM has read-only access (UI + API mutations require ADMIN).
+    // Access Hub: open to DEVELOPER for "My Credentials" (API scopes own rows).
     //
     // Super admin only routes — strictly SUPER_ADMIN.
-    const superAdminOnlyRoutes: string[] = []
+    const superAdminOnlyRoutes: string[] = [
+      "/dashboard/email-logs",
+    ]
 
     // Admin only routes — NOT accessible to PROJECT_MANAGER.
-    // PROJECT_MANAGER is redirected to /dashboard if they try to access these.
-    // Learning (/dashboard/training) is open to all staff (blank placeholder).
     const adminOnlyRoutes = [
       "/dashboard/finance",
       "/dashboard/crm",
@@ -108,15 +109,14 @@ export async function middleware(request: NextRequest) {
       "/dashboard/training/assign",
     ]
 
-    // Admin OR Project Manager routes — accessible to SUPER_ADMIN, ADMIN,
-    // and PROJECT_MANAGER. Developers/viewers are redirected away.
+    // Admin OR Project Manager routes — Developers/viewers are redirected away
+    // (except Access Hub, which is open to DEVELOPER via nav + credentials API).
     const adminOrPmRoutes = [
       "/dashboard/clients",
       "/dashboard/projects",
       "/dashboard/demo",
       "/dashboard/approvals",
-      "/dashboard/access-hub",
-      "/dashboard/availability", // PM has read-only access — API enforces no mutations
+      "/dashboard/availability", // PM read-only — mutations require isAdmin in API
     ]
 
     const isSuperAdmin = role === "SUPER_ADMIN"

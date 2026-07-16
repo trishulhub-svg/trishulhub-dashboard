@@ -6,6 +6,8 @@ import { Prisma } from "@prisma/client"
 import { isAdminOrProjectManager } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { encryptCredential } from "@/lib/encryption"
+import { createCredentialSchema, validateRequest } from "@/lib/validations"
+import { canManageProjectSecrets } from "@/lib/project-access"
 
 /** Load the credential encryption key from DB (or empty string if not set) */
 async function loadCredDbKey(): Promise<string> {
@@ -35,9 +37,7 @@ export async function GET(req: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    // Only admins (and PROJECT_MANAGER, who has admin-like credential access)
-    // may view decrypted credentials
-    if (!isAdminOrProjectManager(session.user.role)) {
+    if (!canManageProjectSecrets(session.user.role)) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
 
@@ -74,24 +74,26 @@ export async function POST(req: NextRequest) {
     await ensureProjectCredentialTable()
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (!isAdminOrProjectManager(session.user.role)) return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+    if (!canManageProjectSecrets(session.user.role)) {
+      return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+    }
 
     const rl = rateLimit(`credentials-post-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
-    let body: { projectId?: string; title?: string; username?: string; password?: string }
+    let body: unknown
     try {
       body = await req.json()
     } catch {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
     }
 
-    const { projectId, title, username, password } = body
-    if (!projectId || !title || !username || !password) {
-      return NextResponse.json({ error: "projectId, title, username, and password are required" }, { status: 400 })
+    const validation = validateRequest(createCredentialSchema, body)
+    if (!validation.success) {
+      return NextResponse.json({ error: validation.error }, { status: 400 })
     }
+    const { projectId, title, username, password } = validation.data
 
-    // Enforce maxLength on credential fields
     const sanitizedTitle = title.trim().slice(0, 200)
     const sanitizedUsername = username.trim().slice(0, 500)
     const sanitizedPassword = password.trim().slice(0, 1000)
@@ -127,7 +129,9 @@ export async function PATCH(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (!isAdminOrProjectManager(session.user.role)) return NextResponse.json({ error: "Admin access required" }, { status: 403 })
+    if (!canManageProjectSecrets(session.user.role)) {
+      return NextResponse.json({ error: "Admin access required" }, { status: 403 })
+    }
 
     const rl = rateLimit(`credentials-patch-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
@@ -183,7 +187,9 @@ export async function DELETE(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (!isAdminOrProjectManager(session.user.role)) return NextResponse.json({ error: "Admin access required" }, { status: 403 })
+    if (!canManageProjectSecrets(session.user.role)) {
+      return NextResponse.json({ error: "Admin access required" }, { status: 403 })
+    }
 
     const rl = rateLimit(`credentials-delete-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })

@@ -400,7 +400,9 @@ export default function ClientsPage() {
   const userRole = session?.user?.role || "DEVELOPER";
   // PROJECT_MANAGER has the same client-management capabilities as ADMIN
   // per requirements ("Clients: ✅ Full (like admin) — Can manage clients").
+  // Finance + contracts remain ADMIN/SUPER_ADMIN only.
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN" || userRole === "PROJECT_MANAGER";
+  const isFinanceAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -845,6 +847,10 @@ export default function ClientsPage() {
 
   // ━━ Contract Panel Handlers ━━
   const openContractPanel = async (client: ClientRow) => {
+    if (!isFinanceAdmin) {
+      toast.error("Contracts are available to admins only");
+      return;
+    }
     setContractClient(client);
     setContractOpen(true);
     setContractLoading(true);
@@ -1407,9 +1413,11 @@ export default function ClientsPage() {
                           <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleEdit(client); }}>
                             <Pencil className="h-4 w-4 mr-2" /> Edit
                           </DropdownMenuItem>
+                          {isFinanceAdmin && (
                           <DropdownMenuItem onClick={(e) => { e.stopPropagation(); openContractPanel(client); }}>
                             <FileSignature className="h-4 w-4 mr-2" /> Contract
                           </DropdownMenuItem>
+                          )}
                           {/* CLI-012: Changed "Delete" to "Deactivate" to match dialog */}
                           <DropdownMenuItem
                             onClick={(e) => { e.stopPropagation(); setDeleteTarget(client); }}
@@ -2026,11 +2034,13 @@ export default function ClientsPage() {
                     }}>
                       <FolderKanban className="h-3 w-3 mr-1" /> Create Project
                     </Button>
+                    {isFinanceAdmin && (
                     <Button variant="outline" size="sm" className="flex-1 text-xs" onClick={() => {
                       router.push(`/dashboard/finance/invoices?clientId=${detailClient.id}`);
                     }}>
                       <FileText className="h-3 w-3 mr-1" /> Create Invoice
                     </Button>
+                    )}
                     {/* CLI-024: Open Portal disabled with tooltip "Coming soon" */}
                     <Tooltip>
                       <TooltipTrigger asChild>
