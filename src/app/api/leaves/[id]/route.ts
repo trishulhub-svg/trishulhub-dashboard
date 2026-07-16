@@ -6,6 +6,7 @@ import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureTable } from "@/lib/auto-migrate"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
+import { notifyUsers } from "@/lib/notify"
 
 // PATCH /api/leaves/[id] - Update leave status (approve/reject/cancel)
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -95,15 +96,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     // Notify the employee about the leave decision (fire-and-forget)
     if (status === "APPROVED" || status === "REJECTED") {
       try {
-        await db.notification.create({
-          data: {
-            userId: leave.userId,
-            title: `Leave ${status === "APPROVED" ? "Approved" : "Rejected"}`,
-            message: `Your ${leave.leaveType.replace("_", " ").toLowerCase()} leave request from ${new Date(leave.startDate).toLocaleDateString()} to ${new Date(leave.endDate).toLocaleDateString()} has been ${status.toLowerCase()}.`,
-            type: status === "APPROVED" ? "SUCCESS" : "WARNING",
-            link: "/dashboard/leaves",
-            metadata: JSON.stringify({ leaveId: leave.id }),
-          },
+        await notifyUsers({
+          userIds: leave.userId,
+          title: `Leave ${status === "APPROVED" ? "Approved" : "Rejected"}`,
+          message: `Your ${leave.leaveType.replace("_", " ").toLowerCase()} leave request from ${new Date(leave.startDate).toLocaleDateString()} to ${new Date(leave.endDate).toLocaleDateString()} has been ${status.toLowerCase()}.`,
+          type: status === "APPROVED" ? "SUCCESS" : "WARNING",
+          link: "/dashboard/leaves",
+          metadata: { leaveId: leave.id },
         })
       } catch (notifyErr: unknown) {
         console.error("[leaves] PATCH notification error (non-blocking):", notifyErr)

@@ -1078,7 +1078,7 @@ export default function SettingsPage() {
             <Bell className="h-5 w-5 text-muted-foreground" />
             <CardTitle className="text-base">Notification Preferences</CardTitle>
           </div>
-          <CardDescription>Configure how you receive notifications</CardDescription>
+          <CardDescription>Choose which alerts appear in your notification bell</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           {prefsLoading ? (
@@ -1098,13 +1098,10 @@ export default function SettingsPage() {
           ) : (
             <>
               <div className="space-y-4">
-                <h3 className="text-sm font-medium">Notification Types</h3>
+                <h3 className="text-sm font-medium">In-app alerts</h3>
                 {[
-                  { key: "emailNotifications" as const, label: "Email Notifications", desc: "Receive email for important updates" },
-                  { key: "budgetAlerts" as const, label: "Budget Alerts", desc: "Get notified when expenses approach budget limits" },
-                  { key: "taskReminders" as const, label: "Task Updates", desc: "Notifications when tasks are assigned or updated" },
-                  { key: "approvalAlerts" as const, label: "Approval Requests", desc: "Alerts when approvals are pending" },
-                  { key: "invoiceReminders" as const, label: "Invoice Updates", desc: "Notifications for invoice status changes" },
+                  { key: "approvalAlerts" as const, label: "Approvals & reviews", desc: "Leave decisions, approval requests, and detail reviews" },
+                  { key: "emailNotifications" as const, label: "Email notifications", desc: "Also send important updates by email when available" },
                 ].map(({ key, label, desc }) => (
                   <div key={key} className="flex items-center justify-between">
                     <div>

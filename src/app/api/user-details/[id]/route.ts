@@ -7,6 +7,7 @@ import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 import { sendEmailWithFailover } from "@/lib/email"
+import { notifyUsers } from "@/lib/notify"
 
 const VALID_STATUSES = ["PENDING", "APPROVED", "REJECTED"] as const
 
@@ -119,17 +120,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       // ── Notify the user (in-app + email) ──
       // In-app notification (fire-and-forget)
       try {
-        await db.notification.create({
-          data: {
-            userId: detail.userId,
-            title: `Details ${newStatus === "APPROVED" ? "Approved" : "Rejected"}`,
-            message: newStatus === "APPROVED"
-              ? `Your personal details have been approved by ${session.user.name || "an admin"}.`
-              : `Your personal details were rejected by ${session.user.name || "an admin"}. Reason: ${rejectedReason}`,
-            type: newStatus === "APPROVED" ? "SUCCESS" : "WARNING",
-            link: "/dashboard/my-details",
-            metadata: JSON.stringify({ userDetailId: id, status: newStatus }),
-          },
+        await notifyUsers({
+          userIds: detail.userId,
+          title: `Details ${newStatus === "APPROVED" ? "Approved" : "Rejected"}`,
+          message: newStatus === "APPROVED"
+            ? `Your personal details have been approved by ${session.user.name || "an admin"}.`
+            : `Your personal details were rejected by ${session.user.name || "an admin"}. Reason: ${rejectedReason}`,
+          type: newStatus === "APPROVED" ? "SUCCESS" : "WARNING",
+          link: "/dashboard/my-details",
+          metadata: { userDetailId: id, status: newStatus },
         })
       } catch (notifyErr: unknown) {
         console.error("[user-details] PATCH in-app notification error (non-blocking):", notifyErr)
@@ -242,15 +241,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
       // In-app notification to the user
       try {
-        await db.notification.create({
-          data: {
-            userId: detail.userId,
-            title: "Country Selection Unlocked",
-            message: `An admin has unlocked your country selection. You can now choose a different country in My Details.`,
-            type: "INFO",
-            link: "/dashboard/my-details",
-            metadata: JSON.stringify({ userDetailId: id, action: "UNLOCK_COUNTRY" }),
-          },
+        await notifyUsers({
+          userIds: detail.userId,
+          title: "Country Selection Unlocked",
+          message: `An admin has unlocked your country selection. You can now choose a different country in My Details.`,
+          type: "INFO",
+          link: "/dashboard/my-details",
+          metadata: { userDetailId: id, action: "UNLOCK_COUNTRY" },
         })
       } catch (notifyErr: unknown) {
         console.error("[user-details] PATCH unlock notification error (non-blocking):", notifyErr)

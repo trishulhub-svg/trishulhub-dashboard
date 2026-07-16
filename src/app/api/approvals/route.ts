@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { canManageApprovals } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { deepSanitize } from "@/lib/utils"
+import { notifyRoles, notifyUsers } from "@/lib/notify"
 
 // GET /api/approvals - List approvals (ADMIN/SUPER_ADMIN only for full access)
 export async function GET(req: NextRequest) {
@@ -127,27 +128,14 @@ export async function POST(req: NextRequest) {
     })
 
     // Notify all admins/super_admins about new approval request
-    const admins = await db.user.findMany({
-      where: {
-        role: { in: ["SUPER_ADMIN", "ADMIN"] },
-        isActive: true,
-      }
-    })
-
     try {
-      // W40: Use createMany for single round-trip instead of sequential loop
-      if (admins.length > 0) {
-        await db.notification.createMany({
-          data: admins.map(admin => ({
-            userId: admin.id,
-            title: "New Approval Request",
-            message: `${requesterType === "AI" ? "AI Agent" : "Team member"} requests approval: ${title}`,
-            type: "APPROVAL",
-            link: "/dashboard/approvals",
-            metadata: JSON.stringify({ approvalId: approval.id, type }),
-          })),
-        })
-      }
+      await notifyRoles(["SUPER_ADMIN", "ADMIN"], {
+        title: "New Approval Request",
+        message: `${requesterType === "AI" ? "AI Agent" : "Team member"} requests approval: ${title}`,
+        type: "APPROVAL",
+        link: "/dashboard/approvals",
+        metadata: { approvalId: approval.id, type },
+      })
     } catch (notifyErr: unknown) {
       console.error("[approvals] notification error (non-blocking):", notifyErr instanceof Error ? notifyErr.message : String(notifyErr))
     }
@@ -251,15 +239,23 @@ export async function PATCH(req: NextRequest) {
     // If approval was requested by a human, notify them
     if (approval.requesterType === "HUMAN" && approval.requesterId) {
       try {
-        await db.notification.create({
-          data: {
-            userId: approval.requesterId,
-            title: `Approval ${status === "APPROVED" ? "Approved" : status === "REJECTED" ? "Rejected" : "Needs Improvement"}`,
-            message: `Your request "${approval.title}" has been ${status.toLowerCase()}.${sanitizedFeedback ? ` Feedback: ${sanitizedFeedback}` : ""}`,
-            type: status === "APPROVED" ? "SUCCESS" : status === "REJECTED" ? "ERROR" : "WARNING",
-            link: "/dashboard/approvals",
-            metadata: JSON.stringify({ approvalId: id }),
-          }
+        // Developers cannot open /dashboard/approvals — send them to home
+        const requester = await db.user.findUnique({
+          where: { id: approval.requesterId },
+          select: { role: true },
+        })
+        const canOpenApprovals =
+          requester?.role === "SUPER_ADMIN" ||
+          requester?.role === "ADMIN" ||
+          requester?.role === "PROJECT_MANAGER"
+
+        await notifyUsers({
+          userIds: approval.requesterId,
+          title: `Approval ${status === "APPROVED" ? "Approved" : status === "REJECTED" ? "Rejected" : "Needs Improvement"}`,
+          message: `Your request "${approval.title}" has been ${status.toLowerCase()}.${sanitizedFeedback ? ` Feedback: ${sanitizedFeedback}` : ""}`,
+          type: status === "APPROVED" ? "SUCCESS" : status === "REJECTED" ? "ERROR" : "WARNING",
+          link: canOpenApprovals ? "/dashboard/approvals" : "/dashboard",
+          metadata: { approvalId: id },
         })
       } catch (notifyErr: unknown) {
         console.error("[approvals] notification error (non-blocking):", notifyErr)

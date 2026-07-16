@@ -6,6 +6,7 @@ import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureTable } from "@/lib/auto-migrate"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
+import { notifyRoles } from "@/lib/notify"
 
 const VALID_LEAVE_TYPES = [
   "SICK_LEAVE",
@@ -160,22 +161,13 @@ export async function POST(req: NextRequest) {
 
     // Notify admins about new leave request (fire-and-forget, don't block creation)
     try {
-      const admins = await db.user.findMany({
-        where: { role: { in: ["SUPER_ADMIN", "ADMIN"] }, isActive: true },
+      await notifyRoles(["SUPER_ADMIN", "ADMIN"], {
+        title: "New Leave Request",
+        message: `${leave.user?.name || "A team member"} requested ${leaveType.replace("_", " ").toLowerCase()} leave from ${new Date(startDate).toLocaleDateString()} to ${new Date(endDate).toLocaleDateString()}`,
+        type: "APPROVAL",
+        link: "/dashboard/team",
+        metadata: { leaveId: leave.id },
       })
-      // TODO: Use db.notification.createMany for batch insert
-      for (const admin of admins) {
-        await db.notification.create({
-          data: {
-            userId: admin.id,
-            title: "New Leave Request",
-            message: `${leave.user?.name || "A team member"} requested ${leaveType.replace("_", " ").toLowerCase()} leave from ${new Date(startDate).toLocaleDateString()} to ${new Date(endDate).toLocaleDateString()}`,
-            type: "APPROVAL",
-            link: "/dashboard/leaves",
-            metadata: JSON.stringify({ leaveId: leave.id }),
-          },
-        })
-      }
     } catch (notifyErr: unknown) {
       console.error("[leaves] POST notification error (non-blocking):", notifyErr)
     }
