@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { ensureAllTables } from "@/lib/auto-migrate"
+import { notifyRoles } from "@/lib/notify"
 
 /**
  * POST /api/training/qr/request
@@ -48,33 +49,23 @@ export async function POST(req: NextRequest) {
       select: { id: true, createdAt: true },
     })
 
-    const superAdmins = await db.user.findMany({
-      where: { role: "SUPER_ADMIN", isActive: true },
-      select: { id: true },
+    const notifiedAdmins = await notifyRoles(["SUPER_ADMIN"], {
+      title: "Training QR requested",
+      message: `${userName} needs a new Percipio login QR. Upload a fresh code in Learning.`,
+      type: "WARNING",
+      link: "/dashboard/training#manage-qr",
+      metadata: {
+        kind: "training_qr_request",
+        requestId: request.id,
+        requesterId: userId,
+      },
     })
-
-    if (superAdmins.length > 0) {
-      await db.notification.createMany({
-        data: superAdmins.map((sa) => ({
-          userId: sa.id,
-          title: "Training QR requested",
-          message: `${userName} needs a new Percipio login QR. Upload a fresh code in Learning.`,
-          type: "WARNING",
-          link: "/dashboard/training",
-          metadata: JSON.stringify({
-            kind: "training_qr_request",
-            requestId: request.id,
-            requesterId: userId,
-          }),
-        })),
-      })
-    }
 
     return NextResponse.json({
       ok: true,
       alreadyPending: false,
       request,
-      notifiedAdmins: superAdmins.length,
+      notifiedAdmins,
       message: "Request sent. Super Admin will upload a new QR shortly.",
     })
   } catch (err) {

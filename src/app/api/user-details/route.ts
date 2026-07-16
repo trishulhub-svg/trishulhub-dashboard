@@ -7,6 +7,7 @@ import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 import { encryptCredentialToJson, decryptCredentialFromJson } from "@/lib/encryption"
+import { notifyRoles } from "@/lib/notify"
 
 // ━━ Validation constants ━━
 
@@ -473,21 +474,13 @@ export async function POST(req: NextRequest) {
 
     // Notify admins about new submission (fire-and-forget, don't block)
     try {
-      const admins = await db.user.findMany({
-        where: { role: { in: ["SUPER_ADMIN", "ADMIN"] }, isActive: true },
+      await notifyRoles(["SUPER_ADMIN", "ADMIN"], {
+        title: "New Details Submission",
+        message: `${session.user.name || "A team member"} submitted their personal details for review (${country === "UK" ? "United Kingdom" : "India"}).`,
+        type: "APPROVAL",
+        link: "/dashboard/my-details",
+        metadata: { userDetailId: detail.id, userId },
       })
-      for (const admin of admins) {
-        await db.notification.create({
-          data: {
-            userId: admin.id,
-            title: "New Details Submission",
-            message: `${session.user.name || "A team member"} submitted their personal details for review (${country === "UK" ? "United Kingdom" : "India"}).`,
-            type: "APPROVAL",
-            link: "/dashboard/my-details",
-            metadata: JSON.stringify({ userDetailId: detail.id, userId }),
-          },
-        })
-      }
     } catch (notifyErr: unknown) {
       console.error("[user-details] POST notification error (non-blocking):", notifyErr)
     }

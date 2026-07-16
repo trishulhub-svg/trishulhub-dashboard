@@ -8,6 +8,7 @@ import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { VALID_DEPARTMENT_VALUES } from "@/lib/types"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
+import { notifyRoles, notifyUsers } from "@/lib/notify"
 
 // [C3] Helper: convert Date to local YYYY-MM-DD string (avoids UTC timezone issue)
 function toLocalDateStr(d: Date): string {
@@ -478,23 +479,14 @@ export async function POST(req: NextRequest) {
 
       // Notify admins about new leave request (fire-and-forget — non-blocking)
       try {
-        const admins = await db.user.findMany({
-          where: { role: { in: ["SUPER_ADMIN", "ADMIN"] }, isActive: true },
-        })
         const user = await db.user.findUnique({ where: { id: leaveUserId as string } })
-        // TODO: Use db.notification.createMany for batch insert
-        for (const admin of admins) {
-          await db.notification.create({
-            data: {
-              userId: admin.id,
-              title: "New Leave Request",
-              message: `${user?.name || "A team member"} requested ${leaveType} leave from ${parsedStart.toLocaleDateString()} to ${parsedEnd.toLocaleDateString()}`,
-              type: "INFO",
-              link: "/dashboard/team",
-              metadata: JSON.stringify({ leaveId: leave.id }),
-            }
-          })
-        }
+        await notifyRoles(["SUPER_ADMIN", "ADMIN"], {
+          title: "New Leave Request",
+          message: `${user?.name || "A team member"} requested ${leaveType} leave from ${parsedStart.toLocaleDateString()} to ${parsedEnd.toLocaleDateString()}`,
+          type: "INFO",
+          link: "/dashboard/team",
+          metadata: { leaveId: leave.id },
+        })
       } catch (notifyErr: unknown) {
         // [T2] Fixed error: any → error: unknown
         console.error("[team] leave notification error (non-blocking):", notifyErr instanceof Error ? notifyErr.message : String(notifyErr))
@@ -742,15 +734,13 @@ export async function PATCH(req: NextRequest) {
 
       // Notify the user about leave decision (fire-and-forget — non-blocking)
       try {
-        await db.notification.create({
-          data: {
-            userId: leave.userId,
-            title: `Leave ${data.status}`,
-            message: `Your ${leave.type} leave request has been ${(data.status as string)?.toLowerCase()}.${sanitizedFeedback ? ` Feedback: ${sanitizedFeedback}` : ""}`,
-            type: data.status === "APPROVED" ? "SUCCESS" : data.status === "REJECTED" ? "ERROR" : "INFO",
-            link: "/dashboard/team",
-            metadata: JSON.stringify({ leaveId: leave.id }),
-          }
+        await notifyUsers({
+          userIds: leave.userId,
+          title: `Leave ${data.status}`,
+          message: `Your ${leave.type} leave request has been ${(data.status as string)?.toLowerCase()}.${sanitizedFeedback ? ` Feedback: ${sanitizedFeedback}` : ""}`,
+          type: data.status === "APPROVED" ? "SUCCESS" : data.status === "REJECTED" ? "ERROR" : "INFO",
+          link: "/dashboard/leaves",
+          metadata: { leaveId: leave.id },
         })
       } catch (notifyErr: unknown) {
         // [T2] Fixed error: any → error: unknown

@@ -515,7 +515,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       const res = await fetch("/api/notifications", { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
-        setNotifications(safeArray<NotificationItem>(data));
+        setNotifications(safeArray<NotificationItem>(data?.notifications));
       }
     } catch (err) {
       console.error("Failed to fetch notifications:", err);
@@ -605,15 +605,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const markAsRead = useCallback(async (notifId: string) => {
     try {
-      await fetch("/api/notifications", {
+      const res = await fetch("/api/notifications", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({ id: notifId, isRead: true }),
       });
-      setNotifications((prev) =>
-        prev.map((n) => (n.id === notifId ? { ...n, isRead: true } : n))
-      );
+      if (res.ok) {
+        setNotifications((prev) =>
+          prev.map((n) => (n.id === notifId ? { ...n, isRead: true } : n))
+        );
+      }
     } catch (err) {
       console.error("Failed to mark notification as read:", err);
     }
@@ -648,14 +650,29 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, []);
 
-  // I7: Extracted notification click handler from inline async in JSX
+  // Clickable notifications: mark read, then navigate to the linked page/section
   const handleNotificationClick = async (notif: NotificationItem) => {
     try {
       if (!notif.isRead) await markAsRead(notif.id);
-    } catch {}
-    if (notif.link && notif.link.startsWith("/")) {
-      router.push(notif.link);
+    } catch (err) {
+      console.error("Failed to mark notification as read on click:", err);
+    }
+
+    const link = typeof notif.link === "string" ? notif.link.trim() : "";
+    if (!link) {
       setNotifOpen(false);
+      return;
+    }
+
+    setNotifOpen(false);
+
+    if (link.startsWith("/")) {
+      router.push(link);
+      return;
+    }
+
+    if (link.startsWith("http://") || link.startsWith("https://")) {
+      window.open(link, "_blank", "noopener,noreferrer");
     }
   };
 
@@ -806,8 +823,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </DropdownMenuContent>
             </DropdownMenu>
 
-            {/* Notifications Sheet — better scroll on all devices */}
-            <Sheet open={notifOpen} onOpenChange={setNotifOpen}>
+            <Sheet open={notifOpen} onOpenChange={(open) => {
+              setNotifOpen(open);
+              if (open) fetchNotifications();
+            }}>
               <SheetTrigger asChild>
                 <Button variant="ghost" size="icon" className="relative h-8 w-8 sm:h-9 sm:w-9" aria-label="Notifications">
                   <Bell className="h-4 w-4" />
@@ -837,16 +856,25 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     </div>
                   ) : (
                     <div>
-                      {notifications.slice(0, 50).map((notif) => {
+                      {notifications.map((notif) => {
                         const NotifIcon = notifIcons[notif.type] || Info;
+                        const hasLink = !!(notif.link && notif.link.trim());
                         return (
                           <div
                             key={notif.id}
+                            role="button"
+                            tabIndex={0}
                             className={cn(
                               "flex items-start gap-3 p-3 hover:bg-accent/50 cursor-pointer transition-colors border-b last:border-0",
                               !notif.isRead && "bg-primary/5"
                             )}
                             onClick={() => handleNotificationClick(notif)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                handleNotificationClick(notif);
+                              }
+                            }}
                           >
                             <div className={cn(
                               "mt-0.5 h-7 w-7 rounded-full flex items-center justify-center shrink-0",
@@ -870,7 +898,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                               <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
                                 {safeText(notif.message, "")}
                               </p>
+                              {hasLink && (
+                                <p className="text-[10px] text-primary mt-1 font-medium">
+                                  Open related page →
+                                </p>
+                              )}
                             </div>
+                            {!notif.isRead && (
+                              <span className="mt-1.5 h-2 w-2 rounded-full bg-primary shrink-0" aria-hidden />
+                            )}
                             <Button
                               variant="ghost"
                               size="icon"
@@ -886,12 +922,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                           </div>
                         );
                       })}
-                      {/* W8: Show indicator when notifications are capped at 50 */}
-                      {notifications.length > 50 && (
-                        <span className="text-xs text-center text-muted-foreground block py-2">
-                          View all {notifications.length} notifications
-                        </span>
-                      )}
                     </div>
                   )}
                 </ScrollArea>

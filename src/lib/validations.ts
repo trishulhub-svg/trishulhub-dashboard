@@ -586,7 +586,7 @@ const hhMmRegex = /^([01]\d|2[0-3]):([0-5]\d)$/
 
 export const updateNotificationPreferenceSchema = z.object({
   emailNotifications: z.boolean().optional(),
-  pushNotifications: z.boolean().optional(),
+  approvalAlerts: z.boolean().optional(),
   quietHoursEnabled: z.boolean().optional(),
   quietHoursStart: z.string().regex(hhMmRegex).nullable().optional(),
   quietHoursEnd: z.string().regex(hhMmRegex).nullable().optional(),

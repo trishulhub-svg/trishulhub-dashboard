@@ -170,6 +170,26 @@ export default function LearningPage() {
     else if (sessionStatus === "unauthenticated") setLoading(false)
   }, [sessionStatus, load])
 
+  // Deep-link from notifications: #manage-qr / #open-qr
+  useEffect(() => {
+    if (loading) return
+    if (typeof window === "undefined") return
+
+    const applyHash = () => {
+      const hash = window.location.hash
+      if (hash === "#manage-qr") {
+        document.getElementById("manage-qr")?.scrollIntoView({ behavior: "smooth", block: "start" })
+      } else if (hash === "#open-qr") {
+        document.getElementById("open-qr")?.scrollIntoView({ behavior: "smooth", block: "center" })
+        if (state?.qr?.imageData) setQrOpen(true)
+      }
+    }
+
+    applyHash()
+    window.addEventListener("hashchange", applyHash)
+    return () => window.removeEventListener("hashchange", applyHash)
+  }, [loading, state?.qr?.imageData])
+
   const handleUpload = async (file: File) => {
     if (!file.type.startsWith("image/")) {
       toast.error("Please choose an image file (PNG, JPEG, WebP, or GIF)")
@@ -274,7 +294,10 @@ export default function LearningPage() {
 
       {/* Super Admin manage panel */}
       {isSa && (
-        <section className="rounded-2xl border border-border bg-card p-5 sm:p-6 space-y-4">
+        <section
+          id="manage-qr"
+          className="rounded-2xl border border-border bg-card p-5 sm:p-6 space-y-4 scroll-mt-24"
+        >
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="space-y-1">
               <div className="flex items-center gap-2">
@@ -435,7 +458,7 @@ export default function LearningPage() {
                   )}
 
                   {step.num === "03" && (
-                    <div className="pl-0 sm:pl-6 space-y-3">
+                    <div id="open-qr" className="pl-0 sm:pl-6 space-y-3 scroll-mt-24">
                       <div className="flex flex-wrap gap-2">
                         <Button
                           type="button"

@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { isSuperAdmin } from "@/lib/rbac"
+import { notifyUsers } from "@/lib/notify"
 import { z } from "zod"
 
 const IMAGE_DATA_URL =
@@ -153,16 +154,14 @@ export async function POST(req: NextRequest) {
     // Smart notify: only the pending cohort for THIS upload (A then B example)
     const requesterIds = [...new Set(pending.map((p) => p.userId))]
     if (requesterIds.length > 0) {
-      await db.notification.createMany({
-        data: requesterIds.map((userId) => ({
-          userId,
-          title: "New training QR available",
-          message:
-            "A new Percipio login QR has been uploaded. Open Learning to scan and log in.",
-          type: "SUCCESS",
-          link: "/dashboard/training",
-          metadata: JSON.stringify({ trainingQrId: qr.id, kind: "training_qr_updated" }),
-        })),
+      await notifyUsers({
+        userIds: requesterIds,
+        title: "New training QR available",
+        message:
+          "A new Percipio login QR has been uploaded. Open Learning to scan and log in.",
+        type: "SUCCESS",
+        link: "/dashboard/training#open-qr",
+        metadata: { trainingQrId: qr.id, kind: "training_qr_updated" },
       })
 
       await db.trainingQrRequest.updateMany({

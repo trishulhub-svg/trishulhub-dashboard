@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdminOrProjectManager } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
+import { notifyUsers } from "@/lib/notify"
 
 // GET /api/projects/[projectId]/members - List project members
 export async function GET(
@@ -117,15 +118,19 @@ export async function POST(
 
     // Notify the user about project assignment
     try {
-      await db.notification.create({
-        data: {
-          userId,
-          title: "Project Assignment",
-          message: `You have been assigned to project "${project.name}" as ${memberRole || "MEMBER"}`,
-          type: "INFO",
-          link: `/dashboard/projects/${projectId}`,
-          metadata: JSON.stringify({ projectId, memberRole: memberRole || "MEMBER" }),
-        },
+      // Developers cannot open /dashboard/projects — send them to Dashboard
+      const canOpenProjects =
+        user.role === "SUPER_ADMIN" ||
+        user.role === "ADMIN" ||
+        user.role === "PROJECT_MANAGER"
+
+      await notifyUsers({
+        userIds: userId,
+        title: "Project Assignment",
+        message: `You have been assigned to project "${project.name}" as ${memberRole || "MEMBER"}`,
+        type: "INFO",
+        link: canOpenProjects ? `/dashboard/projects/${projectId}` : "/dashboard",
+        metadata: { projectId, memberRole: memberRole || "MEMBER" },
       })
     } catch (notifyErr: unknown) {
       // W8: Log the error object
