@@ -5,7 +5,7 @@ import { db, ensureProjectCredentialTable, getAppSetting } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { isAdminOrProjectManager } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { encryptCredential, decryptCredential } from "@/lib/encryption"
+import { encryptCredential } from "@/lib/encryption"
 
 /** Load the credential encryption key from DB (or empty string if not set) */
 async function loadCredDbKey(): Promise<string> {
@@ -52,24 +52,15 @@ export async function GET(req: NextRequest) {
     const project = await db.project.findUnique({ where: { id: projectId } })
     if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 })
 
-    const dbKey = await loadCredDbKey()
+    // SECURITY: Never return decrypted passwords in list responses.
+    // Clients must call POST /api/projects/credentials/reveal for plaintext.
     const credentials = await db.projectCredential.findMany({
       where: { projectId },
-      select: { id: true, title: true, username: true, password: true, iv: true, tag: true, createdAt: true, updatedAt: true },
+      select: { id: true, title: true, username: true, createdAt: true, updatedAt: true },
       orderBy: { createdAt: "desc" },
     })
 
-    // Decrypt passwords before sending to client
-    const decrypted = credentials.map((cred) => {
-      try {
-        const password = decryptCredential(cred.password, cred.iv, cred.tag, dbKey || undefined)
-        return { ...cred, password, iv: undefined, tag: undefined }
-      } catch {
-        return { ...cred, password: "[DECRYPTION ERROR]", iv: undefined, tag: undefined }
-      }
-    })
-
-    return NextResponse.json(decrypted)
+    return NextResponse.json(credentials.map((cred) => ({ ...cred, hasPassword: true })))
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error)
     console.error("[credentials] GET error:", msg)

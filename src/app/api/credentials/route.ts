@@ -1,4 +1,3 @@
-// TODO: Implement AES-256-GCM encryption at rest for passwords (similar to project infrastructure token encryption)
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -7,6 +6,7 @@ import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { logAudit, getIpAddress, getUserAgent, buildDescription } from "@/lib/audit-log";
+import { encryptToJson } from "@/lib/encryption";
 
 // ── Zod Schemas ──
 const createCredentialSchema = z.object({
@@ -49,10 +49,9 @@ async function requireAdmin(req: NextRequest) {
   return { error: null, session };
 }
 
-// ── Password Masking ──
-function maskPassword(password: string | null | undefined): string {
-  if (!password) return "****";
-  return "****" + String(password).slice(-4);
+// ── Password Masking (never leak ciphertext or plaintext fragments) ──
+function maskPassword(): string {
+  return "••••••••";
 }
 
 // TODO: Use DOMPurify for proper XSS sanitization
@@ -92,7 +91,7 @@ export async function GET(req: NextRequest) {
           orderBy: { createdAt: "desc" },
           take: 100,
         });
-        const masked = credentials.map((c) => ({ ...c, password: maskPassword(c.password) }));
+        const masked = credentials.map(({ password: _p, ...c }) => ({ ...c, password: maskPassword(), hasPassword: true }));
         return NextResponse.json(masked);
       }
 
@@ -110,7 +109,7 @@ export async function GET(req: NextRequest) {
         }),
         db.userCredential.count(),
       ]);
-      const masked = credentials.map((c) => ({ ...c, password: maskPassword(c.password) }));
+      const masked = credentials.map(({ password: _p, ...c }) => ({ ...c, password: maskPassword(), hasPassword: true }));
       return NextResponse.json({ data: masked, total, page, limit });
     }
 
@@ -120,7 +119,7 @@ export async function GET(req: NextRequest) {
       orderBy: { createdAt: "desc" },
       take: 100,
     });
-    const masked = credentials.map((c) => ({ ...c, password: maskPassword(c.password) }));
+    const masked = credentials.map(({ password: _p, ...c }) => ({ ...c, password: maskPassword(), hasPassword: true }));
     return NextResponse.json(masked);
   } catch (error: unknown) {
     console.error("[credentials] GET error:", error);
@@ -177,7 +176,7 @@ export async function POST(req: NextRequest) {
         userId,
         label: sanitizeStr(label, 100),
         username: sanitizeStr(username, 200),
-        password,
+        password: encryptToJson(password),
         url: url || null,
         notes: notes || null,
         createdBy: session.user.id,
@@ -246,7 +245,7 @@ export async function PUT(req: NextRequest) {
         data: {
           ...(label !== undefined && { label: sanitizeStr(label, 100) }),
           ...(username !== undefined && { username: sanitizeStr(username, 200) }),
-          ...(password !== undefined && { password }),
+          ...(password !== undefined && { password: encryptToJson(password) }),
           ...(url !== undefined && { url }),
           ...(notes !== undefined && { notes }),
         },

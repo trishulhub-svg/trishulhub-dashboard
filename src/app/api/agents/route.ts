@@ -3,12 +3,36 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 
+/** Strip secrets from agent payloads — never return githubToken to any client. */
+function sanitizeAgent<T extends {
+  roleConfig?: {
+    githubToken?: string | null
+    githubRepo?: string | null
+    [key: string]: unknown
+  } | null
+}>(agent: T, userRole: string) {
+  if (!agent.roleConfig) return agent
+  const isSuperAdmin = userRole === "SUPER_ADMIN"
+  const isDev = (agent as { type?: string }).type === "DEV"
+  const { githubToken: _token, ...restConfig } = agent.roleConfig
+  return {
+    ...agent,
+    roleConfig: {
+      ...restConfig,
+      // Non-dev agents: never expose repo either
+      githubRepo: isDev || isSuperAdmin ? (restConfig.githubRepo || "") : "",
+      hasGithubToken: !!_token,
+    },
+  }
+}
+
 // GET /api/agents - List agents (filtered by user access)
 // GET /api/agents?id=xxx - Single agent fetch (optimized, no full list query)
+// NOTE: Legacy in-app Agents page was removed; Workspace uses /api/agent-auth + /api/agent.
+// This route remains for any residual admin tooling — secrets are always stripped.
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
-    // CRITICAL FIX: Return 401 if not authenticated - previously leaked all agent data
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
@@ -22,7 +46,6 @@ export async function GET(req: NextRequest) {
       const agent = await db.agent.findFirst({
         where: {
           id: singleId,
-          // Only return if user has view access (or is admin)
           ...(!["SUPER_ADMIN", "ADMIN"].includes(userRole) ? { userAccess: { some: { userId, canView: true } } } : {}),
         },
         include: {
@@ -34,21 +57,8 @@ export async function GET(req: NextRequest) {
         },
       })
       if (!agent) return NextResponse.json({ error: "Agent not found" }, { status: 404 })
-      // Apply githubToken masking for non-SUPER_ADMIN
-      if (userRole !== "SUPER_ADMIN" && agent.roleConfig) {
-        if (agent.type !== "DEV") {
-          agent.roleConfig.githubToken = ""
-          agent.roleConfig.githubRepo = ""
-        } else {
-          agent.roleConfig.githubToken = agent.roleConfig.githubToken
-            ? `${agent.roleConfig.githubToken.substring(0, 4)}...${agent.roleConfig.githubToken.slice(-4)}`
-            : ""
-        }
-      }
-      return NextResponse.json(JSON.parse(JSON.stringify(agent)))
+      return NextResponse.json(JSON.parse(JSON.stringify(sanitizeAgent(agent, userRole))))
     }
-
-    // ── Full agent list (original behavior) ──
 
     const agents = await db.agent.findMany({
       include: {
@@ -65,8 +75,6 @@ export async function GET(req: NextRequest) {
         } : false,
       },
       orderBy: { createdAt: "asc" },
-      // FIX: Use Prisma where clause for agent type filtering instead of JS filtering
-      // Non-super-admin users should only see agents they have access to
       ...(userRole !== "SUPER_ADMIN" && userRole !== "ADMIN" ? {
         where: {
           userAccess: {
@@ -76,40 +84,8 @@ export async function GET(req: NextRequest) {
       } : {}),
     })
 
-    // SECURITY: Mask githubToken for non-SUPER_ADMIN users
-    // Developers already filtered by Prisma where clause above
-    if (userRole !== "SUPER_ADMIN") {
-      const sanitized = agents.map(agent => {
-        if (agent.roleConfig && agent.type !== "DEV") {
-          return {
-            ...agent,
-            roleConfig: {
-              ...agent.roleConfig,
-              githubToken: "",
-              githubRepo: "",
-            }
-          }
-        }
-        // Mask githubToken for all non-super-admin users even for DEV agent
-        if (agent.roleConfig) {
-          return {
-            ...agent,
-            roleConfig: {
-              ...agent.roleConfig,
-              githubToken: agent.roleConfig.githubToken
-                ? `${agent.roleConfig.githubToken.substring(0, 4)}...${agent.roleConfig.githubToken.slice(-4)}`
-                : "",
-            }
-          }
-        }
-        return agent
-      })
-      // ZAI FIX #310: JSON round-trip to strip any non-serializable values
-      return NextResponse.json(JSON.parse(JSON.stringify(sanitized)))
-    }
-
-    // ZAI FIX #310: JSON round-trip to strip any non-serializable values
-    return NextResponse.json(JSON.parse(JSON.stringify(agents)))
+    const sanitized = agents.map((agent) => sanitizeAgent(agent, userRole))
+    return NextResponse.json(JSON.parse(JSON.stringify(sanitized)))
   } catch (error: unknown) {
     console.error("[agents] GET error:", error instanceof Error ? error.message : String(error), error instanceof Error ? error.stack : undefined); return NextResponse.json({ error: "Failed to fetch agents" }, { status: 500 })
   }
@@ -136,23 +112,20 @@ export async function PATCH(req: NextRequest) {
 
     // SECURITY: Whitelist allowed fields for agent update (prevent mass assignment)
     const allowedAgentFields = ["name", "description", "systemPrompt", "model", "status"]
-    const sanitizedAgentData: Record<string, any> = {}
+    const sanitizedAgentData: Record<string, unknown> = {}
     for (const key of allowedAgentFields) {
       if (data[key] !== undefined) {
         sanitizedAgentData[key] = data[key]
       }
     }
 
-    // Update agent basic data
     const agent = await db.agent.update({
       where: { id },
       data: sanitizedAgentData,
       include: { roleConfig: true },
     })
 
-    // Update role config if provided
     if (roleConfig) {
-      // SECURITY: Only allow GitHub fields for DEV agent type
       const isDevAgent = agent.type === "DEV"
       const githubRepo = isDevAgent ? (roleConfig.githubRepo ?? "") : ""
       const githubToken = isDevAgent ? (roleConfig.githubToken ?? "") : ""
@@ -179,7 +152,6 @@ export async function PATCH(req: NextRequest) {
           ...(roleConfig.features !== undefined && { features: JSON.stringify(roleConfig.features) }),
           ...(roleConfig.suggestedPrompts !== undefined && { suggestedPrompts: JSON.stringify(roleConfig.suggestedPrompts) }),
           ...(roleConfig.autoWorkflows !== undefined && { autoWorkflows: JSON.stringify(roleConfig.autoWorkflows) }),
-          // GitHub fields: only set for DEV agent, always clear for others
           ...(isDevAgent && roleConfig.githubRepo !== undefined && { githubRepo: roleConfig.githubRepo }),
           ...(isDevAgent && roleConfig.githubToken !== undefined && { githubToken: roleConfig.githubToken }),
           ...(isDevAgent && roleConfig.autoPushEnabled !== undefined && { autoPushEnabled: roleConfig.autoPushEnabled }),
@@ -188,13 +160,12 @@ export async function PATCH(req: NextRequest) {
       })
     }
 
-    // Refetch with role config
     const updated = await db.agent.findUnique({
       where: { id },
       include: { roleConfig: true },
     })
 
-    return NextResponse.json(JSON.parse(JSON.stringify(updated)))
+    return NextResponse.json(JSON.parse(JSON.stringify(updated ? sanitizeAgent(updated, userRole) : null)))
   } catch (error: unknown) {
     console.error("[agents] PATCH error:", error instanceof Error ? error.message : String(error), error instanceof Error ? error.stack : undefined)
     return NextResponse.json({ error: "Failed to update agent" }, { status: 500 })

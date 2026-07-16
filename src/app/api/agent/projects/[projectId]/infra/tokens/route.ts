@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { extractAgentToken, isAgentAdmin } from "@/lib/agent-auth";
+import { extractAgentToken } from "@/lib/agent-auth";
 import { decryptCredential } from "@/lib/encryption";
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log";
+import { rateLimit } from "@/lib/rate-limit";
 
 // ── Helpers ──
 
@@ -57,6 +58,12 @@ export async function POST(
     const hasAccess = await canAccessProject(user.id, user.role, projectId);
     if (!hasAccess) {
       return NextResponse.json({ error: "Forbidden: not a project member" }, { status: 403 });
+    }
+
+    // Rate limit — match browser reveal (5/min per user)
+    const rl = rateLimit(`agent-infra-reveal-${user.id}`, 5, 60_000);
+    if (!rl.success) {
+      return NextResponse.json({ error: "Rate limited — too many token reveals. Try again in a minute." }, { status: 429 });
     }
 
     // Parse body
