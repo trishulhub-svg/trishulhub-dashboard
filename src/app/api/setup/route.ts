@@ -11,9 +11,6 @@ import { rateLimit } from "@/lib/rate-limit"
  */
 const ALLOWED_TABLE_NAMES = new Set([
   "User",
-  "Chat",
-  "ChatMessage",
-  "ScheduledTask",
   "Approval",
   "Client",
   "Project",
@@ -77,31 +74,7 @@ export async function PATCH() {
   }
 
   try {
-    // ━━ Schema Migration: Add missing columns to production DB ━━
-    const migrations = [
-      { table: "CrossAgentMessage", column: "linkedChatId", type: "TEXT", sql: "ALTER TABLE CrossAgentMessage ADD COLUMN linkedChatId TEXT" },
-      { table: "CrossAgentMessage", column: "shareFullChat", type: "INTEGER", sql: "ALTER TABLE CrossAgentMessage ADD COLUMN shareFullChat INTEGER DEFAULT 0" },
-      { table: "Chat", column: "lockedBy", type: "TEXT", sql: "ALTER TABLE Chat ADD COLUMN lockedBy TEXT" },
-      { table: "Chat", column: "lockedAt", type: "TEXT", sql: "ALTER TABLE Chat ADD COLUMN lockedAt TEXT" },
-      { table: "Chat", column: "lockedByName", type: "TEXT", sql: "ALTER TABLE Chat ADD COLUMN lockedByName TEXT" },
-    ]
-
-    for (const migration of migrations) {
-      try {
-        // SECURITY FIX: Validate table name against allowlist before using in raw SQL
-        validateTableName(migration.table)
-        // Check if column already exists
-        const columns = await db.$queryRawUnsafe(`PRAGMA table_info(${migration.table})`) as any[]
-        const columnExists = columns.some((col: any) => col.name === migration.column)
-        if (!columnExists) {
-          await db.$executeRawUnsafe(migration.sql)
-          logs.push(`Added column ${migration.column} to ${migration.table}`)
-        }
-      } catch (err: unknown) {
-        console.error(`[setup] Migration ${migration.column} failed:`, err instanceof Error ? err.message : String(err))
-        logs.push(`Migration ${migration.column}: Migration failed — check server logs`)
-      }
-    }
+    // Column migrations moved to auto-migrate.ts (ensureAllTables).
 
     // ━━ Create new tables if they don't exist ━━
     const createTables = [
@@ -146,66 +119,6 @@ export async function PATCH() {
           "isPrimary" BOOLEAN NOT NULL DEFAULT false,
           "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           "clientId" TEXT NOT NULL
-        )`
-      },
-      {
-        name: "ProtocolVersion",
-        sql: `CREATE TABLE IF NOT EXISTS "ProtocolVersion" (
-          "id" TEXT NOT NULL PRIMARY KEY,
-          "version" TEXT NOT NULL,
-          "title" TEXT NOT NULL DEFAULT 'Trishul Protocol',
-          "content" TEXT NOT NULL DEFAULT '',
-          "stageDescriptions" TEXT NOT NULL DEFAULT '[]',
-          "agentSkills" TEXT NOT NULL DEFAULT '[]',
-          "isActive" BOOLEAN NOT NULL DEFAULT true,
-          "createdBy" TEXT NOT NULL,
-          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          "updatedAt" DATETIME NOT NULL
-        )`
-      },
-      {
-        name: "ProtocolInvite",
-        sql: `CREATE TABLE IF NOT EXISTS "ProtocolInvite" (
-          "id" TEXT NOT NULL PRIMARY KEY,
-          "protocolId" TEXT NOT NULL,
-          "inviteCode" TEXT NOT NULL,
-          "targetEmail" TEXT NOT NULL,
-          "targetName" TEXT,
-          "agentAccess" TEXT NOT NULL DEFAULT '[]',
-          "expiresAt" DATETIME NOT NULL,
-          "usedAt" DATETIME,
-          "usedBy" TEXT,
-          "createdBy" TEXT NOT NULL,
-          "status" TEXT NOT NULL DEFAULT 'PENDING',
-          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          "updatedAt" DATETIME NOT NULL
-        )`
-      },
-      {
-        name: "ProtocolAccessLog",
-        sql: `CREATE TABLE IF NOT EXISTS "ProtocolAccessLog" (
-          "id" TEXT NOT NULL PRIMARY KEY,
-          "inviteId" TEXT NOT NULL,
-          "protocolId" TEXT NOT NULL,
-          "userEmail" TEXT NOT NULL,
-          "agentAccess" TEXT NOT NULL DEFAULT '[]',
-          "ipAddress" TEXT,
-          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )`
-      },
-      {
-        name: "UserProtocolAccess",
-        sql: `CREATE TABLE IF NOT EXISTS "UserProtocolAccess" (
-          "id" TEXT NOT NULL PRIMARY KEY,
-          "userId" TEXT NOT NULL,
-          "userEmail" TEXT NOT NULL,
-          "userName" TEXT,
-          "protocolId" TEXT NOT NULL,
-          "agentAccess" TEXT NOT NULL DEFAULT '[]',
-          "isActive" BOOLEAN NOT NULL DEFAULT true,
-          "verifiedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          "verifiedVia" TEXT NOT NULL,
-          "lastAccessAt" DATETIME NOT NULL
         )`
       },
       {

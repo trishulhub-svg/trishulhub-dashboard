@@ -165,7 +165,7 @@ export async function POST(req: NextRequest) {
         title: "New Leave Request",
         message: `${leave.user?.name || "A team member"} requested ${leaveType.replace("_", " ").toLowerCase()} leave from ${new Date(startDate).toLocaleDateString()} to ${new Date(endDate).toLocaleDateString()}`,
         type: "APPROVAL",
-        link: "/dashboard/team",
+        link: "/dashboard/approvals",
         metadata: { leaveId: leave.id },
       })
     } catch (notifyErr: unknown) {

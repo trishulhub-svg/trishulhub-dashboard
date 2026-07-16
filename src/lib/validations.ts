@@ -564,7 +564,6 @@ export const validApprovalTypes = [
   "CODE_REVIEW",
   "LEAD_OUTREACH",
   "CONTENT_PIECE",
-  "CHAT_DELETION",
 ] as const
 
 export const createApprovalSchema = z.object({
