@@ -36,7 +36,7 @@ export type TrainingAssignmentDetail = {
 function statusBadge(status: string) {
   if (status === "DONE") return <Badge className="bg-success/15 text-success border-0">Done</Badge>
   if (status === "OVERDUE") return <Badge variant="destructive">Overdue</Badge>
-  return <Badge variant="secondary">Open</Badge>
+  return <Badge variant="secondary">Assigned</Badge>
 }
 
 function dateLabel(value?: string | null) {
@@ -85,108 +85,110 @@ export function AssignmentDetailDialog({
   onMarkDone,
   marking = false,
 }: Props) {
-  if (!assignment) return null
-
   const assignee =
-    assignment.user?.name ||
-    assignment.user?.email ||
+    assignment?.user?.name ||
+    assignment?.user?.email ||
     (showAssignee ? "Unknown" : null)
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="pr-6 text-left leading-snug">
-            {assignment.title}
-          </DialogTitle>
-          <DialogDescription className="text-left">
-            Full training assignment details
-          </DialogDescription>
-        </DialogHeader>
+    <Dialog open={open && !!assignment} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto z-[100]">
+        {assignment ? (
+          <>
+            <DialogHeader>
+              <DialogTitle className="pr-6 text-left leading-snug">
+                {assignment.title}
+              </DialogTitle>
+              <DialogDescription className="text-left">
+                Full training assignment details
+              </DialogDescription>
+            </DialogHeader>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {statusBadge(assignment.status)}
-          <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
-            <Clock className="h-3.5 w-3.5" />
-            Due {dateLabel(assignment.dueDate)}
-          </span>
-        </div>
-
-        <dl className="space-y-3 rounded-xl border border-border bg-muted/20 p-4">
-          {showAssignee && (
-            <DetailRow label="Assigned to">
-              <span className="inline-flex items-center gap-1.5">
-                <UserRound className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                {assignee}
-                {assignment.user?.email && assignment.user.email !== assignee ? (
-                  <span className="text-muted-foreground">· {assignment.user.email}</span>
-                ) : null}
+            <div className="flex flex-wrap items-center gap-2">
+              {statusBadge(assignment.status)}
+              <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
+                <Clock className="h-3.5 w-3.5" />
+                Due {dateLabel(assignment.dueDate)}
               </span>
-            </DetailRow>
-          )}
-          <DetailRow label="Assigned by">
-            {assignment.assignedBy?.name || "Admin"}
-          </DetailRow>
-          <DetailRow label="Due date">{dateLabel(assignment.dueDate)}</DetailRow>
-          <DetailRow label="Status">
-            {assignment.status === "DONE"
-              ? "Completed"
-              : assignment.status === "OVERDUE"
-                ? "Overdue"
-                : "Open / assigned"}
-          </DetailRow>
-          <DetailRow label="Notes">
-            {assignment.notes?.trim()
-              ? assignment.notes
-              : <span className="text-muted-foreground">No notes</span>}
-          </DetailRow>
-          <DetailRow label="Created">{dateLabel(assignment.createdAt)}</DetailRow>
-          {assignment.status === "DONE" && (
-            <DetailRow label="Completed">{dateLabel(assignment.completedAt)}</DetailRow>
-          )}
-        </dl>
+            </div>
 
-        <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-end">
-          {onMarkDone && assignment.status !== "DONE" && (
-            <Button
-              type="button"
-              className="gap-2 w-full sm:w-auto"
-              disabled={marking}
-              onClick={() => onMarkDone(assignment.id)}
-            >
-              {marking ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <CheckCircle2 className="h-4 w-4" />
+            <dl className="space-y-3 rounded-xl border border-border bg-muted/20 p-4">
+              {showAssignee && (
+                <DetailRow label="Assigned to">
+                  <span className="inline-flex items-center gap-1.5">
+                    <UserRound className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    {assignee}
+                    {assignment.user?.email && assignment.user.email !== assignee ? (
+                      <span className="text-muted-foreground">· {assignment.user.email}</span>
+                    ) : null}
+                  </span>
+                </DetailRow>
               )}
-              Mark done
-            </Button>
-          )}
-          {onDelete && (
-            <Button
-              type="button"
-              variant="destructive"
-              className="gap-2 w-full sm:w-auto"
-              disabled={deleting}
-              onClick={() => onDelete(assignment.id)}
-            >
-              {deleting ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Trash2 className="h-4 w-4" />
+              <DetailRow label="Assigned by">
+                {assignment.assignedBy?.name || "Admin"}
+              </DetailRow>
+              <DetailRow label="Due date">{dateLabel(assignment.dueDate)}</DetailRow>
+              <DetailRow label="Status">
+                {assignment.status === "DONE"
+                  ? "Completed"
+                  : assignment.status === "OVERDUE"
+                    ? "Overdue"
+                    : "Assigned"}
+              </DetailRow>
+              <DetailRow label="Notes">
+                {assignment.notes?.trim()
+                  ? assignment.notes
+                  : <span className="text-muted-foreground">No notes</span>}
+              </DetailRow>
+              <DetailRow label="Created">{dateLabel(assignment.createdAt)}</DetailRow>
+              {assignment.status === "DONE" && (
+                <DetailRow label="Completed">{dateLabel(assignment.completedAt)}</DetailRow>
               )}
-              Remove
-            </Button>
-          )}
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full sm:w-auto"
-            onClick={() => onOpenChange(false)}
-          >
-            Close
-          </Button>
-        </DialogFooter>
+            </dl>
+
+            <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-end">
+              {onMarkDone && assignment.status !== "DONE" && (
+                <Button
+                  type="button"
+                  className="gap-2 w-full sm:w-auto"
+                  disabled={marking}
+                  onClick={() => onMarkDone(assignment.id)}
+                >
+                  {marking ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="h-4 w-4" />
+                  )}
+                  Mark done
+                </Button>
+              )}
+              {onDelete && (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  className="gap-2 w-full sm:w-auto"
+                  disabled={deleting}
+                  onClick={() => onDelete(assignment.id)}
+                >
+                  {deleting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4" />
+                  )}
+                  Remove
+                </Button>
+              )}
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full sm:w-auto"
+                onClick={() => onOpenChange(false)}
+              >
+                Close
+              </Button>
+            </DialogFooter>
+          </>
+        ) : null}
       </DialogContent>
     </Dialog>
   )

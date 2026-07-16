@@ -4,10 +4,8 @@ import { useCallback, useEffect, useState } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import {
-  CheckCircle2,
   CircleUserRound,
   ClipboardList,
-  Clock,
   ListMusic,
   Loader2,
   QrCode,
@@ -19,7 +17,6 @@ import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { AssignmentDetailDialog } from "@/components/training/assignment-detail-dialog"
-import { formatDateTime } from "@/lib/format"
 import {
   isTourDone,
   setTourDone,
@@ -67,24 +64,6 @@ type Assignment = {
   createdAt?: string | null
   updatedAt?: string | null
   assignedBy?: { id: string; name: string } | null
-}
-
-function statusBadge(status: string) {
-  if (status === "DONE") return <Badge className="bg-success/15 text-success border-0">Done</Badge>
-  if (status === "OVERDUE") return <Badge variant="destructive">Overdue</Badge>
-  return <Badge variant="secondary">Assigned</Badge>
-}
-
-function dueLabel(dueDate: string) {
-  try {
-    return new Date(dueDate).toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    })
-  } catch {
-    return formatDateTime(dueDate)
-  }
 }
 
 export default function MyTrainingPage() {
@@ -305,50 +284,44 @@ export default function MyTrainingPage() {
             No training assigned to you yet.
           </div>
         ) : (
-          <ul className="space-y-3">
+          <ul className="space-y-2">
             {assignments.map((a) => (
               <li
                 key={a.id}
-                className="rounded-xl border border-border bg-card p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3"
+                className="rounded-xl border border-border bg-card px-3 py-2.5 flex items-center gap-2"
               >
                 <button
                   type="button"
-                  className="min-w-0 flex-1 space-y-1 text-left rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="min-w-0 flex-1 text-left rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => setDetail(a)}
+                  aria-label={`Open details for ${a.title}`}
+                >
+                  <h3 className="font-medium tracking-tight truncate text-sm">{a.title}</h3>
+                  {a.assignedBy?.name ? (
+                    <p className="text-xs text-muted-foreground truncate">
+                      Assigned by {a.assignedBy.name}
+                    </p>
+                  ) : null}
+                </button>
+                {a.status === "OVERDUE" && (
+                  <Badge variant="destructive" className="text-[10px] shrink-0">
+                    Overdue
+                  </Badge>
+                )}
+                {a.status === "DONE" && (
+                  <Badge className="bg-success/15 text-success border-0 text-[10px] shrink-0">
+                    Done
+                  </Badge>
+                )}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-8 shrink-0 px-2.5"
                   onClick={() => setDetail(a)}
                 >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="font-semibold tracking-tight truncate">{a.title}</h3>
-                    {statusBadge(a.status)}
-                  </div>
-                  <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                    <Clock className="h-3.5 w-3.5" />
-                    Due {dueLabel(a.dueDate)}
-                    {a.assignedBy?.name ? ` · by ${a.assignedBy.name}` : ""}
-                  </p>
-                  {a.notes && (
-                    <p className="text-sm text-muted-foreground line-clamp-2">{a.notes}</p>
-                  )}
-                  <p className="text-[11px] text-primary/80 pt-0.5">Tap for full details</p>
-                </button>
-                {a.status !== "DONE" ? (
-                  <Button
-                    type="button"
-                    className="gap-2 shrink-0"
-                    disabled={markingId === a.id}
-                    onClick={() => void markDone(a.id)}
-                  >
-                    {markingId === a.id ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <CheckCircle2 className="h-4 w-4" />
-                    )}
-                    Mark done
-                  </Button>
-                ) : (
-                  <span className="text-xs text-success font-medium shrink-0">
-                    Completed{a.completedAt ? ` · ${dueLabel(a.completedAt)}` : ""}
-                  </span>
-                )}
+                  Open
+                </Button>
               </li>
             ))}
           </ul>
