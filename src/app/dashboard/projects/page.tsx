@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -595,6 +595,11 @@ function ClientSearchSelect({
   const [selectedId, setSelectedId] = useState(defaultValue || "");
   const ref = useRef<HTMLDivElement>(null);
 
+  // Sync when parent prefills from ?clientId=
+  useEffect(() => {
+    if (defaultValue !== undefined) setSelectedId(defaultValue || "");
+  }, [defaultValue]);
+
   // Display name for currently selected client
   const selectedClient = selectedId
     ? clients.find((c) => c.id === selectedId)
@@ -742,9 +747,10 @@ function calcProjectPeriod(startDate: string, deadline: string): string | null {
 }
 
 // ━━ Create Project Form with Start Date + Total Period ━━
-function CreateProjectForm({ onSubmit, clients }: {
+function CreateProjectForm({ onSubmit, clients, defaultClientId }: {
   onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
   clients: { id: string; name: string; company?: string }[];
+  defaultClientId?: string;
 }) {
   const [startDate, setStartDate] = useState("");
   const [deadline, setDeadline] = useState("");
@@ -762,7 +768,7 @@ function CreateProjectForm({ onSubmit, clients }: {
       </div>
       <div className="space-y-1">
         <Label className="text-xs">Client</Label>
-        <ClientSearchSelect name="clientId" clients={clients} />
+        <ClientSearchSelect name="clientId" clients={clients} defaultValue={defaultClientId} />
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="space-y-1">
@@ -805,9 +811,11 @@ export default function ProjectsPage() {
 // shows a DEMO badge in the header, and defaults new projects to isDemo=true.
 export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { data: session, status: sessionStatus } = useSession();
   const queryClient = useQueryClient();
   const [addOpen, setAddOpen] = useState(false);
+  const [prefillClientId, setPrefillClientId] = useState("");
   const [editOpen, setEditOpen] = useState(false);
   const [editProject, setEditProject] = useState<Record<string, unknown> | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -879,6 +887,17 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
   // PROJECT_MANAGER has the same project-management capabilities as ADMIN
   // per requirements ("Projects: ✅ Full (like admin) — Can manage all projects").
   const isAdminUser = session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN" || session?.user?.role === "PROJECT_MANAGER";
+
+  // Deep-link from Clients: /dashboard/projects?clientId=xxx → open create with client prefilled
+  useEffect(() => {
+    if (!isAdminUser || isDemoView) return;
+    const clientId = searchParams.get("clientId");
+    if (!clientId) return;
+    setPrefillClientId(clientId);
+    setAddOpen(true);
+    // Clear query so refresh doesn't re-open forever
+    router.replace("/dashboard/projects", { scroll: false });
+  }, [isAdminUser, isDemoView, searchParams, router]);
 
   // Feature 3: Credentials state
   const [credentials, setCredentials] = useState<{ id: string; title: string; username: string; hasPassword?: boolean }[]>([]);
@@ -1587,7 +1606,11 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
             </DialogTrigger>
             <DialogContent className="sm:max-w-[480px]">
               <DialogHeader><DialogTitle>Create Project</DialogTitle><DialogDescription>Create a new web development project for your client.</DialogDescription></DialogHeader>
-              <CreateProjectForm onSubmit={handleCreateProject} clients={clients as { id: string; name: string; company?: string }[]} />
+              <CreateProjectForm
+                onSubmit={handleCreateProject}
+                clients={clients as { id: string; name: string; company?: string }[]}
+                defaultClientId={prefillClientId || undefined}
+              />
             </DialogContent>
           </Dialog>
           )}
