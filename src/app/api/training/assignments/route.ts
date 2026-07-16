@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { notifyRoles, notifyUsers } from "@/lib/notify"
+import { ensureTrainingAssignmentSchema } from "@/lib/training-assignment-migrate"
 import { z } from "zod"
 import { randomBytes } from "crypto"
 
@@ -14,45 +15,12 @@ const assignSchema = z.object({
   dueDate: z.string().min(1),
 })
 
-let tableReady = false
-
 function newId() {
   return `ta_${randomBytes(12).toString("hex")}`
 }
 
 async function ensureTrainingAssignmentTable() {
-  if (tableReady) return
-  try {
-    await db.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "TrainingAssignment" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "userId" TEXT NOT NULL,
-      "title" TEXT NOT NULL,
-      "notes" TEXT,
-      "dueDate" DATETIME NOT NULL,
-      "status" TEXT NOT NULL DEFAULT 'ASSIGNED',
-      "assignedById" TEXT NOT NULL,
-      "completedAt" DATETIME,
-      "overdueNotifiedAt" DATETIME,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )`)
-    try {
-      await db.$executeRawUnsafe(
-        `CREATE INDEX IF NOT EXISTS "TrainingAssignment_userId_status_idx" ON "TrainingAssignment"("userId", "status")`
-      )
-    } catch { /* ignore */ }
-    try {
-      await db.$executeRawUnsafe(
-        `CREATE INDEX IF NOT EXISTS "TrainingAssignment_dueDate_status_idx" ON "TrainingAssignment"("dueDate", "status")`
-      )
-    } catch { /* ignore */ }
-    tableReady = true
-  } catch (err) {
-    console.warn(
-      "[training/assignments] ensure table:",
-      err instanceof Error ? err.message : String(err)
-    )
-  }
+  await ensureTrainingAssignmentSchema()
 }
 
 function startOfToday() {
