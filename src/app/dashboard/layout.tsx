@@ -132,7 +132,7 @@ const navGroups: NavGroup[] = [
     label: "System",
     items: [
       { title: "Audit Trail", href: "/dashboard/audit-trail", icon: ScrollText, roles: ["SUPER_ADMIN", "ADMIN"] },
-      { title: "API Keys", href: "/dashboard/api-keys", icon: Key, roles: ["SUPER_ADMIN"] },
+      { title: "API Keys", href: "/dashboard/api-keys", icon: Key, roles: ["SUPER_ADMIN", "ADMIN"] },
       { title: "Email Logs", href: "/dashboard/email-logs", icon: Mail, roles: ["SUPER_ADMIN"] },
       {
         title: "Access Hub",
@@ -316,7 +316,7 @@ const SidebarContent = React.memo(function SidebarContent({
         {!collapsed && (
           <div className="min-w-0">
             <h1 className="font-extrabold text-foreground text-xl leading-tight tracking-tight">TrishulHub</h1>
-            <p className="text-[11px] text-muted-foreground font-medium">AI Workspace</p>
+            <p className="text-[11px] text-muted-foreground font-medium">Technology</p>
           </div>
         )}
       </div>

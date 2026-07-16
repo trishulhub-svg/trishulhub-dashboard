@@ -384,6 +384,19 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
       FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
     )`
   },
+  {
+    name: "VaultSecret",
+    sql: `CREATE TABLE IF NOT EXISTS "VaultSecret" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "name" TEXT NOT NULL,
+      "category" TEXT NOT NULL DEFAULT 'OTHER',
+      "keyValue" TEXT NOT NULL,
+      "notes" TEXT,
+      "createdBy" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`
+  },
 ]
 
 /**
@@ -1018,6 +1031,15 @@ export async function ensureAllTables(): Promise<void> {
     } catch (err: unknown) {
       if (!getErrMsg(err)?.includes('already exists')) {
         console.warn(`[auto-migrate] UserDetail_country_idx: ${getErrMsg(err)}`)
+      }
+    }
+
+    // VaultSecret — generic encrypted secret vault
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "VaultSecret_category_idx" ON "VaultSecret"("category")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes('already exists')) {
+        console.warn(`[auto-migrate] VaultSecret_category_idx: ${getErrMsg(err)}`)
       }
     }
 

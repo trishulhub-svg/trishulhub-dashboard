@@ -169,7 +169,7 @@ export async function POST(request: NextRequest) {
     // Log successful auth
     await logEmailEvent({
       to: normalizedEmail,
-      subject: "TrishulHub Dashboard — Agent Login OTP",
+      subject: "TrishulHub Technology — Agent Login OTP",
       type: "PROTOCOL_AUTH",
       status: "SENT",
       metadata: JSON.stringify({ action: "agent_otp_verified", userId: user.id }),

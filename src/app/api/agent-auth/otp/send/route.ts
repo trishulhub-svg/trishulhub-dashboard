@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
     if (!user || !user.isActive) {
       await logEmailEvent({
         to: normalizedEmail,
-        subject: "TrishulHub Dashboard — Agent Login OTP",
+        subject: "TrishulHub Technology — Agent Login OTP",
         type: "PROTOCOL_AUTH",
         status: "REJECTED",
         error: "User not found or inactive",
@@ -144,7 +144,7 @@ export async function POST(request: NextRequest) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TrishulHub Dashboard — Agent Login OTP</title>
+  <title>TrishulHub Technology — Agent Login OTP</title>
 </head>
 <body style="margin: 0; padding: 0; background-color: #0f172a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #0f172a; min-height: 100vh;">
@@ -169,7 +169,7 @@ export async function POST(request: NextRequest) {
                 <tr>
                   <td style="padding-top: 16px;">
                     <p style="margin: 0; font-size: 12px; color: #475569; line-height: 1.5;">If you did not request this code, please ignore this email. Your account remains secure.</p>
-                    <p style="margin: 12px 0 0; font-size: 11px; color: #334155;">&copy; ${new Date().getFullYear()} TrishulHub &mdash; AI Workspace Dashboard</p>
+                    <p style="margin: 12px 0 0; font-size: 11px; color: #334155;">&copy; ${new Date().getFullYear()} TrishulHub Technology</p>
                   </td>
                 </tr>
               </table>
@@ -185,7 +185,7 @@ export async function POST(request: NextRequest) {
     // Send OTP email
     const emailResult = await sendEmailWithFailover({
       to: normalizedEmail,
-      subject: "TrishulHub Dashboard — Agent Login OTP",
+      subject: "TrishulHub Technology — Agent Login OTP",
       html: emailHtml,
       type: "PROTOCOL_AUTH",
       triggeredBy: user.id,
@@ -194,7 +194,7 @@ export async function POST(request: NextRequest) {
     if (!emailResult.success) {
       await logEmailEvent({
         to: normalizedEmail,
-        subject: "TrishulHub Dashboard — Agent Login OTP",
+        subject: "TrishulHub Technology — Agent Login OTP",
         type: "PROTOCOL_AUTH",
         status: "FAILED",
         error: emailResult.error,

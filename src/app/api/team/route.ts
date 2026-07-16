@@ -941,6 +941,63 @@ export async function DELETE(req: NextRequest) {
 
 
 
+    if (type === "user") {
+      // SUPER_ADMIN only: permanently delete a deactivated user
+      if (session.user.role !== "SUPER_ADMIN") {
+        return NextResponse.json({ error: "Forbidden: Super Admin access required" }, { status: 403 })
+      }
+
+      const target = await db.user.findUnique({
+        where: { id },
+        select: { id: true, name: true, email: true, role: true, isActive: true },
+      })
+      if (!target) {
+        return NextResponse.json({ error: "User not found" }, { status: 404 })
+      }
+      if (target.isActive) {
+        return NextResponse.json({ error: "Only deactivated users can be permanently deleted" }, { status: 400 })
+      }
+      if (target.role === "SUPER_ADMIN") {
+        return NextResponse.json({ error: "Cannot delete SUPER_ADMIN users" }, { status: 403 })
+      }
+      if (target.id === session.user.id) {
+        return NextResponse.json({ error: "Cannot delete your own account" }, { status: 403 })
+      }
+
+      try {
+        await db.$transaction(async (tx) => {
+          await tx.activeSession.deleteMany({ where: { userId: id } })
+          await tx.userCredential.deleteMany({ where: { userId: id } })
+          await tx.notificationPreference.deleteMany({ where: { userId: id } })
+          await tx.passwordReset.deleteMany({ where: { userId: id } })
+          await tx.passwordChange.deleteMany({ where: { userId: id } })
+          await tx.user.delete({ where: { id } })
+        })
+      } catch (delErr: unknown) {
+        if (delErr instanceof Prisma.PrismaClientKnownRequestError && delErr.code === "P2003") {
+          return NextResponse.json(
+            { error: "Cannot delete user: related records still exist. Remove linked data first." },
+            { status: 409 }
+          )
+        }
+        console.error("[team] DELETE user error:", delErr instanceof Error ? delErr.message : String(delErr))
+        return NextResponse.json(
+          { error: "Cannot delete user due to related records. Deactivate and clean up linked data first." },
+          { status: 409 }
+        )
+      }
+
+      void logAudit({
+        userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+        department: "HR_PEOPLE", page: "team", action: "DELETE",
+        entityType: "User", entityId: id,
+        description: `Permanently deleted deactivated user: ${target.name} (${target.email})`,
+        ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
+      })
+
+      return NextResponse.json({ success: true })
+    }
+
     if (type === "attendance") {
       // SECURITY: Only admins can delete attendance records
       const deleteAttRole = session.user.role

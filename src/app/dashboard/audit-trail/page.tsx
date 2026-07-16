@@ -69,6 +69,8 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   Settings,
 }
 
+const INITIAL_PER_DEPT = 7
+
 interface AuditLogEntry {
   id: string
   userId: string
@@ -84,9 +86,9 @@ interface AuditLogEntry {
   oldValue: string | null
   newValue: string | null
   ipAddress: string | null
-  userAgent: string | null
+  userAgent?: string | null
   status: string | null
-  metadata: string | null
+  metadata?: string | null
   createdAt: string
 }
 
@@ -134,8 +136,8 @@ function formatRole(role: string | null | undefined): string {
   return role.replace(/_/g, " ")
 }
 
-function emptyDeptState(): DeptState {
-  return { logs: [], nextCursor: null, total: 0, loading: true, loadingMore: false, error: null }
+function emptyDeptState(loading = true): DeptState {
+  return { logs: [], nextCursor: null, total: 0, loading, loadingMore: false, error: null }
 }
 
 class AuditTrailErrorBoundary extends React.Component<
@@ -435,6 +437,7 @@ export default function AuditTrailPage() {
 
   const [stats, setStats] = useState<StatsData | null>(null)
   const [statsLoading, setStatsLoading] = useState(true)
+  const [listLoading, setListLoading] = useState(true)
   const [searchInput, setSearchInput] = useState("")
   const [search, setSearch] = useState("")
   const [actionFilter, setActionFilter] = useState<string>("")
@@ -471,89 +474,133 @@ export default function AuditTrailPage() {
     }
   }, [dateRange])
 
-  // Stats (compact strip)
-  useEffect(() => {
-    if (sessionStatus === "loading" || !session) return
-    const fetchStats = async () => {
-      setStatsLoading(true)
-      try {
-        const res = await fetch("/api/audit-trail/stats", { credentials: "include" })
-        if (res.ok) setStats(await res.json())
-      } catch (err) {
-        console.error("Failed to fetch audit stats:", err)
-      } finally {
-        setStatsLoading(false)
-      }
-    }
-    fetchStats()
-    const interval = setInterval(fetchStats, 30000)
-    return () => clearInterval(interval)
-  }, [session, sessionStatus])
-
-  const buildParams = useCallback((department: string, cursor?: string) => {
+  const buildFilterParams = useCallback(() => {
     const params = new URLSearchParams()
-    params.set("department", department)
-    params.set("limit", cursor ? "20" : "7")
     if (search) params.set("search", search)
     if (actionFilter) params.set("action", actionFilter)
     if (statusFilter && statusFilter !== "ALL") params.set("status", statusFilter)
     const startDate = getStartDate()
     if (startDate) params.set("startDate", startDate)
-    if (cursor) params.set("cursor", cursor)
     return params
   }, [search, actionFilter, statusFilter, getStartDate])
 
-  // Parallel fetch — last 7 per department
-  const fetchAllDepartments = useCallback(async () => {
-    const gen = ++fetchGen.current
-    setDeptStates((prev) => {
-      const next: Record<string, DeptState> = {}
-      for (const d of accessibleDepts) {
-        next[d] = { ...(prev[d] || emptyDeptState()), loading: true, loadingMore: false, error: null, logs: [], nextCursor: null }
+  // Stats in parallel — never blocks the log list
+  useEffect(() => {
+    if (sessionStatus === "loading" || !session) return
+    let cancelled = false
+    const fetchStats = async () => {
+      setStatsLoading(true)
+      try {
+        const res = await fetch("/api/audit-trail/stats", { credentials: "include" })
+        if (!cancelled && res.ok) setStats(await res.json())
+      } catch (err) {
+        console.error("Failed to fetch audit stats:", err)
+      } finally {
+        if (!cancelled) setStatsLoading(false)
       }
+    }
+    fetchStats()
+    const interval = setInterval(fetchStats, 30000)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [session, sessionStatus])
+
+  // Single fetch → client-group by department (up to 7 shown per section)
+  const fetchMainList = useCallback(async () => {
+    const gen = ++fetchGen.current
+    setListLoading(true)
+    setDeptStates(() => {
+      const next: Record<string, DeptState> = {}
+      for (const d of accessibleDepts) next[d] = emptyDeptState(true)
       return next
     })
 
-    await Promise.all(
-      accessibleDepts.map(async (dept) => {
-        try {
-          const res = await fetch(`/api/audit-trail?${buildParams(dept).toString()}`, { credentials: "include" })
-          if (gen !== fetchGen.current) return
-          if (!res.ok) {
-            setDeptStates((prev) => ({
-              ...prev,
-              [dept]: { ...emptyDeptState(), loading: false, error: res.status === 403 ? "Access denied" : `HTTP ${res.status}` },
-            }))
-            return
+    try {
+      const params = buildFilterParams()
+      params.set("limit", "80")
+      const res = await fetch(`/api/audit-trail?${params.toString()}`, { credentials: "include" })
+      if (gen !== fetchGen.current) return
+
+      if (!res.ok) {
+        const errMsg = res.status === 403 ? "Access denied" : `HTTP ${res.status}`
+        setDeptStates(() => {
+          const next: Record<string, DeptState> = {}
+          for (const d of accessibleDepts) {
+            next[d] = { ...emptyDeptState(false), error: errMsg }
           }
-          const data = await res.json()
-          const items: AuditLogEntry[] = Array.isArray(data?.data) ? data.data : []
-          setDeptStates((prev) => ({
-            ...prev,
-            [dept]: {
-              logs: items,
-              nextCursor: data?.nextCursor ?? null,
-              total: typeof data?.total === "number" ? data.total : items.length,
-              loading: false,
-              loadingMore: false,
-              error: null,
-            },
-          }))
-        } catch {
-          if (gen !== fetchGen.current) return
-          setDeptStates((prev) => ({
-            ...prev,
-            [dept]: { ...emptyDeptState(), loading: false, error: "Network error" },
-          }))
+          return next
+        })
+        return
+      }
+
+      const data = await res.json()
+      if (gen !== fetchGen.current) return
+
+      const items: AuditLogEntry[] = Array.isArray(data?.data) ? data.data : []
+      const byDept: Record<string, AuditLogEntry[]> = {}
+      for (const item of items) {
+        const key = item.department || "SYSTEM"
+        if (!byDept[key]) byDept[key] = []
+        byDept[key].push(item)
+      }
+
+      setDeptStates(() => {
+        const next: Record<string, DeptState> = {}
+        for (const d of accessibleDepts) {
+          const all = byDept[d] || []
+          const shown = all.slice(0, INITIAL_PER_DEPT)
+          const nextCursor =
+            shown.length >= INITIAL_PER_DEPT && shown.length > 0
+              ? shown[shown.length - 1].createdAt
+              : null
+          next[d] = {
+            logs: shown,
+            nextCursor,
+            total: all.length,
+            loading: false,
+            loadingMore: false,
+            error: null,
+          }
         }
+        return next
       })
-    )
-  }, [accessibleDepts, buildParams])
+    } catch {
+      if (gen !== fetchGen.current) return
+      setDeptStates(() => {
+        const next: Record<string, DeptState> = {}
+        for (const d of accessibleDepts) {
+          next[d] = { ...emptyDeptState(false), error: "Network error" }
+        }
+        return next
+      })
+    } finally {
+      if (gen === fetchGen.current) setListLoading(false)
+    }
+  }, [accessibleDepts, buildFilterParams])
 
   useEffect(() => {
     if (sessionStatus === "loading" || !session) return
-    fetchAllDepartments()
-  }, [session, sessionStatus, fetchAllDepartments])
+    fetchMainList()
+  }, [session, sessionStatus, fetchMainList])
+
+  // Enrich totals from stats when they arrive (without waiting for them)
+  useEffect(() => {
+    if (!stats?.departmentCounts?.length) return
+    setDeptStates((prev) => {
+      let changed = false
+      const next = { ...prev }
+      for (const d of accessibleDepts) {
+        const count = stats.departmentCounts.find((c) => c.department === d)?.count
+        if (typeof count === "number" && next[d] && next[d].total !== count) {
+          next[d] = { ...next[d], total: count }
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [stats, accessibleDepts])
 
   const loadMoreDept = async (dept: string) => {
     const current = deptStates[dept]
@@ -563,7 +610,11 @@ export default function AuditTrailPage() {
       [dept]: { ...prev[dept], loadingMore: true },
     }))
     try {
-      const res = await fetch(`/api/audit-trail?${buildParams(dept, current.nextCursor).toString()}`, { credentials: "include" })
+      const params = buildFilterParams()
+      params.set("department", dept)
+      params.set("limit", "20")
+      params.set("cursor", current.nextCursor)
+      const res = await fetch(`/api/audit-trail?${params.toString()}`, { credentials: "include" })
       if (!res.ok) {
         setDeptStates((prev) => ({
           ...prev,
@@ -573,13 +624,14 @@ export default function AuditTrailPage() {
       }
       const data = await res.json()
       const items: AuditLogEntry[] = Array.isArray(data?.data) ? data.data : []
+      const existingIds = new Set(current.logs.map((l) => l.id))
+      const fresh = items.filter((l) => !existingIds.has(l.id))
       setDeptStates((prev) => ({
         ...prev,
         [dept]: {
           ...prev[dept],
-          logs: [...prev[dept].logs, ...items],
+          logs: [...prev[dept].logs, ...fresh],
           nextCursor: data?.nextCursor ?? null,
-          total: typeof data?.total === "number" ? data.total : prev[dept].total,
           loadingMore: false,
           error: null,
         },
@@ -696,9 +748,9 @@ export default function AuditTrailPage() {
             )}
           </PageHeader>
 
-          {/* Compact stats strip */}
+          {/* Compact stats strip — loads independently */}
           <div className="flex flex-wrap items-center gap-3 sm:gap-5 rounded-xl border border-border bg-card/50 px-4 py-3">
-            {statsLoading ? (
+            {statsLoading && !stats ? (
               <>
                 <Skeleton className="h-8 w-24" />
                 <Skeleton className="h-8 w-20" />
@@ -787,16 +839,28 @@ export default function AuditTrailPage() {
 
           {/* Department sections */}
           <div className="space-y-4">
-            {accessibleDepts.map((deptKey) => (
-              <DepartmentSection
-                key={deptKey}
-                deptKey={deptKey}
-                state={deptStates[deptKey] || emptyDeptState()}
-                onLoadMore={() => loadMoreDept(deptKey)}
-                expandedIds={expandedIds}
-                onToggleExpand={toggleExpand}
-              />
-            ))}
+            {listLoading && accessibleDepts.every((d) => !deptStates[d] || deptStates[d].logs.length === 0) ? (
+              <div className="space-y-4">
+                {accessibleDepts.slice(0, 3).map((d) => (
+                  <div key={d} className="rounded-xl border border-border bg-card p-4 space-y-2">
+                    <Skeleton className="h-6 w-40" />
+                    <Skeleton className="h-10 w-full" />
+                    <Skeleton className="h-10 w-full" />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              accessibleDepts.map((deptKey) => (
+                <DepartmentSection
+                  key={deptKey}
+                  deptKey={deptKey}
+                  state={deptStates[deptKey] || emptyDeptState(false)}
+                  onLoadMore={() => loadMoreDept(deptKey)}
+                  expandedIds={expandedIds}
+                  onToggleExpand={toggleExpand}
+                />
+              ))
+            )}
           </div>
         </div>
       </TooltipProvider>

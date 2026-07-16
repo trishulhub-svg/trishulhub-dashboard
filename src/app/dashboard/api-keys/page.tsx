@@ -4,14 +4,15 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
-  Plus, Trash2, Key, AlertTriangle, CheckCircle2, Loader2,
-  Edit2, Eye, EyeOff, Copy, Shield, ChevronDown,
+  Plus, Trash2, Key, AlertTriangle, Loader2,
+  Edit2, Eye, EyeOff, Copy, Shield,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
@@ -25,37 +26,26 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import {
-  Collapsible, CollapsibleContent, CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { formatDateTime } from "@/lib/format";
-import { cn } from "@/lib/utils";
 
-const STATUS_STYLES: Record<string, string> = {
-  ACTIVE: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300",
-  EXHAUSTED: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
-  ERROR: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
-};
-
-const PROVIDERS: Record<string, { name: string; hint: string }> = {
+const CATEGORIES: Record<string, { name: string; hint: string }> = {
+  BREVO: { name: "Brevo", hint: "xkeysib-..." },
   OPENROUTER: { name: "OpenRouter", hint: "sk-or-v1-..." },
   ZAI: { name: "Z.ai", hint: "Z.ai API key" },
+  SMTP: { name: "SMTP", hint: "SMTP password / API key" },
   GOOGLE_AI: { name: "Google AI", hint: "AIza..." },
   NVIDIA: { name: "NVIDIA", hint: "nvapi-..." },
-  OTHER: { name: "Other", hint: "Your API key..." },
+  OTHER: { name: "Other", hint: "Your secret value..." },
 };
 
-interface ApiKeyData {
+interface VaultSecret {
   id: string;
-  provider: string;
-  keyName: string;
+  name: string;
+  category: string;
   keyValue: string;
-  monthlyBudget: number;
-  currentSpend: number;
-  status: string;
-  priority: number;
+  notes?: string | null;
   updatedAt?: string;
   createdAt?: string;
 }
@@ -75,47 +65,47 @@ function formatRelative(dateStr?: string) {
   return formatDateTime(dateStr);
 }
 
+function categoryLabel(category: string) {
+  return CATEGORIES[category]?.name || category || "Other";
+}
+
 export default function ApiKeysPage() {
   const router = useRouter();
   const { data: session, status } = useSession();
   const isSessionLoading = status === "loading";
   const userRole = session?.user?.role || "DEVELOPER";
+  const canAccess = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
-  const [keys, setKeys] = useState<ApiKeyData[]>([]);
+  const [secrets, setSecrets] = useState<VaultSecret[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
-  const [editingKey, setEditingKey] = useState<ApiKeyData | null>(null);
+  const [editingSecret, setEditingSecret] = useState<VaultSecret | null>(null);
   const [saving, setSaving] = useState(false);
-  const [showKeyValues, setShowKeyValues] = useState<Record<string, boolean>>({});
-  const [revealedKeyValues, setRevealedKeyValues] = useState<Record<string, string>>({});
-  const [revealingKey, setRevealingKey] = useState<string | null>(null);
+  const [showValues, setShowValues] = useState<Record<string, boolean>>({});
+  const [revealedValues, setRevealedValues] = useState<Record<string, string>>({});
+  const [revealingId, setRevealingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
-  // Form state
-  const [formProvider, setFormProvider] = useState("OPENROUTER");
-  const [formKeyName, setFormKeyName] = useState("");
+  const [formCategory, setFormCategory] = useState("OTHER");
+  const [formName, setFormName] = useState("");
   const [formKeyValue, setFormKeyValue] = useState("");
-  const [formBudget, setFormBudget] = useState("18");
-  const [formPriority, setFormPriority] = useState("1");
-  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [formNotes, setFormNotes] = useState("");
 
   const resetForm = () => {
-    setFormProvider("OPENROUTER");
-    setFormKeyName("");
+    setFormCategory("OTHER");
+    setFormName("");
     setFormKeyValue("");
-    setFormBudget("18");
-    setFormPriority("1");
-    setAdvancedOpen(false);
+    setFormNotes("");
   };
 
-  const fetchKeys = useCallback(async () => {
+  const fetchSecrets = useCallback(async () => {
     try {
       setError(null);
-      const res = await fetch("/api/api-keys", { credentials: "include" });
+      const res = await fetch("/api/vault-secrets", { credentials: "include" });
       if (res.status === 401) {
-        setKeys([]);
+        setSecrets([]);
         setError("Your session has expired. Please sign in again.");
         setTimeout(() => { router.push("/login"); }, 1500);
         return;
@@ -123,24 +113,24 @@ export default function ApiKeysPage() {
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
-          setKeys(data);
+          setSecrets(data);
         } else {
-          setKeys([]);
+          setSecrets([]);
           setError(data.error || "Unexpected response from server");
         }
       } else {
-        let errorMsg = "Failed to fetch API keys";
+        let errorMsg = "Failed to load vault";
         try {
           const errorData = await res.json();
           errorMsg = errorData.error || errorMsg;
         } catch {
           errorMsg = `Server error (${res.status}). Please try again.`;
         }
-        setKeys([]);
+        setSecrets([]);
         setError(errorMsg);
       }
     } catch {
-      setKeys([]);
+      setSecrets([]);
       setError("Network error. Please check your connection and try again.");
     } finally {
       setLoading(false);
@@ -148,38 +138,40 @@ export default function ApiKeysPage() {
   }, [router]);
 
   useEffect(() => {
-    fetchKeys();
-  }, [fetchKeys]);
+    if (!isSessionLoading && canAccess) {
+      fetchSecrets();
+    } else if (!isSessionLoading && !canAccess) {
+      setLoading(false);
+    }
+  }, [fetchSecrets, isSessionLoading, canAccess]);
 
-  const handleAddKey = async (e: React.FormEvent) => {
+  const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formKeyName.trim() || !formKeyValue.trim()) {
-      toast.error("Name and API key value are required");
+    if (!formName.trim() || !formKeyValue.trim()) {
+      toast.error("Name and secret value are required");
       return;
     }
     setSaving(true);
     try {
-      const res = await fetch("/api/api-keys", {
+      const res = await fetch("/api/vault-secrets", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          provider: formProvider,
-          keyName: formKeyName.trim(),
+          name: formName.trim(),
+          category: formCategory,
           keyValue: formKeyValue.trim(),
-          monthlyBudget: parseFloat(formBudget) || 18,
-          priority: parseInt(formPriority) || 1,
-          status: "ACTIVE",
+          notes: formNotes.trim() || null,
         }),
       });
       if (res.ok) {
-        toast.success("API key stored in vault");
+        toast.success("Secret stored in vault");
         setAddOpen(false);
         resetForm();
-        fetchKeys();
+        fetchSecrets();
       } else {
-        const errorData = await res.json().catch(() => ({ error: "Failed to add API key" }));
-        toast.error(errorData.error || "Failed to add API key");
+        const errorData = await res.json().catch(() => ({ error: "Failed to add secret" }));
+        toast.error(errorData.error || "Failed to add secret");
       }
     } catch {
       toast.error("Network error. Please try again.");
@@ -188,47 +180,44 @@ export default function ApiKeysPage() {
     }
   };
 
-  const handleEditKey = async (e: React.FormEvent) => {
+  const handleEdit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingKey) return;
-    if (!formKeyName.trim()) {
+    if (!editingSecret) return;
+    if (!formName.trim()) {
       toast.error("Name is required");
       return;
     }
     setSaving(true);
     try {
       const updateData: Record<string, unknown> = {
-        id: editingKey.id,
-        keyName: formKeyName.trim(),
-        provider: formProvider,
+        name: formName.trim(),
+        category: formCategory,
+        notes: formNotes.trim() || null,
       };
       if (formKeyValue.trim() && formKeyValue.trim() !== "••••••••") {
         updateData.keyValue = formKeyValue.trim();
       }
-      if (advancedOpen) {
-        updateData.monthlyBudget = parseFloat(formBudget) || 18;
-        updateData.priority = parseInt(formPriority) || 1;
-      }
-      const res = await fetch("/api/api-keys", {
-        method: "PUT",
+      const res = await fetch(`/api/vault-secrets/${editingSecret.id}`, {
+        method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updateData),
       });
       if (res.ok) {
-        toast.success("API key updated");
+        toast.success("Secret updated");
         setEditOpen(false);
-        setEditingKey(null);
-        setRevealedKeyValues((prev) => {
+        setEditingSecret(null);
+        setRevealedValues((prev) => {
           const next = { ...prev };
-          delete next[editingKey.id];
+          delete next[editingSecret.id];
           return next;
         });
-        setShowKeyValues((prev) => ({ ...prev, [editingKey.id]: false }));
-        fetchKeys();
+        setShowValues((prev) => ({ ...prev, [editingSecret.id]: false }));
+        resetForm();
+        fetchSecrets();
       } else {
-        const errorData = await res.json().catch(() => ({ error: "Failed to update API key" }));
-        toast.error(errorData.error || "Failed to update API key");
+        const errorData = await res.json().catch(() => ({ error: "Failed to update secret" }));
+        toast.error(errorData.error || "Failed to update secret");
       }
     } catch {
       toast.error("Network error. Please try again.");
@@ -240,10 +229,18 @@ export default function ApiKeysPage() {
   const handleDelete = async () => {
     if (!deleteTarget) return;
     try {
-      const res = await fetch(`/api/api-keys?id=${deleteTarget}`, { method: "DELETE", credentials: "include" });
+      const res = await fetch(`/api/vault-secrets/${deleteTarget}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
       if (res.ok) {
-        toast.success("API key deleted");
-        fetchKeys();
+        toast.success("Secret deleted");
+        setRevealedValues((prev) => {
+          const next = { ...prev };
+          delete next[deleteTarget];
+          return next;
+        });
+        fetchSecrets();
       } else {
         const data = await res.json().catch(() => ({ error: "Failed to delete" }));
         toast.error(data.error || "Failed to delete");
@@ -255,149 +252,124 @@ export default function ApiKeysPage() {
     }
   };
 
-  const openEditDialog = (key: ApiKeyData) => {
-    setEditingKey(key);
-    setFormProvider(key.provider in PROVIDERS ? key.provider : "OTHER");
-    setFormKeyName(key.keyName);
+  const openEditDialog = (secret: VaultSecret) => {
+    setEditingSecret(secret);
+    setFormCategory(secret.category in CATEGORIES ? secret.category : "OTHER");
+    setFormName(secret.name);
     setFormKeyValue("••••••••");
-    setFormBudget(String(key.monthlyBudget ?? 18));
-    setFormPriority(String(key.priority ?? 1));
-    setAdvancedOpen(false);
+    setFormNotes(secret.notes || "");
     setEditOpen(true);
   };
 
-  const revealKeyValue = useCallback(async (keyId: string): Promise<string | null> => {
-    if (revealedKeyValues[keyId]) return revealedKeyValues[keyId];
-    setRevealingKey(keyId);
+  const revealValue = useCallback(async (id: string): Promise<string | null> => {
+    if (revealedValues[id]) return revealedValues[id];
+    setRevealingId(id);
     try {
-      const res = await fetch("/api/api-keys/reveal", {
+      const res = await fetch("/api/vault-secrets/reveal", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: keyId }),
+        body: JSON.stringify({ id }),
       });
       if (!res.ok) {
-        const errData = await res.json().catch(() => ({ error: "Failed to reveal key" }));
-        toast.error(errData.error || "Failed to reveal key");
+        const errData = await res.json().catch(() => ({ error: "Failed to reveal secret" }));
+        toast.error(errData.error || "Failed to reveal secret");
         return null;
       }
       const data = await res.json();
       const plain = data.keyValue as string;
-      setRevealedKeyValues((prev) => ({ ...prev, [keyId]: plain }));
+      setRevealedValues((prev) => ({ ...prev, [id]: plain }));
       return plain;
     } catch {
-      toast.error("Failed to reveal key");
+      toast.error("Failed to reveal secret");
       return null;
     } finally {
-      setRevealingKey(null);
+      setRevealingId(null);
     }
-  }, [revealedKeyValues]);
+  }, [revealedValues]);
 
-  const handleToggleKeyVisibility = useCallback(async (keyId: string) => {
-    const turningOn = !showKeyValues[keyId];
-    setShowKeyValues((prev) => ({ ...prev, [keyId]: turningOn }));
-    if (turningOn && !revealedKeyValues[keyId]) {
-      await revealKeyValue(keyId);
+  const handleToggleVisibility = useCallback(async (id: string) => {
+    const turningOn = !showValues[id];
+    setShowValues((prev) => ({ ...prev, [id]: turningOn }));
+    if (turningOn && !revealedValues[id]) {
+      await revealValue(id);
     }
-  }, [showKeyValues, revealedKeyValues, revealKeyValue]);
+  }, [showValues, revealedValues, revealValue]);
 
-  const handleCopyKeyValue = useCallback(async (key: ApiKeyData) => {
-    let plain: string | null = revealedKeyValues[key.id] || null;
-    if (!plain) plain = await revealKeyValue(key.id);
+  const handleCopy = useCallback(async (secret: VaultSecret) => {
+    let plain: string | null = revealedValues[secret.id] || null;
+    if (!plain) plain = await revealValue(secret.id);
     if (!plain) return;
     try {
       await navigator.clipboard.writeText(plain);
-      toast.success("Key copied to clipboard");
+      toast.success("Copied to clipboard");
     } catch {
       toast.error("Failed to copy to clipboard");
     }
-  }, [revealedKeyValues, revealKeyValue]);
+  }, [revealedValues, revealValue]);
 
-  if (isSessionLoading) {
+  if (isSessionLoading || loading) {
     return (
-      <div className="space-y-4 th-page-enter">
-        <Skeleton className="h-10 w-48" />
-        <Skeleton className="h-64 w-full rounded-xl" />
+      <div className="space-y-6 th-page-enter">
+        <div className="flex items-center justify-between gap-4">
+          <div className="space-y-2">
+            <Skeleton className="h-7 w-36" />
+            <Skeleton className="h-4 w-52" />
+          </div>
+          <Skeleton className="h-9 w-28" />
+        </div>
+        <div className="space-y-3">
+          <Skeleton className="h-16 w-full rounded-xl" />
+          <Skeleton className="h-16 w-full rounded-xl" />
+          <Skeleton className="h-16 w-full rounded-xl" />
+        </div>
       </div>
     );
   }
 
-  if (userRole !== "SUPER_ADMIN") {
+  if (!canAccess) {
     router.push("/dashboard");
     return null;
   }
 
-  if (loading) {
-    return (
-      <div className="space-y-4 th-page-enter">
-        <Skeleton className="h-10 w-48" />
-        <Skeleton className="h-12 w-full rounded-lg" />
-        <Skeleton className="h-64 w-full rounded-xl" />
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6 th-page-enter">
-      <PageHeader title="API Keys" description="Encrypted vault for provider credentials used by agents">
+      <PageHeader title="API Keys" description="Secure storage for encrypted API keys and secrets">
         <Button onClick={() => { resetForm(); setAddOpen(true); }}>
-          <Plus className="h-4 w-4 mr-1" /> Add Key
+          <Plus className="h-4 w-4 mr-1" /> Add Secret
         </Button>
       </PageHeader>
 
-      {/* Compact summary */}
-      <div className="flex flex-wrap items-center gap-3 sm:gap-4 rounded-xl border border-border bg-card/50 px-4 py-3">
-        <div className="flex items-center gap-2">
-          <div className="th-stat-icon !h-8 !w-8">
-            <Key className="h-3.5 w-3.5" />
-          </div>
-          <div>
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Stored</p>
-            <p className="text-sm font-semibold tabular-nums">{keys.length}</p>
-          </div>
-        </div>
-        <div className="h-6 w-px bg-border hidden sm:block" />
-        <div className="flex items-center gap-2">
-          <div className="th-stat-icon !h-8 !w-8 !bg-emerald-500/15 !text-emerald-600 dark:!text-emerald-400">
-            <CheckCircle2 className="h-3.5 w-3.5" />
-          </div>
-          <div>
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Active</p>
-            <p className="text-sm font-semibold tabular-nums">{keys.filter((k) => k.status === "ACTIVE").length}</p>
-          </div>
-        </div>
-        <div className="h-6 w-px bg-border hidden sm:block" />
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Shield className="h-3.5 w-3.5 shrink-0" />
-          Keys are encrypted at rest. Reveal is audited.
-        </div>
+      <div className="flex items-center gap-2 text-xs text-muted-foreground rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
+        <Shield className="h-3.5 w-3.5 shrink-0" />
+        <span>Values are encrypted at rest. Reveal and copy actions are audited.</span>
       </div>
 
-      {error && keys.length === 0 && (
+      {error && secrets.length === 0 && (
         <div className="rounded-xl border border-border bg-card p-10 flex flex-col items-center text-center">
           <AlertTriangle className="h-10 w-10 text-amber-500 mb-3" />
           <h3 className="text-base font-semibold mb-1">Could not load vault</h3>
           <p className="text-sm text-muted-foreground max-w-md mb-4">{error}</p>
-          <Button size="sm" variant="outline" onClick={fetchKeys}>Retry</Button>
+          <Button size="sm" variant="outline" onClick={fetchSecrets}>Retry</Button>
         </div>
       )}
 
-      {!error && keys.length === 0 && (
-        <div className="rounded-xl border border-border bg-card p-12 flex flex-col items-center text-center">
+      {!error && secrets.length === 0 && (
+        <div className="rounded-xl border border-dashed border-border bg-card/40 p-12 flex flex-col items-center text-center">
           <div className="th-stat-icon mb-4 !h-12 !w-12">
             <Key className="h-5 w-5" />
           </div>
-          <h3 className="text-lg font-semibold mb-1">No keys in vault</h3>
+          <h3 className="text-lg font-semibold mb-1">No secrets yet</h3>
           <p className="text-sm text-muted-foreground max-w-sm mb-5">
-            Store OpenRouter, Z.ai, Google AI, NVIDIA, or custom provider keys. Values are encrypted and never returned in list responses.
+            Store Brevo, OpenRouter, SMTP, Google AI, or any other API keys here. Values stay encrypted and masked until you reveal them.
           </p>
           <Button onClick={() => { resetForm(); setAddOpen(true); }}>
-            <Plus className="h-4 w-4 mr-1" /> Add Your First Key
+            <Plus className="h-4 w-4 mr-1" /> Add Your First Secret
           </Button>
         </div>
       )}
 
-      {keys.length > 0 && (
+      {secrets.length > 0 && (
         <div className="rounded-xl border border-border bg-card overflow-hidden">
           {/* Desktop table */}
           <div className="hidden md:block overflow-x-auto">
@@ -405,66 +377,91 @@ export default function ApiKeysPage() {
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
                   <TableHead>Name</TableHead>
-                  <TableHead>Provider</TableHead>
+                  <TableHead>Category</TableHead>
                   <TableHead>Key</TableHead>
-                  <TableHead>Status</TableHead>
                   <TableHead>Updated</TableHead>
-                  <TableHead className="text-right w-[140px]">Actions</TableHead>
+                  <TableHead className="text-right w-[160px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {keys.map((key) => {
-                  const provider = PROVIDERS[key.provider] || PROVIDERS.OTHER;
-                  const visible = showKeyValues[key.id];
-                  const revealing = revealingKey === key.id;
+                {secrets.map((secret) => {
+                  const visible = showValues[secret.id];
+                  const revealing = revealingId === secret.id;
                   return (
-                    <TableRow key={key.id}>
-                      <TableCell className="font-medium">{key.keyName || "Unnamed"}</TableCell>
+                    <TableRow key={secret.id}>
                       <TableCell>
-                        <Badge variant="outline" className="font-normal">{provider.name}</Badge>
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">{secret.name || "Unnamed"}</p>
+                          {secret.notes ? (
+                            <p className="text-xs text-muted-foreground truncate max-w-[220px] mt-0.5">
+                              {secret.notes}
+                            </p>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="font-normal">
+                          {categoryLabel(secret.category)}
+                        </Badge>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1.5">
-                          <code className="text-xs font-mono text-muted-foreground truncate max-w-[180px]">
+                          <code className="text-xs font-mono text-muted-foreground truncate max-w-[200px]">
                             {visible
-                              ? (revealedKeyValues[key.id] || (revealing ? "…" : key.keyValue))
-                              : key.keyValue}
+                              ? (revealedValues[secret.id] || (revealing ? "…" : secret.keyValue))
+                              : secret.keyValue}
                           </code>
                           <Button
                             variant="ghost"
                             size="icon"
                             className="h-7 w-7 shrink-0"
-                            onClick={() => handleToggleKeyVisibility(key.id)}
+                            onClick={() => handleToggleVisibility(secret.id)}
                             disabled={revealing}
-                            aria-label={visible ? "Hide key" : "Reveal key"}
+                            aria-label={visible ? "Hide secret" : "Reveal secret"}
                           >
-                            {revealing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : visible ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                            {revealing ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : visible ? (
+                              <EyeOff className="h-3.5 w-3.5" />
+                            ) : (
+                              <Eye className="h-3.5 w-3.5" />
+                            )}
                           </Button>
                           <Button
                             variant="ghost"
                             size="icon"
                             className="h-7 w-7 shrink-0"
-                            onClick={() => handleCopyKeyValue(key)}
-                            aria-label="Copy key"
+                            onClick={() => handleCopy(secret)}
+                            aria-label="Copy secret"
                           >
                             <Copy className="h-3.5 w-3.5" />
                           </Button>
                         </div>
                       </TableCell>
-                      <TableCell>
-                        <Badge className={cn("text-[10px] font-medium", STATUS_STYLES[key.status] || "")}>
-                          {key.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground" title={key.updatedAt ? formatDateTime(key.updatedAt) : undefined}>
-                        {formatRelative(key.updatedAt)}
+                      <TableCell
+                        className="text-xs text-muted-foreground"
+                        title={secret.updatedAt ? formatDateTime(secret.updatedAt) : undefined}
+                      >
+                        {formatRelative(secret.updatedAt)}
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="inline-flex items-center gap-1">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditDialog(key)} aria-label="Edit key">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => openEditDialog(secret)}
+                            aria-label="Edit secret"
+                          >
                             <Edit2 className="h-3.5 w-3.5" />
                           </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-600" onClick={() => setDeleteTarget(key.id)} aria-label="Delete key">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-red-500 hover:text-red-600"
+                            onClick={() => setDeleteTarget(secret.id)}
+                            aria-label="Delete secret"
+                          >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </div>
@@ -478,38 +475,76 @@ export default function ApiKeysPage() {
 
           {/* Mobile stacked list */}
           <div className="md:hidden divide-y divide-border">
-            {keys.map((key) => {
-              const provider = PROVIDERS[key.provider] || PROVIDERS.OTHER;
-              const visible = showKeyValues[key.id];
-              const revealing = revealingKey === key.id;
+            {secrets.map((secret) => {
+              const visible = showValues[secret.id];
+              const revealing = revealingId === secret.id;
               return (
-                <div key={key.id} className="p-4 space-y-3">
+                <div key={secret.id} className="p-4 space-y-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="font-medium truncate">{key.keyName || "Unnamed"}</p>
+                      <p className="font-medium truncate">{secret.name || "Unnamed"}</p>
                       <div className="flex items-center gap-2 mt-1">
-                        <Badge variant="outline" className="text-[10px]">{provider.name}</Badge>
-                        <Badge className={cn("text-[10px]", STATUS_STYLES[key.status] || "")}>{key.status}</Badge>
+                        <Badge variant="outline" className="text-[10px]">
+                          {categoryLabel(secret.category)}
+                        </Badge>
                       </div>
+                      {secret.notes ? (
+                        <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                          {secret.notes}
+                        </p>
+                      ) : null}
                     </div>
-                    <span className="text-[10px] text-muted-foreground shrink-0">{formatRelative(key.updatedAt)}</span>
+                    <span className="text-[10px] text-muted-foreground shrink-0">
+                      {formatRelative(secret.updatedAt)}
+                    </span>
                   </div>
                   <div className="flex items-center gap-1">
                     <code className="text-xs font-mono text-muted-foreground flex-1 truncate">
                       {visible
-                        ? (revealedKeyValues[key.id] || (revealing ? "…" : key.keyValue))
-                        : key.keyValue}
+                        ? (revealedValues[secret.id] || (revealing ? "…" : secret.keyValue))
+                        : secret.keyValue}
                     </code>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleToggleKeyVisibility(key.id)} disabled={revealing}>
-                      {revealing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : visible ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => handleToggleVisibility(secret.id)}
+                      disabled={revealing}
+                      aria-label={visible ? "Hide secret" : "Reveal secret"}
+                    >
+                      {revealing ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : visible ? (
+                        <EyeOff className="h-3.5 w-3.5" />
+                      ) : (
+                        <Eye className="h-3.5 w-3.5" />
+                      )}
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleCopyKeyValue(key)}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => handleCopy(secret)}
+                      aria-label="Copy secret"
+                    >
                       <Copy className="h-3.5 w-3.5" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditDialog(key)}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => openEditDialog(secret)}
+                      aria-label="Edit secret"
+                    >
                       <Edit2 className="h-3.5 w-3.5" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => setDeleteTarget(key.id)}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-red-500"
+                      onClick={() => setDeleteTarget(secret.id)}
+                      aria-label="Delete secret"
+                    >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                   </div>
@@ -520,27 +555,22 @@ export default function ApiKeysPage() {
         </div>
       )}
 
-      {/* Add Dialog */}
       <Dialog open={addOpen} onOpenChange={(open) => { setAddOpen(open); if (!open) resetForm(); }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Add API Key</DialogTitle>
-            <DialogDescription>Store an encrypted provider credential in the vault</DialogDescription>
+            <DialogTitle>Add Secret</DialogTitle>
+            <DialogDescription>Store an encrypted API key or credential in the vault</DialogDescription>
           </DialogHeader>
-          <KeyForm
-            formProvider={formProvider}
-            setFormProvider={setFormProvider}
-            formKeyName={formKeyName}
-            setFormKeyName={setFormKeyName}
+          <SecretForm
+            formCategory={formCategory}
+            setFormCategory={setFormCategory}
+            formName={formName}
+            setFormName={setFormName}
             formKeyValue={formKeyValue}
             setFormKeyValue={setFormKeyValue}
-            formBudget={formBudget}
-            setFormBudget={setFormBudget}
-            formPriority={formPriority}
-            setFormPriority={setFormPriority}
-            advancedOpen={advancedOpen}
-            setAdvancedOpen={setAdvancedOpen}
-            onSubmit={handleAddKey}
+            formNotes={formNotes}
+            setFormNotes={setFormNotes}
+            onSubmit={handleAdd}
             saving={saving}
             submitLabel="Add to Vault"
             isEdit={false}
@@ -548,27 +578,31 @@ export default function ApiKeysPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Edit Dialog */}
-      <Dialog open={editOpen} onOpenChange={(open) => { setEditOpen(open); if (!open) { setEditingKey(null); resetForm(); } }}>
+      <Dialog
+        open={editOpen}
+        onOpenChange={(open) => {
+          setEditOpen(open);
+          if (!open) {
+            setEditingSecret(null);
+            resetForm();
+          }
+        }}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Edit API Key</DialogTitle>
-            <DialogDescription>Rename the key or rotate the secret value</DialogDescription>
+            <DialogTitle>Edit Secret</DialogTitle>
+            <DialogDescription>Rename, recategorize, or rotate the secret value</DialogDescription>
           </DialogHeader>
-          <KeyForm
-            formProvider={formProvider}
-            setFormProvider={setFormProvider}
-            formKeyName={formKeyName}
-            setFormKeyName={setFormKeyName}
+          <SecretForm
+            formCategory={formCategory}
+            setFormCategory={setFormCategory}
+            formName={formName}
+            setFormName={setFormName}
             formKeyValue={formKeyValue}
             setFormKeyValue={setFormKeyValue}
-            formBudget={formBudget}
-            setFormBudget={setFormBudget}
-            formPriority={formPriority}
-            setFormPriority={setFormPriority}
-            advancedOpen={advancedOpen}
-            setAdvancedOpen={setAdvancedOpen}
-            onSubmit={handleEditKey}
+            formNotes={formNotes}
+            setFormNotes={setFormNotes}
+            onSubmit={handleEdit}
             saving={saving}
             submitLabel="Save Changes"
             isEdit={true}
@@ -579,9 +613,9 @@ export default function ApiKeysPage() {
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete API Key</AlertDialogTitle>
+            <AlertDialogTitle>Delete Secret</AlertDialogTitle>
             <AlertDialogDescription>
-              Remove this key from the vault? Agents referencing it will stop using it. This cannot be undone.
+              Remove this secret from the vault permanently? This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -596,46 +630,42 @@ export default function ApiKeysPage() {
   );
 }
 
-function KeyForm({
-  formProvider, setFormProvider,
-  formKeyName, setFormKeyName,
+function SecretForm({
+  formCategory, setFormCategory,
+  formName, setFormName,
   formKeyValue, setFormKeyValue,
-  formBudget, setFormBudget,
-  formPriority, setFormPriority,
-  advancedOpen, setAdvancedOpen,
+  formNotes, setFormNotes,
   onSubmit, saving, submitLabel, isEdit,
 }: {
-  formProvider: string;
-  setFormProvider: (v: string) => void;
-  formKeyName: string;
-  setFormKeyName: (v: string) => void;
+  formCategory: string;
+  setFormCategory: (v: string) => void;
+  formName: string;
+  setFormName: (v: string) => void;
   formKeyValue: string;
   setFormKeyValue: (v: string) => void;
-  formBudget: string;
-  setFormBudget: (v: string) => void;
-  formPriority: string;
-  setFormPriority: (v: string) => void;
-  advancedOpen: boolean;
-  setAdvancedOpen: (v: boolean) => void;
+  formNotes: string;
+  setFormNotes: (v: string) => void;
   onSubmit: (e: React.FormEvent) => void;
   saving: boolean;
   submitLabel: string;
   isEdit: boolean;
 }) {
-  const provider = PROVIDERS[formProvider] || PROVIDERS.OTHER;
+  const category = CATEGORIES[formCategory] || CATEGORIES.OTHER;
 
   return (
     <form onSubmit={onSubmit} className="space-y-4">
       <div className="space-y-1.5">
-        <Label className="text-xs">Provider</Label>
-        <Select value={formProvider} onValueChange={setFormProvider}>
-          <SelectTrigger><SelectValue placeholder="Select provider" /></SelectTrigger>
+        <Label className="text-xs">Category</Label>
+        <Select value={formCategory} onValueChange={setFormCategory}>
+          <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
           <SelectContent>
+            <SelectItem value="BREVO">Brevo</SelectItem>
             <SelectItem value="OPENROUTER">OpenRouter</SelectItem>
             <SelectItem value="ZAI">Z.ai</SelectItem>
+            <SelectItem value="SMTP">SMTP</SelectItem>
             <SelectItem value="GOOGLE_AI">Google AI</SelectItem>
             <SelectItem value="NVIDIA">NVIDIA</SelectItem>
-            <SelectItem value="OTHER">Other (custom)</SelectItem>
+            <SelectItem value="OTHER">Other</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -643,10 +673,11 @@ function KeyForm({
       <div className="space-y-1.5">
         <Label className="text-xs">Name</Label>
         <Input
-          value={formKeyName}
-          onChange={(e) => setFormKeyName(e.target.value)}
+          value={formName}
+          onChange={(e) => setFormName(e.target.value)}
           required
-          placeholder={`e.g., ${provider.name} Primary`}
+          placeholder={`e.g., ${category.name} Production`}
+          maxLength={200}
         />
       </div>
 
@@ -659,31 +690,22 @@ function KeyForm({
           onChange={(e) => setFormKeyValue(e.target.value)}
           required={!isEdit}
           type="password"
-          placeholder={provider.hint}
+          placeholder={category.hint}
           autoComplete="off"
         />
       </div>
 
-      <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
-        <CollapsibleTrigger asChild>
-          <Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-xs text-muted-foreground -ml-2">
-            <ChevronDown className={cn("h-3.5 w-3.5 mr-1 transition-transform", advancedOpen && "rotate-180")} />
-            Advanced (runtime)
-          </Button>
-        </CollapsibleTrigger>
-        <CollapsibleContent className="pt-2">
-          <div className="grid grid-cols-2 gap-3 rounded-lg border border-border p-3">
-            <div className="space-y-1">
-              <Label className="text-xs">Monthly budget (USD)</Label>
-              <Input type="number" value={formBudget} onChange={(e) => setFormBudget(e.target.value)} step="0.01" />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Priority (1 = highest)</Label>
-              <Input type="number" value={formPriority} onChange={(e) => setFormPriority(e.target.value)} min="1" max="10" />
-            </div>
-          </div>
-        </CollapsibleContent>
-      </Collapsible>
+      <div className="space-y-1.5">
+        <Label className="text-xs">Notes (optional)</Label>
+        <Textarea
+          value={formNotes}
+          onChange={(e) => setFormNotes(e.target.value)}
+          placeholder="Where this key is used, rotation notes…"
+          rows={2}
+          maxLength={2000}
+          className="resize-none"
+        />
+      </div>
 
       <DialogFooter>
         <Button type="submit" className="w-full" disabled={saving}>
