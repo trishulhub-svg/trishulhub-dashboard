@@ -36,6 +36,7 @@ import {
   KeyRound,
   ScrollText,
   FlaskConical,
+  Mail,
 
   ChevronRight,
   IdCard,
@@ -132,6 +133,7 @@ const navGroups: NavGroup[] = [
     items: [
       { title: "Audit Trail", href: "/dashboard/audit-trail", icon: ScrollText, roles: ["SUPER_ADMIN", "ADMIN"] },
       { title: "API Keys", href: "/dashboard/api-keys", icon: Key, roles: ["SUPER_ADMIN"] },
+      { title: "Email Logs", href: "/dashboard/email-logs", icon: Mail, roles: ["SUPER_ADMIN"] },
       {
         title: "Access Hub",
         href: "/dashboard/access-hub",

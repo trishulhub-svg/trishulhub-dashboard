@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useCallback, useEffect, useMemo } from "react"
+import React, { useState, useCallback, useEffect, useMemo, useRef } from "react"
 import { useSession } from "next-auth/react"
 import {
   Briefcase,
@@ -12,16 +12,16 @@ import {
   Filter,
   Download,
   Activity,
-  Clock,
   Shield,
   ChevronDown,
+  ChevronRight,
   RotateCcw,
   Loader2,
   FileText,
   AlertTriangle,
   Calendar,
+  X,
 } from "lucide-react"
-import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -48,11 +48,19 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { Skeleton } from "@/components/ui/skeleton"
-import { AUDIT_DEPARTMENTS, ACTION_COLORS, STATUS_COLORS, DEPARTMENT_ICONS, DEPARTMENT_COLORS, type AuditDepartment } from "@/lib/audit-log"
+import { PageHeader } from "@/components/page-header"
+import {
+  AUDIT_DEPARTMENTS,
+  AUDIT_ACTIONS,
+  ACTION_COLORS,
+  STATUS_COLORS,
+  DEPARTMENT_ICONS,
+  DEPARTMENT_COLORS,
+  type AuditDepartment,
+} from "@/lib/audit-log"
 import { formatDateTime } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
-// Icons mapping
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   Briefcase,
   FolderKanban,
@@ -82,18 +90,21 @@ interface AuditLogEntry {
   createdAt: string
 }
 
-interface DeptCount {
-  department: string
-  count: number
+interface DeptState {
+  logs: AuditLogEntry[]
+  nextCursor: string | null
+  total: number
+  loading: boolean
+  loadingMore: boolean
+  error: string | null
 }
 
 interface StatsData {
   total: number
   todayCount: number
-  departmentCounts: DeptCount[]
+  departmentCounts: { department: string; count: number }[]
   actionCounts: { action: string; count: number }[]
   statusCounts: { status: string; count: number }[]
-  recentActivity: { id: string; department: string; page: string; action: string; description: string; userName: string; createdAt: string }[]
 }
 
 function formatRelativeTime(dateStr: string | null | undefined): string {
@@ -113,85 +124,20 @@ function formatRelativeTime(dateStr: string | null | undefined): string {
   return formatDateTime(dateStr)
 }
 
-/** Safe helper: extract initials from a potentially null user name */
 function getInitials(userName: string | null | undefined): string {
   if (!userName) return "?"
-  return userName.split(" ").filter(Boolean).map(n => n[0] || "").join("").toUpperCase().slice(0, 2) || "?"
+  return userName.split(" ").filter(Boolean).map((n) => n[0] || "").join("").toUpperCase().slice(0, 2) || "?"
 }
 
-/** Safe helper: format role for display */
 function formatRole(role: string | null | undefined): string {
   if (!role) return "—"
   return role.replace(/_/g, " ")
 }
 
-// ── Mobile Card Components ──
-
-/** Mobile card for a single audit log entry */
-function AuditLogCard({ log }: { log: AuditLogEntry }) {
-  return (
-    <Card className="p-3 space-y-2">
-      {/* Timestamp + Status */}
-      <div className="flex items-center justify-between gap-2">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="text-xs text-muted-foreground cursor-help">{formatRelativeTime(log.createdAt)}</span>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p className="text-xs">{formatDateTime(log.createdAt)}</p>
-          </TooltipContent>
-        </Tooltip>
-        <Badge
-          variant="outline"
-          className={cn("text-[10px] shrink-0", STATUS_COLORS[log.status || ""] || "")}
-        >
-          {log.status || "—"}
-        </Badge>
-      </div>
-
-      {/* User info */}
-      <div className="flex items-center gap-2">
-        <Avatar className="h-7 w-7">
-          <AvatarFallback className="text-[10px] font-bold bg-primary/10 text-primary">
-            {getInitials(log.userName)}
-          </AvatarFallback>
-        </Avatar>
-        <div className="min-w-0">
-          <p className="text-sm font-medium truncate">{log.userName || "Unknown"}</p>
-          <p className="text-[10px] text-muted-foreground">{formatRole(log.userRole)}</p>
-        </div>
-      </div>
-
-      {/* Action + description */}
-      <div className="flex items-center gap-2">
-        <Badge
-          variant="secondary"
-          className={cn("text-[10px] font-semibold shrink-0", ACTION_COLORS[log.action || ""] || ACTION_COLORS.CONFIG_CHANGE)}
-        >
-          {log.action || "—"}
-        </Badge>
-        {log.description && (
-          <p className="text-xs text-muted-foreground truncate" title={log.description}>
-            {log.description}
-          </p>
-        )}
-      </div>
-
-      {/* Page */}
-      {log.page && (
-        <p className="text-xs text-muted-foreground">
-          <span className="font-medium">Page:</span> {log.page}
-        </p>
-      )}
-    </Card>
-  )
+function emptyDeptState(): DeptState {
+  return { logs: [], nextCursor: null, total: 0, loading: true, loadingMore: false, error: null }
 }
 
-/**
- * Local error boundary for the Audit Trail page.
- * Catches render-time errors so they show a useful message
- * instead of the generic DashboardError boundary.
- */
 class AuditTrailErrorBoundary extends React.Component<
   { children: React.ReactNode },
   { hasError: boolean; error: Error | null }
@@ -210,34 +156,24 @@ class AuditTrailErrorBoundary extends React.Component<
     if (this.state.hasError) {
       return (
         <div className="min-h-[40vh] flex items-center justify-center p-6">
-          <Card className="max-w-md w-full border-red-200 dark:border-red-900/50">
-            <CardContent className="p-6 space-y-4">
-              <div className="flex justify-center">
-                <div className="h-14 w-14 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-                  <AlertTriangle className="h-7 w-7 text-red-600 dark:text-red-400" />
-                </div>
+          <div className="max-w-md w-full rounded-xl border border-border bg-card p-6 space-y-4">
+            <div className="flex justify-center">
+              <div className="th-stat-icon !bg-red-100 !text-red-600 dark:!bg-red-900/30 dark:!text-red-400">
+                <AlertTriangle className="h-5 w-5" />
               </div>
-              <div className="text-center space-y-2">
-                <h2 className="text-lg font-bold">Audit Trail Error</h2>
-                <p className="text-sm text-muted-foreground">
-                  Something went wrong loading the audit trail. This is likely a data or rendering issue.
-                </p>
-                <details className="text-left">
-                  <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
-                    Error details
-                  </summary>
-                  <pre className="mt-2 text-xs bg-muted p-3 rounded-md overflow-auto max-h-32 text-red-600 dark:text-red-400">
-                    {this.state.error?.message || "Unknown error"}
-                  </pre>
-                </details>
-              </div>
-              <div className="flex gap-2 justify-center">
-                <Button onClick={() => this.setState({ hasError: false, error: null })}>
-                  <RotateCcw className="h-4 w-4 mr-2" /> Try Again
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+            </div>
+            <div className="text-center space-y-2">
+              <h2 className="text-lg font-semibold">Audit Trail Error</h2>
+              <p className="text-sm text-muted-foreground">
+                Something went wrong loading the audit trail.
+              </p>
+            </div>
+            <div className="flex justify-center">
+              <Button onClick={() => this.setState({ hasError: false, error: null })}>
+                <RotateCcw className="h-4 w-4 mr-2" /> Try Again
+              </Button>
+            </div>
+          </div>
         </div>
       )
     }
@@ -245,52 +181,304 @@ class AuditTrailErrorBoundary extends React.Component<
   }
 }
 
+function AuditRow({ log, expanded, onToggle }: { log: AuditLogEntry; expanded: boolean; onToggle: () => void }) {
+  return (
+    <>
+      <TableRow
+        className="cursor-pointer hover:bg-muted/40"
+        onClick={onToggle}
+        data-state={expanded ? "open" : undefined}
+      >
+        <TableCell className="w-8 px-2">
+          {expanded ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
+        </TableCell>
+        <TableCell className="text-xs whitespace-nowrap">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="cursor-help">{formatRelativeTime(log.createdAt)}</span>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p className="text-xs">{formatDateTime(log.createdAt)}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TableCell>
+        <TableCell>
+          <div className="flex items-center gap-2 min-w-0">
+            <Avatar className="h-6 w-6">
+              <AvatarFallback className="text-[9px] font-bold bg-muted text-foreground">
+                {getInitials(log.userName)}
+              </AvatarFallback>
+            </Avatar>
+            <div className="min-w-0">
+              <p className="text-xs font-medium truncate max-w-[120px]">{log.userName || "Unknown"}</p>
+              <p className="text-[10px] text-muted-foreground truncate">{formatRole(log.userRole)}</p>
+            </div>
+          </div>
+        </TableCell>
+        <TableCell>
+          <Badge
+            variant="secondary"
+            className={cn("text-[10px] font-semibold", ACTION_COLORS[log.action || ""] || ACTION_COLORS.CONFIG_CHANGE)}
+          >
+            {log.action || "—"}
+          </Badge>
+        </TableCell>
+        <TableCell>
+          <p className="text-xs truncate max-w-[280px] lg:max-w-[420px]" title={log.description || undefined}>
+            {log.description || "—"}
+          </p>
+        </TableCell>
+        <TableCell>
+          <p className="text-xs text-muted-foreground truncate max-w-[70px]">{log.page || "—"}</p>
+        </TableCell>
+        <TableCell>
+          <Badge variant="outline" className={cn("text-[10px]", STATUS_COLORS[log.status || ""] || "")}>
+            {log.status || "—"}
+          </Badge>
+        </TableCell>
+      </TableRow>
+      {expanded && (
+        <TableRow className="bg-muted/20 hover:bg-muted/20">
+          <TableCell colSpan={7} className="px-4 py-3">
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 text-xs">
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-0.5">Description</p>
+                <p className="text-foreground leading-relaxed">{log.description || "—"}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-0.5">Entity</p>
+                <p className="text-foreground">
+                  {log.entityType || "—"}
+                  {log.entityId ? <span className="text-muted-foreground font-mono ml-1 text-[10px]">{log.entityId.slice(0, 12)}…</span> : null}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-0.5">IP Address</p>
+                <p className="font-mono text-foreground">{log.ipAddress || "—"}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-0.5">Status</p>
+                <Badge variant="outline" className={cn("text-[10px]", STATUS_COLORS[log.status || ""] || "")}>
+                  {log.status || "—"}
+                </Badge>
+              </div>
+            </div>
+          </TableCell>
+        </TableRow>
+      )}
+    </>
+  )
+}
+
+function AuditMobileCard({ log, expanded, onToggle }: { log: AuditLogEntry; expanded: boolean; onToggle: () => void }) {
+  return (
+    <div className="rounded-lg border border-border bg-card p-3 space-y-2">
+      <button type="button" className="w-full text-left space-y-2" onClick={onToggle}>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs text-muted-foreground">{formatRelativeTime(log.createdAt)}</span>
+          <div className="flex items-center gap-1.5">
+            <Badge variant="outline" className={cn("text-[10px]", STATUS_COLORS[log.status || ""] || "")}>
+              {log.status || "—"}
+            </Badge>
+            {expanded ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Avatar className="h-7 w-7">
+            <AvatarFallback className="text-[10px] font-bold bg-muted">{getInitials(log.userName)}</AvatarFallback>
+          </Avatar>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium truncate">{log.userName || "Unknown"}</p>
+            <p className="text-[10px] text-muted-foreground">{formatRole(log.userRole)}</p>
+          </div>
+          <Badge variant="secondary" className={cn("text-[10px] shrink-0", ACTION_COLORS[log.action || ""] || "")}>
+            {log.action || "—"}
+          </Badge>
+        </div>
+        {log.description && (
+          <p className={cn("text-xs text-muted-foreground", !expanded && "truncate")}>{log.description}</p>
+        )}
+      </button>
+      {expanded && (
+        <div className="pt-2 border-t border-border grid gap-2 text-xs">
+          <div className="flex justify-between gap-2">
+            <span className="text-muted-foreground">Page</span>
+            <span>{log.page || "—"}</span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-muted-foreground">Entity</span>
+            <span className="text-right">{log.entityType || "—"}{log.entityId ? ` · ${log.entityId.slice(0, 8)}` : ""}</span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-muted-foreground">IP</span>
+            <span className="font-mono">{log.ipAddress || "—"}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DepartmentSection({
+  deptKey,
+  state,
+  onLoadMore,
+  expandedIds,
+  onToggleExpand,
+}: {
+  deptKey: string
+  state: DeptState
+  onLoadMore: () => void
+  expandedIds: Set<string>
+  onToggleExpand: (id: string) => void
+}) {
+  const dept = AUDIT_DEPARTMENTS[deptKey as AuditDepartment]
+  const Icon = iconMap[DEPARTMENT_ICONS[deptKey]] || Settings
+  const label = dept?.label || deptKey
+
+  return (
+    <section className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border bg-muted/20">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className={cn("th-stat-icon !h-8 !w-8 shrink-0", DEPARTMENT_COLORS[deptKey])}>
+            <Icon className="h-3.5 w-3.5" />
+          </div>
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold truncate">{label}</h3>
+            <p className="text-[11px] text-muted-foreground tabular-nums">
+              {state.loading && state.logs.length === 0
+                ? "Loading…"
+                : `${state.logs.length.toLocaleString()} shown${state.total ? ` · ${state.total.toLocaleString()} total` : ""}`}
+            </p>
+          </div>
+        </div>
+        {state.nextCursor && (
+          <Button variant="outline" size="sm" className="h-8 shrink-0" onClick={onLoadMore} disabled={state.loadingMore}>
+            {state.loadingMore ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <ChevronDown className="h-3.5 w-3.5 mr-1.5" />}
+            Load more
+          </Button>
+        )}
+      </div>
+
+      {state.error && (
+        <div className="px-4 py-3 flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          {state.error}
+        </div>
+      )}
+
+      {state.loading && state.logs.length === 0 && (
+        <div className="p-4 space-y-2">
+          {[1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-10 w-full rounded-md" />
+          ))}
+        </div>
+      )}
+
+      {!state.loading && state.logs.length === 0 && !state.error && (
+        <div className="py-10 flex flex-col items-center text-muted-foreground">
+          <Activity className="h-7 w-7 opacity-20 mb-2" />
+          <p className="text-sm">No recent activity</p>
+        </div>
+      )}
+
+      {state.logs.length > 0 && (
+        <>
+          {/* Mobile */}
+          <div className="md:hidden space-y-2 p-3">
+            {state.logs.map((log) => (
+              <AuditMobileCard
+                key={log.id}
+                log={log}
+                expanded={expandedIds.has(log.id)}
+                onToggle={() => onToggleExpand(log.id)}
+              />
+            ))}
+          </div>
+
+          {/* Desktop */}
+          <div className="hidden md:block overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="w-8 px-2" />
+                  <TableHead className="w-[120px]">When</TableHead>
+                  <TableHead className="w-[150px]">User</TableHead>
+                  <TableHead className="w-[100px]">Action</TableHead>
+                  <TableHead>Description</TableHead>
+                  <TableHead className="w-[80px]">Page</TableHead>
+                  <TableHead className="w-[80px]">Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {state.logs.map((log) => (
+                  <AuditRow
+                    key={log.id}
+                    log={log}
+                    expanded={expandedIds.has(log.id)}
+                    onToggle={() => onToggleExpand(log.id)}
+                  />
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </>
+      )}
+    </section>
+  )
+}
+
 export default function AuditTrailPage() {
   const { data: session, status: sessionStatus } = useSession()
+  const userRole = session?.user?.role || "DEVELOPER"
+  const userDepartment = session?.user?.department as string | undefined
 
-  // ── Audit Trail State ──
-  const [logs, setLogs] = useState<AuditLogEntry[]>([])
   const [stats, setStats] = useState<StatsData | null>(null)
-  const [selectedDept, setSelectedDept] = useState<string>("")
+  const [statsLoading, setStatsLoading] = useState(true)
+  const [searchInput, setSearchInput] = useState("")
   const [search, setSearch] = useState("")
   const [actionFilter, setActionFilter] = useState<string>("")
   const [statusFilter, setStatusFilter] = useState<string>("ALL")
-  const [nextCursor, setNextCursor] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [statsLoading, setStatsLoading] = useState(true)
+  const [dateRange, setDateRange] = useState<"7d" | "30d" | "90d" | "all">("7d")
   const [exporting, setExporting] = useState(false)
   const [exportingPdf, setExportingPdf] = useState(false)
-  const [dateRange, setDateRange] = useState<"7d" | "30d" | "90d" | "all">("30d")
-  const [hasMore, setHasMore] = useState(false)
-  const [total, setTotal] = useState(0)
-  const [error, setError] = useState<string | null>(null)
-  const userRole = session?.user?.role || "DEVELOPER"
-
-  // ── Mobile detection ──
-  const [isMobile, setIsMobile] = useState(false)
-  useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < 768)
-    check()
-    window.addEventListener("resize", check)
-    return () => window.removeEventListener("resize", check)
-  }, [])
+  const [deptStates, setDeptStates] = useState<Record<string, DeptState>>({})
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+  const fetchGen = useRef(0)
 
   const isExportVisible = ["SUPER_ADMIN", "ADMIN"].includes(userRole)
 
-  // Fetch stats
+  const accessibleDepts = useMemo(() => {
+    const all = Object.keys(AUDIT_DEPARTMENTS)
+    if (["SUPER_ADMIN", "ADMIN"].includes(userRole)) return all
+    if (userDepartment && all.includes(userDepartment)) return [userDepartment]
+    return all
+  }, [userRole, userDepartment])
+
+  // Debounce search 300ms
   useEffect(() => {
-    if (sessionStatus === "loading") return
-    if (!session) return
+    const t = setTimeout(() => setSearch(searchInput.trim()), 300)
+    return () => clearTimeout(t)
+  }, [searchInput])
+
+  const getStartDate = useCallback(() => {
+    const now = new Date()
+    switch (dateRange) {
+      case "7d": return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
+      case "30d": return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
+      case "90d": return new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString()
+      default: return ""
+    }
+  }, [dateRange])
+
+  // Stats (compact strip)
+  useEffect(() => {
+    if (sessionStatus === "loading" || !session) return
     const fetchStats = async () => {
       setStatsLoading(true)
       try {
         const res = await fetch("/api/audit-trail/stats", { credentials: "include" })
-        if (res.ok) {
-          const data = await res.json()
-          setStats(data)
-        } else {
-          console.error("[audit-trail] Stats API returned:", res.status)
-        }
+        if (res.ok) setStats(await res.json())
       } catch (err) {
         console.error("Failed to fetch audit stats:", err)
       } finally {
@@ -302,85 +490,131 @@ export default function AuditTrailPage() {
     return () => clearInterval(interval)
   }, [session, sessionStatus])
 
-  // Date range filter helper (used by fetchLogs and export)
-  const getDateRange = useCallback(() => {
-    const now = new Date()
-    switch (dateRange) {
-      case "7d": return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
-      case "30d": return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
-      case "90d": return new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString()
-      default: return ""
-    }
-  }, [dateRange])
+  const buildParams = useCallback((department: string, cursor?: string) => {
+    const params = new URLSearchParams()
+    params.set("department", department)
+    params.set("limit", cursor ? "20" : "7")
+    if (search) params.set("search", search)
+    if (actionFilter) params.set("action", actionFilter)
+    if (statusFilter && statusFilter !== "ALL") params.set("status", statusFilter)
+    const startDate = getStartDate()
+    if (startDate) params.set("startDate", startDate)
+    if (cursor) params.set("cursor", cursor)
+    return params
+  }, [search, actionFilter, statusFilter, getStartDate])
 
-  // Fetch audit logs
-  const fetchLogs = useCallback(async (cursor?: string) => {
-    setLoading(true)
-    setError(null)
-    try {
-      const params = new URLSearchParams()
-      if (selectedDept) params.set("department", selectedDept)
-      if (search) params.set("search", search)
-      if (actionFilter) params.set("action", actionFilter)
-      if (statusFilter && statusFilter !== "ALL") params.set("status", statusFilter)
-      if (cursor) params.set("cursor", cursor)
-      const startDate = getDateRange()
-      if (startDate) params.set("startDate", startDate)
-      params.set("limit", "50")
-
-      const res = await fetch(`/api/audit-trail?${params.toString()}`, { credentials: "include" })
-      if (res.ok) {
-        const data = await res.json()
-        const items: AuditLogEntry[] = Array.isArray(data?.data) ? data.data : []
-        if (cursor) {
-          setLogs(prev => [...prev, ...items])
-        } else {
-          setLogs(items)
-        }
-        setNextCursor(data?.nextCursor ?? null)
-        setHasMore(!!data?.nextCursor)
-        setTotal(typeof data?.total === "number" ? data.total : 0)
-      } else {
-        setError(`Failed to load logs (HTTP ${res.status})`)
+  // Parallel fetch — last 7 per department
+  const fetchAllDepartments = useCallback(async () => {
+    const gen = ++fetchGen.current
+    setDeptStates((prev) => {
+      const next: Record<string, DeptState> = {}
+      for (const d of accessibleDepts) {
+        next[d] = { ...(prev[d] || emptyDeptState()), loading: true, loadingMore: false, error: null, logs: [], nextCursor: null }
       }
-    } catch (err) {
-      setError("Network error — check your connection and try again.")
-      console.error("Failed to fetch audit logs:", err)
-    } finally {
-      setLoading(false)
-    }
-  }, [selectedDept, search, actionFilter, statusFilter, getDateRange])
+      return next
+    })
 
-  // Initial fetch when filters change (not cursor-based)
+    await Promise.all(
+      accessibleDepts.map(async (dept) => {
+        try {
+          const res = await fetch(`/api/audit-trail?${buildParams(dept).toString()}`, { credentials: "include" })
+          if (gen !== fetchGen.current) return
+          if (!res.ok) {
+            setDeptStates((prev) => ({
+              ...prev,
+              [dept]: { ...emptyDeptState(), loading: false, error: res.status === 403 ? "Access denied" : `HTTP ${res.status}` },
+            }))
+            return
+          }
+          const data = await res.json()
+          const items: AuditLogEntry[] = Array.isArray(data?.data) ? data.data : []
+          setDeptStates((prev) => ({
+            ...prev,
+            [dept]: {
+              logs: items,
+              nextCursor: data?.nextCursor ?? null,
+              total: typeof data?.total === "number" ? data.total : items.length,
+              loading: false,
+              loadingMore: false,
+              error: null,
+            },
+          }))
+        } catch {
+          if (gen !== fetchGen.current) return
+          setDeptStates((prev) => ({
+            ...prev,
+            [dept]: { ...emptyDeptState(), loading: false, error: "Network error" },
+          }))
+        }
+      })
+    )
+  }, [accessibleDepts, buildParams])
+
   useEffect(() => {
-    setNextCursor(null)
-    setLogs([])
-    fetchLogs()
-  }, [selectedDept, search, actionFilter, statusFilter, dateRange, fetchLogs])
+    if (sessionStatus === "loading" || !session) return
+    fetchAllDepartments()
+  }, [session, sessionStatus, fetchAllDepartments])
 
-  const loadMore = () => {
-    if (nextCursor) fetchLogs(nextCursor)
+  const loadMoreDept = async (dept: string) => {
+    const current = deptStates[dept]
+    if (!current?.nextCursor || current.loadingMore) return
+    setDeptStates((prev) => ({
+      ...prev,
+      [dept]: { ...prev[dept], loadingMore: true },
+    }))
+    try {
+      const res = await fetch(`/api/audit-trail?${buildParams(dept, current.nextCursor).toString()}`, { credentials: "include" })
+      if (!res.ok) {
+        setDeptStates((prev) => ({
+          ...prev,
+          [dept]: { ...prev[dept], loadingMore: false, error: `Failed to load more (HTTP ${res.status})` },
+        }))
+        return
+      }
+      const data = await res.json()
+      const items: AuditLogEntry[] = Array.isArray(data?.data) ? data.data : []
+      setDeptStates((prev) => ({
+        ...prev,
+        [dept]: {
+          ...prev[dept],
+          logs: [...prev[dept].logs, ...items],
+          nextCursor: data?.nextCursor ?? null,
+          total: typeof data?.total === "number" ? data.total : prev[dept].total,
+          loadingMore: false,
+          error: null,
+        },
+      }))
+    } catch {
+      setDeptStates((prev) => ({
+        ...prev,
+        [dept]: { ...prev[dept], loadingMore: false, error: "Network error" },
+      }))
+    }
   }
 
-  // Department counts from stats
-  const deptCounts = useMemo(() => {
-    const counts: Record<string, number> = {}
-    if (stats?.departmentCounts) {
-      stats.departmentCounts.forEach(d => { counts[d.department] = d.count })
-    }
-    return counts
-  }, [stats])
+  const toggleExpand = (id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
-  // Stats cards
-  const mostActiveDept = useMemo(() => {
-    if (!stats?.departmentCounts?.length) return ""
-    return stats.departmentCounts[0]?.department || ""
-  }, [stats])
+  const clearFilters = () => {
+    setSearchInput("")
+    setSearch("")
+    setActionFilter("")
+    setStatusFilter("ALL")
+    setDateRange("7d")
+  }
+
+  const hasActiveFilters = searchInput || actionFilter || statusFilter !== "ALL" || dateRange !== "7d"
 
   const successRate = useMemo(() => {
     if (!stats?.statusCounts?.length) return "—"
-    const success = stats.statusCounts.find(s => s.status === "SUCCESS")
-    const failure = stats.statusCounts.find(s => s.status === "FAILURE")
+    const success = stats.statusCounts.find((s) => s.status === "SUCCESS")
+    const failure = stats.statusCounts.find((s) => s.status === "FAILURE")
     const total = (success?.count || 0) + (failure?.count || 0)
     if (total === 0) return "—"
     return `${Math.round(((success?.count || 0) / total) * 100)}%`
@@ -390,12 +624,10 @@ export default function AuditTrailPage() {
     setExporting(true)
     try {
       const params = new URLSearchParams()
-      if (selectedDept) params.set("department", selectedDept)
       if (actionFilter) params.set("action", actionFilter)
-      const startDate = getDateRange()
+      const startDate = getStartDate()
       if (startDate) params.set("startDate", startDate)
       params.set("endDate", new Date().toISOString())
-
       const res = await fetch(`/api/audit-trail/export?${params.toString()}`, { credentials: "include" })
       if (res.ok) {
         const blob = await res.blob()
@@ -419,12 +651,10 @@ export default function AuditTrailPage() {
     setExportingPdf(true)
     try {
       const params = new URLSearchParams()
-      if (selectedDept) params.set("department", selectedDept)
       if (actionFilter) params.set("action", actionFilter)
-      const startDate = getDateRange()
+      const startDate = getStartDate()
       if (startDate) params.set("startDate", startDate)
       params.set("endDate", new Date().toISOString())
-
       const res = await fetch(`/api/audit-trail/export-pdf?${params.toString()}`, { credentials: "include" })
       if (res.ok) {
         const blob = await res.blob()
@@ -449,452 +679,127 @@ export default function AuditTrailPage() {
 
   return (
     <AuditTrailErrorBoundary>
-    <TooltipProvider>
-    <div className="space-y-6">
-      <>
-          {/* Stats Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <TooltipProvider>
+        <div className="space-y-5 th-page-enter">
+          <PageHeader title="Audit Trail" description="Department activity grouped for quick review">
+            {isExportVisible && (
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={exportCsv} disabled={exporting}>
+                  {exporting ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Download className="h-4 w-4 mr-1.5" />}
+                  CSV
+                </Button>
+                <Button size="sm" onClick={exportPdf} disabled={exportingPdf}>
+                  {exportingPdf ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <FileText className="h-4 w-4 mr-1.5" />}
+                  PDF
+                </Button>
+              </div>
+            )}
+          </PageHeader>
+
+          {/* Compact stats strip */}
+          <div className="flex flex-wrap items-center gap-3 sm:gap-5 rounded-xl border border-border bg-card/50 px-4 py-3">
             {statsLoading ? (
               <>
-                {[...Array(4)].map((_, i) => (
-                  <Card key={i}>
-                    <CardContent className="p-4">
-                      <Skeleton className="h-4 w-24 mb-2" />
-                      <Skeleton className="h-8 w-16" />
-                    </CardContent>
-                  </Card>
-                ))}
+                <Skeleton className="h-8 w-24" />
+                <Skeleton className="h-8 w-20" />
+                <Skeleton className="h-8 w-24" />
               </>
             ) : (
               <>
-                <Card>
-                  <CardContent className="p-4">
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Total Entries</p>
-                    <p className="text-xl md:text-2xl font-bold tabular-nums">{(stats?.total ?? 0).toLocaleString()}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Today</p>
-                    <p className="text-xl md:text-2xl font-bold tabular-nums">{(stats?.todayCount ?? 0).toLocaleString()}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Most Active Dept</p>
-                    <p className="text-xl md:text-2xl font-bold capitalize">{mostActiveDept ? (AUDIT_DEPARTMENTS[mostActiveDept as AuditDepartment]?.label || mostActiveDept) : "—"}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Success Rate</p>
-                    <p className="text-xl md:text-2xl font-bold">{successRate}</p>
-                  </CardContent>
-                </Card>
+                <div className="flex items-center gap-2">
+                  <div className="th-stat-icon !h-8 !w-8">
+                    <Shield className="h-3.5 w-3.5" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Total</p>
+                    <p className="text-sm font-semibold tabular-nums">{(stats?.total ?? 0).toLocaleString()}</p>
+                  </div>
+                </div>
+                <div className="h-6 w-px bg-border hidden sm:block" />
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Today</p>
+                  <p className="text-sm font-semibold tabular-nums">{(stats?.todayCount ?? 0).toLocaleString()}</p>
+                </div>
+                <div className="h-6 w-px bg-border hidden sm:block" />
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Success</p>
+                  <p className="text-sm font-semibold tabular-nums">{successRate}</p>
+                </div>
               </>
             )}
           </div>
 
-          {/* Mobile Department Chips — horizontal scrollable */}
-          <div className="lg:hidden">
-            <div className="flex gap-2 overflow-x-auto pb-2 [&::-webkit-scrollbar]:hidden [scrollbar-width]:none">
-              <button
-                className={cn(
-                  "shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors whitespace-nowrap",
-                  !selectedDept
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-background border-border hover:bg-muted"
-                )}
-                onClick={() => setSelectedDept("")}
-              >
-                All Departments
-              </button>
-              {Object.entries(AUDIT_DEPARTMENTS).map(([key, dept]) => (
-                <button
-                  key={key}
-                  className={cn(
-                    "shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors whitespace-nowrap",
-                    selectedDept === key
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-background border-border hover:bg-muted"
-                  )}
-                  onClick={() => setSelectedDept(selectedDept === key ? "" : key)}
-                >
-                  {dept.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Main Content */}
-          <div className="flex flex-col lg:flex-row gap-6">
-            {/* Left Sidebar — Department Cards (hidden on mobile) */}
-            <div className="hidden lg:block lg:w-64 shrink-0 space-y-3">
-              <h3 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
-                <Shield className="h-4 w-4" />
-                Departments
-              </h3>
-
-              {/* All Departments card */}
-              <Card
-                className={cn(
-                  "cursor-pointer transition-all hover:shadow-md border-2",
-                  !selectedDept && "border-primary/50 bg-primary/5"
-                )}
-                onClick={() => setSelectedDept("")}
-              >
-                <CardContent className="p-4 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="h-9 w-9 rounded-lg bg-muted flex items-center justify-center">
-                      <Activity className="h-5 w-5 text-muted-foreground" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold">All Departments</p>
-                      <p className="text-xs text-muted-foreground">{(stats?.total ?? 0).toLocaleString()} entries</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {Object.entries(AUDIT_DEPARTMENTS).map(([key, dept]) => {
-                const Icon = iconMap[DEPARTMENT_ICONS[key]] || Settings
-                const count = deptCounts[key] || 0
-                const isSelected = selectedDept === key
-                return (
-                  <Card
-                    key={key}
-                    className={cn(
-                      "cursor-pointer transition-all hover:shadow-md border-2",
-                      isSelected && "border-primary/50 bg-primary/5"
-                    )}
-                    onClick={() => setSelectedDept(isSelected ? "" : key)}
-                  >
-                    <CardContent className="p-3 flex items-center gap-3">
-                      <div className={cn(
-                        "h-9 w-9 rounded-lg flex items-center justify-center shrink-0",
-                        isSelected ? "bg-primary text-primary-foreground" : "bg-muted"
-                      )}>
-                        <Icon className="h-4 w-4" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium truncate">{dept.label}</p>
-                        <p className="text-xs text-muted-foreground">{count.toLocaleString()} entries</p>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )
-              })}
-            </div>
-
-            {/* Main Content Area */}
-            <div className="flex-1 min-w-0 space-y-4">
-              {/* Top Bar */}
-              <Card>
-                <CardContent className="p-4">
-                  <div className="flex flex-col sm:flex-row gap-3">
-                    <div className="relative flex-1">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        placeholder="Search audit logs..."
-                        className="pl-10 h-10"
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                      />
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Select value={actionFilter} onValueChange={setActionFilter}>
-                        <SelectTrigger className="w-auto min-w-[120px] h-10">
-                          <Filter className="h-4 w-4 mr-2 shrink-0" />
-                          <SelectValue placeholder="Actions" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="CREATE">Create</SelectItem>
-                          <SelectItem value="UPDATE">Update</SelectItem>
-                          <SelectItem value="DELETE">Delete</SelectItem>
-                          <SelectItem value="LOGIN">Login</SelectItem>
-                          <SelectItem value="LOGOUT">Logout</SelectItem>
-                          <SelectItem value="APPROVE">Approve</SelectItem>
-                          <SelectItem value="REJECT">Reject</SelectItem>
-                          <SelectItem value="EXPORT">Export</SelectItem>
-                          <SelectItem value="SEND">Send</SelectItem>
-                          <SelectItem value="ASSIGN">Assign</SelectItem>
-                          <SelectItem value="UPLOAD">Upload</SelectItem>
-                          <SelectItem value="DOWNLOAD">Download</SelectItem>
-                          <SelectItem value="STATUS_CHANGE">Status Change</SelectItem>
-                          <SelectItem value="CONFIG_CHANGE">Config Change</SelectItem>
-                          <SelectItem value="ACCESS">Access</SelectItem>
-                          <SelectItem value="READ">Read</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <Select value={statusFilter} onValueChange={setStatusFilter}>
-                        <SelectTrigger className="w-auto min-w-[100px] h-10">
-                          <SelectValue placeholder="Status" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="ALL">All</SelectItem>
-                          <SelectItem value="SUCCESS">Success</SelectItem>
-                          <SelectItem value="FAILURE">Failure</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <Select value={dateRange} onValueChange={(v) => setDateRange(v as typeof dateRange)}>
-                        <SelectTrigger className="w-auto min-w-[90px] h-10">
-                          <Calendar className="h-4 w-4 mr-2 shrink-0" />
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="7d">7 days</SelectItem>
-                          <SelectItem value="30d">30 days</SelectItem>
-                          <SelectItem value="90d">90 days</SelectItem>
-                          <SelectItem value="all">All time</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      {isExportVisible && (
-                        <>
-                          <Button variant="outline" size="sm" className="h-10" onClick={exportCsv} disabled={exporting}>
-                            {exporting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
-                            CSV
-                          </Button>
-                          <Button variant="default" size="sm" className="h-10 bg-primary" onClick={exportPdf} disabled={exportingPdf}>
-                            {exportingPdf ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <FileText className="h-4 w-4 mr-2" />}
-                            PDF
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Error Display */}
-              {error && (
-                <Card className="border-red-200 dark:border-red-900/50">
-                  <CardContent className="p-4 flex items-center gap-3">
-                    <AlertTriangle className="h-5 w-5 text-red-500 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-red-600 dark:text-red-400">Error loading audit logs</p>
-                      <p className="text-xs text-muted-foreground mt-0.5 break-words">{error}</p>
-                    </div>
-                    <Button variant="outline" size="sm" onClick={() => fetchLogs()} className="shrink-0">
-                      <RotateCcw className="h-3.5 w-3.5 mr-1.5" /> Retry
-                    </Button>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Results Info */}
-              <div className="flex items-center justify-between text-sm text-muted-foreground px-1">
-                <span>
-                  {loading ? (
-                    "Loading..."
-                  ) : (
-                    <>
-                      {total.toLocaleString()} entries found
-                      {selectedDept && (
-                        <> in <span className="font-medium text-foreground capitalize">{AUDIT_DEPARTMENTS[selectedDept as AuditDepartment]?.label || selectedDept}</span></>
-                      )}
-                    </>
-                  )}
-                </span>
-                <span className="flex items-center gap-1 shrink-0">
-                  <Clock className="h-3.5 w-3.5" />
-                  Updated just now
-                </span>
+          {/* Toolbar */}
+          <div className="rounded-xl border border-border bg-card p-3 sm:p-4">
+            <div className="flex flex-col sm:flex-row gap-2.5">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search descriptions…"
+                  className="pl-9 h-9"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                />
               </div>
-
-              {/* Audit Logs — Mobile Cards */}
-              <div className="md:hidden space-y-3">
-                {loading && logs.length === 0 ? (
-                  <>
-                    {[...Array(5)].map((_, i) => (
-                      <Card key={i} className="p-3 space-y-3">
-                        <div className="flex justify-between">
-                          <Skeleton className="h-3 w-16" />
-                          <Skeleton className="h-5 w-14" />
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Skeleton className="h-7 w-7 rounded-full" />
-                          <div className="space-y-1">
-                            <Skeleton className="h-3 w-24" />
-                            <Skeleton className="h-2 w-16" />
-                          </div>
-                        </div>
-                        <Skeleton className="h-4 w-full" />
-                      </Card>
+              <div className="flex flex-wrap gap-2">
+                <Select value={actionFilter || "__all"} onValueChange={(v) => setActionFilter(v === "__all" ? "" : v)}>
+                  <SelectTrigger className="w-auto min-w-[120px] h-9">
+                    <Filter className="h-3.5 w-3.5 mr-1.5 shrink-0" />
+                    <SelectValue placeholder="Action" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all">All actions</SelectItem>
+                    {AUDIT_ACTIONS.map((a) => (
+                      <SelectItem key={a} value={a}>{a.replace(/_/g, " ")}</SelectItem>
                     ))}
-                  </>
-                ) : logs.length === 0 ? (
-                  <Card className="p-8">
-                    <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                      <Activity className="h-8 w-8 opacity-20" />
-                      <p className="text-sm">No audit logs found</p>
-                    </div>
-                  </Card>
-                ) : (
-                  logs.map((log) => (
-                    <AuditLogCard key={log.id} log={log} />
-                  ))
+                  </SelectContent>
+                </Select>
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger className="w-auto min-w-[100px] h-9">
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">All status</SelectItem>
+                    <SelectItem value="SUCCESS">Success</SelectItem>
+                    <SelectItem value="FAILURE">Failure</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={dateRange} onValueChange={(v) => setDateRange(v as typeof dateRange)}>
+                  <SelectTrigger className="w-auto min-w-[100px] h-9">
+                    <Calendar className="h-3.5 w-3.5 mr-1.5 shrink-0" />
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="7d">7 days</SelectItem>
+                    <SelectItem value="30d">30 days</SelectItem>
+                    <SelectItem value="90d">90 days</SelectItem>
+                    <SelectItem value="all">All time</SelectItem>
+                  </SelectContent>
+                </Select>
+                {hasActiveFilters && (
+                  <Button variant="ghost" size="sm" className="h-9 px-2" onClick={clearFilters}>
+                    <X className="h-3.5 w-3.5 mr-1" /> Clear
+                  </Button>
                 )}
-
-                {/* Load More — Mobile */}
-                {hasMore && (
-                  <div className="flex justify-center pt-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={loadMore}
-                      disabled={loading}
-                    >
-                      {loading ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <ChevronDown className="h-4 w-4 mr-2" />
-                      )}
-                      Load More
-                    </Button>
-                  </div>
-                )}
-
-                {/* No more data indicator — Mobile */}
-                {!hasMore && logs.length > 0 && (
-                  <div className="flex justify-center py-2">
-                    <p className="text-xs text-muted-foreground">
-                      Showing {logs.length} of {total.toLocaleString()} entries
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {/* Audit Logs — Desktop Table */}
-              <div className="hidden md:block">
-                <Card>
-                  <CardContent className="p-0">
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="w-[160px]">Timestamp</TableHead>
-                            <TableHead className="w-[160px]">User</TableHead>
-                            <TableHead className="w-[100px]">Action</TableHead>
-                            <TableHead>Description</TableHead>
-                            <TableHead className="w-[80px]">Page</TableHead>
-                            <TableHead className="w-[80px]">Status</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {loading && logs.length === 0 ? (
-                            <>
-                              {[...Array(10)].map((_, i) => (
-                                <TableRow key={i}>
-                                  <TableCell><Skeleton className="h-4 w-[140px]" /></TableCell>
-                                  <TableCell><Skeleton className="h-4 w-[140px]" /></TableCell>
-                                  <TableCell><Skeleton className="h-6 w-[70px]" /></TableCell>
-                                  <TableCell><Skeleton className="h-4 w-full" /></TableCell>
-                                  <TableCell><Skeleton className="h-4 w-[60px]" /></TableCell>
-                                  <TableCell><Skeleton className="h-6 w-[60px]" /></TableCell>
-                                </TableRow>
-                              ))}
-                            </>
-                          ) : logs.length === 0 ? (
-                            <TableRow>
-                              <TableCell colSpan={6} className="h-32 text-center">
-                                <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                                  <Activity className="h-8 w-8 opacity-20" />
-                                  <p className="text-sm">No audit logs found</p>
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          ) : (
-                            logs.map((log) => (
-                              <TableRow key={log.id} className="hover:bg-muted/50">
-                                <TableCell className="text-xs">
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <span className="cursor-help">{formatRelativeTime(log.createdAt)}</span>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      <p className="text-xs">{formatDateTime(log.createdAt)}</p>
-                                    </TooltipContent>
-                                  </Tooltip>
-                                </TableCell>
-                                <TableCell>
-                                  <div className="flex items-center gap-2">
-                                    <Avatar className="h-7 w-7">
-                                      <AvatarFallback className="text-[10px] font-bold bg-primary/10 text-primary">
-                                        {getInitials(log.userName)}
-                                      </AvatarFallback>
-                                    </Avatar>
-                                    <div className="min-w-0">
-                                      <p className="text-xs font-medium truncate max-w-[120px]">{log.userName || "Unknown"}</p>
-                                      <p className="text-[10px] text-muted-foreground">{formatRole(log.userRole)}</p>
-                                    </div>
-                                  </div>
-                                </TableCell>
-                                <TableCell>
-                                  <Badge
-                                    variant="secondary"
-                                    className={cn("text-[10px] font-semibold", ACTION_COLORS[log.action || ""] || ACTION_COLORS.CONFIG_CHANGE)}
-                                  >
-                                    {log.action || "—"}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell>
-                                  <p className="text-xs truncate max-w-[300px] lg:max-w-[500px]" title={log.description || undefined}>
-                                    {log.description || "—"}
-                                  </p>
-                                </TableCell>
-                                <TableCell>
-                                  <p className="text-xs text-muted-foreground truncate max-w-[70px]">{log.page || "—"}</p>
-                                </TableCell>
-                                <TableCell>
-                                  <Badge
-                                    variant="outline"
-                                    className={cn("text-[10px]", STATUS_COLORS[log.status || ""] || "")}
-                                  >
-                                    {log.status || "—"}
-                                  </Badge>
-                                </TableCell>
-                              </TableRow>
-                            ))
-                          )}
-                        </TableBody>
-                      </Table>
-                    </div>
-
-                    {/* Load More */}
-                    {hasMore && (
-                      <div className="flex justify-center p-4 border-t">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={loadMore}
-                          disabled={loading}
-                        >
-                          {loading ? (
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          ) : (
-                            <ChevronDown className="h-4 w-4 mr-2" />
-                          )}
-                          Load More
-                        </Button>
-                      </div>
-                    )}
-
-                    {/* No more data indicator */}
-                    {!hasMore && logs.length > 0 && (
-                      <div className="flex justify-center p-4 border-t">
-                        <p className="text-xs text-muted-foreground">
-                          Showing {logs.length} of {total.toLocaleString()} entries
-                        </p>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
               </div>
             </div>
           </div>
-        </>
-    </div>
-    </TooltipProvider>
+
+          {/* Department sections */}
+          <div className="space-y-4">
+            {accessibleDepts.map((deptKey) => (
+              <DepartmentSection
+                key={deptKey}
+                deptKey={deptKey}
+                state={deptStates[deptKey] || emptyDeptState()}
+                onLoadMore={() => loadMoreDept(deptKey)}
+                expandedIds={expandedIds}
+                onToggleExpand={toggleExpand}
+              />
+            ))}
+          </div>
+        </div>
+      </TooltipProvider>
     </AuditTrailErrorBoundary>
   )
 }
