@@ -60,6 +60,8 @@ model User {
   userDetail         UserDetail?
   trainingQrs        TrainingQr[]
   trainingQrRequests TrainingQrRequest[]
+  trainingAssignmentsAssigned TrainingAssignment[] @relation("TrainingAssignmentAssignee")
+  trainingAssignmentsCreated  TrainingAssignment[] @relation("TrainingAssignmentAssigner")
 
   @@map("User")
 }
@@ -96,6 +98,29 @@ model TrainingQrRequest {
   @@index([status, createdAt])
   @@index([userId, status])
   @@map("TrainingQrRequest")
+}
+
+// Assigned Percipio training items (admin-managed, due-date tracked)
+model TrainingAssignment {
+  id               String    @id @default(cuid())
+  userId           String
+  title            String
+  notes            String?
+  dueDate          DateTime
+  status           String    @default("ASSIGNED") // ASSIGNED, DONE
+  assignedById     String
+  completedAt      DateTime?
+  overdueNotifiedAt DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user       User @relation("TrainingAssignmentAssignee", fields: [userId], references: [id], onDelete: Cascade)
+  assignedBy User @relation("TrainingAssignmentAssigner", fields: [assignedById], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([dueDate, status])
+  @@index([status])
+  @@map("TrainingAssignment")
 }
 
 // ━━ Encrypted secret vault (generic API keys / credentials storage) ━━

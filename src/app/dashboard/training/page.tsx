@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useSession } from "next-auth/react"
+import { useRouter } from "next/navigation"
 import {
   BookOpen,
   Download,
@@ -17,6 +18,8 @@ import {
   Shield,
   Clock,
   ImagePlus,
+  Sparkles,
+  ArrowRight,
 } from "lucide-react"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/page-header"
@@ -134,6 +137,7 @@ function fileToDataUrl(file: File): Promise<string> {
 }
 
 export default function LearningPage() {
+  const router = useRouter()
   const { data: session, status: sessionStatus } = useSession()
   const [qrOpen, setQrOpen] = useState(false)
   const [state, setState] = useState<QrState | null>(null)
@@ -290,6 +294,29 @@ export default function LearningPage() {
             </p>
           </div>
         </div>
+      </section>
+
+      {/* App setup done → tour + assignments */}
+      <section className="rounded-2xl border border-border bg-card p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center gap-4">
+        <div className="th-stat-icon shrink-0">
+          <Sparkles className="h-5 w-5" />
+        </div>
+        <div className="min-w-0 flex-1 space-y-1">
+          <h3 className="text-base font-semibold tracking-tight">App setup done?</h3>
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            Open a short tour of Percipio (Profile → Playlists → choose yours) and
+            see your assigned training with due dates.
+          </p>
+        </div>
+        <Button
+          type="button"
+          size="lg"
+          className="gap-2 shrink-0 shadow-sm"
+          onClick={() => router.push("/dashboard/training/setup")}
+        >
+          App setup done
+          <ArrowRight className="h-4 w-4" />
+        </Button>
       </section>
 
       {/* Super Admin manage panel */}
