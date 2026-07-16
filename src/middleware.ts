@@ -103,6 +103,8 @@ export async function middleware(request: NextRequest) {
       "/dashboard/team",
       "/dashboard/audit-trail",
       "/dashboard/api-keys",
+      // Assign training is Admin / Super Admin only (staff use /dashboard/training/my)
+      "/dashboard/training/assign",
     ]
 
     // Admin OR Project Manager routes — accessible to SUPER_ADMIN, ADMIN,

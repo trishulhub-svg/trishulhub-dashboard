@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation"
 import {
   CircleUserRound,
   ClipboardList,
+  Clock,
   ListMusic,
   Loader2,
   QrCode,
@@ -22,6 +23,7 @@ import {
   setTourDone,
   setLearningLanding,
 } from "@/lib/learning-prefs"
+import { dueCountdown, dueToneClass, formatDueDate } from "@/lib/training-due"
 
 const TOUR_STEPS = [
   {
@@ -285,45 +287,54 @@ export default function MyTrainingPage() {
           </div>
         ) : (
           <ul className="space-y-2">
-            {assignments.map((a) => (
-              <li
-                key={a.id}
-                className="rounded-xl border border-border bg-card px-3 py-2.5 flex items-center gap-2"
-              >
-                <button
-                  type="button"
-                  className="min-w-0 flex-1 text-left rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  onClick={() => setDetail(a)}
-                  aria-label={`Open details for ${a.title}`}
+            {assignments.map((a) => {
+              const cd = dueCountdown(a.dueDate, a.status)
+              return (
+                <li
+                  key={a.id}
+                  className="rounded-xl border border-border bg-card px-3 py-2.5 flex items-center gap-2"
                 >
-                  <h3 className="font-medium tracking-tight truncate text-sm">{a.title}</h3>
-                  {a.assignedBy?.name ? (
-                    <p className="text-xs text-muted-foreground truncate">
-                      Assigned by {a.assignedBy.name}
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 space-y-0.5 text-left rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => setDetail(a)}
+                    aria-label={`Open details for ${a.title}`}
+                  >
+                    <h3 className="font-medium tracking-tight truncate text-sm">{a.title}</h3>
+                    {a.assignedBy?.name ? (
+                      <p className="text-xs text-muted-foreground truncate">
+                        Assigned by {a.assignedBy.name}
+                      </p>
+                    ) : null}
+                    <p className={`text-xs inline-flex items-center gap-1 ${dueToneClass(cd.tone)}`}>
+                      <Clock className="h-3 w-3 shrink-0" />
+                      <span>Due {formatDueDate(a.dueDate)}</span>
+                      <span aria-hidden>·</span>
+                      <span className="font-medium">{cd.label}</span>
                     </p>
-                  ) : null}
-                </button>
-                {a.status === "OVERDUE" && (
-                  <Badge variant="destructive" className="text-[10px] shrink-0">
-                    Overdue
-                  </Badge>
-                )}
-                {a.status === "DONE" && (
-                  <Badge className="bg-success/15 text-success border-0 text-[10px] shrink-0">
-                    Done
-                  </Badge>
-                )}
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="h-8 shrink-0 px-2.5"
-                  onClick={() => setDetail(a)}
-                >
-                  Open
-                </Button>
-              </li>
-            ))}
+                  </button>
+                  {a.status === "OVERDUE" && (
+                    <Badge variant="destructive" className="text-[10px] shrink-0">
+                      Overdue
+                    </Badge>
+                  )}
+                  {a.status === "DONE" && (
+                    <Badge className="bg-success/15 text-success border-0 text-[10px] shrink-0">
+                      Done
+                    </Badge>
+                  )}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 shrink-0 px-2.5"
+                    onClick={() => setDetail(a)}
+                  >
+                    Open
+                  </Button>
+                </li>
+              )
+            })}
           </ul>
         )}
       </section>
