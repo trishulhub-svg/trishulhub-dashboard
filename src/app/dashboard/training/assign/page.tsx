@@ -63,7 +63,7 @@ export default function AssignTrainingPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
-  const [formUserId, setFormUserId] = useState("")
+  const [formUserIds, setFormUserIds] = useState<string[]>([])
   const [formTitle, setFormTitle] = useState("")
   const [formDue, setFormDue] = useState("")
   const [formNotes, setFormNotes] = useState("")
@@ -125,9 +125,23 @@ export default function AssignTrainingPage() {
     void load()
   }, [sessionStatus, canAccess, load, router])
 
+  const toggleUser = (id: string) => {
+    setFormUserIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    )
+  }
+
+  const selectAllUsers = () => {
+    setFormUserIds(team.map((m) => m.id))
+  }
+
+  const clearUsers = () => {
+    setFormUserIds([])
+  }
+
   const assign = async () => {
-    if (!formUserId) {
-      toast.error("Select a team member")
+    if (formUserIds.length === 0) {
+      toast.error("Select at least one team member")
       return
     }
     if (!formTitle.trim()) {
@@ -145,7 +159,7 @@ export default function AssignTrainingPage() {
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          userId: formUserId,
+          userIds: formUserIds,
           title: formTitle.trim(),
           dueDate: formDue,
           notes: formNotes.trim() || null,
@@ -155,11 +169,16 @@ export default function AssignTrainingPage() {
       if (!res.ok) {
         throw new Error(data.detail || data.error || "Failed to assign")
       }
-      toast.success("Training assigned — user notified")
+      const count = typeof data.count === "number" ? data.count : formUserIds.length
+      toast.success(
+        count === 1
+          ? "Training assigned — user notified"
+          : `Training assigned to ${count} people — all notified`
+      )
       setFormTitle("")
       setFormDue("")
       setFormNotes("")
-      // keep selected user for faster repeat assigns
+      // keep selected people for faster repeat assigns
       await load()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to assign")
@@ -240,7 +259,7 @@ export default function AssignTrainingPage() {
             <div>
               <h2 className="text-base font-semibold tracking-tight">New assignment</h2>
               <p className="text-sm text-muted-foreground">
-                Pick a team member, title, and due date. They&apos;ll get a notification.
+                Pick one or more people, title, and due date. Everyone selected gets a notification.
               </p>
             </div>
           </div>
@@ -265,30 +284,71 @@ export default function AssignTrainingPage() {
 
         <div className="grid sm:grid-cols-2 gap-4">
           <div className="space-y-2 sm:col-span-2">
-            <Label htmlFor="assign-user">Team member</Label>
-            {/* Native select — reliable on mobile (Radix Select was empty / hard to use) */}
-            <select
-              id="assign-user"
-              value={formUserId}
-              onChange={(e) => setFormUserId(e.target.value)}
-              disabled={loading || team.length === 0}
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Label>Team members</Label>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  disabled={loading || team.length === 0}
+                  onClick={selectAllUsers}
+                >
+                  Select all
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  disabled={formUserIds.length === 0}
+                  onClick={clearUsers}
+                >
+                  Clear
+                </Button>
+              </div>
+            </div>
+            <div
+              role="group"
+              aria-label="Select team members"
+              className="max-h-56 overflow-y-auto rounded-md border border-input bg-background divide-y divide-border"
             >
-              <option value="">
-                {loading
-                  ? "Loading team…"
-                  : team.length === 0
-                    ? "No team members found"
-                    : "Select person"}
-              </option>
-              {team.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name || m.email} · {(m.role || "").replace(/_/g, " ")}
-                </option>
-              ))}
-            </select>
+              {loading ? (
+                <p className="px-3 py-4 text-sm text-muted-foreground">Loading team…</p>
+              ) : team.length === 0 ? (
+                <p className="px-3 py-4 text-sm text-muted-foreground">No team members found</p>
+              ) : (
+                team.map((m) => {
+                  const checked = formUserIds.includes(m.id)
+                  return (
+                    <label
+                      key={m.id}
+                      className="flex items-center gap-3 px-3 py-2.5 text-sm cursor-pointer hover:bg-muted/40"
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-input accent-primary"
+                        checked={checked}
+                        onChange={() => toggleUser(m.id)}
+                      />
+                      <span className="min-w-0 flex-1 truncate font-medium">
+                        {m.name || m.email}
+                      </span>
+                      <span className="text-xs text-muted-foreground shrink-0">
+                        {(m.role || "").replace(/_/g, " ")}
+                      </span>
+                    </label>
+                  )
+                })
+              )}
+            </div>
             {team.length > 0 && (
-              <p className="text-xs text-muted-foreground">{team.length} people available</p>
+              <p className="text-xs text-muted-foreground">
+                {formUserIds.length === 0
+                  ? `${team.length} people available — select one or more`
+                  : `${formUserIds.length} of ${team.length} selected`}
+              </p>
             )}
           </div>
           <div className="space-y-2">
@@ -323,11 +383,13 @@ export default function AssignTrainingPage() {
         <Button
           type="button"
           className="gap-2 w-full sm:w-auto"
-          disabled={saving || loading || team.length === 0}
+          disabled={saving || loading || team.length === 0 || formUserIds.length === 0}
           onClick={() => void assign()}
         >
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-          Assign training
+          {formUserIds.length > 1
+            ? `Assign to ${formUserIds.length} people`
+            : "Assign training"}
         </Button>
       </section>
 

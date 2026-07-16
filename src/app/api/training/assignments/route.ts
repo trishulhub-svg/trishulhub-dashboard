@@ -8,12 +8,20 @@ import { ensureTrainingAssignmentSchema } from "@/lib/training-assignment-migrat
 import { z } from "zod"
 import { randomBytes } from "crypto"
 
-const assignSchema = z.object({
-  userId: z.string().min(1),
-  title: z.string().min(1).max(200),
-  notes: z.string().max(1000).optional().nullable(),
-  dueDate: z.string().min(1),
-})
+const assignSchema = z
+  .object({
+    /** Single assignee (legacy) */
+    userId: z.string().min(1).optional(),
+    /** Multiple assignees — preferred */
+    userIds: z.array(z.string().min(1)).min(1).max(100).optional(),
+    title: z.string().min(1).max(200),
+    notes: z.string().max(1000).optional().nullable(),
+    dueDate: z.string().min(1),
+  })
+  .refine((d) => (d.userIds && d.userIds.length > 0) || !!d.userId, {
+    message: "Select at least one team member",
+    path: ["userIds"],
+  })
 
 function newId() {
   return `ta_${randomBytes(12).toString("hex")}`
@@ -262,74 +270,111 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid due date" }, { status: 400 })
     }
 
-    const target = await db.user.findUnique({
-      where: { id: parsed.data.userId },
-      select: { id: true, name: true, email: true, isActive: true },
-    })
-    if (!target) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 })
+    // Normalize to unique user ids (supports userIds[] and legacy userId)
+    const targetIds = Array.from(
+      new Set([
+        ...(parsed.data.userIds || []),
+        ...(parsed.data.userId ? [parsed.data.userId] : []),
+      ])
+    )
+    if (targetIds.length === 0) {
+      return NextResponse.json({ error: "Select at least one team member" }, { status: 400 })
     }
 
+    const targets = await db.user.findMany({
+      where: { id: { in: targetIds } },
+      select: { id: true, name: true, email: true, isActive: true },
+    })
+    if (targets.length === 0) {
+      return NextResponse.json({ error: "No matching users found" }, { status: 404 })
+    }
+    const foundIds = new Set(targets.map((t) => t.id))
+    const missing = targetIds.filter((id) => !foundIds.has(id))
+    if (missing.length > 0) {
+      return NextResponse.json(
+        { error: `User not found: ${missing.slice(0, 3).join(", ")}${missing.length > 3 ? "…" : ""}` },
+        { status: 404 }
+      )
+    }
+
+    const title = parsed.data.title.trim()
+    const notes = parsed.data.notes?.trim() || null
     const now = new Date()
-    let assignment: RawAssignment
-    try {
-      assignment = await db.trainingAssignment.create({
-        data: {
-          id: newId(),
-          userId: parsed.data.userId,
-          title: parsed.data.title.trim(),
-          notes: parsed.data.notes?.trim() || null,
+    const created: RawAssignment[] = []
+
+    for (const userId of targetIds) {
+      let assignment: RawAssignment
+      try {
+        assignment = await db.trainingAssignment.create({
+          data: {
+            id: newId(),
+            userId,
+            title,
+            notes,
+            dueDate: due,
+            status: "ASSIGNED",
+            assignedById: session.user.id,
+            createdAt: now,
+            updatedAt: now,
+          },
+        })
+      } catch (createErr) {
+        console.warn("[training/assignments POST] prisma create failed, trying raw:", createErr)
+        const id = newId()
+        await db.$executeRawUnsafe(
+          `INSERT INTO "TrainingAssignment" ("id","userId","title","notes","dueDate","status","assignedById","createdAt","updatedAt")
+           VALUES (?,?,?,?,?,?,?,?,?)`,
+          id,
+          userId,
+          title,
+          notes,
+          due.toISOString(),
+          "ASSIGNED",
+          session.user.id,
+          now.toISOString(),
+          now.toISOString()
+        )
+        assignment = {
+          id,
+          userId,
+          title,
+          notes,
           dueDate: due,
           status: "ASSIGNED",
           assignedById: session.user.id,
+          completedAt: null,
+          overdueNotifiedAt: null,
           createdAt: now,
           updatedAt: now,
-        },
-      })
-    } catch (createErr) {
-      // Fallback raw insert if Prisma client/model mismatch
-      console.warn("[training/assignments POST] prisma create failed, trying raw:", createErr)
-      const id = newId()
-      await db.$executeRawUnsafe(
-        `INSERT INTO "TrainingAssignment" ("id","userId","title","notes","dueDate","status","assignedById","createdAt","updatedAt")
-         VALUES (?,?,?,?,?,?,?,?,?)`,
-        id,
-        parsed.data.userId,
-        parsed.data.title.trim(),
-        parsed.data.notes?.trim() || null,
-        due.toISOString(),
-        "ASSIGNED",
-        session.user.id,
-        now.toISOString(),
-        now.toISOString()
-      )
-      assignment = {
-        id,
-        userId: parsed.data.userId,
-        title: parsed.data.title.trim(),
-        notes: parsed.data.notes?.trim() || null,
-        dueDate: due,
-        status: "ASSIGNED",
-        assignedById: session.user.id,
-        completedAt: null,
-        overdueNotifiedAt: null,
-        createdAt: now,
-        updatedAt: now,
+        }
       }
+      created.push(assignment)
     }
 
     await notifyUsers({
-      userIds: parsed.data.userId,
+      userIds: targetIds,
       title: "New training assigned",
-      message: `You have been assigned "${assignment.title}" — due ${due.toLocaleDateString()}. Open Learning → My Training.`,
+      message: `You have been assigned "${title}" — due ${due.toLocaleDateString()}. Open Learning → My Training.`,
       type: "INFO",
       link: "/dashboard/training/my",
-      metadata: { kind: "training_assigned", assignmentId: assignment.id },
+      metadata: {
+        kind: "training_assigned",
+        assignmentIds: created.map((a) => a.id),
+      },
     })
 
-    const userMap = await loadUserMap([assignment.userId, assignment.assignedById])
+    const userMap = await loadUserMap([
+      ...created.map((a) => a.userId),
+      session.user.id,
+    ])
     return NextResponse.json(
-      { ok: true, assignment: serializeAssignment(assignment, userMap) },
+      {
+        ok: true,
+        count: created.length,
+        assignments: created.map((a) => serializeAssignment(a, userMap)),
+        // Keep singular for older clients
+        assignment: created[0] ? serializeAssignment(created[0], userMap) : null,
+      },
       { status: 201 }
     )
   } catch (err) {
