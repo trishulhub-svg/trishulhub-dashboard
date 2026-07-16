@@ -1013,7 +1013,7 @@ export default function TrishulWorkspacePage() {
                       Access Hub
                     </h3>
                     <p className={`ws-cred-sub ws-cred-sub--${mode}`}>
-                      Get your workspace ID & password
+                      View credentials in Access Hub
                     </p>
                   </div>
                 </div>

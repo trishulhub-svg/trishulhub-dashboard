@@ -221,8 +221,6 @@ export function availabilityRateLimit(key: string): RateLimitResult {
 // Phase 8 — Rate limit constants for new modules
 export const apiKeyRateLimit = { max: 3, windowMs: 60_000 } // 3 per minute
 export const supportTicketRateLimit = { max: 15, windowMs: 60_000 } // 15 per minute
-export const protocolOtpRateLimit = { max: 5, windowMs: 60_000 } // 5 per minute
-export const protocolInviteRateLimit = { max: 10, windowMs: 60_000 } // 10 per minute
 export const notificationRateLimit = { max: 30, windowMs: 60_000 } // 30 per minute
 
 // Phase 8 — Convenience wrappers for new modules
@@ -234,21 +232,13 @@ export function supportTicketLimit(key: string): RateLimitResult {
   return rateLimit(key, supportTicketRateLimit.max, supportTicketRateLimit.windowMs)
 }
 
-export function protocolOtpLimit(key: string): RateLimitResult {
-  return rateLimit(key, protocolOtpRateLimit.max, protocolOtpRateLimit.windowMs)
-}
-
-export function protocolInviteLimit(key: string): RateLimitResult {
-  return rateLimit(key, protocolInviteRateLimit.max, protocolInviteRateLimit.windowMs)
-}
-
 export function notificationLimit(key: string): RateLimitResult {
   return rateLimit(key, notificationRateLimit.max, notificationRateLimit.windowMs)
 }
 
 /**
  * DB-backed atomic rate limiter for cross-instance persistence.
- * Uses the ProtocolRateLimit table (already created in auto-migrate).
+ * Uses the RateLimitEntry table (created in auto-migrate).
  * Thread-safe via raw SQL — no separate DB calls needed.
  *
  * @param key - Unique identifier (userId, email, IP, etc.)
