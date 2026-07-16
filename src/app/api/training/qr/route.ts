@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { ensureAllTables } from "@/lib/auto-migrate"
-import { isSuperAdmin } from "@/lib/rbac"
+import { isAdmin } from "@/lib/rbac"
 import { notifyUsers } from "@/lib/notify"
 import { z } from "zod"
 
@@ -13,6 +12,36 @@ const IMAGE_DATA_URL =
 const uploadSchema = z.object({
   imageData: z.string().min(32).max(3_500_000),
 })
+
+async function ensureTrainingQrTables() {
+  try {
+    await Promise.race([
+      (async () => {
+        await db.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "TrainingQr" (
+          "id" TEXT NOT NULL PRIMARY KEY,
+          "imageData" TEXT NOT NULL,
+          "mimeType" TEXT NOT NULL DEFAULT 'image/png',
+          "uploadedById" TEXT NOT NULL,
+          "isActive" BOOLEAN NOT NULL DEFAULT 1,
+          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`)
+        await db.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "TrainingQrRequest" (
+          "id" TEXT NOT NULL PRIMARY KEY,
+          "userId" TEXT NOT NULL,
+          "status" TEXT NOT NULL DEFAULT 'PENDING',
+          "note" TEXT,
+          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "fulfilledAt" DATETIME,
+          "fulfilledByQrId" TEXT
+        )`)
+      })(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 4000)),
+    ])
+  } catch {
+    /* table may already exist or migrate later */
+  }
+}
 
 async function getLatestActiveQr() {
   return db.trainingQr.findFirst({
@@ -37,7 +66,7 @@ async function getLatestActiveQr() {
  */
 export async function GET() {
   try {
-    await ensureAllTables()
+    await ensureTrainingQrTables()
     const session = await getServerSession(authOptions)
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -45,7 +74,7 @@ export async function GET() {
 
     const userId = session.user.id
     const role = session.user.role || ""
-    const sa = isSuperAdmin(role)
+    const canManage = isAdmin(role)
 
     const [qr, myPending, pendingCount, pendingRequesters] = await Promise.all([
       getLatestActiveQr(),
@@ -53,10 +82,10 @@ export async function GET() {
         where: { userId, status: "PENDING" },
         select: { id: true, createdAt: true },
       }),
-      sa
+      canManage
         ? db.trainingQrRequest.count({ where: { status: "PENDING" } })
         : Promise.resolve(0),
-      sa
+      canManage
         ? db.trainingQrRequest.findMany({
             where: { status: "PENDING" },
             orderBy: { createdAt: "asc" },
@@ -83,9 +112,10 @@ export async function GET() {
         : null,
       hasPendingRequest: !!myPending,
       pendingRequestAt: myPending?.createdAt ?? null,
-      pendingCount: sa ? pendingCount : undefined,
-      pendingRequesters: sa ? pendingRequesters : undefined,
-      isSuperAdmin: sa,
+      pendingCount: canManage ? pendingCount : undefined,
+      pendingRequesters: canManage ? pendingRequesters : undefined,
+      isSuperAdmin: canManage,
+      isAdmin: canManage,
     })
   } catch (err) {
     console.error("[training/qr GET]", err)
@@ -100,13 +130,13 @@ export async function GET() {
  */
 export async function POST(req: NextRequest) {
   try {
-    await ensureAllTables()
+    await ensureTrainingQrTables()
     const session = await getServerSession(authOptions)
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
-    if (!isSuperAdmin(session.user.role || "")) {
-      return NextResponse.json({ error: "Only Super Admin can upload the training QR" }, { status: 403 })
+    if (!isAdmin(session.user.role || "")) {
+      return NextResponse.json({ error: "Only Admin or Super Admin can upload the training QR" }, { status: 403 })
     }
 
     const body = await req.json()
@@ -160,7 +190,7 @@ export async function POST(req: NextRequest) {
         message:
           "A new Percipio login QR has been uploaded. Open Learning to scan and log in.",
         type: "SUCCESS",
-        link: "/dashboard/training#open-qr",
+        link: "/dashboard/training/my",
         metadata: { trainingQrId: qr.id, kind: "training_qr_updated" },
       })
 
@@ -198,13 +228,13 @@ export async function POST(req: NextRequest) {
  */
 export async function DELETE() {
   try {
-    await ensureAllTables()
+    await ensureTrainingQrTables()
     const session = await getServerSession(authOptions)
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
-    if (!isSuperAdmin(session.user.role || "")) {
-      return NextResponse.json({ error: "Only Super Admin can delete the training QR" }, { status: 403 })
+    if (!isAdmin(session.user.role || "")) {
+      return NextResponse.json({ error: "Only Admin or Super Admin can delete the training QR" }, { status: 403 })
     }
 
     const result = await db.trainingQr.updateMany({
