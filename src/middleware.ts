@@ -78,6 +78,11 @@ export async function middleware(request: NextRequest) {
       return addSecurityHeaders(request, NextResponse.redirect(new URL("/portal", request.url)))
     }
 
+    // Legacy Agents page removed — Workspace is the agent hub
+    if (pathname.startsWith("/dashboard/agents")) {
+      return addSecurityHeaders(request, NextResponse.redirect(new URL("/dashboard/workspace", request.url)))
+    }
+
     // Granular role-based route protection.
     //
     // PROJECT_MANAGER is a new tier between ADMIN and DEVELOPER. It can access

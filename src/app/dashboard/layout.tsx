@@ -37,7 +37,8 @@ import {
   ScrollText,
   FlaskConical,
   Mail,
-
+  Receipt,
+  Wallet,
   ChevronRight,
   IdCard,
 } from "lucide-react";
@@ -87,9 +88,8 @@ interface NavGroup {
   items: NavItem[];
 }
 
-// Navigation reorganized for clarity and professional IA (no route changes)
+// Navigation — Overview · Work · People · Finance · System
 const navGroups: NavGroup[] = [
-  // 1) Overview
   {
     label: "Overview",
     items: [
@@ -98,16 +98,16 @@ const navGroups: NavGroup[] = [
       { title: "Learning", href: "/dashboard/training", icon: BookOpen, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
     ],
   },
-  // 2) Work
   {
     label: "Work",
     items: [
       { title: "Projects", href: "/dashboard/projects", icon: FolderKanban, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER"] },
       { title: "Clients", href: "/dashboard/clients", icon: Briefcase, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER"] },
+      { title: "CRM", href: "/dashboard/crm", icon: Crosshair, roles: ["SUPER_ADMIN", "ADMIN"] },
+      { title: "Demo Projects", href: "/dashboard/demo", icon: FlaskConical, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER"] },
       { title: "Time Tracking", href: "/dashboard/time-tracking", icon: Clock, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
     ],
   },
-  // 3) People
   {
     label: "People",
     items: [
@@ -118,7 +118,6 @@ const navGroups: NavGroup[] = [
       { title: "Approvals", href: "/dashboard/approvals", icon: Shield, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER"] },
     ],
   },
-  // 4) Finance
   {
     label: "Finance",
     items: [
@@ -128,22 +127,12 @@ const navGroups: NavGroup[] = [
         icon: DollarSign,
         roles: ["SUPER_ADMIN", "ADMIN"],
         children: [
-          { title: "Invoices", href: "/dashboard/finance/invoices", icon: DollarSign, roles: ["SUPER_ADMIN", "ADMIN"] },
-          { title: "Expenses", href: "/dashboard/finance/expenses", icon: DollarSign, roles: ["SUPER_ADMIN", "ADMIN"] },
+          { title: "Invoices", href: "/dashboard/finance/invoices", icon: Receipt, roles: ["SUPER_ADMIN", "ADMIN"] },
+          { title: "Expenses", href: "/dashboard/finance/expenses", icon: Wallet, roles: ["SUPER_ADMIN", "ADMIN"] },
         ],
       },
     ],
   },
-  // 5) Intelligence
-  {
-    label: "Intelligence",
-    items: [
-      { title: "Agents", href: "/dashboard/agents", icon: Bot, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER"] },
-      { title: "Demo Projects", href: "/dashboard/demo", icon: FlaskConical, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER"] },
-      { title: "CRM", href: "/dashboard/crm", icon: Crosshair, roles: ["SUPER_ADMIN", "ADMIN"] },
-    ],
-  },
-  // 6) System
   {
     label: "System",
     items: [
@@ -310,105 +299,100 @@ const SidebarContent = React.memo(function SidebarContent({
   };
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Logo Section */}
+    <div className="flex flex-col h-full th-sidebar-shell">
+      {/* Brand */}
       <div className={cn(
-        "flex items-center gap-3 px-4 py-5 border-b border-sidebar-border",
+        "th-sidebar-brand flex items-center gap-3 px-4 py-4",
         collapsed && "justify-center px-2"
       )}>
         <div className={cn(
-          "relative shrink-0",
+          "th-sidebar-brand-mark relative shrink-0 overflow-hidden",
           collapsed ? "h-10 w-10" : "h-11 w-11"
         )}>
           <Image
             src="/200px.png"
             alt="TrishulHub"
             fill
-            className="rounded-lg object-contain"
+            className="object-contain p-1"
             priority
-            sizes="(max-width: 768px) 44px, 44px"
+            sizes="44px"
           />
         </div>
         {!collapsed && (
-          <div className="min-w-0">
-            <h1 className="font-extrabold text-foreground text-xl leading-tight tracking-tight">TrishulHub</h1>
-            <p className="text-[11px] text-muted-foreground font-medium">Technology</p>
+          <div className="min-w-0 flex-1">
+            <h1 className="font-bold text-foreground text-[1.05rem] leading-tight tracking-tight truncate">
+              TrishulHub
+            </h1>
+            <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground font-semibold">
+              Technology
+            </p>
           </div>
         )}
       </div>
 
-      {/* Navigation with grouped sections */}
-      <ScrollArea className="flex-1 py-2">
-        <nav className="space-y-2 px-3">
+      {/* Navigation */}
+      <ScrollArea className="flex-1 py-3">
+        <nav className="space-y-1 px-2.5">
           {visibleGroups.map((group, groupIdx) => {
             const isOverview = group.label === "Overview";
             const hasActive = group.items.some((item) => isItemActive(item));
-            // When sidebar is collapsed, show all expanded. Otherwise, expand if explicitly toggled OR if group contains active page
             const isExpanded = collapsed ? true : (expandedGroups[group.label] ?? false) || hasActive;
-            // Count badges for the group (for collapsed header indicator)
-            const groupBadgeTotal = group.items.reduce((sum, item) => sum + (badgeCounts[item.href] || 0), 0);
+            const groupBadgeTotal = group.items.reduce(
+              (sum, item) => sum + (badgeCounts[item.href] || 0),
+              0
+            );
 
             return (
-              <div key={group.label}>
-                {/* Collapsible section header — clickable to toggle */}
+              <div key={group.label} className={cn(groupIdx > 0 && "pt-1")}>
                 {!collapsed && !isOverview && (
                   <button
                     onClick={() => toggleGroup(group.label)}
-                    className="flex items-center gap-2.5 w-full px-3 py-2.5 rounded-lg text-left group/section transition-all duration-200 hover:bg-sidebar-accent/50"
+                    className="th-sidebar-section-toggle flex items-center gap-2 w-full px-2.5 py-2 mb-0.5"
                     type="button"
                   >
                     <ChevronDown
                       className={cn(
-                        "h-3.5 w-3.5 text-muted-foreground/60 transition-transform duration-300 ease-in-out shrink-0",
+                        "h-3 w-3 text-muted-foreground/50 transition-transform duration-200 shrink-0",
                         isExpanded && "rotate-180"
                       )}
                     />
-                    <span className={cn(
-                      "text-[11px] font-semibold uppercase tracking-widest select-none transition-colors",
-                      isExpanded ? "text-muted-foreground" : "text-muted-foreground/40"
-                    )}>
+                    <span className="th-sidebar-section-label flex-1 text-left">
                       {group.label}
                     </span>
-                    {/* Trailing indicators: badge + active dot share one ml-auto cluster */}
-                    {!isExpanded && (groupBadgeTotal > 0 || hasActive) && (
-                      <span className="ml-auto flex items-center gap-1.5">
-                        {groupBadgeTotal > 0 && (
-                          <span className="h-4 min-w-[16px] px-1 flex items-center justify-center rounded-full bg-destructive text-[9px] font-bold text-destructive-foreground">
-                            {groupBadgeTotal > 99 ? "99+" : groupBadgeTotal}
-                          </span>
-                        )}
-                        {hasActive && (
-                          <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                        )}
+                    {!isExpanded && groupBadgeTotal > 0 && (
+                      <span className="h-4 min-w-[16px] px-1 flex items-center justify-center rounded-full bg-destructive text-[9px] font-bold text-destructive-foreground">
+                        {groupBadgeTotal > 99 ? "99+" : groupBadgeTotal}
                       </span>
                     )}
                   </button>
                 )}
-                {/* Overview label — non-clickable, always visible */}
                 {!collapsed && isOverview && (
-                  <p className="px-3 mb-1 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 select-none">
+                  <p className="th-sidebar-section-label px-2.5 py-2 mb-0.5">
                     {group.label}
                   </p>
                 )}
-                {/* Nav items with expand/collapse animation */}
+
                 <div
                   className={cn(
-                    "overflow-hidden transition-all duration-300 ease-in-out",
-                    isExpanded ? "max-h-[600px] opacity-100" : collapsed ? "max-h-[600px] opacity-100" : "max-h-0 opacity-0"
+                    "overflow-hidden transition-all duration-250 ease-out",
+                    isExpanded ? "max-h-[800px] opacity-100" : collapsed ? "max-h-[800px] opacity-100" : "max-h-0 opacity-0"
                   )}
                 >
-                  <div className="space-y-0.5">
+                  <div className="space-y-0.5 pb-1">
                     {group.items.map((item) => {
                       const isActive = isItemActive(item);
                       const hasChildren = !!item.children && item.children.length > 0;
-                      const isItemExpanded = hasChildren ? (collapsed ? true : (expandedItems[item.href] ?? false) || isActive) : false;
+                      const isItemExpanded = hasChildren
+                        ? collapsed
+                          ? true
+                          : (expandedItems[item.href] ?? false) || isActive
+                        : false;
 
                       return (
                         <div key={item.href}>
                           <button
                             onClick={() => {
                               if (hasChildren) {
-                                // Only toggle expand/collapse — don't navigate to parent
                                 toggleItem(item.href);
                               } else {
                                 onNavigate(item.href);
@@ -416,43 +400,49 @@ const SidebarContent = React.memo(function SidebarContent({
                             }}
                             role="link"
                             aria-label={item.title}
+                            aria-current={isActive ? "page" : undefined}
                             title={collapsed ? item.title : undefined}
                             className={cn(
-                              "relative flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-all duration-200 w-full text-left",
-                              isActive
-                                ? "bg-primary/10 text-foreground th-rail-active"
-                                : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                              "th-sidebar-link",
+                              isActive && "th-sidebar-link-active th-rail-active",
+                              collapsed && "justify-center px-2"
                             )}
                             type="button"
                           >
-                            <item.icon className={cn("h-[18px] w-[18px] shrink-0", collapsed && "mx-auto")} />
-                            {!collapsed && <span className="flex-1 text-left">{item.title}</span>}
-                            {!collapsed && hasChildren && (
-                              <ChevronRight
-                                className={cn(
-                                  "h-3.5 w-3.5 shrink-0 transition-transform duration-200",
-                                  isItemExpanded && "rotate-90"
+                            <span className={cn("th-sidebar-icon-wrap", collapsed && "mx-0")}>
+                              <item.icon className="h-[17px] w-[17px]" />
+                            </span>
+                            {!collapsed && (
+                              <>
+                                <span className="flex-1 truncate">{item.title}</span>
+                                {hasChildren && (
+                                  <ChevronRight
+                                    className={cn(
+                                      "h-3.5 w-3.5 shrink-0 text-muted-foreground/60 transition-transform duration-200",
+                                      isItemExpanded && "rotate-90"
+                                    )}
+                                  />
                                 )}
-                              />
-                            )}
-                            {!collapsed && !hasChildren && badgeCounts[item.href] > 0 && (
-                              <Badge className="h-5 min-w-[20px] px-1.5 text-[10px] font-bold bg-destructive text-destructive-foreground">
-                                {badgeCounts[item.href] > 99 ? "99+" : badgeCounts[item.href]}
-                              </Badge>
+                                {!hasChildren && badgeCounts[item.href] > 0 && (
+                                  <Badge className="h-5 min-w-[20px] px-1.5 text-[10px] font-bold bg-destructive text-destructive-foreground">
+                                    {badgeCounts[item.href] > 99 ? "99+" : badgeCounts[item.href]}
+                                  </Badge>
+                                )}
+                              </>
                             )}
                             {collapsed && badgeCounts[item.href] > 0 && (
                               <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-destructive" />
                             )}
                           </button>
-                          {/* Sub-items for items with children */}
+
                           {!collapsed && hasChildren && (
                             <div
                               className={cn(
-                                "overflow-hidden transition-all duration-200 ease-in-out",
-                                isItemExpanded ? "max-h-[400px] opacity-100" : "max-h-0 opacity-0"
+                                "overflow-hidden transition-all duration-200 ease-out",
+                                isItemExpanded ? "max-h-[320px] opacity-100" : "max-h-0 opacity-0"
                               )}
                             >
-                              <div className="ml-4 pl-3 border-l border-sidebar-border/30 space-y-0.5 mt-0.5 mb-1">
+                              <div className="th-sidebar-child-rail space-y-0.5 mt-0.5 mb-1">
                                 {item.children!.map((child) => {
                                   const childActive = isChildActive(child);
                                   return (
@@ -461,16 +451,15 @@ const SidebarContent = React.memo(function SidebarContent({
                                       onClick={() => onNavigate(child.href)}
                                       role="link"
                                       aria-label={child.title}
+                                      aria-current={childActive ? "page" : undefined}
                                       className={cn(
-                                        "relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all duration-200 w-full text-left",
-                                        childActive
-                                          ? "bg-primary/10 text-foreground font-semibold"
-                                          : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground"
+                                        "th-sidebar-sublink",
+                                        childActive && "th-sidebar-sublink-active"
                                       )}
                                       type="button"
                                     >
-                                      <child.icon className="h-3.5 w-3.5 shrink-0" />
-                                      <span className="flex-1 text-left truncate">{child.title}</span>
+                                      <child.icon className="h-3.5 w-3.5 shrink-0 opacity-80" />
+                                      <span className="flex-1 truncate">{child.title}</span>
                                     </button>
                                   );
                                 })}
@@ -482,9 +471,9 @@ const SidebarContent = React.memo(function SidebarContent({
                     })}
                   </div>
                 </div>
-                {/* Separator between groups (not after last group) */}
-                {groupIdx < visibleGroups.length - 1 && !collapsed && (
-                  <div className={cn("mt-2 mb-1 border-t border-sidebar-border/20 transition-opacity duration-300", isExpanded ? "opacity-100" : "opacity-0")} />
+
+                {groupIdx < visibleGroups.length - 1 && !collapsed && isExpanded && (
+                  <div className="mx-2.5 my-2 border-t border-sidebar-border/25" />
                 )}
               </div>
             );
@@ -743,8 +732,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Desktop Sidebar - wider and more spacious */}
       <aside
         className={cn(
-          "hidden md:flex flex-col border-r border-border bg-sidebar transition-all duration-300 relative z-40 liquid-glass-sidebar",
-          collapsed ? "w-[72px]" : "w-[280px]"
+          "hidden md:flex flex-col border-r border-sidebar-border transition-all duration-300 relative z-40 th-sidebar-shell",
+          collapsed ? "w-[76px]" : "w-[272px]"
         )}
       >
         <SidebarContent
@@ -767,7 +756,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Mobile Sidebar */}
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-        <SheetContent side="left" className="w-[280px] p-0 bg-sidebar">
+        <SheetContent side="left" className="w-[272px] p-0 th-sidebar-shell border-sidebar-border">
           <SidebarContent
             collapsed={false}
             userRole={userRole as UserRole}
