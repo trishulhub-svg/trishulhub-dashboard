@@ -186,6 +186,7 @@ model Client {
   mediatorName    String?              // Mediator/agent/broker name
   mediatorPhone   String?              // Mediator contact number
   mediatorEmail   String?              // Mediator email
+  contractUrl     String?              // External contract link (paste URL; replaces old generated contracts)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -195,7 +196,6 @@ model Client {
   deals          Deal[]
   contacts       Contact[]
   tickets        SupportTicket[]
-  contracts      Contract[]
   projectMethod  ProjectMethod?  @relation("ClientProjectMethod", fields: [projectMethodId], references: [id])
 
   @@index([userId])
@@ -858,66 +858,6 @@ model UserCredential {
   @@index([userId])
 }
 
-// ━━ Client Contracts ━━
-model Contract {
-  id              String   @id @default(cuid())
-  clientId        String
-  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-
-  // Contract details
-  contractNumber  String   @unique
-  title           String
-  // TODO: Convert status to Prisma enum when feasible
-  status          String   @default("DRAFT")  // DRAFT, SENT, SIGNED, EXPIRED, CANCELLED
-
-  // Parties
-  clientName      String
-  clientEmail     String
-  clientCompany   String?
-  clientPhone     String?
-  clientAddress   String?
-
-  // Project details (auto-filled)
-  projectName     String?
-  projectDescription String?
-  projectType     String?
-  projectMethod   String?
-  projectStartDate String?
-  deliveryDate    String?
-
-  // Contract terms
-  scopeOfWork     String   @default("")
-  paymentTerms    String   @default("")
-  totalValue      Float    @default(0)
-  // TODO: Convert currency to Prisma enum when feasible
-  currency        String   @default("INR")
-  paymentSchedule String   @default("")
-  startDate       String?
-  endDate         String?
-
-  // Terms & conditions
-  termsAndConditions String @default("")
-  amendments       String   @default("")
-  specialClauses   String   @default("")
-
-  // Metadata
-  generatedBy      String?
-  sentAt           DateTime?
-  sentVia          String?
-  signedAt         DateTime?
-
-  // Template reference
-  templateText     String?
-  templateFileName String?
-
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  @@index([clientId])
-  @@index([status])
-
-  @@map("Contract")
-}
 // ━━ User Details (HR & People — country, gov ID, bank account) ━━
 // Each user has at most one UserDetail row (one-to-one with User).
 // Country selection is one-time: once countryLocked is true, only an admin can change it.

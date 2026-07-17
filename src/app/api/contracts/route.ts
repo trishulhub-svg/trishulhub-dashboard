@@ -6,12 +6,36 @@ import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { deepSanitize } from "@/lib/utils"
-import { createContractSchema, updateContractSchema, validateRequest } from "@/lib/validations"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
+import { z } from "zod"
 
-export const maxDuration = 300
+export const maxDuration = 60
 
-// GET /api/contracts - List contracts for a client with pagination
+const contractLinkSchema = z.object({
+  clientId: z.string().min(1),
+  contractUrl: z
+    .union([
+      z.literal(""),
+      z
+        .string()
+        .trim()
+        .url("Must be a valid URL")
+        .refine(
+          (u) => u.startsWith("https://") || u.startsWith("http://"),
+          "Contract link must start with http:// or https://"
+        ),
+      z.null(),
+    ])
+    .optional(),
+})
+
+function normalizeContractUrl(raw: string | null | undefined): string | null {
+  if (raw == null) return null
+  const trimmed = raw.trim()
+  return trimmed === "" ? null : trimmed
+}
+
+/** GET /api/contracts?clientId= — return saved contract link for a client */
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -20,295 +44,153 @@ export async function GET(req: NextRequest) {
 
     await ensureAllTables()
 
-    const { searchParams } = new URL(req.url)
-    const clientId = searchParams.get("clientId")
+    const clientId = new URL(req.url).searchParams.get("clientId")
     if (!clientId) return NextResponse.json({ error: "clientId is required" }, { status: 400 })
 
-    const { success: rateOk } = rateLimit(`contracts-get:${session.user.id}`, RATE_LIMITS.crm.limit, RATE_LIMITS.crm.windowMs)
+    const { success: rateOk } = rateLimit(
+      `contracts-get:${session.user.id}`,
+      RATE_LIMITS.crm.limit,
+      RATE_LIMITS.crm.windowMs
+    )
     if (!rateOk) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
-    // Pagination params
-    const page = Math.max(1, parseInt(searchParams.get("page") || "1"))
-    const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || "50")), 200)
-    const offset = (page - 1) * limit
+    const client = await db.client.findUnique({
+      where: { id: clientId },
+      select: { id: true, name: true, company: true, contractUrl: true },
+    })
+    if (!client) return NextResponse.json({ error: "Client not found" }, { status: 404 })
 
-    const [contracts, total] = await Promise.all([
-      db.contract.findMany({
-        where: { clientId },
-        orderBy: { createdAt: "desc" },
-        skip: offset,
-        take: limit,
-      }),
-      db.contract.count({ where: { clientId } }),
-    ])
-
-    return NextResponse.json(deepSanitize({
-      data: contracts,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    }))
+    return NextResponse.json(
+      deepSanitize({
+        clientId: client.id,
+        contractUrl: client.contractUrl ?? null,
+        hasContract: Boolean(client.contractUrl),
+      })
+    )
   } catch (error: unknown) {
     console.error("[contracts] GET error:", error instanceof Error ? error.message : error)
-    return NextResponse.json({ error: "Failed to load contracts" }, { status: 500 })
+    return NextResponse.json({ error: "Failed to load contract link" }, { status: 500 })
   }
 }
 
-// POST /api/contracts - Create contract (with optional AI generation)
-export async function POST(req: NextRequest) {
-  try {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-
-  const { success: rateOk } = rateLimit(`contracts-post:${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
-  if (!rateOk) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
-
-  await ensureAllTables()
-
-  // Issue #8: req.json() try/catch
-  let body: unknown
-  try { body = await req.json() } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
-  }
-
-  const { clientId, templateText, ...contractData } = body as Record<string, unknown>
-
-  if (!clientId || typeof clientId !== "string") return NextResponse.json({ error: "clientId is required" }, { status: 400 })
-
-  // Issue #15: Zod validation on contractData (fields going to DB)
-  const validation = validateRequest(createContractSchema, contractData)
-  if (!validation.success) {
-    return NextResponse.json({ error: validation.error }, { status: 400 })
-  }
-  const validatedData = validation.data
-
-  // Sanitize all string fields on create
-  const sanitizedData = deepSanitize(validatedData) as Record<string, unknown>
-
-  // Fetch client data for auto-fill
-  const client = await db.client.findUnique({
-    where: { id: clientId },
-    include: {
-      projects: { take: 1, orderBy: { createdAt: "desc" } },
-      projectMethod: { select: { name: true } },
-    },
-  })
-  if (!client) return NextResponse.json({ error: "Client not found" }, { status: 404 })
-
-  const latestProject = client.projects[0] || null
-
-  // FIXED: Now using $transaction for atomicity (CTR-01)
-  const contract = await db.$transaction(async (tx) => {
-    // Generate contract number using max existing number to avoid collisions after deletes
-    const lastContract = await tx.contract.findFirst({ orderBy: { createdAt: "desc" }, select: { contractNumber: true } })
-    const lastNum = lastContract?.contractNumber ? parseInt(lastContract.contractNumber.replace("CTR-", ""), 10) : 0
-    const contractNumber = `CTR-${String(lastNum + 1).padStart(4, "0")}`
-
-    // Auto-fill client data
-    const autoData = {
-      clientName: client.name,
-      clientEmail: client.email,
-      clientCompany: client.company || null,
-      clientPhone: client.phone || null,
-      projectName: latestProject?.name || null,
-      projectType: client.projectType || null,
-      projectMethod: client.projectMethod?.name || null,
-      projectStartDate: client.projectStartDate ? new Date(client.projectStartDate).toISOString().split("T")[0] : null,
-      deliveryDate: client.deliveryDate ? new Date(client.deliveryDate).toISOString().split("T")[0] : null,
-      generatedBy: session.user.id,
-    }
-
-    try {
-      return await tx.contract.create({
-        data: {
-          clientId,
-          contractNumber,
-          title: sanitizedData.title ? String(sanitizedData.title) : `Service Agreement - ${client.name}`,
-          status: "DRAFT",
-          ...autoData,
-          ...(sanitizedData.scopeOfWork ? { scopeOfWork: String(sanitizedData.scopeOfWork) } : {}),
-          ...(sanitizedData.paymentTerms ? { paymentTerms: String(sanitizedData.paymentTerms) } : {}),
-          ...(sanitizedData.totalValue !== undefined ? {
-            totalValue: (() => { const v = Number(sanitizedData.totalValue); if (isNaN(v) || !isFinite(v)) return 0; return v })()
-          } : {}),
-          ...(sanitizedData.currency ? { currency: String(sanitizedData.currency) } : {}),
-          ...(sanitizedData.paymentSchedule ? { paymentSchedule: String(sanitizedData.paymentSchedule) } : {}),
-          ...(sanitizedData.startDate ? { startDate: String(sanitizedData.startDate) } : {}),
-          ...(sanitizedData.endDate ? { endDate: String(sanitizedData.endDate) } : {}),
-          ...(sanitizedData.termsAndConditions ? { termsAndConditions: String(sanitizedData.termsAndConditions) } : {}),
-          ...(templateText ? { templateText: String(templateText), templateFileName: sanitizedData.templateFileName ? String(sanitizedData.templateFileName) : "template" } : {}),
-        },
-      })
-    } catch (txError: unknown) {
-      // Phase 7c: Surface foreign-key violations (P2003) as 400 with a clear message.
-      // Also catch P2002 (unique violation on contractNumber) and re-throw as a typed marker.
-      const prismaError = txError as { code?: string; meta?: { field_name?: string } }
-      if (prismaError?.code === "P2003") {
-        const fieldHint = prismaError.meta?.field_name || "clientId"
-        throw new Error(`INVALID_REFERENCE:${fieldHint}`)
-      }
-      throw txError
-    }
-  })
-
-  // Phase 7c: Audit log contract creation (fire-and-forget)
-  void logAudit({
-    userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
-    department: "BUSINESS", page: "contracts", action: "CREATE",
-    entityType: "Contract", entityId: contract.id,
-    description: `Created contract: ${contract.contractNumber} for ${client.name}`,
-    ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
-  })
-
-  return NextResponse.json(deepSanitize(contract), { status: 201 })
-  } catch (error: unknown) {
-    // Phase 7c: Translate INVALID_REFERENCE marker into a 400 response
-    if (error instanceof Error && error.message.startsWith("INVALID_REFERENCE:")) {
-      const field = error.message.split(":")[1] || "reference"
-      return NextResponse.json(
-        { error: `Invalid ${field}: referenced record does not exist` },
-        { status: 400 }
-      )
-    }
-    console.error("[contracts] POST error:", error instanceof Error ? error.message : error)
-    return NextResponse.json({ error: "Failed to create contract" }, { status: 500 })
-  }
-}
-
-// PATCH /api/contracts - Update contract
-export async function PATCH(req: NextRequest) {
+/** PUT /api/contracts — save or clear a client's contract link */
+export async function PUT(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
-    const { success: rateOk } = rateLimit(`contracts-patch:${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
+    const { success: rateOk } = rateLimit(
+      `contracts-put:${session.user.id}`,
+      RATE_LIMITS.crmWrite.limit,
+      RATE_LIMITS.crmWrite.windowMs
+    )
     if (!rateOk) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
     await ensureAllTables()
 
-    // Issue #7: req.json() try/catch
     let body: unknown
-    try { body = await req.json() } catch {
+    try {
+      body = await req.json()
+    } catch {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
     }
 
-    const { id, ...data } = body as Record<string, unknown>
-    if (!id) return NextResponse.json({ error: "Contract ID is required" }, { status: 400 })
-
-    // Issue #16: Zod validation on PATCH
-    const validation = validateRequest(updateContractSchema, { id, ...data })
-    if (!validation.success) {
-      return NextResponse.json({ error: validation.error }, { status: 400 })
+    const parsed = contractLinkSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: parsed.error.issues[0]?.message || "Invalid request" },
+        { status: 400 }
+      )
     }
 
-    const VALID_STATUSES = ["DRAFT", "SENT", "SIGNED", "EXPIRED", "CANCELLED"]
+    const { clientId } = parsed.data
+    const contractUrl = normalizeContractUrl(parsed.data.contractUrl ?? null)
 
-    const existing = await db.contract.findUnique({ where: { id: String(id) } })
-    if (!existing) return NextResponse.json({ error: "Contract not found" }, { status: 404 })
+    const existing = await db.client.findUnique({
+      where: { id: clientId },
+      select: { id: true, name: true, contractUrl: true },
+    })
+    if (!existing) return NextResponse.json({ error: "Client not found" }, { status: 404 })
 
-    // Validate status if provided
-    if (data.status !== undefined && !VALID_STATUSES.includes(String(data.status))) {
-      return NextResponse.json({ error: `Invalid status. Must be one of: ${VALID_STATUSES.join(", ")}` }, { status: 400 })
-    }
+    const client = await db.client.update({
+      where: { id: clientId },
+      data: { contractUrl },
+      select: { id: true, name: true, company: true, contractUrl: true },
+    })
 
-    // Sanitize text fields
-    const sanitized: Record<string, any> = {}
-    const textFields = ["title", "scopeOfWork", "paymentTerms", "paymentSchedule", "termsAndConditions", "amendments", "specialClauses", "clientName", "clientEmail", "clientCompany", "clientPhone", "clientAddress", "projectName", "projectDescription", "projectType", "projectMethod", "projectStartDate", "deliveryDate", "startDate", "endDate", "currency", "templateText", "templateFileName"]
-    for (const key of textFields) {
-      if (data[key] !== undefined) sanitized[key] = typeof data[key] === "string" ? deepSanitize(data[key]) : data[key]
-    }
-    if (data.totalValue !== undefined) {
-      const val = Number(data.totalValue)
-      sanitized.totalValue = (isNaN(val) || !isFinite(val)) ? 0 : val
-    }
+    void logAudit({
+      userId: session.user.id,
+      userName: session.user.name || "unknown",
+      userRole: session.user.role,
+      department: "BUSINESS",
+      page: "clients",
+      action: "UPDATE",
+      entityType: "Client",
+      entityId: clientId,
+      description: contractUrl
+        ? `Saved contract link for client: ${existing.name}`
+        : `Cleared contract link for client: ${existing.name}`,
+      oldValue: existing.contractUrl ?? undefined,
+      newValue: contractUrl ?? undefined,
+      ipAddress: getIpAddress(req),
+      userAgent: getUserAgent(req),
+    })
 
-    try {
-      const contract = await db.contract.update({
-        where: { id: String(id) },
-        data: sanitized,
+    return NextResponse.json(
+      deepSanitize({
+        clientId: client.id,
+        contractUrl: client.contractUrl ?? null,
+        hasContract: Boolean(client.contractUrl),
       })
-      // Phase 7c: Audit log contract update (fire-and-forget)
-      const prevStatus = existing.status
-      const statusChanged = data.status !== undefined && data.status !== prevStatus
-      void logAudit({
-        userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
-        department: "BUSINESS", page: "contracts",
-        action: statusChanged ? "STATUS_CHANGE" : "UPDATE",
-        entityType: "Contract", entityId: String(id),
-        description: statusChanged
-          ? `Changed contract status: ${contract.contractNumber} (${prevStatus} → ${String(data.status)})`
-          : `Updated contract: ${contract.contractNumber}`,
-        oldValue: statusChanged ? prevStatus : undefined,
-        newValue: statusChanged ? String(data.status) : undefined,
-        ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
-      })
-      // Issue #14: deepSanitize on PATCH response
-      return NextResponse.json(deepSanitize(contract))
-    } catch (error: unknown) {
-      console.error("[contracts] PATCH DB error:", error instanceof Error ? error.message : error)
-      // Issue #11: P2025 error handling
-      const prismaError = error as { code?: string }
-      if (prismaError?.code === "P2025") {
-        return NextResponse.json({ error: "Contract not found" }, { status: 404 })
-      }
-      return NextResponse.json({ error: "Failed to update contract" }, { status: 500 })
-    }
+    )
   } catch (error: unknown) {
-    console.error("[contracts] PATCH error:", error instanceof Error ? error.message : error)
-    return NextResponse.json({ error: "Failed to update contract" }, { status: 500 })
+    console.error("[contracts] PUT error:", error instanceof Error ? error.message : error)
+    return NextResponse.json({ error: "Failed to save contract link" }, { status: 500 })
   }
 }
 
-// TODO: Migrate to DELETE /api/contracts/[id] for proper REST (Issue #12)
-// DELETE /api/contracts - Delete contract
+/** DELETE /api/contracts?clientId= — clear saved contract link */
 export async function DELETE(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
-    const { success: rateOk } = rateLimit(`contracts-delete:${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
-    if (!rateOk) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+    const clientId = new URL(req.url).searchParams.get("clientId")
+    if (!clientId) return NextResponse.json({ error: "clientId is required" }, { status: 400 })
 
     await ensureAllTables()
 
-    // Issue #7 (also for DELETE): req.json() try/catch
-    let body: unknown
-    try { body = await req.json() } catch {
-      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
-    }
-    const { id } = body as Record<string, unknown>
-    if (!id) return NextResponse.json({ error: "Contract ID is required" }, { status: 400 })
+    const existing = await db.client.findUnique({
+      where: { id: clientId },
+      select: { id: true, name: true, contractUrl: true },
+    })
+    if (!existing) return NextResponse.json({ error: "Client not found" }, { status: 404 })
 
-    // Issue #13: Contract DELETE missing existence check
-    const existing = await db.contract.findUnique({ where: { id: String(id) } })
-    if (!existing) return NextResponse.json({ error: "Contract not found" }, { status: 404 })
+    await db.client.update({
+      where: { id: clientId },
+      data: { contractUrl: null },
+    })
 
-    try {
-      await db.contract.delete({ where: { id: String(id) } })
-      // Phase 7c: Audit log contract deletion (fire-and-forget)
-      void logAudit({
-        userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
-        department: "BUSINESS", page: "contracts", action: "DELETE",
-        entityType: "Contract", entityId: String(id),
-        description: `Deleted contract: ${existing.contractNumber}`,
-        ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
-      })
-      return NextResponse.json({ success: true })
-    } catch (error: unknown) {
-      console.error("[contracts] DELETE DB error:", error instanceof Error ? error.message : error)
-      // Issue #11: P2025 error handling
-      const prismaError = error as { code?: string }
-      if (prismaError?.code === "P2025") {
-        return NextResponse.json({ error: "Contract not found" }, { status: 404 })
-      }
-      return NextResponse.json({ error: "Failed to delete contract" }, { status: 500 })
-    }
+    void logAudit({
+      userId: session.user.id,
+      userName: session.user.name || "unknown",
+      userRole: session.user.role,
+      department: "BUSINESS",
+      page: "clients",
+      action: "DELETE",
+      entityType: "Client",
+      entityId: clientId,
+      description: `Cleared contract link for client: ${existing.name}`,
+      oldValue: existing.contractUrl || undefined,
+      ipAddress: getIpAddress(req),
+      userAgent: getUserAgent(req),
+    })
+
+    return NextResponse.json({ success: true, contractUrl: null, hasContract: false })
   } catch (error: unknown) {
     console.error("[contracts] DELETE error:", error instanceof Error ? error.message : error)
-    return NextResponse.json({ error: "Failed to delete contract" }, { status: 500 })
+    return NextResponse.json({ error: "Failed to clear contract link" }, { status: 500 })
   }
 }

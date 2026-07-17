@@ -321,49 +321,6 @@ export function validateRequest<T>(schema: z.ZodSchema<T>, data: unknown): { suc
   return { success: true, data: result.data }
 }
 
-// ━━ Contracts ━━
-// clientId is validated separately in the route (stripped before this schema runs)
-export const createContractSchema = z.object({
-  title: z.string().max(500).optional(),
-  scopeOfWork: z.string().max(50000).optional(),
-  paymentTerms: z.string().max(10000).optional(),
-  totalValue: z.number().min(0).max(99_999_999).finite().optional(),
-  currency: z.enum(["USD", "GBP", "INR", "EUR"]).optional(),
-  paymentSchedule: z.string().max(10000).optional(),
-  startDate: z.string().optional(),
-  endDate: z.string().optional(),
-  termsAndConditions: z.string().max(50000).optional(),
-  templateText: z.string().max(50000).optional(),
-  templateFileName: z.string().max(500).optional(),
-  // Backend auto-generates if not provided
-  contractNumber: z.string().optional(),
-})
-
-export const updateContractSchema = z.object({
-  id: z.string().min(1, "Contract ID is required"),
-  title: z.string().max(500).optional(),
-  scopeOfWork: z.string().max(50000).optional(),
-  paymentTerms: z.string().max(10000).optional(),
-  totalValue: z.number().min(0).max(99_999_999).finite().optional(),
-  currency: z.enum(["USD", "GBP", "INR", "EUR"]).optional(),
-  paymentSchedule: z.string().max(10000).optional(),
-  startDate: z.string().optional(),
-  endDate: z.string().optional(),
-  termsAndConditions: z.string().max(50000).optional(),
-  amendments: z.string().max(10000).optional(),
-  specialClauses: z.string().max(10000).optional(),
-  clientName: z.string().max(200).optional(),
-  clientEmail: z.string().max(200).optional(),
-  clientCompany: z.string().max(200).optional(),
-  clientPhone: z.string().max(50).optional(),
-  clientAddress: z.string().max(500).optional(),
-  projectName: z.string().max(200).optional(),
-  projectDescription: z.string().max(5000).optional(),
-  projectType: z.string().max(100).optional(),
-  projectMethod: z.string().max(100).optional(),
-  status: z.enum(["DRAFT", "SENT", "SIGNED", "EXPIRED", "CANCELLED"]).optional(),
-}).refine(hasAtLeastOneField, { message: "At least one field must be provided" })
-
 // ━━ Admin Time Entry ━━
 // Admin manual entry creation (can specify userId, clockIn, clockOut)
 export const adminCreateTimeEntrySchema = z.object({

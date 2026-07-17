@@ -728,11 +728,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="min-h-screen flex bg-background">
-      {/* Desktop Sidebar - wider and more spacious */}
+    <div className="h-dvh flex overflow-hidden bg-background">
+      {/* Desktop Sidebar — fixed height; scrolls independently of page content */}
       <aside
         className={cn(
-          "hidden md:flex flex-col border-r border-sidebar-border transition-all duration-300 relative z-40 th-sidebar-shell",
+          "hidden md:flex flex-col border-r border-sidebar-border transition-all duration-300 relative z-40 th-sidebar-shell h-full shrink-0 overflow-hidden",
           collapsed ? "w-[76px]" : "w-[272px]"
         )}
       >
@@ -767,10 +767,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </SheetContent>
       </Sheet>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col min-w-0">
+      {/* Main Content — only this region scrolls with the page */}
+      <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
         {/* Header - taller and more prominent */}
-        <header className="h-14 sm:h-16 glass-topbar flex items-center justify-between px-3 sm:px-5 sticky top-0 z-30">
+        <header className="h-14 sm:h-16 glass-topbar flex items-center justify-between px-3 sm:px-5 shrink-0 z-30">
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="icon" className="md:hidden" aria-label="Open menu" onClick={() => setMobileOpen(true)}>
               <Menu className="h-5 w-5" />
@@ -970,7 +970,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </header>
 
         {/* Page Content - more padding */}
-        <main className="flex-1 p-3 sm:p-4 md:p-6 lg:p-8 overflow-auto">{children}</main>
+        <main className="flex-1 min-h-0 p-3 sm:p-4 md:p-6 lg:p-8 overflow-y-auto overscroll-contain">{children}</main>
       </div>
 
       {/* Agentation — visual feedback tool (SUPER_ADMIN only) */}

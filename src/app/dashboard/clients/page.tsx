@@ -1,8 +1,7 @@
 "use client";
-// TODO: Extract sub-components (NotesEditor, ContractPanel, ClientForm) to separate files for maintainability
-// TODO: Add keyboard shortcuts for common actions (e.g., Ctrl+N to add client, Escape to close dialogs)
+// TODO: Extract sub-components (NotesEditor, ClientForm) to separate files for maintainability
 
-import { useEffect, useState, useCallback, useRef, useDeferredValue } from "react";
+import { useEffect, useState, useCallback, useRef, useDeferredValue, Suspense } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import {
@@ -10,7 +9,7 @@ import {
   Building2, Globe, MoreHorizontal, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown,
   FolderKanban, HeadphonesIcon, StickyNote, ExternalLink, AlertCircle, UserCheck,
   ChevronLeft, ChevronRight, X, Calendar, Link2, UserCircle, ChevronDown, ChevronUp,
-  Settings, Eye, EyeOff, FileSignature, Send, Download, Upload, Sparkles, Loader2, Check,
+  Settings, Eye, EyeOff, Loader2, Check,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -46,18 +45,7 @@ import { toast } from "sonner";
 import type { ClientStatus } from "@/lib/types";
 import { safeText, safeNumber, deepSanitize } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
-
-// ━━ Helpers ━━
-// HTML escape helper to prevent XSS when writing untrusted data into HTML strings (e.g., PDF generation)
-const escHtml = (s: string | null | undefined): string => {
-  if (!s) return '';
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#x27;');
-};
+import { useUrlState } from "@/hooks/use-url-state";
 
 // ━━ Types ━━
 interface ClientWebsite {
@@ -90,6 +78,7 @@ interface ClientRow {
   _count: { projects: number; invoices: number; tickets: number };
   // CLI-017: revenue may be undefined from API
   revenue: number | undefined;
+  contractUrl?: string | null;
 }
 
 interface ClientDetail extends ClientRow {
@@ -376,14 +365,6 @@ function toDateString(d: Date): string {
   return d.toISOString().split("T")[0];
 }
 
-function parseContractsList(payload: unknown): Record<string, unknown>[] {
-  if (Array.isArray(payload)) return payload as Record<string, unknown>[]
-  if (payload && typeof payload === "object" && Array.isArray((payload as { data?: unknown }).data)) {
-    return (payload as { data: Record<string, unknown>[] }).data
-  }
-  return []
-}
-
 // ━━ Form Errors ━━
 interface FormErrors {
   name?: string;
@@ -403,6 +384,14 @@ function SortIcon({ field, sortBy, sortOrder }: { field: "name" | "createdAt" | 
 const PAGE_SIZE = 50;
 
 export default function ClientsPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading clients…</div>}>
+      <ClientsPageInner />
+    </Suspense>
+  );
+}
+
+function ClientsPageInner() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const userRole = session?.user?.role || "DEVELOPER";
@@ -418,7 +407,7 @@ export default function ClientsPage() {
   // CLI-005: searchInput for the input, debouncedSearch for the fetch
   const [searchInput, setSearchInput] = useState("");
   const debouncedSearch = useDeferredValue(searchInput);
-  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [statusFilter, setStatusFilter] = useUrlState("status", "ALL");
   const [sortBy, setSortBy] = useState<"name" | "createdAt" | "revenue">("createdAt");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
 
@@ -475,20 +464,13 @@ export default function ClientsPage() {
   const [showMediator, setShowMediator] = useState(false);
   const [websitesFullyLoaded, setWebsitesFullyLoaded] = useState(false);
 
-  // Contract panel state
-  const [contractClient, setContractClient] = useState<ClientRow | null>(null);
-  const [contractOpen, setContractOpen] = useState(false);
-  const [contracts, setContracts] = useState<Record<string, unknown>[]>([]);
-  const [contractLoading, setContractLoading] = useState(false);
-  const [contractGenerating, setContractGenerating] = useState(false);
-  const [contractSending, setContractSending] = useState(false);
-  const [contractTemplate, setContractTemplate] = useState<string | null>(null);
-  const [contractTemplateFile, setContractTemplateFile] = useState<string | null>(null);
-  const [uploadingTemplate, setUploadingTemplate] = useState(false);
-  const [editingContract, setEditingContract] = useState<Record<string, unknown> | null>(null);
-  const [contractForm, setContractForm] = useState<Record<string, unknown>>({});
-  // Contract delete confirmation
-  const [deleteContractId, setDeleteContractId] = useState<string | null>(null);
+  // Contract link (external URL) — replaces legacy generate-contract system
+  const [contractLinkClient, setContractLinkClient] = useState<ClientRow | null>(null);
+  const [contractLinkOpen, setContractLinkOpen] = useState(false);
+  const [contractLinkInput, setContractLinkInput] = useState("");
+  const [contractLinkSaving, setContractLinkSaving] = useState(false);
+  const [permanentDelete, setPermanentDelete] = useState(false);
+  const [editLoading, setEditLoading] = useState(false);
 
   // CLI-008: 401 handling helper
   const handleFetchError = useCallback((res: Response): boolean => {
@@ -590,101 +572,66 @@ export default function ClientsPage() {
     setDialogOpen(true);
   };
 
-  // ━━ Open edit dialog ━━
+  // ━━ Open edit dialog (instant open + lite fetch for websites) ━━
   const handleEdit = async (client: ClientRow | ClientDetail) => {
     setEditingClient(client);
     setFormErrors({});
     setShowMediator(!!(client.mediatorName || client.mediatorPhone));
-    if ('websites' in client && Array.isArray(client.websites) && client.websites.length > 0) {
-      // ClientDetail already has the full websites array — use directly
-      const parsedWebsites = client.websites.map((w: ClientWebsite) => w.url);
-      setWebsitesFullyLoaded(true);
-      setFormData({
-        name: client.name, email: client.email,
-        phone: client.phone || "", company: client.company || "",
-        website: client.website || "",
-        websites: parsedWebsites,
-        status: (client.status as ClientStatus) || "ACTIVE",
-        projectType: client.projectType || "",
-        deliveryDate: client.deliveryDate ? client.deliveryDate.split("T")[0] : "",
-        mediatorName: client.mediatorName || "",
-        mediatorPhone: client.mediatorPhone || "",
-        mediatorEmail: client.mediatorEmail || "",
-        notes: client.notes || "",
-        createdAt: "",
-      });
-    } else {
-      // Table row only — fetch full detail to get all websites before opening form
-      setSubmitting(true);
+    const seedWebsites =
+      ('websites' in client && Array.isArray(client.websites) && client.websites.length > 0)
+        ? client.websites.map((w: ClientWebsite) => w.url)
+        : client.primaryWebsite ? [client.primaryWebsite.url]
+        : client.website ? [client.website]
+        : [""];
+    setWebsitesFullyLoaded('websites' in client && Array.isArray(client.websites) && client.websites.length > 0);
+    setFormData({
+      name: client.name, email: client.email,
+      phone: client.phone || "", company: client.company || "",
+      website: client.website || "",
+      websites: seedWebsites,
+      status: (client.status as ClientStatus) || "ACTIVE",
+      projectType: client.projectType || "",
+      deliveryDate: client.deliveryDate ? client.deliveryDate.split("T")[0] : "",
+      mediatorName: client.mediatorName || "",
+      mediatorPhone: client.mediatorPhone || "",
+      mediatorEmail: client.mediatorEmail || "",
+      notes: client.notes || "",
+      createdAt: "",
+    });
+    setDialogOpen(true);
+
+    if (!('websites' in client && Array.isArray(client.websites) && client.websites.length > 0)) {
+      setEditLoading(true);
       try {
-        const res = await fetch(`/api/clients/${client.id}`, { credentials: "include" });
+        const res = await fetch(`/api/clients/${client.id}?lite=1`, { credentials: "include" });
         if (res.ok) {
           const detail = await res.json() as ClientDetail;
           const parsedWebsites = detail.websites?.length > 0
             ? detail.websites.map((w: ClientWebsite) => w.url)
-            : client.primaryWebsite ? [client.primaryWebsite.url]
-            : client.website ? [client.website]
-            : [""];
+            : seedWebsites;
           setWebsitesFullyLoaded(true);
-          setFormData({
+          setFormData((prev) => ({
+            ...prev,
             name: detail.name, email: detail.email,
             phone: detail.phone || "", company: detail.company || "",
             website: detail.website || "",
             websites: parsedWebsites,
-            status: (detail.status as ClientStatus) || "ACTIVE",
+            status: (detail.status as ClientStatus) || prev.status,
             projectType: detail.projectType || "",
             deliveryDate: detail.deliveryDate ? detail.deliveryDate.split("T")[0] : "",
             mediatorName: detail.mediatorName || "",
             mediatorPhone: detail.mediatorPhone || "",
             mediatorEmail: detail.mediatorEmail || "",
             notes: detail.notes || "",
-            createdAt: "",
-          });
-        } else {
-          // Fetch failed — fall back to table row data, mark websites as incomplete
-          const parsedWebsites = client.primaryWebsite
-            ? [client.primaryWebsite.url]
-            : client.website ? [client.website] : [""];
-          setWebsitesFullyLoaded(false);
-          setFormData({
-            name: client.name, email: client.email,
-            phone: client.phone || "", company: client.company || "",
-            website: client.website || "",
-            websites: parsedWebsites,
-            status: (client.status as ClientStatus) || "ACTIVE",
-            projectType: client.projectType || "",
-            deliveryDate: client.deliveryDate ? client.deliveryDate.split("T")[0] : "",
-            mediatorName: client.mediatorName || "",
-            mediatorPhone: client.mediatorPhone || "",
-            mediatorEmail: client.mediatorEmail || "",
-            notes: client.notes || "",
-            createdAt: "",
-          });
+          }));
+          setEditingClient(detail);
         }
       } catch {
-        const parsedWebsites = client.primaryWebsite
-          ? [client.primaryWebsite.url]
-          : client.website ? [client.website] : [""];
-        setWebsitesFullyLoaded(false);
-        setFormData({
-          name: client.name, email: client.email,
-          phone: client.phone || "", company: client.company || "",
-          website: client.website || "",
-          websites: parsedWebsites,
-          status: (client.status as ClientStatus) || "ACTIVE",
-          projectType: client.projectType || "",
-          deliveryDate: client.deliveryDate ? client.deliveryDate.split("T")[0] : "",
-          mediatorName: client.mediatorName || "",
-          mediatorPhone: client.mediatorPhone || "",
-          mediatorEmail: client.mediatorEmail || "",
-          notes: client.notes || "",
-          createdAt: "",
-        });
+        /* keep seeded row data */
       } finally {
-        setSubmitting(false);
+        setEditLoading(false);
       }
     }
-    setDialogOpen(true);
   };
 
   // ━━ Validate form ━━
@@ -819,30 +766,29 @@ export default function ClientsPage() {
     }
   };
 
-  // ━━ Delete client ━━
+  // ━━ Deactivate or permanently delete client ━━
   const handleDelete = async () => {
     if (!deleteTarget) return;
+    const isPermanent = permanentDelete || deleteTarget.status === "CHURNED";
     try {
-      const res = await fetch(`/api/clients/${deleteTarget.id}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
+      const url = isPermanent
+        ? `/api/clients/${deleteTarget.id}?permanent=1`
+        : `/api/clients/${deleteTarget.id}`;
+      const res = await fetch(url, { method: "DELETE", credentials: "include" });
       if (handleFetchError(res)) return;
       if (res.ok) {
-        toast.success("Client deactivated successfully");
+        toast.success(isPermanent ? "Client permanently deleted" : "Client deactivated successfully");
         fetchClients();
-        if (detailClient?.id === deleteTarget.id) {
-          setDetailClient(null);
-        }
+        if (detailClient?.id === deleteTarget.id) setDetailClient(null);
       } else {
-        // CLI-020: try/catch around res.json() in error branch
         const data = await res.json().catch(() => ({}));
-        toast.error((data.error || "Failed to deactivate client").slice(0, 100));
+        toast.error((data.error || "Failed to delete client").slice(0, 100));
       }
     } catch {
       toast.error("Something went wrong");
     } finally {
       setDeleteTarget(null);
+      setPermanentDelete(false);
     }
   };
 
@@ -921,245 +867,76 @@ export default function ClientsPage() {
   // CLI-032: Check if a date quick filter is active
   const isDateFilterActive = (value: string) => debouncedSearch.toLowerCase().trim() === value;
 
-  // ━━ Contract Panel Handlers ━━
-  const openContractPanel = async (client: ClientRow) => {
+  // ━━ Contract link (Add / Open) ━━
+  const openAddContract = (client: ClientRow) => {
     if (!isFinanceAdmin) {
       toast.error("Contracts are available to admins only");
       return;
     }
-    setContractClient(client);
-    setContractOpen(true);
-    setContractLoading(true);
-    setEditingContract(null);
-    try {
-      const res = await fetch(`/api/contracts?clientId=${client.id}`, { credentials: "include" });
-      if (res.ok) {
-        const data = await res.json();
-        setContracts(parseContractsList(data));
-      }
-    } catch (err) {
-      console.error("Failed to fetch contracts:", err);
-    } finally {
-      setContractLoading(false);
-    }
+    setContractLinkClient(client);
+    setContractLinkInput(client.contractUrl || "");
+    setContractLinkOpen(true);
   };
 
-  const handleGenerateContract = async () => {
-    if (!contractClient) return;
-    setContractGenerating(true);
+  const openSavedContract = (client: ClientRow) => {
+    const url = (client.contractUrl || "").trim();
+    if (!url) {
+      toast.error("No contract link saved yet — use Add Contract first");
+      return;
+    }
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  const handleSaveContractLink = async () => {
+    if (!contractLinkClient) return;
+    const raw = contractLinkInput.trim();
+    if (raw) {
+      try {
+        const u = new URL(raw);
+        if (u.protocol !== "http:" && u.protocol !== "https:") {
+          toast.error("Contract link must start with http:// or https://");
+          return;
+        }
+      } catch {
+        toast.error("Please enter a valid URL");
+        return;
+      }
+    }
+    setContractLinkSaving(true);
     try {
       const res = await fetch("/api/contracts", {
-        method: "POST",
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          clientId: contractClient.id,
-          title: `Service Agreement - ${contractClient.name}`,
-          templateText: contractTemplate || undefined,
-          templateFileName: contractTemplateFile || undefined,
-          ...contractForm,
+          clientId: contractLinkClient.id,
+          contractUrl: raw || "",
         }),
       });
+      if (handleFetchError(res)) return;
       if (res.ok) {
-        toast.success("Contract created. Add or edit terms in the contract editor.");
-        const listRes = await fetch(`/api/contracts?clientId=${contractClient.id}`, { credentials: "include" });
-        if (listRes.ok) {
-          const data = await listRes.json();
-          setContracts(parseContractsList(data));
+        const data = await res.json();
+        const saved = (data.contractUrl as string | null) || null;
+        setClients((prev) =>
+          prev.map((c) =>
+            c.id === contractLinkClient.id ? { ...c, contractUrl: saved } : c
+          )
+        );
+        if (detailClient?.id === contractLinkClient.id) {
+          setDetailClient({ ...detailClient, contractUrl: saved });
         }
-        setContractForm({});
+        toast.success(saved ? "Contract link saved" : "Contract link cleared");
+        setContractLinkOpen(false);
+        setContractLinkClient(null);
       } else {
-        const data = await res.json().catch(() => ({}));
-        toast.error(((data as Record<string, string>).error || "Failed to generate contract").slice(0, 100));
+        const err = await res.json().catch(() => ({}));
+        toast.error((err.error || "Failed to save contract link").slice(0, 100));
       }
     } catch {
-      toast.error("Failed to generate contract");
+      toast.error("Failed to save contract link");
     } finally {
-      setContractGenerating(false);
+      setContractLinkSaving(false);
     }
-  };
-
-  const handleSendContract = async (contractId: string) => {
-    setContractSending(true);
-    try {
-      const res = await fetch("/api/contracts/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ contractId }),
-      });
-      if (res.ok) {
-        toast.success("Contract sent to client via email!");
-        if (contractClient) {
-          const listRes = await fetch(`/api/contracts?clientId=${contractClient.id}`, { credentials: "include" });
-          if (listRes.ok) setContracts(parseContractsList(await listRes.json()));
-        }
-      } else {
-        const data = await res.json().catch(() => ({}));
-        toast.error(((data as Record<string, string>).error || "Failed to send contract").slice(0, 100));
-      }
-    } catch {
-      toast.error("Failed to send contract");
-    } finally {
-      setContractSending(false);
-    }
-  };
-
-  const handleDeleteContract = async (contractId: string) => {
-    try {
-      const res = await fetch("/api/contracts", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ id: contractId }),
-      });
-      if (res.status === 404) {
-        toast.error("Contract not found (may have been deleted)");
-        setContracts(prev => prev.filter(c => c.id !== contractId));
-        return;
-      }
-      if (res.ok) {
-        toast.success("Contract deleted");
-        setContracts(prev => prev.filter(c => c.id !== contractId));
-      } else {
-        toast.error("Failed to delete contract");
-      }
-    } catch {
-      toast.error("Failed to delete contract");
-    }
-  };
-
-  const handleSaveContract = async () => {
-    if (!editingContract) return;
-    if (Object.keys(contractForm).length === 0) {
-      toast.error("No changes to save");
-      return;
-    }
-    try {
-      const res = await fetch("/api/contracts", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ id: (editingContract as Record<string, unknown>).id, ...contractForm }),
-      });
-      if (res.ok) {
-        toast.success("Contract updated");
-        const updated = await res.json();
-        setContracts(prev => prev.map(c => c.id === updated.id ? updated : c));
-        setEditingContract(null);
-        setContractForm({});
-      } else {
-        const data = await res.json().catch(() => ({}));
-        toast.error(((data as Record<string, string>).error || "Failed to update contract").slice(0, 100));
-      }
-    } catch {
-      toast.error("Failed to update contract");
-    }
-  };
-
-  const handleUploadTemplate = async (file: File) => {
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error("File must be less than 5MB");
-      return;
-    }
-    // Only plain-text templates are supported client-side (no upload API).
-    const isText =
-      file.type.startsWith("text/") ||
-      /\.(txt|md|html?|csv)$/i.test(file.name);
-    if (!isText) {
-      toast.error("Paste template text, or upload a .txt / .md file");
-      return;
-    }
-    setUploadingTemplate(true);
-    try {
-      const text = await file.text();
-      setContractTemplate(text);
-      setContractTemplateFile(file.name);
-      toast.success(`Template loaded: ${file.name}`);
-    } catch {
-      toast.error("Failed to read template file");
-    } finally {
-      setUploadingTemplate(false);
-    }
-  };
-
-  const handleDownloadContractPdf = (contract: Record<string, unknown>) => {
-    const printWindow = window.open("", "_blank");
-    if (!printWindow) { toast.error("Popup blocked \u2014 please allow popups"); return; }
-
-    // Safely render termsAndConditions: escape HTML first, then convert markdown patterns to safe HTML tags
-    const safeTerms = contract.termsAndConditions
-      ? String(contract.termsAndConditions)
-          .split('\n').map(line => {
-            const trimmed = line.trim();
-            if (trimmed.startsWith('## ')) return `</p><h2 style="color:#E85D04;margin-top:25px;">${escHtml(trimmed.slice(3))}</h2><p>`;
-            if (trimmed.startsWith('# ')) return `</p><h2 style="color:#E85D04;margin-top:25px;">${escHtml(trimmed.slice(2))}</h2><p>`;
-            const escaped = escHtml(trimmed);
-            return escaped.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-          }).join('<br/>')
-      : '<p>Terms and conditions to be determined.</p>';
-
-    printWindow.document.write(`<!DOCTYPE html><html><head><title>${escHtml(contract.title as string)}</title>
-      <style>
-        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 40px 20px; color: #333; line-height: 1.6; }
-        .header { background: #E85D04; color: white; padding: 30px; border-radius: 8px; margin-bottom: 30px; }
-        .header h1 { margin: 0; font-size: 24px; }
-        .header p { margin: 5px 0 0; opacity: 0.9; }
-        .meta { background: #f9fafb; border: 1px solid #e5e7eb; padding: 20px; border-radius: 8px; margin-bottom: 30px; }
-        .meta h2 { margin: 0 0 15px; color: #E85D04; font-size: 18px; }
-        .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        .meta-item label { font-weight: 600; color: #666; font-size: 12px; display: block; }
-        .meta-item span { color: #333; }
-        .content { border: 1px solid #e5e7eb; padding: 30px; border-radius: 8px; }
-        .content h2 { color: #E85D04; margin-top: 25px; }
-        .content h3 { color: #333; }
-        .content p { margin: 10px 0; }
-        .sig-block { margin-top: 40px; display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
-        .sig-box { border: 1px solid #ccc; padding: 20px; min-height: 120px; }
-        .sig-label { font-weight: 600; margin-bottom: 10px; color: #E85D04; }
-        .sig-line { border-bottom: 1px solid #333; width: 80%; margin: 50px 0 5px; }
-        .footer { text-align: center; color: #999; font-size: 11px; margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee; }
-        @media print { body { padding: 20px; } }
-      </style>
-    </head><body>
-      <div class="header"><h1>TrishulHub</h1><p>AI-Powered Web Development</p></div>
-      <div class="meta">
-        <h2>Contract Details</h2>
-        <div class="meta-grid">
-          <div class="meta-item"><label>Contract Number</label><span>${escHtml(contract.contractNumber as string)}</span></div>
-          <div class="meta-item"><label>Status</label><span>${escHtml(contract.status as string)}</span></div>
-          <div class="meta-item"><label>Client</label><span>${escHtml(contract.clientName as string)}</span></div>
-          <div class="meta-item"><label>Email</label><span>${escHtml(contract.clientEmail as string)}</span></div>
-          ${contract.clientCompany ? `<div class="meta-item"><label>Company</label><span>${escHtml(contract.clientCompany as string)}</span></div>` : ""}
-          ${contract.projectName ? `<div class="meta-item"><label>Project</label><span>${escHtml(contract.projectName as string)}</span></div>` : ""}
-          ${contract.totalValue ? `<div class="meta-item"><label>Contract Value</label><span>${escHtml(String(contract.totalValue))}</span></div>` : ""}
-          ${contract.startDate ? `<div class="meta-item"><label>Start Date</label><span>${escHtml(contract.startDate as string)}</span></div>` : ""}
-          ${contract.endDate ? `<div class="meta-item"><label>End Date</label><span>${escHtml(contract.endDate as string)}</span></div>` : ""}
-        </div>
-      </div>
-      <div class="content">
-        <h2>Terms & Conditions</h2>
-        ${safeTerms}
-      </div>
-      <div class="sig-block">
-        <div class="sig-box">
-          <div class="sig-label">For TrishulHub</div>
-          <div class="sig-line"></div>
-          <span style="font-size: 12px; color: #666;">Authorized Signatory</span>
-        </div>
-        <div class="sig-box">
-          <div class="sig-label">For ${escHtml(contract.clientName as string)}</div>
-          <div class="sig-line"></div>
-          <span style="font-size: 12px; color: #666;">Authorized Signatory</span>
-        </div>
-      </div>
-      <div class="footer">
-        <p>Generated by TrishulHub Contract Management System</p>
-        <p>\u00A9 ${new Date().getFullYear()} TrishulHub. All rights reserved.</p>
-      </div>
-      <script>window.onload = function() { window.print(); }<\/script>
-    </body></html>`);
-    printWindow.document.close();
   };
 
   // ━━ Early return for non-authenticated / non-admin ━━
@@ -1443,15 +1220,11 @@ export default function ClientsPage() {
                           <p className="text-sm font-medium truncate">
                             {safeText(client.company || client.name)}
                           </p>
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <span className="truncate">{safeText(client.email)}</span>
-                            {client.phone && (
-                              <>
-                                <span className="text-muted-foreground/30">·</span>
-                                <span className="truncate hidden sm:inline">{safeText(client.phone)}</span>
-                              </>
-                            )}
-                          </div>
+                          {client.company && client.name && client.company !== client.name ? (
+                            <p className="text-xs text-muted-foreground truncate">
+                              {safeText(client.name)}
+                            </p>
+                          ) : null}
                         </div>
                       </div>
                     </TableCell>
@@ -1496,17 +1269,32 @@ export default function ClientsPage() {
                             <Pencil className="h-4 w-4 mr-2" /> Edit
                           </DropdownMenuItem>
                           {isFinanceAdmin && (
-                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); openContractPanel(client); }}>
-                            <FileSignature className="h-4 w-4 mr-2" /> Contract
-                          </DropdownMenuItem>
+                            <>
+                              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); openAddContract(client); }}>
+                                <Link2 className="h-4 w-4 mr-2" /> Add Contract
+                              </DropdownMenuItem>
+                              {client.contractUrl ? (
+                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); openSavedContract(client); }}>
+                                  <ExternalLink className="h-4 w-4 mr-2" /> Open Contract
+                                </DropdownMenuItem>
+                              ) : null}
+                            </>
                           )}
-                          {/* CLI-012: Changed "Delete" to "Deactivate" to match dialog */}
-                          <DropdownMenuItem
-                            onClick={(e) => { e.stopPropagation(); setDeleteTarget(client); }}
-                            className="text-red-600 dark:text-red-400"
-                          >
-                            <Trash2 className="h-4 w-4 mr-2" /> Deactivate
-                          </DropdownMenuItem>
+                          {client.status === "CHURNED" && isFinanceAdmin ? (
+                            <DropdownMenuItem
+                              onClick={(e) => { e.stopPropagation(); setPermanentDelete(true); setDeleteTarget(client); }}
+                              className="text-red-600 dark:text-red-400"
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" /> Delete permanently
+                            </DropdownMenuItem>
+                          ) : client.status !== "CHURNED" ? (
+                            <DropdownMenuItem
+                              onClick={(e) => { e.stopPropagation(); setPermanentDelete(false); setDeleteTarget(client); }}
+                              className="text-red-600 dark:text-red-400"
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" /> Deactivate
+                            </DropdownMenuItem>
+                          ) : null}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
@@ -1554,7 +1342,15 @@ export default function ClientsPage() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-white/80 dark:bg-gray-950/80 backdrop-blur-xl border border-white/20 dark:border-white/10 sm:p-6 p-4">
           <DialogHeader>
-            <DialogTitle className="text-lg">{editingClient ? "Edit Client" : "Add New Client"}</DialogTitle>
+            <DialogTitle className="text-lg flex items-center gap-2">
+              {editingClient ? "Edit Client" : "Add New Client"}
+              {editLoading && (
+                <span className="inline-flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                  Loading…
+                </span>
+              )}
+            </DialogTitle>
             <DialogDescription className="text-sm">{editingClient ? "Update client information and settings." : "Add a new client to your organization."}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 pt-2">
@@ -1719,37 +1515,23 @@ export default function ClientsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ━━ Delete Confirmation ━━ */}
-      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+      {/* ━━ Deactivate / Permanent Delete Confirmation ━━ */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) { setDeleteTarget(null); setPermanentDelete(false); } }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Deactivate Client</AlertDialogTitle>
+            <AlertDialogTitle>
+              {permanentDelete || deleteTarget?.status === "CHURNED" ? "Delete Permanently" : "Deactivate Client"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This will set &quot;{safeText(deleteTarget?.name)}&quot; to Churned status. You can reactivate the client at any time via Edit.
+              {permanentDelete || deleteTarget?.status === "CHURNED"
+                ? <>This will permanently remove &quot;{safeText(deleteTarget?.name)}&quot; and related client records from the system. This cannot be undone.</>
+                : <>This will set &quot;{safeText(deleteTarget?.name)}&quot; to Churned status. You can reactivate the client later via Edit.</>}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">
-              Deactivate
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* ━━ Contract Delete Confirmation ━━ */}
-      <AlertDialog open={!!deleteContractId} onOpenChange={(open) => !open && setDeleteContractId(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Contract</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete this contract? This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { if (deleteContractId) { handleDeleteContract(deleteContractId); setDeleteContractId(null); } }} className="bg-red-600 hover:bg-red-700">
-              Delete
+              {permanentDelete || deleteTarget?.status === "CHURNED" ? "Delete permanently" : "Deactivate"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -2144,176 +1926,38 @@ export default function ClientsPage() {
         </SheetContent>
       </Sheet>
 
-      {/* ━━ Contract Panel ━━ */}
-      <Sheet open={contractOpen} onOpenChange={(open) => { setContractOpen(open); if (!open) { setContractClient(null); setContracts([]); setEditingContract(null); setContractTemplate(null); setContractTemplateFile(null); setContractForm({}); } }}>
-        <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
-          <SheetHeader className="pr-10">
-            <SheetTitle className="flex items-center gap-2">
-              <FileSignature className="h-5 w-5 text-orange-500" />
-              {editingContract ? "Edit Contract" : "Contract Management"}
-            </SheetTitle>
-          </SheetHeader>
-
-          {contractClient && (
-            <div className="space-y-6 mt-4">
-              {/* Client Info Banner */}
-              <div className="p-3 rounded-xl bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
-                <p className="font-medium text-sm">{contractClient.name}</p>
-                <p className="text-xs text-muted-foreground">{contractClient.email}{contractClient.company ? ` · ${contractClient.company}` : ""}</p>
-              </div>
-
-              {/* Template Upload */}
-              {!editingContract && (
-                <div className="space-y-2">
-                  <Label className="text-xs font-medium">Contract Template <span className="text-muted-foreground font-normal">(optional)</span></Label>
-                  {contractTemplate ? (
-                    <div className="flex items-center gap-2 p-2 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
-                      <FileText className="h-4 w-4 text-green-600" />
-                      <span className="text-sm flex-1 truncate">{contractTemplateFile}</span>
-                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { setContractTemplate(null); setContractTemplateFile(null); }}>
-                        <X className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="relative">
-                      <input type="file" accept=".txt,.md,.html,.csv" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadTemplate(f); e.target.value = ""; }} disabled={uploadingTemplate} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
-                      <div className="flex items-center justify-center gap-2 p-3 border-2 border-dashed rounded-xl hover:border-primary/50 cursor-pointer border-white/20 dark:border-white/10">
-                        {uploadingTemplate ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4 text-muted-foreground" />}
-                        <span className="text-xs text-muted-foreground">{uploadingTemplate ? "Processing..." : "Upload template .txt, .md, .html or .csv (max 5MB)"}</span>
-                      </div>
-                    </div>
-                  )}
-                  <p className="text-xs text-muted-foreground">Optional template text for this draft contract.</p>
-                </div>
-              )}
-
-              {/* Generate New Contract Button */}
-              {!editingContract && (
-                <Button onClick={handleGenerateContract} disabled={contractGenerating} className="w-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white">
-                  {contractGenerating ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Sparkles className="h-4 w-4 mr-2" />}
-                  {contractGenerating ? "Creating Contract..." : "Create Draft Contract"}
-                </Button>
-              )}
-
-              {/* Existing Contracts List */}
-              {!editingContract && contracts.length > 0 && (
-                <div className="space-y-3">
-                  <Label className="text-xs font-medium">Existing Contracts ({contracts.length})</Label>
-                  {contracts.map((c: Record<string, unknown>) => (
-                    <div key={c.id as string} className="rounded-xl p-3 bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">{c.title as string}</p>
-                          <p className="text-xs text-muted-foreground">{c.contractNumber as string} · {c.status as string}</p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {c.totalValue ? `\u20B9${Number(c.totalValue).toLocaleString("en-IN")} · ` : ""}
-                            {c.sentAt ? `Sent: ${new Date(c.sentAt as string).toLocaleDateString()}` : `Created: ${new Date(c.createdAt as string).toLocaleDateString()}`}
-                          </p>
-                          {(c.termsAndConditions as string)?.length > 50 && (
-                            <p className="text-xs text-green-600 mt-1">Has terms</p>
-                          )}
-                        </div>
-                        <div className="flex gap-1 shrink-0">
-                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditingContract(c); setContractForm({ title: c.title, scopeOfWork: c.scopeOfWork || "", paymentTerms: c.paymentTerms || "", totalValue: c.totalValue || 0, currency: c.currency || "INR", paymentSchedule: c.paymentSchedule || "", startDate: c.startDate || "", endDate: c.endDate || "", termsAndConditions: c.termsAndConditions || "", specialClauses: c.specialClauses || "" }); }} title="Edit">
-                            <Pencil className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDownloadContractPdf(c)} title="Download PDF">
-                            <Download className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-500" onClick={() => handleSendContract(c.id as string)} disabled={contractSending} title="Send via Email">
-                            <Send className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => setDeleteContractId(c.id as string)} title="Delete">
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {!editingContract && contracts.length === 0 && !contractLoading && (
-                <div className="text-center py-8 text-muted-foreground">
-                  <FileSignature className="h-10 w-10 mx-auto mb-2 opacity-30" />
-                  <p className="text-sm">No contracts yet for this client.</p>
-                  <p className="text-xs">Click &quot;Create Draft Contract&quot; to create one.</p>
-                </div>
-              )}
-
-              {contractLoading && (
-                <div className="text-center py-8"><Loader2 className="h-6 w-6 mx-auto animate-spin" /></div>
-              )}
-
-              {/* Edit Contract Form */}
-              {editingContract && (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-sm font-medium">Edit: {editingContract.contractNumber as string}</Label>
-                    <Button variant="ghost" size="sm" onClick={() => { setEditingContract(null); setContractForm({}); }}>
-                      <X className="h-3 w-3 mr-1" /> Back
-                    </Button>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="space-y-1 col-span-1 sm:col-span-2">
-                      <Label className="text-xs">Title</Label>
-                      <Input value={(contractForm.title as string) || ""} onChange={(e) => setContractForm({ ...contractForm, title: e.target.value })} />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Total Value (₹)</Label>
-                      <Input type="number" value={contractForm.totalValue as string | number || ""} onChange={(e) => setContractForm({ ...contractForm, totalValue: parseFloat(e.target.value) || 0 })} />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Currency</Label>
-                      <select value={(contractForm.currency as string) || "INR"} onChange={(e) => setContractForm({ ...contractForm, currency: e.target.value })} className="border rounded px-3 py-2 text-sm bg-background w-full">
-                        <option value="INR">INR (₹)</option>
-                        <option value="USD">USD ($)</option>
-                        <option value="EUR">EUR (€)</option>
-                        <option value="GBP">GBP (£)</option>
-                      </select>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Start Date</Label>
-                      <Input type="date" value={(contractForm.startDate as string) || ""} onChange={(e) => setContractForm({ ...contractForm, startDate: e.target.value })} />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">End Date</Label>
-                      <Input type="date" value={(contractForm.endDate as string) || ""} onChange={(e) => setContractForm({ ...contractForm, endDate: e.target.value })} />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <Label className="text-xs">Scope of Work</Label>
-                    <Textarea value={(contractForm.scopeOfWork as string) || ""} onChange={(e) => setContractForm({ ...contractForm, scopeOfWork: e.target.value })} rows={3} />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Payment Terms</Label>
-                    <Textarea value={(contractForm.paymentTerms as string) || ""} onChange={(e) => setContractForm({ ...contractForm, paymentTerms: e.target.value })} rows={2} />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Payment Schedule</Label>
-                    <Textarea value={(contractForm.paymentSchedule as string) || ""} onChange={(e) => setContractForm({ ...contractForm, paymentSchedule: e.target.value })} rows={2} />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Terms & Conditions <span className="text-muted-foreground">(AI-generated)</span></Label>
-                    <Textarea value={(contractForm.termsAndConditions as string) || ""} onChange={(e) => setContractForm({ ...contractForm, termsAndConditions: e.target.value })} rows={12} className="font-mono text-xs" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Special Clauses</Label>
-                    <Textarea value={(contractForm.specialClauses as string) || ""} onChange={(e) => setContractForm({ ...contractForm, specialClauses: e.target.value })} rows={2} />
-                  </div>
-
-                  <div className="flex gap-2">
-                    <Button variant="outline" onClick={() => { setEditingContract(null); setContractForm({}); }} className="flex-1">Cancel</Button>
-                    <Button onClick={handleSaveContract} className="flex-1 bg-orange-500 hover:bg-orange-600">Save Changes</Button>
-                  </div>
-                </div>
-              )}
+      {/* ━━ Add Contract Link ━━ */}
+      <Dialog open={contractLinkOpen} onOpenChange={(open) => { setContractLinkOpen(open); if (!open) setContractLinkClient(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Link2 className="h-4 w-4" /> Add Contract
+            </DialogTitle>
+            <DialogDescription>
+              Paste the contract link for {safeText(contractLinkClient?.company || contractLinkClient?.name)}. Leave empty to clear.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 pt-1">
+            <div className="space-y-1.5">
+              <Label htmlFor="contract-url" className="text-xs">Contract URL</Label>
+              <Input
+                id="contract-url"
+                placeholder="https://…"
+                value={contractLinkInput}
+                onChange={(e) => setContractLinkInput(e.target.value)}
+                autoFocus
+              />
             </div>
-          )}
-        </SheetContent>
-      </Sheet>
+            <div className="flex gap-2 pt-1">
+              <Button variant="outline" className="flex-1" onClick={() => setContractLinkOpen(false)}>Cancel</Button>
+              <Button className="flex-1" onClick={handleSaveContractLink} disabled={contractLinkSaving}>
+                {contractLinkSaving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
+                {contractLinkSaving ? "Saving…" : "Save link"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

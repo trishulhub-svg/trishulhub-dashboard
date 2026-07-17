@@ -50,6 +50,7 @@ const CRITICAL_COLUMNS: Array<{ table: string; column: string; sql: string }> = 
   { table: "Subscription", column: "exchangeRate", sql: "ALTER TABLE Subscription ADD COLUMN \"exchangeRate\" REAL NOT NULL DEFAULT 1" },
   // New columns from feature updates
   { table: "Client", column: "projectMethodId", sql: "ALTER TABLE Client ADD COLUMN projectMethodId TEXT" },
+  { table: "Client", column: "contractUrl", sql: "ALTER TABLE Client ADD COLUMN contractUrl TEXT" },
   { table: "ProjectMethod", column: "updatedAt", sql: `ALTER TABLE "ProjectMethod" ADD COLUMN "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP` },
   { table: "Invoice", column: "paymentMethod", sql: "ALTER TABLE Invoice ADD COLUMN paymentMethod TEXT" },
   { table: "Invoice", column: "gst", sql: "ALTER TABLE Invoice ADD COLUMN gst REAL" },
@@ -118,10 +119,6 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
   {
     name: "ProjectInfrastructure",
     sql: `CREATE TABLE IF NOT EXISTS "ProjectInfrastructure" ("id" TEXT NOT NULL PRIMARY KEY, "projectId" TEXT NOT NULL UNIQUE, "githubRepoUrl" TEXT, "githubBranch" TEXT, "tursoUrl" TEXT, "vercelProjectId" TEXT, "deployUrl" TEXT, "githubTokenEnc" TEXT, "githubTokenIv" TEXT, "githubTokenTag" TEXT, "tursoTokenEnc" TEXT, "tursoTokenIv" TEXT, "tursoTokenTag" TEXT, "updatedBy" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL, FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE CASCADE)`
-  },
-  {
-    name: "Contract",
-    sql: `CREATE TABLE IF NOT EXISTS "Contract" ("id" TEXT NOT NULL PRIMARY KEY, "clientId" TEXT NOT NULL, "contractNumber" TEXT NOT NULL UNIQUE, "title" TEXT NOT NULL, "status" TEXT NOT NULL DEFAULT 'DRAFT', "clientName" TEXT NOT NULL, "clientEmail" TEXT NOT NULL, "clientCompany" TEXT, "clientPhone" TEXT, "clientAddress" TEXT, "projectName" TEXT, "projectDescription" TEXT, "projectType" TEXT, "projectMethod" TEXT, "projectStartDate" TEXT, "deliveryDate" TEXT, "scopeOfWork" TEXT NOT NULL DEFAULT '', "paymentTerms" TEXT NOT NULL DEFAULT '', "totalValue" REAL NOT NULL DEFAULT 0, "currency" TEXT NOT NULL DEFAULT 'INR', "paymentSchedule" TEXT NOT NULL DEFAULT '', "startDate" TEXT, "endDate" TEXT, "termsAndConditions" TEXT NOT NULL DEFAULT '', "amendments" TEXT NOT NULL DEFAULT '', "specialClauses" TEXT NOT NULL DEFAULT '', "generatedBy" TEXT, "sentAt" DATETIME, "sentVia" TEXT, "signedAt" DATETIME, "templateText" TEXT, "templateFileName" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL, FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE CASCADE)`
   },
   // CRM — Lead
   {
@@ -581,22 +578,14 @@ export async function ensureAllTables(): Promise<void> {
       }
     }
 
-    // 1h. Missing indexes declared in Prisma schema
-    // Contract indexes
+    // 1h. Wipe legacy generated-contract system (replaced by Client.contractUrl)
     try {
-      await db.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "Contract_clientId_index" ON "Contract"("clientId")`)
+      await db.$executeRawUnsafe(`DROP TABLE IF EXISTS "Contract"`)
     } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes('already exists')) {
-        console.warn(`[auto-migrate] Contract_clientId_index: ${getErrMsg(err)}`)
-      }
+      console.warn(`[auto-migrate] Drop Contract table: ${getErrMsg(err)}`)
     }
-    try {
-      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Contract_status_index" ON "Contract"("status")`)
-    } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes('already exists')) {
-        console.warn(`[auto-migrate] Contract_status_index: ${getErrMsg(err)}`)
-      }
-    }
+
+    // 1i. Missing indexes declared in Prisma schema
     // ProjectWebsite indexes
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ProjectWebsite_projectId_index" ON "ProjectWebsite"("projectId")`)

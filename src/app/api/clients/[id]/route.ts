@@ -45,6 +45,7 @@ export async function GET(
     }
 
     const { id } = await params
+    const lite = new URL(_req.url).searchParams.get("lite") === "1"
 
     // SECURITY FIX: Developers can only view clients they are assigned to.
     // PROJECT_MANAGER has admin-like visibility into all clients.
@@ -53,6 +54,22 @@ export async function GET(
       if (assignedClientIds && !assignedClientIds.includes(id)) {
         return NextResponse.json({ error: "Access denied: Client not in your assigned scope" }, { status: 403 })
       }
+    }
+
+    // Fast path for edit dialog — websites + core fields only
+    if (lite) {
+      const liteClient = await db.client.findUnique({
+        where: { id },
+        include: {
+          websites: {
+            select: { id: true, url: true, label: true, isPrimary: true, createdAt: true },
+            orderBy: [{ isPrimary: "desc" as const }, { createdAt: "asc" as const }],
+          },
+          projectMethod: { select: { id: true, name: true } },
+        },
+      })
+      if (!liteClient) return NextResponse.json({ error: "Client not found" }, { status: 404 })
+      return NextResponse.json(deepSanitize(serializeClientDetail(liteClient)))
     }
 
     // API-015: Conditionally build include object to skip unnecessary queries for developers.
@@ -299,7 +316,9 @@ export async function PATCH(
   }
 }
 
-// DELETE /api/clients/[id] - Soft delete (set status to CHURNED)
+// DELETE /api/clients/[id]
+// - Default: soft delete (status → CHURNED). ADMIN / SUPER_ADMIN / PROJECT_MANAGER
+// - ?permanent=1 on an already-CHURNED client: hard delete. ADMIN / SUPER_ADMIN only
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -309,23 +328,57 @@ export async function DELETE(
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     const role = session.user.role
-    // PROJECT_MANAGER can deactivate clients (admin-like access per requirements)
     if (!isAdminOrProjectManager(role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
-    // Rate limit
     const rl = rateLimit(`crm-clients-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
     if (!rl.success) {
       return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
     }
 
     const { id } = await params
+    const permanent = new URL(_req.url).searchParams.get("permanent") === "1"
 
     const existing = await db.client.findUnique({ where: { id }, select: { id: true, name: true, status: true } })
     if (!existing) {
       return NextResponse.json({ error: "Client not found" }, { status: 404 })
     }
+
+    // Permanent wipe — admin only, and only for already-churned clients
+    if (permanent) {
+      if (!isAdmin(role)) {
+        return NextResponse.json({ error: "Only admins can permanently delete clients" }, { status: 403 })
+      }
+      if (existing.status !== "CHURNED") {
+        return NextResponse.json(
+          { error: "Deactivate the client first, then delete permanently" },
+          { status: 400 }
+        )
+      }
+
+      await db.$transaction(async (tx) => {
+        // Detach non-cascading relations, then delete client
+        // (invoices, tickets, websites cascade via schema)
+        await tx.contact.updateMany({ where: { clientId: id }, data: { clientId: null } })
+        await tx.deal.updateMany({ where: { clientId: id }, data: { clientId: null } })
+        await tx.lead.updateMany({ where: { clientId: id }, data: { clientId: null } })
+        await tx.project.updateMany({ where: { clientId: id }, data: { clientId: null } })
+        await tx.client.delete({ where: { id } })
+      })
+
+      void logAudit({
+        userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
+        department: "BUSINESS", page: "clients", action: "DELETE",
+        entityType: "Client", entityId: id,
+        description: `Permanently deleted client: ${existing.name}`,
+        oldValue: existing.status,
+        newValue: undefined,
+        ipAddress: getIpAddress(_req), userAgent: getUserAgent(_req),
+      })
+      return NextResponse.json({ success: true, permanent: true })
+    }
+
     if (existing.status === "CHURNED") {
       return NextResponse.json({ error: "Client is already deactivated (churned)", client: existing }, { status: 409 })
     }
@@ -334,7 +387,6 @@ export async function DELETE(
       where: { id },
       data: { status: "CHURNED" },
     })
-    // Audit: log client soft-delete (deactivation) (fire-and-forget)
     void logAudit({
       userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
       department: "BUSINESS", page: "clients", action: "DELETE",
@@ -347,6 +399,6 @@ export async function DELETE(
     return NextResponse.json({ success: true, client: deepSanitize(serializeClientDetail(client)) })
   } catch (error: unknown) {
     console.error("[clients/[id]] DELETE error:", error instanceof Error ? error.message : String(error))
-    return NextResponse.json({ error: "Failed to deactivate client" }, { status: 500 })
+    return NextResponse.json({ error: "Failed to delete client" }, { status: 500 })
   }
 }

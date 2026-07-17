@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   DndContext, DragEndEvent, DragOverlay, DragStartEvent, PointerSensor,
-  useSensor, useSensors, closestCorners, useDroppable,
+  useSensor, useSensors, closestCorners, pointerWithin, rectIntersection,
+  useDroppable, type CollisionDetection,
 } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -39,9 +40,19 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { toast } from "sonner";
 import { cn, safeText, deepSanitize, safeNumber, safeDate } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useUrlState } from "@/hooks/use-url-state";
 
 // TODO: Make configurable per project/client
 const CURRENCY_SYMBOL = "₹";
+
+/** Prefer pointer-over column/card; fall back to closest corners for empty gaps */
+const kanbanCollisionDetection: CollisionDetection = (args) => {
+  const pointerHits = pointerWithin(args);
+  if (pointerHits.length > 0) return pointerHits;
+  const rectHits = rectIntersection(args);
+  if (rectHits.length > 0) return rectHits;
+  return closestCorners(args);
+};
 
 // URL sanitizer: blocks javascript: and data: schemes to prevent XSS
 const safeUrl = (url: string) => {
@@ -380,8 +391,9 @@ function DroppableKanbanColumn({
 
   return (
     <div
+      ref={setNodeRef}
       className={cn(
-        "flex-shrink-0 w-[260px] sm:w-[280px] rounded-xl border transition-all duration-300 snap-start relative overflow-hidden",
+        "flex-shrink-0 w-[260px] sm:w-[280px] rounded-xl border transition-all duration-300 snap-start relative overflow-hidden flex flex-col",
         "bg-gradient-to-b from-white/80 to-white/50 dark:from-gray-900/60 dark:to-gray-900/30 backdrop-blur-xl",
         "border-gray-200/80 dark:border-gray-700/50",
         "hover:border-gray-300 dark:hover:border-gray-600",
@@ -395,7 +407,7 @@ function DroppableKanbanColumn({
       <div className={cn("absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl", col.accentBar, isOver && !isDimmed ? "opacity-100" : "opacity-60")} />
 
       {/* Column Header */}
-      <div className="px-3 py-2.5 border-b border-gray-200/50 dark:border-gray-700/40 pl-4">
+      <div className="px-3 py-2.5 border-b border-gray-200/50 dark:border-gray-700/40 pl-4 shrink-0">
         <div className="flex items-center gap-2">
           <span className={cn("h-2 w-2 rounded-full shrink-0 ring-2 ring-offset-1 ring-offset-white dark:ring-offset-gray-950", col.dot, col.dot.replace("bg-", "ring-"))} />
           <h3 className="font-bold text-[12px] tracking-tight">{col.label}</h3>
@@ -408,28 +420,35 @@ function DroppableKanbanColumn({
         </div>
       </div>
 
-      {/* Card List — Droppable zone */}
+      {/* Card List — full column is droppable via outer ref */}
       <div
-        ref={setNodeRef}
         className={cn(
-          "p-2 space-y-2 overflow-y-auto transition-all duration-300 pl-4",
+          "p-2 space-y-2 overflow-y-auto transition-all duration-300 pl-4 flex-1",
           isOver && !isDimmed && "bg-primary/[0.03] dark:bg-primary/[0.05]"
         )}
         style={{ maxHeight: "calc(100vh - 380px)" }}
       >
         {projects.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-8 text-center">
+          <div className="flex flex-col items-center justify-center py-8 text-center min-h-[120px]">
             <div className="h-8 w-8 rounded-full bg-muted/50 flex items-center justify-center mb-2">
               <FolderKanban className="h-4 w-4 text-muted-foreground/30" />
             </div>
-            <p className="text-[11px] text-muted-foreground/50 font-medium">No projects</p>
+            <p className="text-[11px] text-muted-foreground/50 font-medium">Drop here</p>
           </div>
         )}
         <SortableContext items={projects.map((p) => safeText(p.id, ""))} strategy={verticalListSortingStrategy}>
           {projects.map((project) => {
             const pId = safeText(project.id, "");
-            // Don't render the actively dragged card in the list
-            if (activeId === pId) return null;
+            // Keep a placeholder so collision detection stays stable while dragging
+            if (activeId === pId) {
+              return (
+                <div
+                  key={pId}
+                  className="h-[72px] rounded-lg border border-dashed border-primary/30 bg-primary/[0.04]"
+                  aria-hidden
+                />
+              );
+            }
             return (
               <SortableProjectCard
                 key={pId}
@@ -802,7 +821,11 @@ function CreateProjectForm({ onSubmit, clients, defaultClientId }: {
 }
 
 export default function ProjectsPage() {
-  return <ProjectsBoard />;
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading projects…</div>}>
+      <ProjectsBoard />
+    </Suspense>
+  );
 }
 
 // ━━ ProjectsBoard ━━
@@ -819,7 +842,7 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
   const [editOpen, setEditOpen] = useState(false);
   const [editProject, setEditProject] = useState<Record<string, unknown> | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [filter, setFilter] = useState("ALL");
+  const [filter, setFilter] = useUrlState("status", "ALL");
   const [search, setSearch] = useState("");
   const [activeId, setActiveId] = useState<string | null>(null);
   const [updating, setUpdating] = useState(false);
@@ -1721,7 +1744,7 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
         /* ━━ Kanban Board View ━━ */
         <DndContext
           sensors={sensors}
-          collisionDetection={closestCorners}
+          collisionDetection={kanbanCollisionDetection}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >

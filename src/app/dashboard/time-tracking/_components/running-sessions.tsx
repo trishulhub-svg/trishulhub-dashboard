@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, StopCircle, UserCheck } from "lucide-react";
+import { Loader2, StopCircle, Radio } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -47,32 +47,37 @@ export function RunningSessions({
   if (!entries.length) return null;
 
   return (
-    <section className="rounded-xl border border-border overflow-hidden">
-      <div className="flex items-center gap-2 px-3.5 py-2.5 border-b border-border bg-muted/20">
+    <section className="rounded-xl border border-emerald-200/70 dark:border-emerald-800/40 bg-gradient-to-b from-emerald-50/50 to-transparent dark:from-emerald-950/20 dark:to-transparent overflow-hidden">
+      <div className="flex items-center gap-2 px-3.5 py-2.5 border-b border-emerald-200/60 dark:border-emerald-800/40">
         <span className="relative flex h-2 w-2">
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
           <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
         </span>
-        <UserCheck className="h-3.5 w-3.5 text-emerald-600" />
-        <h3 className="text-sm font-medium">Running sessions</h3>
+        <Radio className="h-3.5 w-3.5 text-emerald-600" />
+        <div className="min-w-0 flex-1">
+          <h3 className="text-sm font-semibold leading-tight">Live sessions</h3>
+          <p className="text-[11px] text-muted-foreground">
+            Admins can end a session if someone forgot to clock out
+          </p>
+        </div>
         <Badge
           variant="outline"
-          className="ml-auto text-[10px] bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800"
+          className="text-[10px] bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800 shrink-0"
         >
-          {entries.length} active
+          {entries.length} live
         </Badge>
       </div>
-      <div className="divide-y divide-border">
+      <div className="divide-y divide-border/80">
         {entries.map((entry) => {
           const isEnding = endingEntryId === entry.id;
           const meta = sourceMeta(entry);
           return (
             <div
               key={entry.id}
-              className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-3.5 py-2.5 hover:bg-muted/30 transition-colors"
+              className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-3.5 py-3 hover:bg-muted/30 transition-colors"
             >
               <div className="flex items-center gap-3 min-w-0">
-                <Avatar className="h-8 w-8 shrink-0">
+                <Avatar className="h-9 w-9 shrink-0 ring-2 ring-emerald-500/20">
                   <AvatarImage src={entry.user?.avatar || ""} alt={safeText(entry.user?.name)} />
                   <AvatarFallback className="text-xs">
                     {safeText(entry.user?.name, "?").charAt(0).toUpperCase()}
@@ -90,29 +95,29 @@ export function RunningSessions({
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-2 justify-end shrink-0">
+              <div className="flex items-center gap-2 justify-end shrink-0 pl-12 sm:pl-0">
                 <Badge
                   variant="outline"
-                  className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 text-[10px] tabular-nums font-mono"
+                  className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 text-[11px] tabular-nums font-mono px-2.5"
                 >
                   {formatDuration(elapsedMap[entry.id] || 0)}
                 </Badge>
                 <Button
                   size="sm"
                   variant="destructive"
-                  className="h-7 text-xs"
+                  className="h-8 text-xs gap-1.5 min-w-[88px]"
                   disabled={isEnding}
                   onClick={() => onEndSession(entry.id)}
                   aria-label={`End session for ${safeText(entry.user?.name, "user")}`}
                 >
                   {isEnding ? (
                     <>
-                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                      Ending...
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Ending…
                     </>
                   ) : (
                     <>
-                      <StopCircle className="h-3 w-3 mr-1" />
+                      <StopCircle className="h-3.5 w-3.5" />
                       End
                     </>
                   )}

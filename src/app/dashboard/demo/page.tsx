@@ -13,8 +13,13 @@
 // This is a thin wrapper around ProjectsBoard (see ../projects/page.tsx) so any
 // UX improvements made to the projects board automatically apply here too.
 
+import { Suspense } from "react";
 import { ProjectsBoard } from "@/app/dashboard/projects/page";
 
 export default function DemoProjectsPage() {
-  return <ProjectsBoard isDemoView />;
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading demo projects…</div>}>
+      <ProjectsBoard isDemoView />
+    </Suspense>
+  );
 }
