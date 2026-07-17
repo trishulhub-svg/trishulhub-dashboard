@@ -176,6 +176,11 @@ function LeaveManagementPageInner() {
   const isUserAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
   useEffect(() => {
+    if (status === "unauthenticated") {
+      setLoading(false);
+      router.push("/login");
+      return;
+    }
     if (status !== "authenticated") return;
 
     const controller = new AbortController();

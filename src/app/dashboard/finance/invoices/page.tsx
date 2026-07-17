@@ -832,7 +832,21 @@ function InvoicesPageInner() {
               <Plus className="h-4 w-4 mr-1" /> Create Invoice
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+          <DialogContent
+            className="flex max-h-[85vh] max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl"
+            onPointerDownOutside={(e) => {
+              const t = e.target as HTMLElement | null
+              if (t?.closest?.('[data-slot="popover-content"]')) e.preventDefault()
+            }}
+            onFocusOutside={(e) => {
+              const t = e.target as HTMLElement | null
+              if (t?.closest?.('[data-slot="popover-content"]')) e.preventDefault()
+            }}
+            onInteractOutside={(e) => {
+              const t = e.target as HTMLElement | null
+              if (t?.closest?.('[data-slot="popover-content"]')) e.preventDefault()
+            }}
+          >
             <DialogHeader className="shrink-0 px-6 pt-6 pb-2">
               <DialogTitle>Create Invoice</DialogTitle>
               <DialogDescription>
@@ -1475,7 +1489,21 @@ function InvoicesPageInner() {
           if (!open) setEditInvoice(null);
         }}
       >
-        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+        <DialogContent
+          className="flex max-h-[85vh] max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl"
+          onPointerDownOutside={(e) => {
+            const t = e.target as HTMLElement | null
+            if (t?.closest?.('[data-slot="popover-content"]')) e.preventDefault()
+          }}
+          onFocusOutside={(e) => {
+            const t = e.target as HTMLElement | null
+            if (t?.closest?.('[data-slot="popover-content"]')) e.preventDefault()
+          }}
+          onInteractOutside={(e) => {
+            const t = e.target as HTMLElement | null
+            if (t?.closest?.('[data-slot="popover-content"]')) e.preventDefault()
+          }}
+        >
           <DialogHeader className="shrink-0 px-6 pt-6 pb-2">
             <DialogTitle>Edit Invoice</DialogTitle>
             <DialogDescription>Modify invoice details.</DialogDescription>

@@ -58,7 +58,7 @@ export function SearchableCombobox({
   const showRecentHint = !search.trim() && options.length > 0
 
   return (
-    <Popover open={open} onOpenChange={onOpenChange}>
+    <Popover modal open={open} onOpenChange={onOpenChange}>
       <PopoverAnchor asChild>
         <div ref={anchorRef} className={cn("relative w-full", className)}>
           <input
@@ -90,14 +90,13 @@ export function SearchableCombobox({
         align="start"
         sideOffset={4}
         onOpenAutoFocus={(e) => e.preventDefault()}
-        className="z-[100] max-h-48 w-[var(--radix-popover-trigger-width)] overflow-y-auto overscroll-contain p-0"
+        className="z-[200] max-h-48 overflow-y-auto overscroll-contain p-0"
         style={{
           width: anchorRef.current?.offsetWidth
             ? `${anchorRef.current.offsetWidth}px`
-            : undefined,
+            : "var(--radix-popover-trigger-width)",
         }}
         onWheel={(e) => e.stopPropagation()}
-        onTouchMove={(e) => e.stopPropagation()}
       >
         {filtered.length === 0 && !leadingOption ? (
           <p className="p-2 text-sm text-muted-foreground">{emptyLabel}</p>

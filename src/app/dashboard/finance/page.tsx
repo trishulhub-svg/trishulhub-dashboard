@@ -14,6 +14,10 @@ import { handleFetchError } from "@/lib/fetch-utils";
 import { deepSanitize, safeText, safeNumber } from "@/lib/utils";
 import { formatCurrency, formatDate, CATEGORY_BADGE_COLORS, CURRENCY_SYMBOLS } from "@/lib/format";
 import {
+  DEFAULT_EXPENSE_CATEGORIES,
+  formatExpenseCategoryLabel,
+} from "@/lib/expense-categories";
+import {
   DollarSign, TrendingUp, TrendingDown, FileText, Clock,
   AlertCircle, Search, Plus, Trash2, Pause, Play, Edit3, CreditCard,
   Receipt, FolderOpen, Tag, ChevronDown, ChevronUp, Pencil,
@@ -155,7 +159,7 @@ const SUB_FREQUENCY_COLORS: Record<string, string> = {
   ONE_TIME: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200",
 };
 
-const EXPENSE_CATEGORIES = ["HOSTING", "DOMAINS", "API_COSTS", "TOOLS", "MARKETING", "SALARY", "SOFTWARE", "OTHER"];
+const EXPENSE_CATEGORIES_FALLBACK = [...DEFAULT_EXPENSE_CATEGORIES];
 
 function isExpenseDetail(obj: unknown): obj is ExpenseDetail {
   return typeof obj === "object" && obj !== null && "id" in obj && "amount" in obj;
@@ -261,6 +265,9 @@ function FinancePageInner() {
   // Expense edit dialog
   const [editExpenseOpen, setEditExpenseOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<ExpenseDetail | null>(null);
+
+  // Expense categories (admin-managed)
+  const [expenseCategories, setExpenseCategories] = useState<string[]>(EXPENSE_CATEGORIES_FALLBACK);
 
   // Expense detail sheet
   const [expenseDetailOpen, setExpenseDetailOpen] = useState(false);
@@ -466,6 +473,18 @@ function FinancePageInner() {
     const signal = controller.signal;
     fetchProjects(signal);
     fetchEmployees(signal);
+    void (async () => {
+      try {
+        const res = await fetch("/api/expense-categories", { credentials: "include", signal });
+        if (!res.ok) return;
+        const data = await res.json().catch(() => null);
+        if (Array.isArray(data) && data.length > 0) {
+          setExpenseCategories(data.map((c: { name: string }) => c.name));
+        }
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+      }
+    })();
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1193,8 +1212,8 @@ function FinancePageInner() {
                     <SelectTrigger><SelectValue placeholder="All Categories" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="ALL">All Categories</SelectItem>
-                      {EXPENSE_CATEGORIES.map((cat) => (
-                        <SelectItem key={cat} value={cat}>{cat.replace("_", " ")}</SelectItem>
+                      {expenseCategories.map((cat) => (
+                        <SelectItem key={cat} value={cat}>{formatExpenseCategoryLabel(cat)}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -1523,6 +1542,7 @@ function FinancePageInner() {
         onSuccess={() => { setEditExpenseOpen(false); setEditingExpense(null); refetchAllExpenseData(); toast.success("Expense updated"); }}
         projects={projects}
         employees={employees}
+        categories={expenseCategories}
       />
 
       {/* ─── Expense Detail Sheet ──── */}
@@ -1716,8 +1736,8 @@ function FinancePageInner() {
                 <Select value={expForm.category} onValueChange={(v) => setExpForm((f) => ({ ...f, category: v }))}>
                   <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
                   <SelectContent>
-                    {EXPENSE_CATEGORIES.map((cat) => (
-                      <SelectItem key={cat} value={cat}>{cat.replace("_", " ")}</SelectItem>
+                    {expenseCategories.map((cat) => (
+                      <SelectItem key={cat} value={cat}>{formatExpenseCategoryLabel(cat)}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
