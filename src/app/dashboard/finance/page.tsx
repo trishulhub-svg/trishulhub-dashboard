@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, Suspense } from "react";
 import { useRouter } from "next/navigation";
+import { useUrlState } from "@/hooks/use-url-state";
+import { CollapsibleStatStrip } from "@/components/collapsible-stat-strip";
 import dynamic from "next/dynamic";
 import { useSession } from "next-auth/react";
 
@@ -161,6 +163,14 @@ function isExpenseDetail(obj: unknown): obj is ExpenseDetail {
 
 // ─── Main Component ──────────────────────────────────────────────────
 export default function FinancePage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading finance…</div>}>
+      <FinancePageInner />
+    </Suspense>
+  );
+}
+
+function FinancePageInner() {
   const router = useRouter();
   const { data: session, status } = useSession();
   const userRole = session?.user?.role || "DEVELOPER";
@@ -257,7 +267,7 @@ export default function FinancePage() {
   const [selectedExpense, setSelectedExpense] = useState<ExpenseDetail | null>(null);
 
   // ─── Fetch overview stats (lightweight: 7 queries vs 19 in full dashboard) ────
-  const [activeTab, setActiveTab] = useState("subscriptions");
+  const [activeTab, setActiveTab] = useUrlState("tab", "overview");
   const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
       setDashLoading(true);
@@ -843,88 +853,61 @@ export default function FinancePage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <PageHeader title="Finance Dashboard" description="Track revenue, invoices, expenses & subscriptions">
-        <div className="flex gap-2">
+      <PageHeader title="Finance" description="Revenue, invoices, expenses & subscriptions at a glance">
+        <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="outline" onClick={() => router.push("/dashboard/finance/invoices")}>
             <FileText className="h-4 w-4 mr-1" /> Invoices
           </Button>
           <Button size="sm" variant="outline" onClick={() => router.push("/dashboard/finance/expenses")}>
-            <Receipt className="h-4 w-4 mr-1" /> Full CRUD
+            <Receipt className="h-4 w-4 mr-1" /> Expenses
           </Button>
         </div>
       </PageHeader>
 
-      {/* ─── Summary Cards ──── */}
-      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="liquid-glass-card border-border border-l-4 border-l-primary transition-shadow hover:shadow-md">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Revenue</p>
-                <p className="text-2xl font-bold tracking-tight">{formatCurrency(safeNumber(stats.totalRevenue))}</p>
-              </div>
-              <div className="th-stat-icon">
-                <TrendingUp className="h-5 w-5" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="liquid-glass-card border-border border-l-4 border-l-destructive/60 transition-shadow hover:shadow-md">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Manual Expenses</p>
-                <p className="text-2xl font-bold tracking-tight">{formatCurrency(safeNumber(totalManualExpenses))}</p>
-              </div>
-              <div className="th-stat-icon">
-                <DollarSign className="h-5 w-5" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="liquid-glass-card border-border border-l-4 border-l-primary/50 transition-shadow hover:shadow-md">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Auto Subscriptions</p>
-                <p className="text-2xl font-bold tracking-tight">{formatCurrency(safeNumber(totalSubscriptionMonthly))}<span className="text-sm font-normal text-muted-foreground">/mo</span></p>
-              </div>
-              <div className="th-stat-icon">
-                <CreditCard className="h-5 w-5" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className={`liquid-glass-card border-border border-l-4 transition-shadow hover:shadow-md ${netProfit === null ? "border-l-muted-foreground/40" : netProfit >= 0 ? "border-l-primary" : "border-l-destructive"}`}>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Net Profit (est.)</p>
-                {netProfit === null ? (
-                  <Skeleton className="h-8 w-28 mt-1" />
-                ) : (
-                  <p className={`text-2xl font-bold tracking-tight ${netProfit >= 0 ? "text-foreground" : "text-destructive"}`}>
-                    {formatCurrency(safeNumber(netProfit))}
-                  </p>
-                )}
-              </div>
-              <div className="th-stat-icon">
-                {netProfit === null ? <DollarSign className="h-5 w-5" /> : netProfit >= 0 ? <TrendingUp className="h-5 w-5" /> : <TrendingDown className="h-5 w-5" />}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <CollapsibleStatStrip
+        title="Finance summary"
+        storageKey="finance-hub-stats-open"
+        defaultOpen={false}
+        items={[
+          {
+            key: "revenue",
+            label: "Revenue",
+            value: formatCurrency(safeNumber(stats.totalRevenue)),
+            icon: <TrendingUp className="h-4 w-4 text-emerald-600" />,
+          },
+          {
+            key: "expenses",
+            label: "Manual expenses",
+            value: formatCurrency(safeNumber(totalManualExpenses)),
+            icon: <DollarSign className="h-4 w-4 text-rose-600" />,
+          },
+          {
+            key: "subs",
+            label: "Subscriptions",
+            value: `${formatCurrency(safeNumber(totalSubscriptionMonthly))}/mo`,
+            icon: <CreditCard className="h-4 w-4 text-sky-600" />,
+          },
+          {
+            key: "profit",
+            label: "Net profit (est.)",
+            value: netProfit === null ? "…" : formatCurrency(safeNumber(netProfit)),
+            icon: netProfit !== null && netProfit < 0
+              ? <TrendingDown className="h-4 w-4 text-destructive" />
+              : <TrendingUp className="h-4 w-4 text-primary" />,
+          },
+        ]}
+      />
 
-      {/* ─── Fix 8: Reordered Tabs ──── */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="flex flex-wrap h-auto w-full sm:w-auto gap-0.5 bg-muted p-1 rounded-lg">
-          <TabsTrigger value="overview" className="data-[state=active]:bg-card data-[state=active]:shadow-sm">Overview</TabsTrigger>
-          <TabsTrigger value="subscriptions" className="data-[state=active]:bg-card data-[state=active]:shadow-sm">Subscriptions</TabsTrigger>
-          <TabsTrigger value="expenses" className="data-[state=active]:bg-card data-[state=active]:shadow-sm">All Expenses</TabsTrigger>
-          <TabsTrigger value="category" className="data-[state=active]:bg-card data-[state=active]:shadow-sm">By Category</TabsTrigger>
-          <TabsTrigger value="project" className="data-[state=active]:bg-card data-[state=active]:shadow-sm">By Project</TabsTrigger>
-        </TabsList>
+        <div className="overflow-x-auto -mx-1 px-1 scrollbar-none">
+          <TabsList className="inline-flex h-auto w-max min-w-full sm:min-w-0 gap-0.5 bg-muted p-1 rounded-lg">
+            <TabsTrigger value="overview" className="data-[state=active]:bg-card data-[state=active]:shadow-sm shrink-0">Overview</TabsTrigger>
+            <TabsTrigger value="subscriptions" className="data-[state=active]:bg-card data-[state=active]:shadow-sm shrink-0">Subscriptions</TabsTrigger>
+            <TabsTrigger value="expenses" className="data-[state=active]:bg-card data-[state=active]:shadow-sm shrink-0">Expenses</TabsTrigger>
+            <TabsTrigger value="category" className="data-[state=active]:bg-card data-[state=active]:shadow-sm shrink-0">By Category</TabsTrigger>
+            <TabsTrigger value="project" className="data-[state=active]:bg-card data-[state=active]:shadow-sm shrink-0">By Project</TabsTrigger>
+          </TabsList>
+        </div>
 
         {/* ─── Overview Tab ──── */}
         <TabsContent value="overview" className="space-y-6">

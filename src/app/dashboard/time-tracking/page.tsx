@@ -953,7 +953,7 @@ function TimeTrackingPageInner() {
         </Button>
       </PageHeader>
 
-      <Tabs value={activeTab} onValueChange={handleTabChange}>
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4 [contain:layout]">
         <TabsList className="w-full sm:w-auto h-auto flex-wrap justify-start">
           <TabsTrigger value="today" className="text-xs sm:text-sm">
             Today

@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { CollapsibleStatStrip } from "@/components/collapsible-stat-strip";
 import {
   Dialog,
   DialogContent,
@@ -444,70 +445,58 @@ function LeaveManagementPageInner() {
   const daysInMonth = getDaysInMonth(currentMonth, currentYear);
   const firstDay = getFirstDayOfMonth(currentMonth, currentYear);
 
+  const leaveStatItems = useMemo(() => {
+    const items = [
+      ...(isUserAdmin
+        ? [{
+            key: "pending",
+            label: "Pending",
+            value: pendingLeaves.length,
+            icon: <Clock className="h-4 w-4 text-amber-500" />,
+          }]
+        : []),
+      {
+        key: "mine",
+        label: "My Leaves",
+        value: myLeaves.length,
+        icon: <Calendar className="h-4 w-4 text-sky-600" />,
+      },
+      {
+        key: "approved",
+        label: "Approved (month)",
+        value: approvedThisMonth.length,
+        icon: <CheckCircle2 className="h-4 w-4 text-emerald-600" />,
+      },
+      ...(isUserAdmin
+        ? [{
+            key: "today",
+            label: "On leave today",
+            value: teamOnLeaveToday,
+            icon: <AlertTriangle className="h-4 w-4 text-orange-500" />,
+          }]
+        : []),
+    ];
+    return items;
+  }, [isUserAdmin, pendingLeaves.length, myLeaves.length, approvedThisMonth.length, teamOnLeaveToday]);
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-5">
       <PageHeader title={isUserAdmin ? "Leave Management" : "My Leaves"} description={isUserAdmin ? "Manage team leaves and availability blocking" : "View your leave requests and holidays"}>
         <Button onClick={() => setDialogOpen(true)}>
           <Plus className="h-4 w-4 mr-2" /> Request Leave
         </Button>
       </PageHeader>
 
-      {/* Stats Cards */}
-      <div className={cn("grid gap-4", isUserAdmin ? "md:grid-cols-4" : "md:grid-cols-3")}>
-        {isUserAdmin && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Pending Requests</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-3">
-              <Clock className="h-8 w-8 text-yellow-500" />
-              <span className="text-3xl font-bold">{pendingLeaves.length}</span>
-            </div>
-          </CardContent>
-        </Card>
-        )}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>My Leaves</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-3">
-              <Calendar className="h-8 w-8 text-blue-500" />
-              <span className="text-3xl font-bold">{myLeaves.length}</span>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Approved This Month</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-3">
-              <CheckCircle2 className="h-8 w-8 text-green-500" />
-              <span className="text-3xl font-bold">{approvedThisMonth.length}</span>
-            </div>
-          </CardContent>
-        </Card>
-        {isUserAdmin && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Team On Leave Today</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-3">
-              <AlertTriangle className="h-8 w-8 text-orange-500" />
-              <span className="text-3xl font-bold">
-                {teamOnLeaveToday}
-              </span>
-            </div>
-          </CardContent>
-        </Card>
-        )}
-      </div>
+      {/* Stats — collapsed by default (expand when needed) */}
+      <CollapsibleStatStrip
+        title="Leave summary"
+        storageKey="leaves-stats-open"
+        defaultOpen={false}
+        items={leaveStatItems}
+      />
 
       {/* Calendar View */}
-      <Card>
+      <Card className="border-border/70 shadow-none">
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle>Leave Calendar</CardTitle>

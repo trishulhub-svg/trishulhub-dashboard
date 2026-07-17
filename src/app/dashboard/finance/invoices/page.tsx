@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, Suspense } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { handleFetchError } from "@/lib/fetch-utils";
@@ -24,6 +24,8 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
+import { CollapsibleStatStrip } from "@/components/collapsible-stat-strip";
+import { useUrlState } from "@/hooks/use-url-state";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -254,6 +256,14 @@ function TotalsDisplay({
 
 // ━━ Main Page ━━
 export default function InvoicesPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading invoices…</div>}>
+      <InvoicesPageInner />
+    </Suspense>
+  );
+}
+
+function InvoicesPageInner() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -274,7 +284,7 @@ export default function InvoicesPage() {
   const [error, setError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [statusFilter, setStatusFilter] = useUrlState("status", "ALL");
   const [currentPage, setCurrentPage] = useState(1);
   const [previewInvoice, setPreviewInvoice] = useState<Invoice | null>(null);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
@@ -1041,103 +1051,38 @@ export default function InvoicesPage() {
         </Dialog>
       </PageHeader>
 
-      {/* ━━ 1. Summary Stats Cards ━━ */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Total */}
-        <div
-          className={cn(
-            "bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-5",
-            "hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200",
-            "border-t-2 border-t-primary"
-          )}
-        >
-          <div className="flex items-center justify-between">
-            <div className="space-y-1">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Total
-              </p>
-              <p className="text-2xl font-bold">
-                {formatCurrency(summaryStats.total)}
-              </p>
-              <p className="text-[11px] text-muted-foreground">
-                {invoices.length} invoice(s)
-              </p>
-            </div>
-            <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-              <DollarSign className="h-5 w-5 text-primary" />
-            </div>
-          </div>
-        </div>
-
-        {/* Paid */}
-        <div
-          className={cn(
-            "bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-5",
-            "hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200",
-            "border-t-2 border-t-green-500"
-          )}
-        >
-          <div className="flex items-center justify-between">
-            <div className="space-y-1">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Paid
-              </p>
-              <p className="text-2xl font-bold text-green-600">
-                {formatCurrency(summaryStats.paid)}
-              </p>
-            </div>
-            <div className="h-10 w-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-              <CheckCircle2 className="h-5 w-5 text-green-600" />
-            </div>
-          </div>
-        </div>
-
-        {/* Pending */}
-        <div
-          className={cn(
-            "bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-5",
-            "hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200",
-            "border-t-2 border-t-amber-500"
-          )}
-        >
-          <div className="flex items-center justify-between">
-            <div className="space-y-1">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Pending
-              </p>
-              <p className="text-2xl font-bold text-amber-600">
-                {formatCurrency(summaryStats.pending)}
-              </p>
-            </div>
-            <div className="h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
-              <Clock className="h-5 w-5 text-amber-600" />
-            </div>
-          </div>
-        </div>
-
-        {/* Overdue */}
-        <div
-          className={cn(
-            "bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-5",
-            "hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200",
-            "border-t-2 border-t-red-500"
-          )}
-        >
-          <div className="flex items-center justify-between">
-            <div className="space-y-1">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Overdue
-              </p>
-              <p className="text-2xl font-bold text-red-600">
-                {formatCurrency(summaryStats.overdue)}
-              </p>
-            </div>
-            <div className="h-10 w-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-              <AlertCircle className="h-5 w-5 text-red-600" />
-            </div>
-          </div>
-        </div>
-      </div>
+      <CollapsibleStatStrip
+        title="Invoice summary"
+        storageKey="finance-invoices-stats-open"
+        defaultOpen={false}
+        items={[
+          {
+            key: "total",
+            label: "Total",
+            value: formatCurrency(summaryStats.total),
+            hint: `${invoices.length} invoice(s)`,
+            icon: <DollarSign className="h-4 w-4 text-primary" />,
+          },
+          {
+            key: "paid",
+            label: "Paid",
+            value: formatCurrency(summaryStats.paid),
+            icon: <CheckCircle2 className="h-4 w-4 text-emerald-600" />,
+          },
+          {
+            key: "pending",
+            label: "Pending",
+            value: formatCurrency(summaryStats.pending),
+            icon: <Clock className="h-4 w-4 text-amber-600" />,
+          },
+          {
+            key: "overdue",
+            label: "Overdue",
+            value: formatCurrency(summaryStats.overdue),
+            icon: <AlertCircle className="h-4 w-4 text-red-600" />,
+          },
+        ]}
+      />
 
       {/* ━━ 2. Filter Bar ━━ */}
       <div

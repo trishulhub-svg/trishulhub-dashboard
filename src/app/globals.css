@@ -447,12 +447,25 @@ table tbody tr:hover {
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    /* Lock pinch/double-tap zoom system-wide (pairs with viewport.userScalable=false) */
+    touch-action: pan-x pan-y;
+    -ms-touch-action: pan-x pan-y;
+    overscroll-behavior: none;
+  }
   body {
     @apply bg-background text-foreground font-sans antialiased;
     font-feature-settings: "ss01" on, "cv11" on;
+    touch-action: pan-x pan-y;
+    overscroll-behavior-y: none;
+    /* Stable layout — avoid 100vh jitter when mobile chrome / zoom changes */
+    min-height: 100dvh;
   }
   h1, h2, h3 {
     letter-spacing: -0.02em;
+  }
+  input, textarea, select {
+    font-size: 16px; /* iOS: prevent focus zoom on inputs */
   }
 }
 
