@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, Suspense } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, Suspense } from "react";
 import { useUrlState } from "@/hooks/use-url-state";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
@@ -53,11 +53,10 @@ import { safeArray } from "@/lib/utils";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 
-/** Local YYYY-MM-DD inclusive last N days ending today (for leave list query). */
+/** Visible calendar month only (refetch on prev/next). */
 function leavesRangeForMonth(year: number, month: number): { startDate: string; endDate: string } {
-  // Cover the visible calendar month plus one month padding each side
-  const from = new Date(year, month - 1, 1);
-  const to = new Date(year, month + 2, 0);
+  const from = new Date(year, month, 1);
+  const to = new Date(year, month + 1, 0);
   const fmt = (d: Date) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   return { startDate: fmt(from), endDate: fmt(to) };
@@ -65,7 +64,7 @@ function leavesRangeForMonth(year: number, month: number): { startDate: string; 
 
 function leavesListQuery(year: number, month: number): string {
   const { startDate, endDate } = leavesRangeForMonth(year, month);
-  return `/api/leaves?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&limit=200`;
+  return `/api/leaves?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&limit=100`;
 }
 
 // ━━ Helpers ━━
@@ -150,7 +149,8 @@ function LeaveManagementPageInner() {
   const { data: session, status } = useSession();
   const [leaves, setLeaves] = useState<LeaveRecord[]>([]);
   const [teamUsers, setTeamUsers] = useState<TeamUser[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [monthRefreshing, setMonthRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -174,10 +174,11 @@ function LeaveManagementPageInner() {
 
   const userRole = session?.user?.role || "DEVELOPER";
   const isUserAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+  const hasLoadedOnce = useRef(false);
 
   useEffect(() => {
     if (status === "unauthenticated") {
-      setLoading(false);
+      setInitialLoading(false);
       router.push("/login");
       return;
     }
@@ -186,14 +187,22 @@ function LeaveManagementPageInner() {
     const controller = new AbortController();
     const signal = controller.signal;
     let cancelled = false;
+    const isFirstLoad = !hasLoadedOnce.current;
 
     async function loadData() {
-      setLoading(true);
+      if (isFirstLoad) setInitialLoading(true);
+      else setMonthRefreshing(true);
+
       try {
-        const leavesRes = await fetch(leavesListQuery(currentYear, currentMonth), {
+        const leavesPromise = fetch(leavesListQuery(currentYear, currentMonth), {
           credentials: "include",
           signal,
         });
+        const teamPromise = isUserAdmin
+          ? fetch("/api/team?type=users", { credentials: "include", signal })
+          : null;
+
+        const leavesRes = await leavesPromise;
         if (cancelled) return;
         if (leavesRes.status === 401) {
           router.push("/login");
@@ -207,11 +216,14 @@ function LeaveManagementPageInner() {
         }
         setLeaves(safeArray<LeaveRecord>(await leavesRes.json()));
         setError(null);
+        hasLoadedOnce.current = true;
 
-        if (isUserAdmin) {
-          const teamRes = await fetch("/api/team?type=users", { credentials: "include", signal });
-          if (cancelled) return;
-          if (teamRes.ok) setTeamUsers(safeArray<TeamUser>(await teamRes.json()));
+        // Team list fills filter/dialog — don't block calendar paint
+        if (teamPromise) {
+          void teamPromise.then(async (teamRes) => {
+            if (cancelled || !teamRes.ok) return;
+            setTeamUsers(safeArray<TeamUser>(await teamRes.json()));
+          });
         }
       } catch (err) {
         if (cancelled) return;
@@ -220,7 +232,10 @@ function LeaveManagementPageInner() {
         console.error("[leaves] loadData Error:", err);
         setError("Failed to load data");
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          if (isFirstLoad) setInitialLoading(false);
+          else setMonthRefreshing(false);
+        }
       }
     }
 
@@ -234,7 +249,11 @@ function LeaveManagementPageInner() {
   const fetchData = useCallback(async () => {
     try {
       setError(null);
-      const leavesRes = await fetch(leavesListQuery(currentYear, currentMonth), { credentials: "include" });
+      setMonthRefreshing(true);
+      const [leavesRes, teamRes] = await Promise.all([
+        fetch(leavesListQuery(currentYear, currentMonth), { credentials: "include" }),
+        isUserAdmin ? fetch("/api/team?type=users", { credentials: "include" }) : Promise.resolve(null),
+      ]);
       if (leavesRes.status === 401) { router.push("/login"); return; }
       if (!leavesRes.ok) {
         const errData = await leavesRes.json().catch(() => ({}));
@@ -242,15 +261,12 @@ function LeaveManagementPageInner() {
         return;
       }
       setLeaves(safeArray<LeaveRecord>(await leavesRes.json()));
-
-      if (isUserAdmin) {
-        const teamRes = await fetch("/api/team?type=users", { credentials: "include" });
-        if (teamRes.status === 401) { router.push("/login"); return; }
-        if (teamRes.ok) setTeamUsers(safeArray<TeamUser>(await teamRes.json()));
-      }
+      if (teamRes?.ok) setTeamUsers(safeArray<TeamUser>(await teamRes.json()));
     } catch (err) {
       console.error("Failed to fetch data:", err);
       toast.error("Failed to refresh data");
+    } finally {
+      setMonthRefreshing(false);
     }
   }, [isUserAdmin, router, currentYear, currentMonth]);
 
@@ -385,17 +401,25 @@ function LeaveManagementPageInner() {
   const getDaysInMonth = (month: number, year: number) => new Date(year, month + 1, 0).getDate();
   const getFirstDayOfMonth = (month: number, year: number) => new Date(year, month, 1).getDay();
 
-  const getLeavesForDate = useCallback((day: number) => {
-    const date = new Date(currentYear, currentMonth, day);
-    return leaves.filter((leave) => {
-      if (leave.status === "CANCELLED" || leave.status === "REJECTED") return false;
-      const start = safeParseDate(leave.startDate);
-      const end = safeParseDate(leave.endDate);
-      start.setHours(0, 0, 0, 0);
-      end.setHours(23, 59, 59, 999);
-      return date >= start && date <= end;
-    });
-  }, [currentYear, currentMonth, leaves]);
+  // ponytail: index once per month instead of filtering all leaves on every render
+  const leavesByDay = useMemo(() => {
+    const map = new Map<number, LeaveRecord[]>();
+    const dim = new Date(currentYear, currentMonth + 1, 0).getDate();
+    for (let day = 1; day <= dim; day++) {
+      const date = new Date(currentYear, currentMonth, day);
+      date.setHours(12, 0, 0, 0);
+      const hits = leaves.filter((leave) => {
+        if (leave.status === "CANCELLED" || leave.status === "REJECTED") return false;
+        const start = safeParseDate(leave.startDate);
+        const end = safeParseDate(leave.endDate);
+        start.setHours(0, 0, 0, 0);
+        end.setHours(23, 59, 59, 999);
+        return date >= start && date <= end;
+      });
+      if (hits.length) map.set(day, hits);
+    }
+    return map;
+  }, [leaves, currentYear, currentMonth]);
 
   const prevMonth = () => {
     if (currentMonth === 0) {
@@ -485,15 +509,12 @@ function LeaveManagementPageInner() {
     );
   }
 
-  if (loading) {
+  if (initialLoading) {
     return (
-      <div className="space-y-6">
-        <h1 className="text-2xl font-bold">Leave Management</h1>
-        <div className="grid gap-4 md:grid-cols-3">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="h-32 bg-muted animate-pulse rounded-lg" />
-          ))}
-        </div>
+      <div className="space-y-4 sm:space-y-5">
+        <div className="h-10 w-48 bg-muted animate-pulse rounded-lg" />
+        <div className="h-24 bg-muted animate-pulse rounded-xl" />
+        <div className="h-72 bg-muted animate-pulse rounded-xl" />
       </div>
     );
   }
@@ -530,10 +551,15 @@ function LeaveManagementPageInner() {
       />
 
       {/* Calendar View */}
-      <Card className="border-border/70 shadow-none">
+      <Card className={cn("border-border/70 shadow-none", monthRefreshing && "opacity-70 pointer-events-none")}>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle>Leave Calendar</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              Leave Calendar
+              {monthRefreshing && (
+                <span className="text-xs font-normal text-muted-foreground animate-pulse">Updating…</span>
+              )}
+            </CardTitle>
             <div className="flex items-center gap-2">
               <Button variant="outline" size="icon" onClick={prevMonth} aria-label="Previous month">
                 <ChevronLeft className="h-4 w-4" />
@@ -557,6 +583,7 @@ function LeaveManagementPageInner() {
           </div>
         </CardHeader>
         <CardContent>
+          <TooltipProvider delayDuration={200}>
           <div className="grid grid-cols-7 gap-px bg-border rounded-lg overflow-hidden">
             {/* Day headers */}
             {dayNames.map((day) => (
@@ -571,12 +598,11 @@ function LeaveManagementPageInner() {
             {/* Day cells */}
             {Array.from({ length: daysInMonth }).map((_, i) => {
               const day = i + 1;
-              const dayLeaves = getLeavesForDate(day);
+              const dayLeaves = leavesByDay.get(day) ?? [];
               const isToday = day === new Date().getDate() && currentMonth === new Date().getMonth() && currentYear === new Date().getFullYear();
               return (
                 <div key={day} className={`bg-card min-h-[80px] p-1 ${isToday ? "ring-2 ring-primary ring-inset" : ""}`}>
                   <div className={`text-xs font-medium mb-1 ${isToday ? "text-primary" : "text-muted-foreground"}`}>{day}</div>
-                  <TooltipProvider>
                     {dayLeaves.slice(0, 2).map((leave) => (
                       <Tooltip key={leave.id}>
                         <TooltipTrigger asChild>
@@ -592,7 +618,6 @@ function LeaveManagementPageInner() {
                           </TooltipContent>
                       </Tooltip>
                     ))}
-                  </TooltipProvider>
                   {dayLeaves.length > 2 && (
                     <div className="text-[9px] text-muted-foreground pl-1">+{dayLeaves.length - 2} more</div>
                   )}
@@ -600,6 +625,7 @@ function LeaveManagementPageInner() {
               );
             })}
           </div>
+          </TooltipProvider>
         </CardContent>
       </Card>
 
