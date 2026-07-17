@@ -76,8 +76,7 @@ export async function GET(req: NextRequest) {
     const leaves = await db.leave.findMany({
       where,
       include: {
-        user: { select: { id: true, name: true, email: true, role: true } },
-        approver: { select: { id: true, name: true } },
+        user: { select: { id: true, name: true } },
       },
       orderBy: { createdAt: "desc" },
       take,
