@@ -70,7 +70,7 @@ export async function GET(req: NextRequest) {
 
     // Pagination
     const page = Math.max(Number(searchParams.get("page")) || 1, 1)
-    const take = Math.max(Number(searchParams.get("limit")) || 50, 1)
+    const take = Math.min(Math.max(Number(searchParams.get("limit")) || 50, 1), 200)
     const skip = (page - 1) * take
 
     const leaves = await db.leave.findMany({

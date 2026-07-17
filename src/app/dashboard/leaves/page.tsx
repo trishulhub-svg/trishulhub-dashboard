@@ -176,36 +176,67 @@ function LeaveManagementPageInner() {
   const isUserAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
   useEffect(() => {
+    if (status !== "authenticated") return;
+
     const controller = new AbortController();
     const signal = controller.signal;
+    let cancelled = false;
 
     async function loadData() {
+      setLoading(true);
       try {
-        const leavesRes = await fetch(leavesListQuery(currentYear, currentMonth), { credentials: "include", signal });
-        if (leavesRes.ok) setLeaves(safeArray<LeaveRecord>(await leavesRes.json()));
+        const leavesRes = await fetch(leavesListQuery(currentYear, currentMonth), {
+          credentials: "include",
+          signal,
+        });
+        if (cancelled) return;
+        if (leavesRes.status === 401) {
+          router.push("/login");
+          return;
+        }
+        if (!leavesRes.ok) {
+          const errData = await leavesRes.json().catch(() => ({}));
+          setError((errData as { error?: string }).error || "Failed to load leaves");
+          setLeaves([]);
+          return;
+        }
+        setLeaves(safeArray<LeaveRecord>(await leavesRes.json()));
+        setError(null);
 
         if (isUserAdmin) {
           const teamRes = await fetch("/api/team?type=users", { credentials: "include", signal });
+          if (cancelled) return;
           if (teamRes.ok) setTeamUsers(safeArray<TeamUser>(await teamRes.json()));
         }
       } catch (err) {
-        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (cancelled) return;
+        const name = err instanceof Error ? err.name : "";
+        if (name === "AbortError") return;
         console.error("[leaves] loadData Error:", err);
         setError("Failed to load data");
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
 
     loadData();
-    return () => controller.abort();
-  }, [isUserAdmin, currentYear, currentMonth]);
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [status, isUserAdmin, currentYear, currentMonth, router]);
 
   const fetchData = useCallback(async () => {
     try {
+      setError(null);
       const leavesRes = await fetch(leavesListQuery(currentYear, currentMonth), { credentials: "include" });
       if (leavesRes.status === 401) { router.push("/login"); return; }
-      if (leavesRes.ok) setLeaves(safeArray<LeaveRecord>(await leavesRes.json()));
+      if (!leavesRes.ok) {
+        const errData = await leavesRes.json().catch(() => ({}));
+        toast.error(((errData as { error?: string }).error || "Failed to refresh leaves").slice(0, 100));
+        return;
+      }
+      setLeaves(safeArray<LeaveRecord>(await leavesRes.json()));
 
       if (isUserAdmin) {
         const teamRes = await fetch("/api/team?type=users", { credentials: "include" });

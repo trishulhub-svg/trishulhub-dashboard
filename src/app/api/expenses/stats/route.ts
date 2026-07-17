@@ -6,8 +6,19 @@ import { Prisma } from "@prisma/client"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 
-const VALID_CATEGORIES = ["HOSTING", "DOMAINS", "API_COSTS", "TOOLS", "MARKETING", "SALARY", "SOFTWARE", "OTHER"] as const
-type ExpenseCategory = typeof VALID_CATEGORIES[number]
+import { DEFAULT_EXPENSE_CATEGORIES } from "@/lib/expense-categories"
+
+async function getValidCategoryNames(): Promise<string[]> {
+  try {
+    const rows = (await db.$queryRawUnsafe(
+      `SELECT "name" FROM "ExpenseCategory" ORDER BY "name" ASC`
+    )) as Array<{ name: string }>
+    if (rows.length > 0) return rows.map((r) => r.name)
+  } catch {
+    // ignore
+  }
+  return [...DEFAULT_EXPENSE_CATEGORIES]
+}
 
 // GET /api/expenses/stats - Category and project-wise expense grouping
 export async function GET(req: NextRequest) {
@@ -51,9 +62,12 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Validate category filter
-    if (category && !VALID_CATEGORIES.includes(category as ExpenseCategory)) {
-      return NextResponse.json({ error: `Invalid category. Must be one of: ${VALID_CATEGORIES.join(", ")}` }, { status: 400 })
+    // Validate category filter against admin-managed list
+    if (category) {
+      const validCategories = await getValidCategoryNames()
+      if (!validCategories.includes(category)) {
+        return NextResponse.json({ error: `Invalid category. Must be one of: ${validCategories.join(", ")}` }, { status: 400 })
+      }
     }
 
     const where: Prisma.ExpenseWhereInput = {}

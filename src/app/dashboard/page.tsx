@@ -118,16 +118,23 @@ function StatTile({
       type={onClick ? "button" : undefined}
       onClick={onClick}
       className={cn(
-        "rounded-xl border border-border bg-card/40 p-4 text-left transition-colors",
+        "min-w-0 overflow-hidden rounded-xl border border-border bg-card/40 p-3 text-left transition-colors sm:p-4",
         onClick && "cursor-pointer hover:bg-muted/40",
         accent && "border-destructive/40 bg-destructive/[0.04]"
       )}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-xs text-muted-foreground">{label}</p>
-          <p className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">{value}</p>
-          {hint ? <div className="mt-1.5 text-[11px] text-muted-foreground leading-snug">{hint}</div> : null}
+      <div className="flex items-start justify-between gap-2 sm:gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[11px] text-muted-foreground sm:text-xs">{label}</p>
+          <p
+            className="mt-1 truncate text-xl font-semibold tracking-tight tabular-nums sm:text-2xl"
+            title={String(value)}
+          >
+            {value}
+          </p>
+          {hint ? (
+            <div className="mt-1.5 break-words text-[11px] leading-snug text-muted-foreground">{hint}</div>
+          ) : null}
         </div>
         <div className={cn("th-stat-icon shrink-0", accent && "bg-destructive/10 text-destructive")}>
           <Icon className="h-5 w-5" />
@@ -149,12 +156,12 @@ function SectionShell({
   className?: string;
 }) {
   return (
-    <section className={cn("rounded-xl border border-border bg-card/30", className)}>
-      <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
-        <h2 className="text-sm font-semibold tracking-tight">{title}</h2>
-        {action}
+    <section className={cn("min-w-0 overflow-hidden rounded-xl border border-border bg-card/30", className)}>
+      <div className="flex min-w-0 items-center justify-between gap-2 border-b border-border px-3 py-3 sm:gap-3 sm:px-4">
+        <h2 className="min-w-0 truncate text-sm font-semibold tracking-tight">{title}</h2>
+        {action ? <div className="shrink-0">{action}</div> : null}
       </div>
-      <div className="p-3 sm:p-4">{children}</div>
+      <div className="min-w-0 p-3 sm:p-4">{children}</div>
     </section>
   );
 }
@@ -435,18 +442,21 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="space-y-5 sm:space-y-6" style={{ animation: "fade-in 0.2s ease-out both" }}>
+    <div
+      className="w-full max-w-full space-y-5 overflow-x-hidden sm:space-y-6"
+      style={{ animation: "fade-in 0.2s ease-out both" }}
+    >
       {/* Welcome band */}
-      <header className="flex flex-wrap items-start justify-between gap-3">
+      <header className="flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
         <div className="min-w-0 border-l-[2.5px] border-primary pl-3">
-          <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+          <h1 className="break-words text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
             {greeting}, {firstName}
           </h1>
-          <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground sm:text-sm">
+          <p className="mt-0.5 max-w-prose text-xs leading-relaxed text-muted-foreground sm:text-sm">
             {roleSubtitle(userRole)}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex min-w-0 flex-wrap gap-2">
           {isAdminUser && (
             <Button size="sm" onClick={() => router.push("/dashboard/projects")}>
               <Plus className="mr-1 h-4 w-4" /> New Project
@@ -473,7 +483,7 @@ export default function DashboardPage() {
       {/* ── ADMIN / SUPER_ADMIN ── */}
       {isAdminUser && (
         <>
-          <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 xl:grid-cols-4">
             <StatTile
               label="Active Projects"
               value={stats.activeProjects}
@@ -517,7 +527,7 @@ export default function DashboardPage() {
             />
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid min-w-0 gap-4 lg:grid-cols-2">
             <SectionShell
               title="Active & at-risk projects"
               action={
@@ -564,18 +574,20 @@ export default function DashboardPage() {
                       key={inv.id}
                       type="button"
                       onClick={() => router.push("/dashboard/finance/invoices")}
-                      className="flex w-full items-center justify-between gap-3 rounded-lg p-2.5 text-left transition-colors hover:bg-muted/50"
+                      className="flex w-full min-w-0 items-center justify-between gap-2 rounded-lg p-2.5 text-left transition-colors hover:bg-muted/50 sm:gap-3"
                     >
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium">{safeText(inv.invoiceNumber, "")}</p>
                         <p className="truncate text-[11px] text-muted-foreground">
                           {inv.client ? safeText(inv.client.name, "") : ""}
                           {inv.dueDate ? ` · due ${safeDate(inv.dueDate)}` : ""}
                         </p>
                       </div>
-                      <div className="flex shrink-0 items-center gap-2">
-                        <span className="text-sm font-medium tabular-nums">{formatCurrency(safeNumber(inv.total))}</span>
-                        <Badge className={cn("text-[10px]", invoiceStatusColors[inv.status] || "")}>
+                      <div className="flex min-w-0 shrink-0 flex-col items-end gap-1 sm:flex-row sm:items-center sm:gap-2">
+                        <span className="max-w-[7.5rem] truncate text-sm font-medium tabular-nums sm:max-w-none" title={formatCurrency(safeNumber(inv.total))}>
+                          {formatCurrency(safeNumber(inv.total))}
+                        </span>
+                        <Badge className={cn("max-w-full truncate text-[10px]", invoiceStatusColors[inv.status] || "")}>
                           {safeText(inv.status, "")}
                         </Badge>
                       </div>
@@ -599,7 +611,7 @@ export default function DashboardPage() {
       {/* ── PROJECT MANAGER ── */}
       {isPm && (
         <>
-          <div className="grid gap-3 grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 lg:grid-cols-3">
             <StatTile
               label="Active Projects"
               value={stats.activeProjects}
@@ -692,7 +704,7 @@ export default function DashboardPage() {
             </div>
           </section>
 
-          <div className="grid gap-3 grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
             <StatTile
               label="My projects"
               value={stats.activeProjects}

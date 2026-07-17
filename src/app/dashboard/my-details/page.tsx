@@ -227,10 +227,10 @@ function MyDetailsPageInner() {
   const [filterCountry, setFilterCountry] = useUrlState("country", "ALL");
   const [searchQuery, setSearchQuery] = useState("");
 
-  // ── Data fetch ──
-  const fetchData = useCallback(async () => {
+  // ── Data fetch (me first → paint fast; team list deferred) ──
+  const fetchMyDetail = useCallback(async () => {
     try {
-      const res = await fetch("/api/user-details", { credentials: "include" });
+      const res = await fetch("/api/user-details?scope=me", { credentials: "include" });
       if (res.status === 401) {
         router.push("/login");
         return;
@@ -240,26 +240,51 @@ function MyDetailsPageInner() {
         throw new Error(err.error || "Failed to load details");
       }
       const data = await res.json();
-      if (isUserAdmin) {
-        setAllDetails(Array.isArray(data) ? data : []);
-        // Find my own detail from the list
-        const mine = (data as UserDetailResponse[]).find((d) => d.userId === currentUserId) || null;
-        setMyDetail(mine && mine.status !== "NOT_SUBMITTED" ? mine : null);
-      } else {
-        setMyDetail(data || null);
-      }
+      setMyDetail(data || null);
+      setError(null);
     } catch (err) {
-      console.error("[my-details] fetchData error:", err);
+      console.error("[my-details] fetchMyDetail error:", err);
       setError(err instanceof Error ? err.message : "Failed to load data");
     } finally {
       setLoading(false);
     }
-  }, [router, isUserAdmin, currentUserId]);
+  }, [router]);
+
+  const fetchTeamDetails = useCallback(async () => {
+    if (!isUserAdmin) return;
+    try {
+      const res = await fetch("/api/user-details?scope=team", { credentials: "include" });
+      if (res.status === 401) {
+        router.push("/login");
+        return;
+      }
+      if (!res.ok) return;
+      const data = await res.json();
+      setAllDetails(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("[my-details] fetchTeamDetails error:", err);
+    }
+  }, [router, isUserAdmin]);
+
+  const fetchData = useCallback(async () => {
+    await fetchMyDetail();
+    if (isUserAdmin && adminTab === "team") {
+      await fetchTeamDetails();
+    }
+  }, [fetchMyDetail, fetchTeamDetails, isUserAdmin, adminTab]);
 
   useEffect(() => {
     if (sessionStatus === "loading") return;
-    fetchData();
-  }, [sessionStatus, fetchData]);
+    fetchMyDetail();
+  }, [sessionStatus, fetchMyDetail]);
+
+  // Load team list only when admin opens Team tab
+  useEffect(() => {
+    if (sessionStatus === "loading" || !isUserAdmin) return;
+    if (adminTab === "team" && allDetails.length === 0) {
+      void fetchTeamDetails();
+    }
+  }, [sessionStatus, isUserAdmin, adminTab, allDetails.length, fetchTeamDetails]);
 
   // ── Pre-fill form when editing rejected details ──
   useEffect(() => {
