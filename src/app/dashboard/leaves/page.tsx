@@ -439,6 +439,38 @@ function LeaveManagementPageInner() {
     return leaves.filter(l => l.status === "APPROVED" && l.startDate <= today && l.endDate >= today).length;
   }, [leaves]);
 
+  // Before any early return — hooks order must be stable (was crashing Dashboard Error)
+  const leaveStatItems = useMemo(() => [
+    ...(isUserAdmin
+      ? [{
+          key: "pending",
+          label: "Pending",
+          value: pendingLeaves.length,
+          icon: <Clock className="h-4 w-4 text-amber-500" />,
+        }]
+      : []),
+    {
+      key: "mine",
+      label: "My Leaves",
+      value: myLeaves.length,
+      icon: <Calendar className="h-4 w-4 text-sky-600" />,
+    },
+    {
+      key: "approved",
+      label: "Approved (month)",
+      value: approvedThisMonth.length,
+      icon: <CheckCircle2 className="h-4 w-4 text-emerald-600" />,
+    },
+    ...(isUserAdmin
+      ? [{
+          key: "today",
+          label: "On leave today",
+          value: teamOnLeaveToday,
+          icon: <AlertTriangle className="h-4 w-4 text-orange-500" />,
+        }]
+      : []),
+  ], [isUserAdmin, pendingLeaves.length, myLeaves.length, approvedThisMonth.length, teamOnLeaveToday]);
+
   // Session loading guard
   if (status === "loading") {
     return (
@@ -480,40 +512,6 @@ function LeaveManagementPageInner() {
 
   const daysInMonth = getDaysInMonth(currentMonth, currentYear);
   const firstDay = getFirstDayOfMonth(currentMonth, currentYear);
-
-  const leaveStatItems = useMemo(() => {
-    const items = [
-      ...(isUserAdmin
-        ? [{
-            key: "pending",
-            label: "Pending",
-            value: pendingLeaves.length,
-            icon: <Clock className="h-4 w-4 text-amber-500" />,
-          }]
-        : []),
-      {
-        key: "mine",
-        label: "My Leaves",
-        value: myLeaves.length,
-        icon: <Calendar className="h-4 w-4 text-sky-600" />,
-      },
-      {
-        key: "approved",
-        label: "Approved (month)",
-        value: approvedThisMonth.length,
-        icon: <CheckCircle2 className="h-4 w-4 text-emerald-600" />,
-      },
-      ...(isUserAdmin
-        ? [{
-            key: "today",
-            label: "On leave today",
-            value: teamOnLeaveToday,
-            icon: <AlertTriangle className="h-4 w-4 text-orange-500" />,
-          }]
-        : []),
-    ];
-    return items;
-  }, [isUserAdmin, pendingLeaves.length, myLeaves.length, approvedThisMonth.length, teamOnLeaveToday]);
 
   return (
     <div className="space-y-4 sm:space-y-5">

@@ -7,7 +7,7 @@ import { handleFetchError } from "@/lib/fetch-utils";
 import {
   Plus, Trash2, AlertCircle, Search, DollarSign, Receipt,
   Tag, FolderOpen, User, Hash, Calendar, Pencil, Eye, CreditCard,
-  TrendingUp, X, Settings2, Check, Loader2,
+  TrendingUp, X, Check, Loader2,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -407,15 +407,19 @@ export default function ExpensesPage() {
     <div className="space-y-6">
       {/* ━━ Page Header ━━ */}
       <PageHeader title="Expenses" description="Track and manage all business expenses">
-        <Dialog
-          open={addOpen}
-          onOpenChange={(open) => { setAddOpen(open); if (!open) resetAddForm(); }}
-        >
-          <DialogTrigger asChild>
-            <Button size="sm">
-              <Plus className="h-4 w-4 mr-1" /> Add Expense
-            </Button>
-          </DialogTrigger>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={() => setManageCatsOpen(true)}>
+            <Tag className="h-4 w-4 mr-1" /> Categories
+          </Button>
+          <Dialog
+            open={addOpen}
+            onOpenChange={(open) => { setAddOpen(open); if (!open) resetAddForm(); }}
+          >
+            <DialogTrigger asChild>
+              <Button size="sm">
+                <Plus className="h-4 w-4 mr-1" /> Add Expense
+              </Button>
+            </DialogTrigger>
           <DialogContent className="sm:max-w-lg max-h-[92dvh] flex flex-col p-0 gap-0">
             <DialogHeader className="px-5 pt-5 pb-2 shrink-0">
               <DialogTitle>Add Expense</DialogTitle>
@@ -536,6 +540,7 @@ export default function ExpensesPage() {
             </div>
           </DialogContent>
         </Dialog>
+        </div>
       </PageHeader>
 
       <CollapsibleStatStrip
@@ -586,7 +591,7 @@ export default function ExpensesPage() {
           </div>
           <div className="flex w-full gap-2 sm:w-auto">
             <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-              <SelectTrigger className="w-full sm:w-44 rounded-xl">
+              <SelectTrigger className="w-full sm:w-52 rounded-xl">
                 <SelectValue placeholder="Filter by category" />
               </SelectTrigger>
               <SelectContent>
@@ -599,12 +604,11 @@ export default function ExpensesPage() {
             <Button
               type="button"
               variant="outline"
-              size="icon"
-              className="shrink-0 rounded-xl"
-              title="Manage categories"
+              className="shrink-0 rounded-xl px-3"
               onClick={() => setManageCatsOpen(true)}
             >
-              <Settings2 className="h-4 w-4" />
+              <Pencil className="h-3.5 w-3.5 mr-1.5" />
+              Edit
             </Button>
           </div>
         </div>

@@ -66,6 +66,13 @@ function formatCurrency(n: number) {
   return `₹${n.toLocaleString("en-IN")}`;
 }
 
+/** Shorter for tight mobile tiles (ponytail: avoid layout overlap). */
+function formatCompactInr(n: number) {
+  if (Math.abs(n) >= 1e7) return `₹${(n / 1e7).toFixed(n % 1e7 === 0 ? 0 : 1)}Cr`;
+  if (Math.abs(n) >= 1e5) return `₹${(n / 1e5).toFixed(n % 1e5 === 0 ? 0 : 1)}L`;
+  return formatCurrency(n);
+}
+
 function isProjectAtRisk(project: ProjectRow): boolean {
   if (CLOSED_STATUSES.has(safeText(project.status, ""))) return false;
   const deadline = project.deadline ? new Date(project.deadline) : null;
@@ -506,12 +513,14 @@ export default function DashboardPage() {
             />
             <StatTile
               label="Revenue"
-              value={formatCurrency(stats.totalRevenue)}
+              value={formatCompactInr(stats.totalRevenue)}
               hint={
-                <span className="flex flex-wrap gap-x-3 gap-y-0.5">
-                  <span>Pending {formatCurrency(stats.pendingAmount)}</span>
+                <span className="flex flex-col gap-0.5">
+                  <span className="truncate">Pending {formatCompactInr(stats.pendingAmount)}</span>
                   {stats.overdueAmount > 0 && (
-                    <span className="text-destructive">Overdue {formatCurrency(stats.overdueAmount)}</span>
+                    <span className="truncate text-destructive">
+                      Overdue {formatCompactInr(stats.overdueAmount)}
+                    </span>
                   )}
                 </span>
               }
