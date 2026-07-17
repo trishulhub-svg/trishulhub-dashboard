@@ -31,7 +31,6 @@ export type NotificationType = "INFO" | "WARNING" | "ERROR" | "SUCCESS" | "TASK"
 export type DealStage = "LEAD" | "QUALIFIED" | "PROPOSAL" | "NEGOTIATION" | "CLOSED_WON" | "CLOSED_LOST";
 
 /** Contract lifecycle status */
-export type ContractStatus = "DRAFT" | "SENT" | "SIGNED" | "EXPIRED" | "CANCELLED";
 
 /** Subscription lifecycle status */
 export type SubscriptionStatus = "ACTIVE" | "STOPPED" | "COMPLETED";

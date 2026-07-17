@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { useSession } from "next-auth/react";
 import { AlertCircle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/page-header";
 import { toast } from "sonner";
 import { safeArray, safeNumber, safeText } from "@/lib/utils";
+import { useUrlState } from "@/hooks/use-url-state";
 
 import type {
   AnalyticsData,
@@ -51,6 +52,14 @@ import {
 } from "./_components/dialogs";
 
 export default function TimeTrackingPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading time tracking…</div>}>
+      <TimeTrackingPageInner />
+    </Suspense>
+  );
+}
+
+function TimeTrackingPageInner() {
   const { data: session, status: sessionStatus } = useSession();
   const userRole = session?.user?.role || "DEVELOPER";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
@@ -60,7 +69,11 @@ export default function TimeTrackingPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<TimeTrackingTab>("today");
+  const [activeTab, setActiveTabRaw] = useUrlState("tab", "today");
+  const setActiveTab = useCallback(
+    (tab: TimeTrackingTab | string) => setActiveTabRaw(String(tab)),
+    [setActiveTabRaw]
+  );
 
   // Timer
   const [activeEntry, setActiveEntry] = useState<TimeEntry | null>(null);

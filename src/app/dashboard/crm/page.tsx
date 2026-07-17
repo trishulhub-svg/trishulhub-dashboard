@@ -1,14 +1,24 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, Suspense } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
   DndContext, DragEndEvent, DragOverlay, DragStartEvent, PointerSensor,
-  useSensor, useSensors, closestCorners, useDroppable,
+  useSensor, useSensors, closestCorners, pointerWithin, rectIntersection,
+  useDroppable, type CollisionDetection,
 } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { useUrlState } from "@/hooks/use-url-state";
+
+const crmCollisionDetection: CollisionDetection = (args) => {
+  const pointerHits = pointerWithin(args);
+  if (pointerHits.length > 0) return pointerHits;
+  const rectHits = rectIntersection(args);
+  if (rectHits.length > 0) return rectHits;
+  return closestCorners(args);
+};
 import {
   Plus, Mail, Phone, Globe, Building2, Star, Send, Search, AlertCircle,
   Users, TrendingUp, Calendar, Trash2, UserCheck, Loader2, LayoutGrid, List, Filter,
@@ -281,8 +291,9 @@ function DroppableKanbanColumn({ col, leads, onLeadClick, activeId, isDimmed }: 
 
   return (
     <div
+      ref={setNodeRef}
       className={cn(
-        "flex-shrink-0 w-[260px] sm:w-[280px] rounded-xl border transition-all duration-300 snap-start relative overflow-hidden",
+        "flex-shrink-0 w-[260px] sm:w-[280px] rounded-xl border transition-all duration-300 snap-start relative overflow-hidden flex flex-col",
         "bg-gradient-to-b from-white/80 to-white/50 dark:from-gray-900/60 dark:to-gray-900/30 backdrop-blur-xl",
         "border-gray-200/80 dark:border-gray-700/50",
         "hover:border-gray-300 dark:hover:border-gray-600",
@@ -296,7 +307,7 @@ function DroppableKanbanColumn({ col, leads, onLeadClick, activeId, isDimmed }: 
       <div className={cn("absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl", col.accentBar, isOver && !isDimmed ? "opacity-100" : "opacity-60")} />
 
       {/* Column Header */}
-      <div className="px-3 py-2.5 border-b border-gray-200/50 dark:border-gray-700/40 pl-4">
+      <div className="px-3 py-2.5 border-b border-gray-200/50 dark:border-gray-700/40 pl-4 shrink-0">
         <div className="flex items-center gap-2">
           <span className={cn("h-2 w-2 rounded-full shrink-0 ring-2 ring-offset-1 ring-offset-white dark:ring-offset-gray-950", col.dot, col.dot.replace("bg-", "ring-"))} />
           <h3 className="font-bold text-[12px] tracking-tight">{col.label}</h3>
@@ -309,30 +320,36 @@ function DroppableKanbanColumn({ col, leads, onLeadClick, activeId, isDimmed }: 
         </div>
       </div>
 
-      {/* Card List */}
+      {/* Card List — whole column is droppable */}
       <div
-        ref={setNodeRef}
         className={cn(
-          "p-2 space-y-2 overflow-y-auto transition-all duration-300 pl-4",
+          "p-2 space-y-2 overflow-y-auto transition-all duration-300 pl-4 flex-1",
           isOver && !isDimmed && "bg-primary/[0.03] dark:bg-primary/[0.05]"
         )}
         style={{ maxHeight: "calc(100vh - 380px)" }}
       >
         <SortableContext items={leads.map((l) => l.id)} strategy={verticalListSortingStrategy}>
           {leads.map((lead) => {
-            // Don't render the actively dragged card in the list
-            if (activeId === lead.id) return null;
+            if (activeId === lead.id) {
+              return (
+                <div
+                  key={lead.id}
+                  className="h-[72px] rounded-lg border border-dashed border-primary/30 bg-primary/[0.04]"
+                  aria-hidden
+                />
+              );
+            }
             return (
               <SortableLeadCard key={lead.id} lead={lead} onClick={() => onLeadClick(lead)} />
             );
           })}
         </SortableContext>
         {leads.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-8 text-center">
+          <div className="flex flex-col items-center justify-center py-8 text-center min-h-[120px]">
             <div className="h-8 w-8 rounded-full bg-muted/50 flex items-center justify-center mb-2">
               <Users className="h-4 w-4 text-muted-foreground/30" />
             </div>
-            <p className="text-[11px] text-muted-foreground/50 font-medium">No leads</p>
+            <p className="text-[11px] text-muted-foreground/50 font-medium">Drop here</p>
           </div>
         )}
       </div>
@@ -422,6 +439,14 @@ function validateAddForm(form: FormData): Record<string, string> | null {
 }
 
 export default function CRMPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading CRM…</div>}>
+      <CRMPageInner />
+    </Suspense>
+  );
+}
+
+function CRMPageInner() {
   const router = useRouter();
   // CRM-002: Destructure status from useSession
   const { data: session, status } = useSession();
@@ -457,8 +482,8 @@ export default function CRMPage() {
   const [editMode, setEditMode] = useState(false);
   const [editForm, setEditForm] = useState<Record<string, string>>({});
   // CRM-S04: Source and status filter states
-  const [filterSource, setFilterSource] = useState("all");
-  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterSource, setFilterSource] = useUrlState("source", "all");
+  const [filterStatus, setFilterStatus] = useUrlState("status", "all");
   const [isMobile, setIsMobile] = useState(false);
   // View mode with localStorage persistence
   const [viewMode, setViewMode] = useState<"board" | "list">(() => {
@@ -1206,7 +1231,7 @@ export default function CRMPage() {
         /* Kanban Board */
         <DndContext
           sensors={sensors}
-          collisionDetection={closestCorners}
+          collisionDetection={crmCollisionDetection}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
