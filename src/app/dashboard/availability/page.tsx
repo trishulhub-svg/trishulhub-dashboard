@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, Suspense } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { safeArray, safeText } from "@/lib/utils";
+import { useUrlState } from "@/hooks/use-url-state";
 import {
   Clock, Plus, Trash2, CalendarDays, AlertCircle, ChevronLeft, ChevronRight,
   CalendarClock, Edit3, RefreshCw, Users, CalendarRange, Copy, Filter,
@@ -220,6 +221,14 @@ const CELL_TEXT: Record<CellStatus, string> = {
 // ─── Main Component ────────────────────────────────────────────────────────────
 
 export default function AvailabilityPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading availability…</div>}>
+      <AvailabilityPageInner />
+    </Suspense>
+  );
+}
+
+function AvailabilityPageInner() {
   const router = useRouter();
   const { data: session, status } = useSession();
   const userRole = session?.user?.role || "DEVELOPER";
@@ -237,14 +246,14 @@ export default function AvailabilityPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // ── Active tab ──
-  const [activeTab, setActiveTab] = useState<string>("overview");
+  // ── Active tab (persist) ──
+  const [activeTab, setActiveTab] = useUrlState("tab", "overview");
 
   // ── Weekly Overview state ──
   const [weekOffset, setWeekOffset] = useState(0);
   const [weekSchedule, setWeekSchedule] = useState<WeekSchedule | null>(null);
   const [weekLoading, setWeekLoading] = useState(false);
-  const [weekUserFilter, setWeekUserFilter] = useState<string>("all");
+  const [weekUserFilter, setWeekUserFilter] = useUrlState("user", "all");
   const [calendarOpen, setCalendarOpen] = useState(false);
 
   // ── My Schedule state ──
@@ -1300,7 +1309,7 @@ export default function AvailabilityPage() {
                 Not Set
               </span>
               <span className="flex items-center gap-1.5 ml-auto text-[10px] italic">
-                <Info className="h-3 w-3" /> Click a cell for details, or use Copy to duplicate a member&apos;s schedule
+                <Info className="h-3 w-3" /> Click a cell for details{isUserAdmin ? ", or use Copy to duplicate a member’s schedule" : ""}
               </span>
             </div>
           </div>
@@ -1368,6 +1377,7 @@ export default function AvailabilityPage() {
                                 {Math.round(totalHours * 10) / 10}h/week · {configuredDays} days
                               </div>
                             </div>
+                            {isUserAdmin && (
                             <Button
                               variant="outline"
                               size="sm"
@@ -1377,6 +1387,7 @@ export default function AvailabilityPage() {
                             >
                               <Copy className="h-3 w-3 mr-1" /> Copy
                             </Button>
+                            )}
                           </div>
 
                           {/* 7-day cells strip */}
@@ -1640,8 +1651,9 @@ export default function AvailabilityPage() {
                                 );
                               })}
 
-                              {/* Copy action */}
+                              {/* Copy action — admin only */}
                               <div className="p-2 border-r last:border-r-0 flex items-center justify-center">
+                                {isUserAdmin ? (
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -1652,6 +1664,9 @@ export default function AvailabilityPage() {
                                 >
                                   <Copy className="h-3.5 w-3.5" />
                                 </Button>
+                                ) : (
+                                  <span className="text-[10px] text-muted-foreground">—</span>
+                                )}
                               </div>
                             </div>
                           );
@@ -1691,7 +1706,7 @@ export default function AvailabilityPage() {
                     ))}
                   </SelectContent>
                 </Select>
-                {schedUserId && (
+                {isUserAdmin && schedUserId && (
                   <Button
                     variant="outline"
                     size="sm"
