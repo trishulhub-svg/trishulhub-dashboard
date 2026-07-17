@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, Suspense } from "react";
+import { useUrlState } from "@/hooks/use-url-state";
 import { useSession } from "next-auth/react";
 import {
   User, Calendar, CheckCircle2, XCircle, Plus, AlertCircle, RefreshCw, Pencil,
@@ -152,6 +153,14 @@ function formatDate(isoStr?: string | null): string {
 }
 
 export default function TeamPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading team…</div>}>
+      <TeamPageInner />
+    </Suspense>
+  );
+}
+
+function TeamPageInner() {
   const [users, setUsers] = useState<TeamUser[]>([]);
   const [leaves, setLeaves] = useState<LeaveRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -163,8 +172,13 @@ export default function TeamPage() {
   const isAdminUser = useMemo(() => session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN", [session?.user?.role]);
   const isSuperAdmin = useMemo(() => session?.user?.role === "SUPER_ADMIN", [session?.user?.role]);
 
-  // Default tab based on role — non-admins default to "leaves"
-  const [tab, setTab] = useState<"team" | "leaves">(isAdminUser ? "team" : "leaves");
+  // Persist tab; default to "team" for admins once session is ready (avoid false "leaves" flash)
+  const [tab, setTabRaw] = useUrlState("tab", "team");
+  const setTab = useCallback((v: "team" | "leaves" | string) => setTabRaw(v === "leaves" ? "leaves" : "team"), [setTabRaw]);
+  useEffect(() => {
+    if (sessionStatus !== "authenticated") return;
+    if (!isAdminUser && tab !== "leaves") setTab("leaves");
+  }, [sessionStatus, isAdminUser, tab, setTab]);
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
   const [addMemberOpen, setAddMemberOpen] = useState(false);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
@@ -195,7 +209,11 @@ export default function TeamPage() {
   const [showResetPwdConfirm, setShowResetPwdConfirm] = useState(false);
 
   // Leave status filter
-  const [leaveFilter, setLeaveFilter] = useState<"all" | "PENDING" | "APPROVED" | "REJECTED">("all");
+  const [leaveFilter, setLeaveFilterRaw] = useUrlState("leave", "all");
+  const setLeaveFilter = useCallback(
+    (v: "all" | "PENDING" | "APPROVED" | "REJECTED" | string) => setLeaveFilterRaw(String(v)),
+    [setLeaveFilterRaw]
+  );
 
   // Leave form
   const [leaveForm, setLeaveForm] = useState({ userId: "", leaveType: "CASUAL", startDate: "", endDate: "", reason: "" });
@@ -985,16 +1003,18 @@ export default function TeamPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="edit-active"
-                checked={editForm.isActive}
-                onChange={(e) => setEditForm(p => ({ ...p, isActive: e.target.checked }))}
-                className="h-4 w-4 rounded border-gray-300"
-              />
-              <Label htmlFor="edit-active">Active</Label>
-            </div>
+            {isSuperAdmin && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="edit-active"
+                  checked={editForm.isActive}
+                  onChange={(e) => setEditForm(p => ({ ...p, isActive: e.target.checked }))}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                <Label htmlFor="edit-active">Active</Label>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditUserOpen(false)}>Cancel</Button>

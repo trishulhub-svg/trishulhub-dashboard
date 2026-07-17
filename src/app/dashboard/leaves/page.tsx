@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, Suspense } from "react";
+import { useUrlState } from "@/hooks/use-url-state";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { safeParseDate, cn } from "@/lib/utils";
@@ -52,17 +53,18 @@ import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 
 /** Local YYYY-MM-DD inclusive last N days ending today (for leave list query). */
-function leavesRangeLastNDays(n: number): { startDate: string; endDate: string } {
-  const to = new Date();
-  const from = new Date(to.getFullYear(), to.getMonth(), to.getDate() - (n - 1));
+function leavesRangeForMonth(year: number, month: number): { startDate: string; endDate: string } {
+  // Cover the visible calendar month plus one month padding each side
+  const from = new Date(year, month - 1, 1);
+  const to = new Date(year, month + 2, 0);
   const fmt = (d: Date) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   return { startDate: fmt(from), endDate: fmt(to) };
 }
 
-function leavesListQuery(): string {
-  const { startDate, endDate } = leavesRangeLastNDays(30);
-  return `/api/leaves?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`;
+function leavesListQuery(year: number, month: number): string {
+  const { startDate, endDate } = leavesRangeForMonth(year, month);
+  return `/api/leaves?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&limit=200`;
 }
 
 // ━━ Helpers ━━
@@ -135,6 +137,14 @@ const monthNames = ["January", "February", "March", "April", "May", "June",
 const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export default function LeaveManagementPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading leaves…</div>}>
+      <LeaveManagementPageInner />
+    </Suspense>
+  );
+}
+
+function LeaveManagementPageInner() {
   const router = useRouter();
   const { data: session, status } = useSession();
   const [leaves, setLeaves] = useState<LeaveRecord[]>([]);
@@ -150,9 +160,9 @@ export default function LeaveManagementPage() {
   const [currentMonth, setCurrentMonth] = useState(() => new Date().getMonth());
   const [currentYear, setCurrentYear] = useState(() => new Date().getFullYear());
 
-  // Filter state
-  const [filterEmployee, setFilterEmployee] = useState("ALL");
-  const [filterStatus, setFilterStatus] = useState("ALL");
+  // Filter state (persist across refresh)
+  const [filterEmployee, setFilterEmployee] = useUrlState("employee", "ALL");
+  const [filterStatus, setFilterStatus] = useUrlState("status", "ALL");
 
   // Form state
   const [formUserId, setFormUserId] = useState("");
@@ -170,7 +180,7 @@ export default function LeaveManagementPage() {
 
     async function loadData() {
       try {
-        const leavesRes = await fetch(leavesListQuery(), { credentials: "include", signal });
+        const leavesRes = await fetch(leavesListQuery(currentYear, currentMonth), { credentials: "include", signal });
         if (leavesRes.ok) setLeaves(safeArray<LeaveRecord>(await leavesRes.json()));
 
         if (isUserAdmin) {
@@ -188,11 +198,11 @@ export default function LeaveManagementPage() {
 
     loadData();
     return () => controller.abort();
-  }, [isUserAdmin]);
+  }, [isUserAdmin, currentYear, currentMonth]);
 
   const fetchData = useCallback(async () => {
     try {
-      const leavesRes = await fetch(leavesListQuery(), { credentials: "include" });
+      const leavesRes = await fetch(leavesListQuery(currentYear, currentMonth), { credentials: "include" });
       if (leavesRes.status === 401) { router.push("/login"); return; }
       if (leavesRes.ok) setLeaves(safeArray<LeaveRecord>(await leavesRes.json()));
 
@@ -205,7 +215,7 @@ export default function LeaveManagementPage() {
       console.error("Failed to fetch data:", err);
       toast.error("Failed to refresh data");
     }
-  }, [isUserAdmin]);
+  }, [isUserAdmin, router, currentYear, currentMonth]);
 
   const handleSubmit = async () => {
     if (!formStartDate || !formEndDate) {

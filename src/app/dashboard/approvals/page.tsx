@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, Suspense } from "react";
+import { useUrlState } from "@/hooks/use-url-state";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
@@ -61,6 +62,8 @@ interface Leave {
   status: string;
   approvedBy: string | null;
   feedback: string | null;
+  approvedAt?: string | null;
+  updatedAt?: string | null;
   createdAt: string;
   user?: { id: string; name: string; email: string; role: string; avatar: string | null } | null;
   approver?: { id: string; name: string } | null;
@@ -205,6 +208,14 @@ interface HistoryEntry {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 export default function ApprovalsPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading approvals…</div>}>
+      <ApprovalsPageInner />
+    </Suspense>
+  );
+}
+
+function ApprovalsPageInner() {
   const router = useRouter();
   const { data: session, status: sessionStatus } = useSession();
   const isSessionLoading = sessionStatus === "loading";
@@ -220,8 +231,8 @@ export default function ApprovalsPage() {
   // PROJECT_MANAGER is included so they can manage non-leave approvals.
   const canManageApprovals = userRole === "SUPER_ADMIN" || userRole === "ADMIN" || userRole === "PROJECT_MANAGER";
 
-  // Tab state
-  const [activeTab, setActiveTab] = useState("all-pending");
+  // Tab state (persist across refresh)
+  const [activeTab, setActiveTab] = useUrlState("tab", "all-pending");
 
   // Data states
   const [aiApprovals, setAiApprovals] = useState<Approval[]>([]);
@@ -298,19 +309,15 @@ export default function ApprovalsPage() {
       // I7: Optimization opportunity — parallel API calls are acceptable here
       // because each serves a distinct data domain (approvals, leaves).
       // Could be consolidated into a single batched endpoint if needed in future.
-      const [
-        approvalsRes,
-        approvedRes,
-        rejectedRes,
-        needsImprovementRes,
-        leavesRes,
-      ] = await Promise.allSettled([
-        fetch("/api/approvals?status=PENDING", { credentials: "include" }),
-        fetch("/api/approvals?status=APPROVED", { credentials: "include" }),
-        fetch("/api/approvals?status=REJECTED", { credentials: "include" }),
-        fetch("/api/approvals?status=NEEDS_IMPROVEMENT", { credentials: "include" }),
-        fetch("/api/leaves", { credentials: "include" }),
-      ]);
+      // 2 requests instead of 5: pending AI + all leaves; history statuses in parallel only when needed
+      const [approvalsRes, leavesRes, approvedRes, rejectedRes, needsImprovementRes] =
+        await Promise.allSettled([
+          fetch("/api/approvals?status=PENDING", { credentials: "include" }),
+          fetch("/api/leaves?limit=200", { credentials: "include" }),
+          fetch("/api/approvals?status=APPROVED", { credentials: "include" }),
+          fetch("/api/approvals?status=REJECTED", { credentials: "include" }),
+          fetch("/api/approvals?status=NEEDS_IMPROVEMENT", { credentials: "include" }),
+        ]);
 
       // Handle approvals
       if (approvalsRes.status === "fulfilled" && approvalsRes.value.ok) {
@@ -339,11 +346,15 @@ export default function ApprovalsPage() {
         setLeaveRequests(rawLeaves);
       }
 
-      // Build leave history: approved/rejected leaves
+      // Build leave history: approved/rejected leaves (sort by decision time)
       setLeaveHistory(
         rawLeaves
           .filter((l: Leave) => l.status === "APPROVED" || l.status === "REJECTED")
-          .sort((a: Leave, b: Leave) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+          .sort((a: Leave, b: Leave) => {
+            const ta = new Date(a.approvedAt || a.updatedAt || a.createdAt).getTime();
+            const tb = new Date(b.approvedAt || b.updatedAt || b.createdAt).getTime();
+            return tb - ta;
+          })
       );
 
     } catch (err) {

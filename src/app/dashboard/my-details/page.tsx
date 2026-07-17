@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, Suspense } from "react";
+import { useUrlState } from "@/hooks/use-url-state";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import {
@@ -170,6 +171,14 @@ function initials(name: string): string {
 // ━━ Main Page ━━
 
 export default function MyDetailsPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading details…</div>}>
+      <MyDetailsPageInner />
+    </Suspense>
+  );
+}
+
+function MyDetailsPageInner() {
   const router = useRouter();
   const { data: session, status: sessionStatus } = useSession();
 
@@ -212,9 +221,10 @@ export default function MyDetailsPage() {
   const [unlockTarget, setUnlockTarget] = useState<UserDetailResponse | null>(null);
   const [unlockDialogOpen, setUnlockDialogOpen] = useState(false);
 
-  // Admin filters
-  const [filterStatus, setFilterStatus] = useState("ALL");
-  const [filterCountry, setFilterCountry] = useState("ALL");
+  // Admin filters (persist across refresh)
+  const [adminTab, setAdminTab] = useUrlState("tab", "mine");
+  const [filterStatus, setFilterStatus] = useUrlState("status", "ALL");
+  const [filterCountry, setFilterCountry] = useUrlState("country", "ALL");
   const [searchQuery, setSearchQuery] = useState("");
 
   // ── Data fetch ──
@@ -493,7 +503,7 @@ export default function MyDetailsPage() {
       </PageHeader>
 
       {isUserAdmin ? (
-        <Tabs defaultValue="mine" className="w-full">
+        <Tabs value={adminTab === "team" ? "team" : "mine"} onValueChange={setAdminTab} className="w-full">
           <TabsList className="grid w-full grid-cols-2 max-w-md">
             <TabsTrigger value="mine">My Details</TabsTrigger>
             <TabsTrigger value="team">
