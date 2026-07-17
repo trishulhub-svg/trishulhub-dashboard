@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
+import { CollapsibleStatStrip } from "@/components/collapsible-stat-strip";
 import { cn, safeText, safeNumber } from "@/lib/utils";
 import { formatCurrency, formatDate, CATEGORY_BADGE_COLORS, safeUrl } from "@/lib/format";
 import { EditExpenseDialog } from "@/components/dashboard/finance/edit-expense-dialog";
@@ -445,75 +446,39 @@ export default function ExpensesPage() {
         </Dialog>
       </PageHeader>
 
-      {/* ━━ 1. Summary Stats Cards ━━ */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className={cn(
-          "bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-5",
-          "hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200",
-          "border-t-2 border-t-primary"
-        )}>
-          <div className="flex items-center justify-between">
-            <div className="space-y-1">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Total Expenses</p>
-              <p className="text-2xl font-bold">{formatCurrency(summaryStats.total)}</p>
-              <p className="text-[11px] text-muted-foreground">{summaryStats.count} expense(s)</p>
-            </div>
-            <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-              <DollarSign className="h-5 w-5 text-primary" />
-            </div>
-          </div>
-        </div>
-
-        <div className={cn(
-          "bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-5",
-          "hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200",
-          "border-t-2 border-t-emerald-500"
-        )}>
-          <div className="flex items-center justify-between">
-            <div className="space-y-1">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Avg per Expense</p>
-              <p className="text-2xl font-bold text-emerald-600">{formatCurrency(Math.round(summaryStats.avgPerExpense))}</p>
-            </div>
-            <div className="h-10 w-10 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
-              <TrendingUp className="h-5 w-5 text-emerald-600" />
-            </div>
-          </div>
-        </div>
-
-        <div className={cn(
-          "bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-5",
-          "hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200",
-          "border-t-2 border-t-blue-500"
-        )}>
-          <div className="flex items-center justify-between">
-            <div className="space-y-1">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Categories</p>
-              <p className="text-2xl font-bold text-blue-600">{summaryStats.categoryCount}</p>
-              <p className="text-[11px] text-muted-foreground">Active categories</p>
-            </div>
-            <div className="h-10 w-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-              <Tag className="h-5 w-5 text-blue-600" />
-            </div>
-          </div>
-        </div>
-
-        <div className={cn(
-          "bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-5",
-          "hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200",
-          "border-t-2 border-t-purple-500"
-        )}>
-          <div className="flex items-center justify-between">
-            <div className="space-y-1">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Employees</p>
-              <p className="text-2xl font-bold text-purple-600">{summaryStats.employeeCount}</p>
-              <p className="text-[11px] text-muted-foreground">With assigned expenses</p>
-            </div>
-            <div className="h-10 w-10 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
-              <User className="h-5 w-5 text-purple-600" />
-            </div>
-          </div>
-        </div>
-      </div>
+      <CollapsibleStatStrip
+        title="Expense summary"
+        storageKey="finance-expenses-stats-open"
+        defaultOpen={false}
+        items={[
+          {
+            key: "total",
+            label: "Total expenses",
+            value: formatCurrency(summaryStats.total),
+            hint: `${summaryStats.count} expense(s)`,
+            icon: <DollarSign className="h-4 w-4 text-primary" />,
+          },
+          {
+            key: "avg",
+            label: "Avg per expense",
+            value: formatCurrency(Math.round(summaryStats.avgPerExpense)),
+            icon: <TrendingUp className="h-4 w-4 text-emerald-600" />,
+          },
+          {
+            key: "cats",
+            label: "Categories",
+            value: summaryStats.categoryCount,
+            icon: <Tag className="h-4 w-4 text-sky-600" />,
+          },
+          {
+            key: "emps",
+            label: "Employees",
+            value: summaryStats.employeeCount,
+            hint: "With assigned expenses",
+            icon: <User className="h-4 w-4 text-teal-700" />,
+          },
+        ]}
+      />
 
       {/* ━━ 2. Filter Bar ━━ */}
       <div className={cn("bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-4")}>

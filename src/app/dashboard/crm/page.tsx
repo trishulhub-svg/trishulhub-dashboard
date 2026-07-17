@@ -5,20 +5,13 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
   DndContext, DragEndEvent, DragOverlay, DragStartEvent, PointerSensor,
-  useSensor, useSensors, closestCorners, pointerWithin, rectIntersection,
-  useDroppable, type CollisionDetection,
+  useSensor, useSensors, useDroppable,
 } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useUrlState } from "@/hooks/use-url-state";
-
-const crmCollisionDetection: CollisionDetection = (args) => {
-  const pointerHits = pointerWithin(args);
-  if (pointerHits.length > 0) return pointerHits;
-  const rectHits = rectIntersection(args);
-  if (rectHits.length > 0) return rectHits;
-  return closestCorners(args);
-};
+import { useIsMobile } from "@/hooks/use-mobile";
+import { kanbanCollisionDetection } from "@/lib/kanban-collision";
 import {
   Plus, Mail, Phone, Globe, Building2, Star, Send, Search, AlertCircle,
   Users, TrendingUp, Calendar, Trash2, UserCheck, Loader2, LayoutGrid, List, Filter,
@@ -301,7 +294,7 @@ function DroppableKanbanColumn({ col, leads, onLeadClick, activeId, isDimmed }: 
         isDimmed && "opacity-40 pointer-events-none",
         isOver && !isDimmed && `ring-2 ${col.accentRing} border-primary/40 bg-primary/[0.04] dark:bg-primary/[0.08] shadow-lg`,
       )}
-      style={{ minHeight: "calc(100vh - 300px)" }}
+      style={{ minHeight: "min(60dvh, calc(100dvh - 280px))" }}
     >
       {/* Left accent bar */}
       <div className={cn("absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl", col.accentBar, isOver && !isDimmed ? "opacity-100" : "opacity-60")} />
@@ -326,7 +319,7 @@ function DroppableKanbanColumn({ col, leads, onLeadClick, activeId, isDimmed }: 
           "p-2 space-y-2 overflow-y-auto transition-all duration-300 pl-4 flex-1",
           isOver && !isDimmed && "bg-primary/[0.03] dark:bg-primary/[0.05]"
         )}
-        style={{ maxHeight: "calc(100vh - 380px)" }}
+        style={{ maxHeight: "min(55dvh, calc(100dvh - 340px))" }}
       >
         <SortableContext items={leads.map((l) => l.id)} strategy={verticalListSortingStrategy}>
           {leads.map((lead) => {
@@ -484,8 +477,8 @@ function CRMPageInner() {
   // CRM-S04: Source and status filter states
   const [filterSource, setFilterSource] = useUrlState("source", "all");
   const [filterStatus, setFilterStatus] = useUrlState("status", "all");
-  const [isMobile, setIsMobile] = useState(false);
-  // View mode with localStorage persistence
+  const isMobile = useIsMobile();
+  // View mode with localStorage persistence — board is desktop/mac only
   const [viewMode, setViewMode] = useState<"board" | "list">(() => {
     if (typeof window !== "undefined") {
       return (localStorage.getItem("crm-view-mode") as "board" | "list") || "board";
@@ -496,6 +489,7 @@ function CRMPageInner() {
     setViewMode(mode);
     localStorage.setItem("crm-view-mode", mode);
   }, []);
+  const effectiveView: "board" | "list" = isMobile ? "list" : viewMode;
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
@@ -538,14 +532,6 @@ function CRMPageInner() {
     fetchLeads(controller.signal);
     return () => controller.abort();
   }, [fetchLeads]);
-
-  useEffect(() => {
-    const mql = window.matchMedia("(max-width: 768px)");
-    setIsMobile(mql.matches);
-    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
-    mql.addEventListener("change", handler);
-    return () => mql.removeEventListener("change", handler);
-  }, []);
 
   // CRM-004: Clear email fields when selectedLead changes
   useEffect(() => {
@@ -958,15 +944,17 @@ function CRMPageInner() {
       {/* ━━━━ Page Header ━━━━ */}
       <PageHeader title="CRM Pipeline" description="Manage your leads and sales pipeline">
         <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-          {/* View Mode Toggle */}
-          <ToggleGroup type="single" value={viewMode} onValueChange={(v) => v && handleViewModeChange(v as "board" | "list")} className="ml-auto">
-            <ToggleGroupItem value="board" size="sm" className="gap-1.5 h-8 px-3">
-              <LayoutGrid className="h-3.5 w-3.5" /> Board
-            </ToggleGroupItem>
-            <ToggleGroupItem value="list" size="sm" className="gap-1.5 h-8 px-3">
-              <List className="h-3.5 w-3.5" /> List
-            </ToggleGroupItem>
-          </ToggleGroup>
+          {/* View Mode Toggle — Board only on PC/Mac (hidden on mobile) */}
+          {!isMobile && (
+            <ToggleGroup type="single" value={viewMode} onValueChange={(v) => v && handleViewModeChange(v as "board" | "list")} className="ml-auto">
+              <ToggleGroupItem value="board" size="sm" className="gap-1.5 h-8 px-3">
+                <LayoutGrid className="h-3.5 w-3.5" /> Board
+              </ToggleGroupItem>
+              <ToggleGroupItem value="list" size="sm" className="gap-1.5 h-8 px-3">
+                <List className="h-3.5 w-3.5" /> List
+              </ToggleGroupItem>
+            </ToggleGroup>
+          )}
           {/* Search */}
           <div className="relative flex-1 min-w-[120px] sm:min-w-[160px]">
             <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
@@ -1227,11 +1215,11 @@ function CRMPageInner() {
             Clear All Filters
           </Button>
         </div>
-      ) : viewMode === "board" && !isMobile ? (
-        /* Kanban Board */
+      ) : effectiveView === "board" ? (
+        /* Kanban Board — desktop/mac only */
         <DndContext
           sensors={sensors}
-          collisionDetection={crmCollisionDetection}
+          collisionDetection={kanbanCollisionDetection}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
@@ -1249,7 +1237,7 @@ function CRMPageInner() {
               );
             })}
           </div>
-          <DragOverlay>
+          <DragOverlay dropAnimation={null}>
             {activeId ? (() => {
               const lead = leads.find((l) => l.id === activeId);
               return lead ? <LeadCard lead={lead} onClick={() => {}} isDragging /> : null;
@@ -1258,7 +1246,7 @@ function CRMPageInner() {
         </DndContext>
       ) : (
         /* List View */
-        <div className="space-y-2 max-h-[calc(100vh-320px)] overflow-y-auto custom-scrollbar">
+        <div className="space-y-2 max-h-[min(70dvh,calc(100dvh-280px))] overflow-y-auto custom-scrollbar overscroll-contain">
           {Object.values(groupedLeads).flat().map((lead) => (
             <LeadListViewRow key={lead.id} lead={lead} onClick={() => setSelectedLead(lead)} />
           ))}
@@ -1268,16 +1256,18 @@ function CRMPageInner() {
       {/* ━━━━ Lead Detail Sheet ━━━━ */}
       <Sheet open={!!selectedLead} onOpenChange={(open) => { if (!open) { setSelectedLead(null); setEditMode(false); } }}>
         <SheetContent side="right" className="sm:max-w-md overflow-y-auto bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-gray-200/60 dark:border-gray-700/50">
-          <SheetHeader>
-            <div className="flex items-center justify-between">
-              <SheetTitle className="text-base font-bold">{safeText(selectedLead?.name, "Lead")}</SheetTitle>
+          <SheetHeader className="pr-10">
+            <div className="flex items-start gap-3">
+              <SheetTitle className="text-base font-bold flex-1 min-w-0 pr-1 leading-snug">
+                {safeText(selectedLead?.name, "Lead")}
+              </SheetTitle>
               <Button
                 size="sm"
                 variant={editMode ? "default" : "outline"}
-                className="h-7 text-[11px] shadow-sm"
+                className="h-8 shrink-0 text-[11px] shadow-sm mr-1"
                 onClick={toggleEditMode}
               >
-                {editMode ? "View Mode" : "Edit"}
+                {editMode ? "View" : "Edit"}
               </Button>
             </div>
           </SheetHeader>

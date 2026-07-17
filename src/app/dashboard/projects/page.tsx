@@ -6,8 +6,7 @@ import { useSession } from "next-auth/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   DndContext, DragEndEvent, DragOverlay, DragStartEvent, PointerSensor,
-  useSensor, useSensors, closestCorners, pointerWithin, rectIntersection,
-  useDroppable, type CollisionDetection,
+  useSensor, useSensors, useDroppable,
 } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -41,18 +40,10 @@ import { toast } from "sonner";
 import { cn, safeText, deepSanitize, safeNumber, safeDate } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useUrlState } from "@/hooks/use-url-state";
+import { kanbanCollisionDetection } from "@/lib/kanban-collision";
 
 // TODO: Make configurable per project/client
 const CURRENCY_SYMBOL = "₹";
-
-/** Prefer pointer-over column/card; fall back to closest corners for empty gaps */
-const kanbanCollisionDetection: CollisionDetection = (args) => {
-  const pointerHits = pointerWithin(args);
-  if (pointerHits.length > 0) return pointerHits;
-  const rectHits = rectIntersection(args);
-  if (rectHits.length > 0) return rectHits;
-  return closestCorners(args);
-};
 
 // URL sanitizer: blocks javascript: and data: schemes to prevent XSS
 const safeUrl = (url: string) => {
