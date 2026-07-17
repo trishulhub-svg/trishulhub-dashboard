@@ -7,7 +7,7 @@ import { handleFetchError } from "@/lib/fetch-utils";
 import {
   Plus, Trash2, AlertCircle, Search, DollarSign, Receipt,
   Tag, FolderOpen, User, Hash, Calendar, Pencil, Eye, CreditCard,
-  TrendingUp, X,
+  TrendingUp, X, Check, Loader2,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -32,11 +32,17 @@ import { PageHeader } from "@/components/page-header";
 import { CollapsibleStatStrip } from "@/components/collapsible-stat-strip";
 import { cn, safeText, safeNumber } from "@/lib/utils";
 import { formatCurrency, formatDate, CATEGORY_BADGE_COLORS, safeUrl } from "@/lib/format";
+import {
+  DEFAULT_EXPENSE_CATEGORIES,
+  formatExpenseCategoryLabel,
+} from "@/lib/expense-categories";
 import { EditExpenseDialog } from "@/components/dashboard/finance/edit-expense-dialog";
 import type { ExpenseDetail } from "@/components/dashboard/finance/expense-detail-sheet";
 
 // Safety limit for client-side expense aggregation
 const MAX_EXPENSE_FETCH = 10000;
+
+type ExpenseCategoryRow = { id: string; name: string };
 
 // ━━ Types ━━
 interface Expense {
@@ -51,12 +57,6 @@ interface Expense {
   paymentRef?: string | null;
   receiptUrl?: string | null;
 }
-
-// ━━ Constants ━━
-const EXPENSE_CATEGORIES = [
-  "HOSTING", "DOMAINS", "API_COSTS", "TOOLS", "MARKETING",
-  "SALARY", "SOFTWARE", "OTHER",
-];
 
 // categoryBadgeColors imported from @/lib/format as CATEGORY_BADGE_COLORS
 
@@ -107,6 +107,33 @@ export default function ExpensesPage() {
   // Preview expense
   const [previewExpense, setPreviewExpense] = useState<Expense | null>(null);
 
+  // Categories (admin-managed)
+  const [categories, setCategories] = useState<ExpenseCategoryRow[]>(
+    DEFAULT_EXPENSE_CATEGORIES.map((name) => ({ id: name, name }))
+  );
+  const [manageCatsOpen, setManageCatsOpen] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [editingCatId, setEditingCatId] = useState<string | null>(null);
+  const [editingCatName, setEditingCatName] = useState("");
+  const [catSaving, setCatSaving] = useState(false);
+
+  const categoryNames = useMemo(
+    () => (categories.length > 0 ? categories.map((c) => c.name) : [...DEFAULT_EXPENSE_CATEGORIES]),
+    [categories]
+  );
+
+  const fetchCategories = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const res = await fetch("/api/expense-categories", { credentials: "include", signal });
+      if (!res.ok) return;
+      const data = await res.json().catch(() => null);
+      if (Array.isArray(data)) setCategories(data);
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      console.error("[expenses] fetchCategories:", err);
+    }
+  }, []);
+
   // ━━ Fetch data ━━
   const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -114,6 +141,7 @@ export default function ExpensesPage() {
         fetch("/api/expenses?limit=" + MAX_EXPENSE_FETCH, { credentials: "include", signal }),
         fetch("/api/projects", { credentials: "include", signal }),
         fetch("/api/team", { credentials: "include", signal }),
+        fetchCategories(signal),
       ]);
       if (handleFetchError(expRes, router)) return;
       if (expRes.ok) {
@@ -141,7 +169,7 @@ export default function ExpensesPage() {
     } finally {
       setLoading(false);
     }
-  }, [router]);
+  }, [router, fetchCategories]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -213,6 +241,70 @@ export default function ExpensesPage() {
       else { const data = await res.json().catch(() => ({})); toast.error(safeText(data.error, "Failed to delete expense")); }
     } catch { toast.error("Failed to delete expense"); }
     setPendingDelete(null);
+  };
+
+  // ━━ Category manage ━━
+  const handleAddCategory = async () => {
+    const name = newCategoryName.trim();
+    if (!name) {
+      toast.error("Enter a category name");
+      return;
+    }
+    setCatSaving(true);
+    try {
+      const res = await fetch("/api/expense-categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ name }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(safeText(data.error, "Failed to add category"));
+        return;
+      }
+      toast.success("Category added");
+      setNewCategoryName("");
+      await fetchCategories();
+    } catch {
+      toast.error("Failed to add category");
+    } finally {
+      setCatSaving(false);
+    }
+  };
+
+  const handleRenameCategory = async (id: string) => {
+    const name = editingCatName.trim();
+    if (!name) {
+      toast.error("Enter a category name");
+      return;
+    }
+    setCatSaving(true);
+    try {
+      const res = await fetch("/api/expense-categories", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ id, name }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(safeText(data.error, "Failed to rename category"));
+        return;
+      }
+      toast.success("Category renamed");
+      setEditingCatId(null);
+      setEditingCatName("");
+      if (categoryFilter === data.previousName) {
+        setCategoryFilter(data.name);
+      }
+      await fetchCategories();
+      await fetchData();
+    } catch {
+      toast.error("Failed to rename category");
+    } finally {
+      setCatSaving(false);
+    }
   };
 
   // ━━ Filter & Search ━━
@@ -315,15 +407,19 @@ export default function ExpensesPage() {
     <div className="space-y-6">
       {/* ━━ Page Header ━━ */}
       <PageHeader title="Expenses" description="Track and manage all business expenses">
-        <Dialog
-          open={addOpen}
-          onOpenChange={(open) => { setAddOpen(open); if (!open) resetAddForm(); }}
-        >
-          <DialogTrigger asChild>
-            <Button size="sm">
-              <Plus className="h-4 w-4 mr-1" /> Add Expense
-            </Button>
-          </DialogTrigger>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={() => setManageCatsOpen(true)}>
+            <Tag className="h-4 w-4 mr-1" /> Categories
+          </Button>
+          <Dialog
+            open={addOpen}
+            onOpenChange={(open) => { setAddOpen(open); if (!open) resetAddForm(); }}
+          >
+            <DialogTrigger asChild>
+              <Button size="sm">
+                <Plus className="h-4 w-4 mr-1" /> Add Expense
+              </Button>
+            </DialogTrigger>
           <DialogContent className="sm:max-w-lg max-h-[92dvh] flex flex-col p-0 gap-0">
             <DialogHeader className="px-5 pt-5 pb-2 shrink-0">
               <DialogTitle>Add Expense</DialogTitle>
@@ -339,8 +435,8 @@ export default function ExpensesPage() {
                   <Select value={addForm.category} onValueChange={(v) => setAddForm((f) => ({ ...f, category: v }))}>
                     <SelectTrigger className="rounded-xl"><SelectValue placeholder="Select category" /></SelectTrigger>
                     <SelectContent>
-                      {EXPENSE_CATEGORIES.map((cat) => (
-                        <SelectItem key={cat} value={cat}>{cat.replace("_", " ")}</SelectItem>
+                      {categoryNames.map((cat) => (
+                        <SelectItem key={cat} value={cat}>{formatExpenseCategoryLabel(cat)}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -444,6 +540,7 @@ export default function ExpensesPage() {
             </div>
           </DialogContent>
         </Dialog>
+        </div>
       </PageHeader>
 
       <CollapsibleStatStrip
@@ -492,17 +589,28 @@ export default function ExpensesPage() {
               className="pl-9 rounded-xl"
             />
           </div>
-          <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-            <SelectTrigger className="w-full sm:w-44 rounded-xl">
-              <SelectValue placeholder="Filter by category" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">All Categories</SelectItem>
-              {EXPENSE_CATEGORIES.map((cat) => (
-                <SelectItem key={cat} value={cat}>{cat.replace("_", " ")}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex w-full gap-2 sm:w-auto">
+            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+              <SelectTrigger className="w-full sm:w-52 rounded-xl">
+                <SelectValue placeholder="Filter by category" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All Categories</SelectItem>
+                {categoryNames.map((cat) => (
+                  <SelectItem key={cat} value={cat}>{formatExpenseCategoryLabel(cat)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              variant="outline"
+              className="shrink-0 rounded-xl px-3"
+              onClick={() => setManageCatsOpen(true)}
+            >
+              <Pencil className="h-3.5 w-3.5 mr-1.5" />
+              Edit
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -717,8 +825,128 @@ export default function ExpensesPage() {
         expense={editingExpense as Parameters<typeof EditExpenseDialog>[0]["expense"]}
         projects={projects}
         employees={employees}
+        categories={categoryNames}
         onSuccess={() => { fetchData(); }}
       />
+
+      {/* ━━ Manage Categories Dialog ━━ */}
+      <Dialog
+        open={manageCatsOpen}
+        onOpenChange={(open) => {
+          setManageCatsOpen(open);
+          if (!open) {
+            setNewCategoryName("");
+            setEditingCatId(null);
+            setEditingCatName("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md max-h-[85vh] flex flex-col gap-0 p-0">
+          <DialogHeader className="px-5 pt-5 pb-2 shrink-0">
+            <DialogTitle>Manage Categories</DialogTitle>
+            <DialogDescription>
+              Add new categories or rename existing ones. Renaming updates all linked expenses.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 overflow-y-auto flex-1 min-h-0 px-5 pb-5">
+            <div className="flex gap-2">
+              <Input
+                value={newCategoryName}
+                onChange={(e) => setNewCategoryName(e.target.value)}
+                placeholder="New category name"
+                className="rounded-xl"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void handleAddCategory();
+                  }
+                }}
+              />
+              <Button
+                type="button"
+                size="sm"
+                className="shrink-0 rounded-xl"
+                disabled={catSaving || !newCategoryName.trim()}
+                onClick={() => void handleAddCategory()}
+              >
+                {catSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                <span className="ml-1">Add</span>
+              </Button>
+            </div>
+            <div className="space-y-2">
+              {categories.map((cat) => (
+                <div
+                  key={cat.id}
+                  className="flex items-center gap-2 rounded-xl border border-border/60 bg-muted/20 px-3 py-2"
+                >
+                  {editingCatId === cat.id ? (
+                    <>
+                      <Input
+                        value={editingCatName}
+                        onChange={(e) => setEditingCatName(e.target.value)}
+                        className="h-8 rounded-lg"
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            void handleRenameCategory(cat.id);
+                          } else if (e.key === "Escape") {
+                            setEditingCatId(null);
+                            setEditingCatName("");
+                          }
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 shrink-0"
+                        disabled={catSaving}
+                        onClick={() => void handleRenameCategory(cat.id)}
+                        title="Save"
+                      >
+                        <Check className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 shrink-0"
+                        onClick={() => {
+                          setEditingCatId(null);
+                          setEditingCatName("");
+                        }}
+                        title="Cancel"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                        {formatExpenseCategoryLabel(cat.name)}
+                      </span>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 shrink-0"
+                        onClick={() => {
+                          setEditingCatId(cat.id);
+                          setEditingCatName(formatExpenseCategoryLabel(cat.name));
+                        }}
+                        title="Rename"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* ━━ Delete Confirmation Dialog ━━ */}
       <AlertDialog open={!!pendingDelete} onOpenChange={(open) => { if (!open) setPendingDelete(null); }}>

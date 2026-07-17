@@ -127,26 +127,37 @@ function toResponse(
       role: string
       department: string | null
     }
-  }
+  },
+  options?: { decryptSensitive?: boolean }
 ): UserDetailResponse {
-  // Decrypt the gov ID so we can mask it (we never return the raw value)
+  const decryptSensitive = options?.decryptSensitive !== false
+
+  // List views skip decrypt (major speed win); detail/self still masks properly
   let govIdMasked = ""
   if (detail.govIdNumber) {
-    try {
-      const decrypted = decryptCredentialFromJson(detail.govIdNumber)
-      govIdMasked = maskSensitive(decrypted)
-    } catch {
-      govIdMasked = maskSensitive(detail.govIdNumber)
+    if (!decryptSensitive) {
+      govIdMasked = "••••••••"
+    } else {
+      try {
+        const decrypted = decryptCredentialFromJson(detail.govIdNumber)
+        govIdMasked = maskSensitive(decrypted)
+      } catch {
+        govIdMasked = maskSensitive(detail.govIdNumber)
+      }
     }
   }
 
   let bankAccountMasked = ""
   if (detail.bankAccountNumber) {
-    try {
-      const decrypted = decryptCredentialFromJson(detail.bankAccountNumber)
-      bankAccountMasked = maskSensitive(decrypted)
-    } catch {
-      bankAccountMasked = maskSensitive(detail.bankAccountNumber)
+    if (!decryptSensitive) {
+      bankAccountMasked = "••••••••"
+    } else {
+      try {
+        const decrypted = decryptCredentialFromJson(detail.bankAccountNumber)
+        bankAccountMasked = maskSensitive(decrypted)
+      } catch {
+        bankAccountMasked = maskSensitive(detail.bankAccountNumber)
+      }
     }
   }
 
@@ -191,6 +202,16 @@ export async function GET(req: NextRequest) {
     const userId = session.user.id
     const userRole = session.user.role
     const adminView = isAdmin(userRole)
+    const scope = new URL(req.url).searchParams.get("scope") // me | team | (default)
+
+    // Fast path: own details only (admins use this for the "My Details" tab)
+    if (!adminView || scope === "me") {
+      const detail = await db.userDetail.findUnique({
+        where: { userId },
+      })
+      if (!detail) return NextResponse.json(null)
+      return NextResponse.json(toResponse(detail, { decryptSensitive: true }))
+    }
 
     if (adminView) {
       // Admins see ALL user details (including users who haven't filled in details yet
@@ -216,11 +237,12 @@ export async function GET(req: NextRequest) {
       const detailsByUserId = new Map(allDetails.map((d) => [d.userId, d]))
 
       // Build a unified list: every user appears, with their detail (or null)
+      // Skip decrypt on list — masks show placeholders; detail view decrypts on demand
       const result: UserDetailResponse[] = []
       for (const user of allUsers) {
         const detail = detailsByUserId.get(user.id)
         if (detail) {
-          result.push(toResponse(detail))
+          result.push(toResponse(detail, { decryptSensitive: false }))
         } else {
           // User has not submitted details yet — emit a placeholder row
           result.push({
@@ -265,16 +287,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(result)
     }
 
-    // Non-admin: return their own details only
-    const detail = await db.userDetail.findUnique({
-      where: { userId },
-    })
-
-    if (!detail) {
-      return NextResponse.json(null)
-    }
-
-    return NextResponse.json(toResponse(detail))
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   } catch (error: unknown) {
     console.error("[user-details] GET Error:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

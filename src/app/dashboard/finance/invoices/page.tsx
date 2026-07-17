@@ -1,13 +1,12 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, useRef, Suspense } from "react";
+import { useEffect, useState, useCallback, useMemo, Suspense } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { handleFetchError } from "@/lib/fetch-utils";
 import {
   Plus, Send, CheckCircle2, FileText, AlertCircle, Trash2, X, Pencil,
   Eye, Search, DollarSign, Clock, TrendingUp, ChevronLeft, ChevronRight,
-  ChevronDown,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -31,6 +30,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn, safeText, safeNumber } from "@/lib/utils";
+import { SearchableCombobox } from "@/components/searchable-combobox";
 
 // ━━ Configurable Constants ━━
 const COMPANY_NAME = process.env.NEXT_PUBLIC_COMPANY_NAME || "TrishulHub";
@@ -329,44 +329,14 @@ function InvoicesPageInner() {
   const [editProjectSearch, setEditProjectSearch] = useState<string>("");
   const [editProjectDropdownOpen, setEditProjectDropdownOpen] = useState(false);
 
-  // ━━ Click-outside & Escape key handlers for combobox dropdowns ━━
-  const createClientRef = useRef<HTMLDivElement>(null);
-  const createProjectRef = useRef<HTMLDivElement>(null);
-  const editClientRef = useRef<HTMLDivElement>(null);
-  const editProjectRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setClientDropdownOpen(false);
-        setProjectDropdownOpen(false);
-        setEditClientDropdownOpen(false);
-        setEditProjectDropdownOpen(false);
-      }
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, []);
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (createClientRef.current && !createClientRef.current.contains(target)) {
-        setClientDropdownOpen(false);
-      }
-      if (createProjectRef.current && !createProjectRef.current.contains(target)) {
-        setProjectDropdownOpen(false);
-      }
-      if (editClientRef.current && !editClientRef.current.contains(target)) {
-        setEditClientDropdownOpen(false);
-      }
-      if (editProjectRef.current && !editProjectRef.current.contains(target)) {
-        setEditProjectDropdownOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  const clientOptions = useMemo(
+    () => clients.map((c) => ({ id: c.id, label: safeText(c.name) })),
+    [clients]
+  );
+  const projectOptions = useMemo(
+    () => projects.map((p) => ({ id: p.id, label: safeText(p.name) })),
+    [projects]
+  );
 
   // ━━ Fetch data ━━
   const fetchData = useCallback(
@@ -862,125 +832,65 @@ function InvoicesPageInner() {
               <Plus className="h-4 w-4 mr-1" /> Create Invoice
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-            <DialogHeader>
+          <DialogContent
+            className="flex max-h-[85vh] max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl"
+            onPointerDownOutside={(e) => {
+              const t = e.target as HTMLElement | null
+              if (t?.closest?.('[data-slot="popover-content"]')) e.preventDefault()
+            }}
+            onFocusOutside={(e) => {
+              const t = e.target as HTMLElement | null
+              if (t?.closest?.('[data-slot="popover-content"]')) e.preventDefault()
+            }}
+            onInteractOutside={(e) => {
+              const t = e.target as HTMLElement | null
+              if (t?.closest?.('[data-slot="popover-content"]')) e.preventDefault()
+            }}
+          >
+            <DialogHeader className="shrink-0 px-6 pt-6 pb-2">
               <DialogTitle>Create Invoice</DialogTitle>
               <DialogDescription>
                 Create a new invoice for a client.
               </DialogDescription>
             </DialogHeader>
-            <form onSubmit={handleCreateInvoice} className="space-y-4">
+            <form onSubmit={handleCreateInvoice} className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-6 pb-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label className="text-xs">Client *</Label>
                   <input type="hidden" name="clientId" value={createClientId} required />
-                  <div className="relative" ref={createClientRef}>
-                    <input
-                      type="text"
-                      className="border rounded px-3 py-2 text-sm bg-background w-full pr-8"
-                      placeholder="Search client..."
-                      value={clientSearch}
-                      onChange={(e) => {
-                        setClientSearch(e.target.value);
-                        setClientDropdownOpen(true);
-                      }}
-                      onFocus={() => setClientDropdownOpen(true)}
-                    />
-                    <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2" onClick={() => setClientDropdownOpen(!clientDropdownOpen)}>
-                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                    </button>
-                    {clientDropdownOpen && (
-                      <div className="absolute z-50 top-full mt-1 w-full bg-background border rounded-md shadow-lg max-h-48 overflow-y-auto">
-                        {(() => {
-                          const filtered = clientSearch.trim()
-                            ? clients.filter((c) => safeText(c.name, "").toLowerCase().includes(clientSearch.trim().toLowerCase()))
-                            : clients.slice(0, 10);
-                          return filtered.length === 0 ? (
-                            <p className="text-sm text-muted-foreground p-2">No clients found</p>
-                          ) : (
-                            <>
-                              {!clientSearch.trim() && <p className="text-xs text-muted-foreground p-2 font-medium">Recent</p>}
-                              {filtered.map((c) => (
-                                <button
-                                  key={c.id}
-                                  type="button"
-                                  className={`w-full text-left px-3 py-2 text-sm hover:bg-muted/50 transition-colors ${createClientId === c.id ? "bg-muted" : ""}`}
-                                  onClick={() => {
-                                    setCreateClientId(c.id);
-                                    setClientSearch(safeText(c.name));
-                                    setClientDropdownOpen(false);
-                                  }}
-                                >
-                                  {safeText(c.name)}
-                                </button>
-                              ))}
-                            </>
-                          );
-                        })()}
-                      </div>
-                    )}
-                  </div>
+                  <SearchableCombobox
+                    valueId={createClientId}
+                    search={clientSearch}
+                    onSearchChange={setClientSearch}
+                    open={clientDropdownOpen}
+                    onOpenChange={setClientDropdownOpen}
+                    options={clientOptions}
+                    placeholder="Search client..."
+                    emptyLabel="No clients found"
+                    onSelect={(opt) => {
+                      setCreateClientId(opt.id);
+                      setClientSearch(opt.label);
+                    }}
+                  />
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Project</Label>
                   <input type="hidden" name="projectId" value={createProjectId} />
-                  <div className="relative" ref={createProjectRef}>
-                    <input
-                      type="text"
-                      className="border rounded px-3 py-2 text-sm bg-background w-full pr-8"
-                      placeholder="Search project..."
-                      value={projectSearch}
-                      onChange={(e) => {
-                        setProjectSearch(e.target.value);
-                        setProjectDropdownOpen(true);
-                      }}
-                      onFocus={() => setProjectDropdownOpen(true)}
-                    />
-                    <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2" onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}>
-                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                    </button>
-                    {projectDropdownOpen && (
-                      <div className="absolute z-50 top-full mt-1 w-full bg-background border rounded-md shadow-lg max-h-48 overflow-y-auto">
-                        {(() => {
-                          const filtered = projectSearch.trim()
-                            ? projects.filter((p) => safeText(p.name, "").toLowerCase().includes(projectSearch.trim().toLowerCase()))
-                            : projects.slice(0, 10);
-                          return filtered.length === 0 ? (
-                            <p className="text-sm text-muted-foreground p-2">No projects found</p>
-                          ) : (
-                            <>
-                              {!projectSearch.trim() && <p className="text-xs text-muted-foreground p-2 font-medium">Recent</p>}
-                              <button
-                                type="button"
-                                className={`w-full text-left px-3 py-2 text-sm hover:bg-muted/50 transition-colors ${createProjectId === "NONE" ? "bg-muted" : ""}`}
-                                onClick={() => {
-                                  setCreateProjectId("NONE");
-                                  setProjectSearch("No Project");
-                                  setProjectDropdownOpen(false);
-                                }}
-                              >
-                                No Project
-                              </button>
-                              {filtered.map((p) => (
-                                <button
-                                  key={p.id}
-                                  type="button"
-                                  className={`w-full text-left px-3 py-2 text-sm hover:bg-muted/50 transition-colors ${createProjectId === p.id ? "bg-muted" : ""}`}
-                                  onClick={() => {
-                                    setCreateProjectId(p.id);
-                                    setProjectSearch(safeText(p.name));
-                                    setProjectDropdownOpen(false);
-                                  }}
-                                >
-                                  {safeText(p.name)}
-                                </button>
-                              ))}
-                            </>
-                          );
-                        })()}
-                      </div>
-                    )}
-                  </div>
+                  <SearchableCombobox
+                    valueId={createProjectId}
+                    search={projectSearch}
+                    onSearchChange={setProjectSearch}
+                    open={projectDropdownOpen}
+                    onOpenChange={setProjectDropdownOpen}
+                    options={projectOptions}
+                    placeholder="Search project..."
+                    emptyLabel="No projects found"
+                    leadingOption={{ id: "NONE", label: "No Project" }}
+                    onSelect={(opt) => {
+                      setCreateProjectId(opt.id);
+                      setProjectSearch(opt.label);
+                    }}
+                  />
                 </div>
               </div>
 
@@ -1579,12 +1489,26 @@ function InvoicesPageInner() {
           if (!open) setEditInvoice(null);
         }}
       >
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent
+          className="flex max-h-[85vh] max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl"
+          onPointerDownOutside={(e) => {
+            const t = e.target as HTMLElement | null
+            if (t?.closest?.('[data-slot="popover-content"]')) e.preventDefault()
+          }}
+          onFocusOutside={(e) => {
+            const t = e.target as HTMLElement | null
+            if (t?.closest?.('[data-slot="popover-content"]')) e.preventDefault()
+          }}
+          onInteractOutside={(e) => {
+            const t = e.target as HTMLElement | null
+            if (t?.closest?.('[data-slot="popover-content"]')) e.preventDefault()
+          }}
+        >
+          <DialogHeader className="shrink-0 px-6 pt-6 pb-2">
             <DialogTitle>Edit Invoice</DialogTitle>
             <DialogDescription>Modify invoice details.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-6 pb-6">
             {/* P7A: Invoice Number + Status — editable for ALL invoices (incl. PAID) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
@@ -1613,112 +1537,38 @@ function InvoicesPageInner() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs">Client *</Label>
-                <div className="relative" ref={editClientRef}>
-                  <input
-                    type="text"
-                    className="border rounded px-3 py-2 text-sm bg-background w-full pr-8"
-                    placeholder="Search client..."
-                    value={editClientSearch}
-                    onChange={(e) => {
-                      setEditClientSearch(e.target.value);
-                      setEditClientDropdownOpen(true);
-                    }}
-                    onFocus={() => setEditClientDropdownOpen(true)}
-                  />
-                  <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2" onClick={() => setEditClientDropdownOpen(!editClientDropdownOpen)}>
-                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                  </button>
-                  {editClientDropdownOpen && (
-                    <div className="absolute z-50 top-full mt-1 w-full bg-background border rounded-md shadow-lg max-h-48 overflow-y-auto">
-                      {(() => {
-                        const filtered = editClientSearch.trim()
-                          ? clients.filter((c) => safeText(c.name, "").toLowerCase().includes(editClientSearch.trim().toLowerCase()))
-                          : clients.slice(0, 10);
-                        return filtered.length === 0 ? (
-                          <p className="text-sm text-muted-foreground p-2">No clients found</p>
-                        ) : (
-                          <>
-                            {!editClientSearch.trim() && <p className="text-xs text-muted-foreground p-2 font-medium">Recent</p>}
-                            {filtered.map((c) => (
-                              <button
-                                key={c.id}
-                                type="button"
-                                className={`w-full text-left px-3 py-2 text-sm hover:bg-muted/50 transition-colors ${editClientId === c.id ? "bg-muted" : ""}`}
-                                onClick={() => {
-                                  setEditClientId(c.id);
-                                  setEditClientSearch(safeText(c.name));
-                                  setEditClientDropdownOpen(false);
-                                }}
-                              >
-                                {safeText(c.name)}
-                              </button>
-                            ))}
-                          </>
-                        );
-                      })()}
-                    </div>
-                  )}
-                </div>
+                <SearchableCombobox
+                  valueId={editClientId}
+                  search={editClientSearch}
+                  onSearchChange={setEditClientSearch}
+                  open={editClientDropdownOpen}
+                  onOpenChange={setEditClientDropdownOpen}
+                  options={clientOptions}
+                  placeholder="Search client..."
+                  emptyLabel="No clients found"
+                  onSelect={(opt) => {
+                    setEditClientId(opt.id);
+                    setEditClientSearch(opt.label);
+                  }}
+                />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Project</Label>
-                <div className="relative" ref={editProjectRef}>
-                  <input
-                    type="text"
-                    className="border rounded px-3 py-2 text-sm bg-background w-full pr-8"
-                    placeholder="Search project..."
-                    value={editProjectSearch}
-                    onChange={(e) => {
-                      setEditProjectSearch(e.target.value);
-                      setEditProjectDropdownOpen(true);
-                    }}
-                    onFocus={() => setEditProjectDropdownOpen(true)}
-                  />
-                  <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2" onClick={() => setEditProjectDropdownOpen(!editProjectDropdownOpen)}>
-                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                  </button>
-                  {editProjectDropdownOpen && (
-                    <div className="absolute z-50 top-full mt-1 w-full bg-background border rounded-md shadow-lg max-h-48 overflow-y-auto">
-                      {(() => {
-                        const filtered = editProjectSearch.trim()
-                          ? projects.filter((p) => safeText(p.name, "").toLowerCase().includes(editProjectSearch.trim().toLowerCase()))
-                          : projects.slice(0, 10);
-                        return filtered.length === 0 ? (
-                          <p className="text-sm text-muted-foreground p-2">No projects found</p>
-                        ) : (
-                          <>
-                            {!editProjectSearch.trim() && <p className="text-xs text-muted-foreground p-2 font-medium">Recent</p>}
-                            <button
-                              type="button"
-                              className={`w-full text-left px-3 py-2 text-sm hover:bg-muted/50 transition-colors ${editProjectId === "NONE" ? "bg-muted" : ""}`}
-                              onClick={() => {
-                                setEditProjectId("NONE");
-                                setEditProjectSearch("No Project");
-                                setEditProjectDropdownOpen(false);
-                              }}
-                            >
-                              No Project
-                            </button>
-                            {filtered.map((p) => (
-                              <button
-                                key={p.id}
-                                type="button"
-                                className={`w-full text-left px-3 py-2 text-sm hover:bg-muted/50 transition-colors ${editProjectId === p.id ? "bg-muted" : ""}`}
-                                onClick={() => {
-                                  setEditProjectId(p.id);
-                                  setEditProjectSearch(safeText(p.name));
-                                  setEditProjectDropdownOpen(false);
-                                }}
-                              >
-                                {safeText(p.name)}
-                              </button>
-                            ))}
-                          </>
-                        );
-                      })()}
-                    </div>
-                  )}
-                </div>
+                <SearchableCombobox
+                  valueId={editProjectId}
+                  search={editProjectSearch}
+                  onSearchChange={setEditProjectSearch}
+                  open={editProjectDropdownOpen}
+                  onOpenChange={setEditProjectDropdownOpen}
+                  options={projectOptions}
+                  placeholder="Search project..."
+                  emptyLabel="No projects found"
+                  leadingOption={{ id: "NONE", label: "No Project" }}
+                  onSelect={(opt) => {
+                    setEditProjectId(opt.id);
+                    setEditProjectSearch(opt.label);
+                  }}
+                />
               </div>
             </div>
 

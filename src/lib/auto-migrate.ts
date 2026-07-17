@@ -368,6 +368,15 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
       FOREIGN KEY ("assignedById") REFERENCES "User"("id") ON DELETE CASCADE
     )`
   },
+  {
+    name: "ExpenseCategory",
+    sql: `CREATE TABLE IF NOT EXISTS "ExpenseCategory" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "name" TEXT NOT NULL UNIQUE,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`
+  },
 ]
 
 /**
@@ -423,6 +432,29 @@ export async function ensureAllTables(): Promise<void> {
       await ensureTrainingAssignmentSchema()
     } catch (err: unknown) {
       console.warn(`[auto-migrate] TrainingAssignment schema migrate: ${getErrMsg(err)}`)
+    }
+
+    // 1a2. Seed default expense categories (idempotent)
+    try {
+      const { DEFAULT_EXPENSE_CATEGORIES } = await import("@/lib/expense-categories")
+      const now = new Date().toISOString()
+      for (const name of DEFAULT_EXPENSE_CATEGORIES) {
+        try {
+          await db.$executeRawUnsafe(
+            `INSERT OR IGNORE INTO "ExpenseCategory" ("id", "name", "createdAt", "updatedAt") VALUES (?, ?, ?, ?)`,
+            crypto.randomUUID(),
+            name,
+            now,
+            now
+          )
+        } catch (seedErr: unknown) {
+          if (!getErrMsg(seedErr)?.includes("no such table")) {
+            console.warn(`[auto-migrate] ExpenseCategory seed ${name}: ${getErrMsg(seedErr)}`)
+          }
+        }
+      }
+    } catch (err: unknown) {
+      console.warn(`[auto-migrate] ExpenseCategory seed: ${getErrMsg(err)}`)
     }
 
     // 1b. Create missing unique indexes for NotificationPreference

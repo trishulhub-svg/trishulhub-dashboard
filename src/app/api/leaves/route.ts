@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureTable } from "@/lib/auto-migrate"
+import { ensureAllTables } from "@/lib/auto-migrate"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 import { notifyRoles } from "@/lib/notify"
 
@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
     const rl = rateLimit(`leaves-get-${session.user.id}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
-    await ensureTable("Leave")
+    await ensureAllTables()
 
     const userId = session.user.id
     const userRole = session.user.role
@@ -70,7 +70,7 @@ export async function GET(req: NextRequest) {
 
     // Pagination
     const page = Math.max(Number(searchParams.get("page")) || 1, 1)
-    const take = Math.max(Number(searchParams.get("limit")) || 50, 1)
+    const take = Math.min(Math.max(Number(searchParams.get("limit")) || 50, 1), 200)
     const skip = (page - 1) * take
 
     const leaves = await db.leave.findMany({
@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
     const rl = rateLimit(`leaves-post-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
-    await ensureTable("Leave")
+    await ensureAllTables()
 
     const sessionUserId = session.user.id
     const userRole = session.user.role

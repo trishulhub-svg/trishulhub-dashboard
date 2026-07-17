@@ -579,10 +579,20 @@ model NotificationPreference {
   @@index([userId])
 }
 
+// ━━ Expense categories (admin-managed; Expense.category stores the name key) ━━
+model ExpenseCategory {
+  id        String   @id @default(cuid())
+  name      String   @unique // e.g. HOSTING, API_COSTS, CLOUD_HOSTING
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("ExpenseCategory")
+}
+
 // ━━ Expenses ━━
 model Expense {
   id          String   @id @default(cuid())
-  category    String   // HOSTING, DOMAINS, API_COSTS, TOOLS, MARKETING, SALARY, SOFTWARE, OTHER
+  category    String   // matches ExpenseCategory.name
   description String
   // amount >= 0 enforced at application level
   amount      Float    @default(0)

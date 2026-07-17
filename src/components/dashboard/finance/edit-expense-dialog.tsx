@@ -22,16 +22,10 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 
-const EXPENSE_CATEGORIES = [
-  "HOSTING",
-  "DOMAINS",
-  "API_COSTS",
-  "TOOLS",
-  "MARKETING",
-  "SALARY",
-  "SOFTWARE",
-  "OTHER",
-];
+import {
+  DEFAULT_EXPENSE_CATEGORIES,
+  formatExpenseCategoryLabel,
+} from "@/lib/expense-categories";
 
 export interface ExpenseWithProject {
   id: string;
@@ -52,6 +46,7 @@ interface EditExpenseDialogProps {
   onSuccess?: () => void;
   projects?: { id: string; name: string }[];
   employees?: { id: string; name: string }[];
+  categories?: string[];
 }
 
 export function EditExpenseDialog({
@@ -61,7 +56,12 @@ export function EditExpenseDialog({
   onSuccess,
   projects = [],
   employees = [],
+  categories,
 }: EditExpenseDialogProps) {
+  const categoryOptions =
+    categories && categories.length > 0
+      ? categories
+      : [...DEFAULT_EXPENSE_CATEGORIES];
   const [form, setForm] = useState({
     category: "",
     description: "",
@@ -171,9 +171,9 @@ export function EditExpenseDialog({
                   <SelectValue placeholder="Select" />
                 </SelectTrigger>
                 <SelectContent>
-                  {EXPENSE_CATEGORIES.map((cat) => (
+                  {categoryOptions.map((cat) => (
                     <SelectItem key={cat} value={cat}>
-                      {cat.replace("_", " ")}
+                      {formatExpenseCategoryLabel(cat)}
                     </SelectItem>
                   ))}
                 </SelectContent>

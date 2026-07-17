@@ -176,36 +176,72 @@ function LeaveManagementPageInner() {
   const isUserAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
   useEffect(() => {
+    if (status === "unauthenticated") {
+      setLoading(false);
+      router.push("/login");
+      return;
+    }
+    if (status !== "authenticated") return;
+
     const controller = new AbortController();
     const signal = controller.signal;
+    let cancelled = false;
 
     async function loadData() {
+      setLoading(true);
       try {
-        const leavesRes = await fetch(leavesListQuery(currentYear, currentMonth), { credentials: "include", signal });
-        if (leavesRes.ok) setLeaves(safeArray<LeaveRecord>(await leavesRes.json()));
+        const leavesRes = await fetch(leavesListQuery(currentYear, currentMonth), {
+          credentials: "include",
+          signal,
+        });
+        if (cancelled) return;
+        if (leavesRes.status === 401) {
+          router.push("/login");
+          return;
+        }
+        if (!leavesRes.ok) {
+          const errData = await leavesRes.json().catch(() => ({}));
+          setError((errData as { error?: string }).error || "Failed to load leaves");
+          setLeaves([]);
+          return;
+        }
+        setLeaves(safeArray<LeaveRecord>(await leavesRes.json()));
+        setError(null);
 
         if (isUserAdmin) {
           const teamRes = await fetch("/api/team?type=users", { credentials: "include", signal });
+          if (cancelled) return;
           if (teamRes.ok) setTeamUsers(safeArray<TeamUser>(await teamRes.json()));
         }
       } catch (err) {
-        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (cancelled) return;
+        const name = err instanceof Error ? err.name : "";
+        if (name === "AbortError") return;
         console.error("[leaves] loadData Error:", err);
         setError("Failed to load data");
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
 
     loadData();
-    return () => controller.abort();
-  }, [isUserAdmin, currentYear, currentMonth]);
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [status, isUserAdmin, currentYear, currentMonth, router]);
 
   const fetchData = useCallback(async () => {
     try {
+      setError(null);
       const leavesRes = await fetch(leavesListQuery(currentYear, currentMonth), { credentials: "include" });
       if (leavesRes.status === 401) { router.push("/login"); return; }
-      if (leavesRes.ok) setLeaves(safeArray<LeaveRecord>(await leavesRes.json()));
+      if (!leavesRes.ok) {
+        const errData = await leavesRes.json().catch(() => ({}));
+        toast.error(((errData as { error?: string }).error || "Failed to refresh leaves").slice(0, 100));
+        return;
+      }
+      setLeaves(safeArray<LeaveRecord>(await leavesRes.json()));
 
       if (isUserAdmin) {
         const teamRes = await fetch("/api/team?type=users", { credentials: "include" });
@@ -403,6 +439,38 @@ function LeaveManagementPageInner() {
     return leaves.filter(l => l.status === "APPROVED" && l.startDate <= today && l.endDate >= today).length;
   }, [leaves]);
 
+  // Before any early return — hooks order must be stable (was crashing Dashboard Error)
+  const leaveStatItems = useMemo(() => [
+    ...(isUserAdmin
+      ? [{
+          key: "pending",
+          label: "Pending",
+          value: pendingLeaves.length,
+          icon: <Clock className="h-4 w-4 text-amber-500" />,
+        }]
+      : []),
+    {
+      key: "mine",
+      label: "My Leaves",
+      value: myLeaves.length,
+      icon: <Calendar className="h-4 w-4 text-sky-600" />,
+    },
+    {
+      key: "approved",
+      label: "Approved (month)",
+      value: approvedThisMonth.length,
+      icon: <CheckCircle2 className="h-4 w-4 text-emerald-600" />,
+    },
+    ...(isUserAdmin
+      ? [{
+          key: "today",
+          label: "On leave today",
+          value: teamOnLeaveToday,
+          icon: <AlertTriangle className="h-4 w-4 text-orange-500" />,
+        }]
+      : []),
+  ], [isUserAdmin, pendingLeaves.length, myLeaves.length, approvedThisMonth.length, teamOnLeaveToday]);
+
   // Session loading guard
   if (status === "loading") {
     return (
@@ -444,40 +512,6 @@ function LeaveManagementPageInner() {
 
   const daysInMonth = getDaysInMonth(currentMonth, currentYear);
   const firstDay = getFirstDayOfMonth(currentMonth, currentYear);
-
-  const leaveStatItems = useMemo(() => {
-    const items = [
-      ...(isUserAdmin
-        ? [{
-            key: "pending",
-            label: "Pending",
-            value: pendingLeaves.length,
-            icon: <Clock className="h-4 w-4 text-amber-500" />,
-          }]
-        : []),
-      {
-        key: "mine",
-        label: "My Leaves",
-        value: myLeaves.length,
-        icon: <Calendar className="h-4 w-4 text-sky-600" />,
-      },
-      {
-        key: "approved",
-        label: "Approved (month)",
-        value: approvedThisMonth.length,
-        icon: <CheckCircle2 className="h-4 w-4 text-emerald-600" />,
-      },
-      ...(isUserAdmin
-        ? [{
-            key: "today",
-            label: "On leave today",
-            value: teamOnLeaveToday,
-            icon: <AlertTriangle className="h-4 w-4 text-orange-500" />,
-          }]
-        : []),
-    ];
-    return items;
-  }, [isUserAdmin, pendingLeaves.length, myLeaves.length, approvedThisMonth.length, teamOnLeaveToday]);
 
   return (
     <div className="space-y-4 sm:space-y-5">

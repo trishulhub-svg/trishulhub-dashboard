@@ -8,8 +8,19 @@ import { ensureAllTables } from "@/lib/auto-migrate"
 import { isAdmin } from "@/lib/rbac"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
-const VALID_CATEGORIES = ["HOSTING", "DOMAINS", "API_COSTS", "TOOLS", "MARKETING", "SALARY", "SOFTWARE", "OTHER"] as const
-type ExpenseCategory = typeof VALID_CATEGORIES[number]
+import { DEFAULT_EXPENSE_CATEGORIES } from "@/lib/expense-categories"
+
+async function getValidCategoryNames(): Promise<string[]> {
+  try {
+    const rows = (await db.$queryRawUnsafe(
+      `SELECT "name" FROM "ExpenseCategory" ORDER BY "name" ASC`
+    )) as Array<{ name: string }>
+    if (rows.length > 0) return rows.map((r) => r.name)
+  } catch {
+    // table may not exist yet on very old deploys
+  }
+  return [...DEFAULT_EXPENSE_CATEGORIES]
+}
 
 // GET /api/expenses - List expenses with search, date, category, project filters
 export async function GET(req: NextRequest) {
@@ -42,9 +53,12 @@ export async function GET(req: NextRequest) {
     const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || "50") || 50), 10000)
     const offset = (page - 1) * limit
 
-    // Validate category against the allowed list
-    if (category && !VALID_CATEGORIES.includes(category as ExpenseCategory)) {
-      return NextResponse.json({ error: `Invalid category. Must be one of: ${VALID_CATEGORIES.join(", ")}` }, { status: 400 })
+    // Validate category against admin-managed list
+    if (category) {
+      const validCategories = await getValidCategoryNames()
+      if (!validCategories.includes(category)) {
+        return NextResponse.json({ error: `Invalid category. Must be one of: ${validCategories.join(", ")}` }, { status: 400 })
+      }
     }
 
     const where: Prisma.ExpenseWhereInput = {}
@@ -163,8 +177,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Description must be at most 2000 characters" }, { status: 400 })
     }
 
-    if (!VALID_CATEGORIES.includes(category as ExpenseCategory)) {
-      return NextResponse.json({ error: `Invalid category. Must be one of: ${VALID_CATEGORIES.join(", ")}` }, { status: 400 })
+    {
+      const validCategories = await getValidCategoryNames()
+      if (!validCategories.includes(category)) {
+        return NextResponse.json({ error: `Invalid category. Must be one of: ${validCategories.join(", ")}` }, { status: 400 })
+      }
     }
 
     const parsed = typeof amount === "number" ? amount : parseFloat(String(amount ?? ""))
@@ -290,8 +307,9 @@ export async function PATCH(req: NextRequest) {
         } else if (key === "paymentRef" && data[key] !== undefined) {
           sanitizedData[key] = typeof data[key] === "string" && data[key].trim() === "" ? null : data[key]
         } else if (key === "category") {
-          if (!VALID_CATEGORIES.includes(data[key] as ExpenseCategory)) {
-            return NextResponse.json({ error: `Invalid category. Must be one of: ${VALID_CATEGORIES.join(", ")}` }, { status: 400 })
+          const validCategories = await getValidCategoryNames()
+          if (!validCategories.includes(data[key] as string)) {
+            return NextResponse.json({ error: `Invalid category. Must be one of: ${validCategories.join(", ")}` }, { status: 400 })
           }
           sanitizedData[key] = data[key]
         } else if (key === "description") {
@@ -384,8 +402,11 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "Expense ID is required" }, { status: 400 })
     }
 
-    if (category && !VALID_CATEGORIES.includes(category as ExpenseCategory)) {
-      return NextResponse.json({ error: `Invalid category. Must be one of: ${VALID_CATEGORIES.join(", ")}` }, { status: 400 })
+    if (category) {
+      const validCategories = await getValidCategoryNames()
+      if (!validCategories.includes(category)) {
+        return NextResponse.json({ error: `Invalid category. Must be one of: ${validCategories.join(", ")}` }, { status: 400 })
+      }
     }
 
     if (description && description.length > 2000) {
