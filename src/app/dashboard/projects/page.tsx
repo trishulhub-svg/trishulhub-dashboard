@@ -13,7 +13,7 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   Plus, Search, FolderKanban, Pencil, Trash2, MoreHorizontal,
   Key, Eye, EyeOff, Copy, X, Activity, CheckCircle2,
-  LayoutGrid, ClipboardCheck, List, ArrowUpDown, CircleDot, ExternalLink, Globe,
+  LayoutGrid, List, ArrowUpDown, CircleDot, ExternalLink, Globe,
   Settings, Check, ChevronDown, ChevronUp, GripVertical,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -118,8 +118,6 @@ function KanbanProjectCard({
   onDelete,
   isDragging,
   onHover,
-  pendingCount,
-  onPendingClick,
 }: {
   project: Record<string, unknown>;
   onClick: () => void;
@@ -128,8 +126,6 @@ function KanbanProjectCard({
   onDelete?: (projectId: string, e: React.MouseEvent) => void;
   isDragging?: boolean;
   onHover?: () => void;
-  pendingCount?: number;
-  onPendingClick?: () => void;
 }) {
   const client = project.client as Record<string, unknown> | undefined;
   const pName = safeText(project.name, "Untitled");
@@ -302,8 +298,6 @@ function SortableProjectCard({
   onEdit,
   onDelete,
   onHover,
-  pendingCount,
-  onPendingClick,
 }: {
   project: Record<string, unknown>;
   onCardClick: () => void;
@@ -311,8 +305,6 @@ function SortableProjectCard({
   onEdit: (project: Record<string, unknown>, e: React.MouseEvent) => void;
   onDelete: (projectId: string, e: React.MouseEvent) => void;
   onHover?: () => void;
-  pendingCount?: number;
-  onPendingClick?: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: safeText(project.id, ""),
@@ -344,8 +336,6 @@ function SortableProjectCard({
         onDelete={onDelete}
         isDragging={false}
         onHover={onHover}
-        pendingCount={pendingCount}
-        onPendingClick={onPendingClick}
       />
     </div>
   );
@@ -444,7 +434,6 @@ function DroppableKanbanColumn({
                 onEdit={onEdit}
                 onDelete={onDelete}
                 onHover={() => onHover && onHover(pId)}
-                onPendingClick={() => onCardClick(project)}
               />
             );
           })}
@@ -461,16 +450,12 @@ function ListViewRow({
   onView,
   onEdit,
   onDelete,
-  pendingCount,
-  onPendingClick,
 }: {
   project: Record<string, unknown>;
   isAdminUser: boolean;
   onView: () => void;
   onEdit?: (project: Record<string, unknown>, e: React.MouseEvent) => void;
   onDelete?: (projectId: string, e: React.MouseEvent) => void;
-  pendingCount?: number;
-  onPendingClick?: () => void;
 }) {
   const client = project.client as Record<string, unknown> | undefined;
   const pName = safeText(project.name, "Untitled");
@@ -1774,17 +1759,11 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
                 }}
                 onEdit={isAdminUser ? openEditDialog : undefined}
                 onDelete={isAdminUser ? openDeleteDialog : undefined}
-                onPendingClick={() => {
-                  handlePrefetchProject(pId);
-                  router.push(isDemoView ? `/dashboard/demo/${pId}` : `/dashboard/projects/${pId}`);
-                }}
               />
             );
           })}
         </div>
       )}
-
-      {/* ━━━━ Floating Task Boards are now rendered in DashboardLayout ━━━━ */}
 
       {/* ━━━━ Edit Project Dialog with Tabs ━━━━ */}
       <Dialog open={editOpen} onOpenChange={(open) => { setEditOpen(open); if (!open) setEditProject(null); }}>

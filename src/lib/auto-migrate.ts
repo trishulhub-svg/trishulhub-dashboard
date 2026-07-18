@@ -25,7 +25,6 @@ function getErrMsg(err: unknown): string {
 // This prevents ensureAllTables() from running the full migration check
 // on every single API request.
 declare global {
-  // eslint-disable-next-line no-var
   var __trishulAutoMigrateSyncDone: boolean | undefined
 }
 

@@ -557,6 +557,7 @@ export async function DELETE(req: NextRequest) {
       () => db.projectMember.deleteMany({ where: { projectId: id } }),
       () => db.projectWebsite.deleteMany({ where: { projectId: id } }),
       () => db.projectInfrastructure.deleteMany({ where: { projectId: id } }),
+      () => db.projectMilestone.deleteMany({ where: { projectId: id } }),
       () => db.timeEntry.updateMany({ where: { projectId: id }, data: { projectId: null } }),
       () => db.expense.updateMany({ where: { projectId: id }, data: { projectId: null } }),
       () => db.subscription.updateMany({ where: { projectId: id }, data: { projectId: null } }),
