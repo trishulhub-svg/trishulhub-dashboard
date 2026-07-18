@@ -21,17 +21,9 @@ function maskKeyValue(plaintext: string): string {
   return `****${plaintext.slice(-4)}`
 }
 
+/** Fail closed — never store vault secrets as plaintext. */
 function safeEncryptKey(plaintext: string): string {
-  try {
-    return encryptToJson(plaintext)
-  } catch (err) {
-    console.warn(
-      "[vault-secrets] Encryption failed — storing plaintext as fallback. " +
-        "Set ENCRYPTION_KEY to enable at-rest encryption:",
-      err instanceof Error ? err.message : String(err)
-    )
-    return plaintext
-  }
+  return encryptToJson(plaintext)
 }
 
 function requireVaultAdmin(role: string | undefined): boolean {
@@ -131,11 +123,25 @@ export async function POST(req: NextRequest) {
         ? body.notes.trim().slice(0, 2000)
         : null
 
+    let encryptedValue: string
+    try {
+      encryptedValue = safeEncryptKey(plaintextKeyValue)
+    } catch (err) {
+      console.error(
+        "[vault-secrets] ENCRYPTION_KEY missing or invalid — refusing plaintext store:",
+        err instanceof Error ? err.message : String(err)
+      )
+      return NextResponse.json(
+        { error: "Server encryption is not configured. Set ENCRYPTION_KEY before storing secrets." },
+        { status: 503 }
+      )
+    }
+
     const secret = await db.vaultSecret.create({
       data: {
         name,
         category,
-        keyValue: safeEncryptKey(plaintextKeyValue),
+        keyValue: encryptedValue,
         notes,
         createdBy: session.user.id,
       },

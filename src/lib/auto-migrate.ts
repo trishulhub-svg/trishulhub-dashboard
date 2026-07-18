@@ -58,6 +58,13 @@ const CRITICAL_COLUMNS: Array<{ table: string; column: string; sql: string }> = 
   { table: "Invoice", column: "notes", sql: "ALTER TABLE Invoice ADD COLUMN notes TEXT" },
   { table: "Invoice", column: "paymentStatus", sql: "ALTER TABLE Invoice ADD COLUMN paymentStatus TEXT NOT NULL DEFAULT 'UNPAID'" },
   { table: "Invoice", column: "sentById", sql: `ALTER TABLE "Invoice" ADD COLUMN "sentById" TEXT` },
+  { table: "Invoice", column: "currency", sql: `ALTER TABLE "Invoice" ADD COLUMN "currency" TEXT NOT NULL DEFAULT 'INR'` },
+  { table: "Expense", column: "currency", sql: `ALTER TABLE "Expense" ADD COLUMN "currency" TEXT NOT NULL DEFAULT 'INR'` },
+  { table: "Approval", column: "approvedAt", sql: `ALTER TABLE "Approval" ADD COLUMN "approvedAt" DATETIME` },
+  { table: "Approval", column: "approvedById", sql: `ALTER TABLE "Approval" ADD COLUMN "approvedById" TEXT` },
+  { table: "Approval", column: "feedback", sql: `ALTER TABLE "Approval" ADD COLUMN "feedback" TEXT` },
+  { table: "Approval", column: "description", sql: `ALTER TABLE "Approval" ADD COLUMN "description" TEXT` },
+  { table: "Approval", column: "requesterId", sql: `ALTER TABLE "Approval" ADD COLUMN "requesterId" TEXT` },
   // Project start date (moved from Client to Project)
   { table: "Project", column: "startDate", sql: "ALTER TABLE Project ADD COLUMN startDate DATETIME" },
   // Project isDemo flag — demo projects get their own page at /dashboard/demo with a DEMO badge
@@ -69,6 +76,24 @@ const CRITICAL_COLUMNS: Array<{ table: string; column: string; sql: string }> = 
 
 /** Tables to create if missing (simplified CREATE TABLE IF NOT EXISTS) */
 const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
+  {
+    name: "Approval",
+    sql: `CREATE TABLE IF NOT EXISTS "Approval" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "type" TEXT NOT NULL,
+      "requesterType" TEXT NOT NULL DEFAULT 'HUMAN',
+      "requesterId" TEXT,
+      "title" TEXT NOT NULL,
+      "description" TEXT,
+      "data" TEXT NOT NULL DEFAULT '{}',
+      "status" TEXT NOT NULL DEFAULT 'PENDING',
+      "feedback" TEXT,
+      "approvedById" TEXT,
+      "approvedAt" DATETIME,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`
+  },
   {
     name: "ClientWebsite",
     sql: `CREATE TABLE IF NOT EXISTS "ClientWebsite" ("id" TEXT NOT NULL PRIMARY KEY, "url" TEXT NOT NULL, "label" TEXT, "isPrimary" BOOLEAN NOT NULL DEFAULT 0, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "clientId" TEXT NOT NULL, FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE CASCADE)`
@@ -138,7 +163,7 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
   // CRM — Deal
   {
     name: "Deal",
-    sql: `CREATE TABLE IF NOT EXISTS "Deal" ("id" TEXT NOT NULL PRIMARY KEY, "title" TEXT NOT NULL, "value" REAL NOT NULL DEFAULT 0, "currency" TEXT NOT NULL DEFAULT 'USD', "stage" TEXT NOT NULL DEFAULT 'LEAD', "probability" INTEGER NOT NULL DEFAULT 0, "expectedCloseDate" DATETIME, "actualCloseDate" DATETIME, "clientId" TEXT, "leadId" TEXT, "assignedToId" TEXT, "notes" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL, FOREIGN KEY ("clientId") REFERENCES "Client"("id"), FOREIGN KEY ("leadId") REFERENCES "Lead"("id"), FOREIGN KEY ("assignedToId") REFERENCES "User"("id"))`
+    sql: `CREATE TABLE IF NOT EXISTS "Deal" ("id" TEXT NOT NULL PRIMARY KEY, "title" TEXT NOT NULL, "value" REAL NOT NULL DEFAULT 0, "currency" TEXT NOT NULL DEFAULT 'INR', "stage" TEXT NOT NULL DEFAULT 'LEAD', "probability" INTEGER NOT NULL DEFAULT 0, "expectedCloseDate" DATETIME, "actualCloseDate" DATETIME, "clientId" TEXT, "leadId" TEXT, "assignedToId" TEXT, "notes" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL, FOREIGN KEY ("clientId") REFERENCES "Client"("id"), FOREIGN KEY ("leadId") REFERENCES "Lead"("id"), FOREIGN KEY ("assignedToId") REFERENCES "User"("id"))`
   },
   // CRM — SupportTicket
   {
@@ -204,6 +229,44 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
       "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE,
       FOREIGN KEY ("approvedBy") REFERENCES "User"("id")
+    )`
+  },
+  {
+    name: "LeaveBalance",
+    sql: `CREATE TABLE IF NOT EXISTS "LeaveBalance" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "year" INTEGER NOT NULL,
+      "allowance" INTEGER NOT NULL DEFAULT 12,
+      "used" INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE,
+      UNIQUE("userId", "year")
+    )`
+  },
+  {
+    name: "ProjectMilestone",
+    sql: `CREATE TABLE IF NOT EXISTS "ProjectMilestone" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "projectId" TEXT NOT NULL,
+      "title" TEXT NOT NULL,
+      "done" BOOLEAN NOT NULL DEFAULT 0,
+      "sortOrder" INTEGER NOT NULL DEFAULT 0,
+      "dueDate" DATETIME,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE CASCADE
+    )`
+  },
+  {
+    name: "Payment",
+    sql: `CREATE TABLE IF NOT EXISTS "Payment" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "invoiceId" TEXT NOT NULL,
+      "amount" REAL NOT NULL,
+      "method" TEXT,
+      "paidAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "note" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("invoiceId") REFERENCES "Invoice"("id") ON DELETE CASCADE
     )`
   },
   {

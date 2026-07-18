@@ -172,6 +172,8 @@ function LeaveManagementPageInner() {
   const [formEndDate, setFormEndDate] = useState("");
   const [formReason, setFormReason] = useState("");
 
+  const [leaveBalance, setLeaveBalance] = useState<{ allowance: number; used: number; remaining: number } | null>(null);
+
   const userRole = session?.user?.role || "DEVELOPER";
   const isUserAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
   const hasLoadedOnce = useRef(false);
@@ -198,6 +200,7 @@ function LeaveManagementPageInner() {
           credentials: "include",
           signal,
         });
+        const balancePromise = fetch("/api/leaves/balances", { credentials: "include", signal });
         const teamPromise = isUserAdmin
           ? fetch("/api/team?type=users", { credentials: "include", signal })
           : null;
@@ -217,6 +220,16 @@ function LeaveManagementPageInner() {
         setLeaves(safeArray<LeaveRecord>(await leavesRes.json()));
         setError(null);
         hasLoadedOnce.current = true;
+
+        void balancePromise.then(async (balanceRes) => {
+          if (cancelled || !balanceRes.ok) return;
+          const bal = await balanceRes.json();
+          setLeaveBalance({
+            allowance: bal.allowance ?? 12,
+            used: bal.used ?? 0,
+            remaining: bal.remaining ?? Math.max(0, (bal.allowance ?? 12) - (bal.used ?? 0)),
+          });
+        });
 
         // Team list fills filter/dialog — don't block calendar paint
         if (teamPromise) {
@@ -250,9 +263,10 @@ function LeaveManagementPageInner() {
     try {
       setError(null);
       setMonthRefreshing(true);
-      const [leavesRes, teamRes] = await Promise.all([
+      const [leavesRes, teamRes, balanceRes] = await Promise.all([
         fetch(leavesListQuery(currentYear, currentMonth), { credentials: "include" }),
         isUserAdmin ? fetch("/api/team?type=users", { credentials: "include" }) : Promise.resolve(null),
+        fetch("/api/leaves/balances", { credentials: "include" }),
       ]);
       if (leavesRes.status === 401) { router.push("/login"); return; }
       if (!leavesRes.ok) {
@@ -262,6 +276,14 @@ function LeaveManagementPageInner() {
       }
       setLeaves(safeArray<LeaveRecord>(await leavesRes.json()));
       if (teamRes?.ok) setTeamUsers(safeArray<TeamUser>(await teamRes.json()));
+      if (balanceRes.ok) {
+        const bal = await balanceRes.json();
+        setLeaveBalance({
+          allowance: bal.allowance ?? 12,
+          used: bal.used ?? 0,
+          remaining: bal.remaining ?? Math.max(0, (bal.allowance ?? 12) - (bal.used ?? 0)),
+        });
+      }
     } catch (err) {
       console.error("Failed to fetch data:", err);
       toast.error("Failed to refresh data");
@@ -541,6 +563,17 @@ function LeaveManagementPageInner() {
           <Plus className="h-4 w-4 mr-2" /> Request Leave
         </Button>
       </PageHeader>
+
+      {leaveBalance && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/40 border border-border/60 text-sm">
+          <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
+          <span className="text-muted-foreground">
+            <span className="font-medium text-foreground">{leaveBalance.allowance}</span> allotted ·{" "}
+            <span className="font-medium text-foreground">{leaveBalance.used}</span> used ·{" "}
+            <span className="font-medium text-foreground">{leaveBalance.remaining}</span> left
+          </span>
+        </div>
+      )}
 
       {/* Stats — collapsed by default (expand when needed) */}
       <CollapsibleStatStrip

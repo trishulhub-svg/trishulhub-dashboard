@@ -15,151 +15,11 @@ import {
   Activity,
   Clock,
 } from "lucide-react";
+import { LiveIntensity, type LineType, type LiveUser } from "@/components/workspace/live-intensity";
 
 /* ═══════════════════════════════════════════════════════════════
    TRISHULHUB WORKSPACE v2.1 — Live AI + Dynamic Agents
    ═══════════════════════════════════════════════════════════════ */
-
-/* ── Simulated AI operational lines (expanded pool) ── */
-type LineType = "success" | "info" | "warn" | "idle";
-const AI_LINES: { prefix: string; msg: string; type: LineType }[] = [
-  /* Active operations */
-  { prefix: "ZAI", msg: "GLM 5.1 deep reasoning engine initialized", type: "success" },
-  { prefix: "BLUEPRINT", msg: "Loading e-commerce blueprint — smart execution mode", type: "info" },
-  { prefix: "WORKSPACE", msg: "Session recovered — last state restored", type: "success" },
-  { prefix: "COLLAB", msg: "Conflict lock acquired via /work command", type: "info" },
-  { prefix: "TASK", msg: "Task queued — /tasks list refreshed", type: "info" },
-  { prefix: "DEPLOY", msg: "Next.js build compiled — 0 TypeScript errors", type: "success" },
-  { prefix: "STACK", msg: "Prisma migration applied to PostgreSQL", type: "success" },
-  { prefix: "AGENT", msg: "ZAI Protocol v10.4 companion guide synced", type: "success" },
-  { prefix: "ZAI", msg: "GLM-5 Turbo fast execution — 2.1s response time", type: "success" },
-  { prefix: "COLLAB", msg: "Real-time sync: 2 files updated by remote user", type: "info" },
-  { prefix: "TASK", msg: "Sprint backlog: 7 active, 3 pending, 12 done", type: "info" },
-  { prefix: "DEPLOY", msg: "Git push to main — commit abc7f2e merged", type: "success" },
-  { prefix: "STACK", msg: "PostgreSQL connection pool: 10 active, 0 idle", type: "info" },
-  { prefix: "WORKSPACE", msg: "Blueprint state checkpoint saved", type: "success" },
-  { prefix: "ZAI", msg: "GLM 5.1 switching to autonomous 8hr horizon mode", type: "info" },
-  { prefix: "BLUEPRINT", msg: "Smart execution: 4 sub-tasks auto-generated", type: "info" },
-  { prefix: "AGENT", msg: "Workspace credentials verified — access granted", type: "success" },
-  { prefix: "COLLAB", msg: "Conflict prevention: edit merge resolved cleanly", type: "success" },
-  { prefix: "TASK", msg: "Priority re-sort: critical tasks elevated to top", type: "info" },
-  { prefix: "DEPLOY", msg: "CI/CD pipeline passed — all 14 checks green", type: "success" },
-  { prefix: "STACK", msg: "TypeScript strict mode — zero type errors", type: "success" },
-  /* Extra active lines for burst variety */
-  { prefix: "ZAI", msg: "Autonomous loop: step 7/24 in progress", type: "info" },
-  { prefix: "DEPLOY", msg: "Edge function cold start — 142ms latency", type: "info" },
-  { prefix: "STACK", msg: "Redis cache hit ratio: 97.3% — healthy", type: "success" },
-  { prefix: "BLUEPRINT", msg: "Component tree diff: 12 files changed", type: "info" },
-  { prefix: "TASK", msg: "Auto-assigning task to available workspace member", type: "info" },
-  { prefix: "COLLAB", msg: "WebSocket heartbeat — 3 connections stable", type: "success" },
-  { prefix: "ZAI", msg: "Token usage this session: 14.2K / 128K", type: "info" },
-  { prefix: "AGENT", msg: "Protocol integrity check passed — hash verified", type: "success" },
-  { prefix: "WORKSPACE", msg: "Auto-save triggered — state persisted to cloud", type: "success" },
-  { prefix: "DEPLOY", msg: "Docker image rebuilt — size 182MB", type: "success" },
-  { prefix: "STACK", msg: "Database index optimized — query time -40%", type: "success" },
-  { prefix: "BLUEPRINT", msg: "File watcher detected 3 changes in src/", type: "info" },
-  { prefix: "TASK", msg: "Dependency graph updated — 0 circular refs", type: "success" },
-  { prefix: "ZAI", msg: "Model response cached — TTL 300s", type: "success" },
-  { prefix: "COLLAB", msg: "Branch synced with upstream — up to date", type: "success" },
-  /* Warning lines (rare) */
-  { prefix: "STACK", msg: "Memory usage spike: 78% — monitoring", type: "warn" },
-  { prefix: "DEPLOY", msg: "Rate limit approaching: 450/500 requests/min", type: "warn" },
-  { prefix: "ZAI", msg: "Context window at 89% — auto-compact triggered", type: "warn" },
-  { prefix: "COLLAB", msg: "Merge conflict detected — auto-resolving", type: "warn" },
-  { prefix: "TASK", msg: "Task deadline in 2h — priority escalated", type: "warn" },
-  /* Idle / quiet lines (nighttime heavy) */
-  { prefix: "WORKSPACE", msg: "System idle — background sync paused", type: "idle" },
-  { prefix: "STACK", msg: "Health check OK — all services sleeping", type: "idle" },
-  { prefix: "WORKSPACE", msg: "No active sessions — monitoring only", type: "idle" },
-  { prefix: "ZAI", msg: "Model warming up — standby mode", type: "idle" },
-  { prefix: "STACK", msg: "Cron job skipped — next run at 06:00", type: "idle" },
-  { prefix: "WORKSPACE", msg: "Connection pool reduced to 2 — low traffic", type: "idle" },
-  { prefix: "DEPLOY", msg: "No deployments queued — pipeline idle", type: "idle" },
-  { prefix: "AGENT", msg: "Backup completed — 0 changes since last sync", type: "idle" },
-];
-
-/* ── Time-based activity level calculator ── */
-function getActivityLevel(): {
-  intervalMin: number;
-  intervalMax: number;
-  burstChance: number;   // 0–1 probability of adding 2-3 lines at once
-  maxVisible: number;    // max lines shown in feed
-  linePool: LineType[];  // weighted pool for random line selection
-} {
-  const h = new Date().getHours();
-  const m = new Date().getMinutes();
-  const t = h + m / 60;
-
-  // Night: 22:00–06:00 — very quiet, idle lines, long pauses
-  if (t >= 22 || t < 6) {
-    return {
-      intervalMin: 4000,
-      intervalMax: 10000,
-      burstChance: 0.08,
-      maxVisible: 5,
-      linePool: ["idle", "idle", "idle", "success", "info"],
-    };
-  }
-  // Early morning: 06:00–09:00 — warming up
-  if (t >= 6 && t < 9) {
-    return {
-      intervalMin: 2500,
-      intervalMax: 6000,
-      burstChance: 0.25,
-      maxVisible: 8,
-      linePool: ["idle", "success", "info", "info", "success"],
-    };
-  }
-  // Peak hours: 09:00–12:00 — busy morning
-  if (t >= 9 && t < 12) {
-    return {
-      intervalMin: 600,
-      intervalMax: 1800,
-      burstChance: 0.55,
-      maxVisible: 15,
-      linePool: ["success", "info", "info", "warn", "success", "info"],
-    };
-  }
-  // Lunch dip: 12:00–13:30 — slightly less active
-  if (t >= 12 && t < 13.5) {
-    return {
-      intervalMin: 1500,
-      intervalMax: 4000,
-      burstChance: 0.3,
-      maxVisible: 10,
-      linePool: ["success", "info", "idle", "info", "success"],
-    };
-  }
-  // Afternoon peak: 13:30–18:00 — busy
-  if (t >= 13.5 && t < 18) {
-    return {
-      intervalMin: 800,
-      intervalMax: 2000,
-      burstChance: 0.5,
-      maxVisible: 14,
-      linePool: ["success", "info", "info", "warn", "success", "info", "success"],
-    };
-  }
-  // Evening wind-down: 18:00–22:00 — decreasing
-  return {
-    intervalMin: 2500,
-    intervalMax: 6000,
-    burstChance: 0.25,
-    maxVisible: 9,
-    linePool: ["success", "info", "idle", "idle", "info", "success"],
-  };
-}
-
-/* Pick a random line weighted by activity pool */
-function pickLine(pool: LineType[]): typeof AI_LINES[number] {
-  const filtered = AI_LINES.filter((l) => pool.includes(l.type));
-  return filtered[Math.floor(Math.random() * filtered.length)];
-}
-
-/* Random interval in range */
-function randomBetween(min: number, max: number) {
-  return min + Math.random() * (max - min);
-}
 
 export default function TrishulWorkspacePage() {
   const { data: session, status } = useSession();
@@ -230,11 +90,8 @@ export default function TrishulWorkspacePage() {
   }, []);
 
   /* ── Handlers ── */
-  // Access Hub is available to all roles (SUPER_ADMIN, ADMIN, DEVELOPER).
-  // The page renders a "My Credentials" view for non-admins, so it is safe to
-  // navigate directly — matches the sidebar "Access Hub → Credentials" entry.
   const handleCredentials = useCallback(() => {
-    router.push("/dashboard/access-hub?tab=credentials");
+    router.push("/dashboard/access-hub");
   }, [router]);
 
   /* ── Time-based greeting ── */
@@ -264,84 +121,6 @@ export default function TrishulWorkspacePage() {
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, []);
-
-  /* ── Live AI Terminal Feed (time-aware dynamic engine) ── */
-  const [aiLogs, setAiLogs] = useState<typeof AI_LINES>([]);
-  const feedRef = useRef<HTMLDivElement>(null);
-  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
-  const activityRef = useRef(getActivityLevel());
-
-  /* Periodically re-check activity level (every 60s) */
-  useEffect(() => {
-    if (!entered) return;
-    const check = setInterval(() => {
-      activityRef.current = getActivityLevel();
-    }, 60000);
-    return () => clearInterval(check);
-  }, [entered]);
-
-  useEffect(() => {
-    if (!entered) return;
-
-    const activity = activityRef.current;
-    const startCount = Math.min(3, activity.maxVisible);
-    const initial: typeof AI_LINES = [];
-    for (let i = 0; i < startCount; i++) {
-      initial.push(pickLine(activity.linePool));
-    }
-    setAiLogs(initial);
-
-    /* Schedule the next line(s) with dynamic timing */
-    const scheduleNext = () => {
-      const a = activityRef.current;
-      // Occasionally inject a quiet pause (10% chance during non-peak)
-      const isQuietPause = Math.random() < 0.10 && a.intervalMin > 3000;
-      const delay = isQuietPause
-        ? randomBetween(a.intervalMax * 2, a.intervalMax * 3.5)
-        : randomBetween(a.intervalMin, a.intervalMax);
-
-      const tid = setTimeout(() => {
-        const currentActivity = activityRef.current;
-        // Determine burst size
-        let burstCount = 1;
-        if (Math.random() < currentActivity.burstChance) {
-          burstCount = Math.random() < 0.3 ? 3 : 2;
-        }
-        // For burst, stagger additions slightly
-        for (let b = 0; b < burstCount; b++) {
-          setTimeout(() => {
-            const line = pickLine(currentActivity.linePool);
-            setAiLogs((prev) => {
-              const next = [...prev, line];
-              return next.length > currentActivity.maxVisible
-                ? next.slice(-currentActivity.maxVisible)
-                : next;
-            });
-            // Drive status bars from this operation
-            const bump = barBumpFnRef.current;
-            if (bump) bump(line.prefix, line.type);
-          }, b * (randomBetween(200, 600)));
-        }
-        scheduleNext();
-      }, delay);
-      timersRef.current.push(tid);
-    };
-
-    const firstTid = setTimeout(scheduleNext, 1200);
-    timersRef.current.push(firstTid);
-
-    return () => {
-      timersRef.current.forEach(clearTimeout);
-      timersRef.current = [];
-    };
-  }, [entered]);
-
-  // Auto-scroll feed
-  useEffect(() => {
-    if (feedRef.current) {
-      feedRef.current.scrollTop = feedRef.current.scrollHeight;
-    }
-  }, [aiLogs]);
 
   /* ── Dynamic status bars — fully independent with wide spread ── */
   const [barValues, setBarValues] = useState({ ai: 82, sync: 45, api: 67 });
@@ -527,14 +306,6 @@ export default function TrishulWorkspacePage() {
      recently-active projects. The "time" state already drives a 1s
      re-render, so the per-user elapsed display updates naturally.
      ═══════════════════════════════════════ */
-  type LiveUser = {
-    userId: string;
-    name: string;
-    projectId: string | null;
-    projectName: string | null;
-    clockInAt: string;
-    elapsedSec: number;
-  };
   type LiveProject = {
     projectId: string;
     name: string;
@@ -568,28 +339,6 @@ export default function TrishulWorkspacePage() {
       clearInterval(id);
     };
   }, []);
-
-  /* Helper: format seconds → "Xh Ym" (e.g. 5400s → "1h 30m") */
-  const formatElapsedHm = (sec: number) => {
-    const safe = Math.max(0, Math.floor(sec));
-    const h = Math.floor(safe / 3600);
-    const m = Math.floor((safe % 3600) / 60);
-    return `${h}h ${m.toString().padStart(2, "0")}m`;
-  };
-
-  /* Helper: format ISO → HH:MM:SS (24h) for feed timestamps */
-  const formatClockInTime = (iso: string) => {
-    try {
-      return new Date(iso).toLocaleTimeString("en-US", {
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hour12: false,
-      });
-    } catch {
-      return "--:--:--";
-    }
-  };
 
   /* Whether the currently-logged-in user is clocked in */
   const currentUserId = session?.user?.id;
@@ -802,65 +551,12 @@ export default function TrishulWorkspacePage() {
 
             {/* ─── ROW 3: AI Live Feed ─── */}
 
-            {/* LIVE AI FEED CARD — spans full width on mobile, 3 cols on desktop */}
-            <div
-              className={`ws-card ws-feed-card ${entered ? "ws-in" : ""}`}
-              style={{ transitionDelay: "0.35s" }}
-            >
-              <div className="ws-feed-header">
-                <div className="ws-feed-title-row">
-                  <Terminal size={14} className={`ws-feed-icon ws-feed-icon--${mode}`} />
-                  <h3 className={`ws-feed-heading ws-feed-heading--${mode}`}>
-                    Live Operations
-                  </h3>
-                </div>
-                <div className="ws-feed-live-badge">
-                  <span className="ws-feed-live-dot" />
-                  <span>LIVE</span>
-                </div>
-              </div>
-              <div ref={feedRef} className="ws-feed-scroll">
-                {liveUsers.length === 0 ? (
-                  <div className="ws-feed-line ws-feed-line--empty">
-                    <span className={`ws-feed-msg ws-feed-msg--${mode} ws-feed-msg--idle`}>
-                      No one is currently working
-                    </span>
-                  </div>
-                ) : (
-                  liveUsers.map((u, i) => {
-                    const elapsed =
-                      Math.max(
-                        0,
-                        Math.floor(
-                          (Date.now() - new Date(u.clockInAt).getTime()) / 1000
-                        )
-                      ) || u.elapsedSec;
-                    return (
-                      <div
-                        key={`${u.userId}-${i}`}
-                        className="ws-feed-line ws-feed-line--enter"
-                      >
-                        <span className={`ws-feed-time ws-feed-time--${mode}`}>
-                          {formatClockInTime(u.clockInAt)}
-                        </span>
-                        <span className="ws-feed-prefix ws-feed-prefix--info">
-                          {u.name}
-                        </span>
-                        <span
-                          className="ws-live-user-dot"
-                          aria-hidden
-                          title="Clocked in"
-                        />
-                        <span className={`ws-feed-msg ws-feed-msg--${mode}`}>
-                          working on {u.projectName ?? "no project"} (
-                          {formatElapsedHm(elapsed)})
-                        </span>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
+            <LiveIntensity
+              liveUsers={liveUsers}
+              mode={mode}
+              entered={entered}
+              onActivityLine={(prefix, type) => barBumpFnRef.current?.(prefix, type)}
+            />
 
             {/* ─── ROW 4: Status bars (right after Live Ops) ─── */}
 

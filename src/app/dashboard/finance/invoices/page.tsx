@@ -314,6 +314,11 @@ function InvoicesPageInner() {
   const [editInvoiceNumber, setEditInvoiceNumber] = useState<string>("");
   const [sendingInvoiceId, setSendingInvoiceId] = useState<string | null>(null);
   const [editDueDate, setEditDueDate] = useState<string>("");
+  const [paymentInvoice, setPaymentInvoice] = useState<Invoice | null>(null);
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentMethodInput, setPaymentMethodInput] = useState("");
+  const [paymentNote, setPaymentNote] = useState("");
+  const [paymentSubmitting, setPaymentSubmitting] = useState(false);
 
   // ━━ Searchable combobox state (create) ━━
   const [createClientId, setCreateClientId] = useState<string>("");
@@ -559,6 +564,49 @@ function InvoicesPageInner() {
       }
     } catch {
       toast.error("Failed to update payment status");
+    }
+  };
+
+  const openPaymentDialog = (inv: Invoice) => {
+    setPaymentInvoice(inv);
+    setPaymentAmount(String(inv.total ?? ""));
+    setPaymentMethodInput(inv.paymentMethod || "");
+    setPaymentNote("");
+  };
+
+  const handleRecordPayment = async () => {
+    if (!paymentInvoice) return;
+    const amount = Number(paymentAmount);
+    if (!amount || amount <= 0) {
+      toast.error("Enter a valid payment amount");
+      return;
+    }
+    setPaymentSubmitting(true);
+    try {
+      const res = await fetch("/api/invoices/payments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          invoiceId: paymentInvoice.id,
+          amount,
+          method: paymentMethodInput || null,
+          note: paymentNote || null,
+        }),
+      });
+      if (handleFetchError(res, router)) return;
+      if (res.ok) {
+        toast.success("Payment recorded");
+        setPaymentInvoice(null);
+        fetchData();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(safeText(data.error, "Failed to record payment"));
+      }
+    } catch {
+      toast.error("Failed to record payment");
+    } finally {
+      setPaymentSubmitting(false);
     }
   };
 
@@ -825,6 +873,16 @@ function InvoicesPageInner() {
           onOpenChange={(open) => {
             setAddOpen(open);
             if (!open) resetInvoiceForm();
+            // Refetch clients if empty — fixes intermittent "No clients found" (L4)
+            if (open && clients.length === 0) {
+              void fetch("/api/clients", { credentials: "include" })
+                .then((r) => (r.ok ? r.json() : null))
+                .then((data) => {
+                  if (!data) return;
+                  setClients(Array.isArray(data) ? data : data?.data || []);
+                })
+                .catch(() => {});
+            }
           }}
         >
           <DialogTrigger asChild>
@@ -1203,6 +1261,17 @@ function InvoicesPageInner() {
                         >
                           <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Mark
                           Paid
+                        </Button>
+                      )}
+                      {(inv.status === "SENT" || inv.paymentStatus === "UNPAID") && inv.status !== "PAID" && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8"
+                          onClick={() => openPaymentDialog(inv)}
+                          title="Record a partial or full payment"
+                        >
+                          <DollarSign className="h-3.5 w-3.5 mr-1" /> Record payment
                         </Button>
                       )}
                       {(inv.status === "SENT" || inv.status === "PAID") && (
@@ -1637,6 +1706,56 @@ function InvoicesPageInner() {
 
             <Button onClick={handleSaveEdit} className="w-full">
               Save Changes
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ━━ Record Payment ━━ */}
+      <Dialog open={!!paymentInvoice} onOpenChange={(open) => { if (!open) setPaymentInvoice(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Record payment</DialogTitle>
+            <DialogDescription>
+              {paymentInvoice ? `Invoice ${safeText(paymentInvoice.invoiceNumber)} · ${formatCurrency(paymentInvoice.total)}` : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 pt-1">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Amount</Label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={paymentAmount}
+                onChange={(e) => setPaymentAmount(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Method (optional)</Label>
+              <Select value={paymentMethodInput || "NONE"} onValueChange={(v) => setPaymentMethodInput(v === "NONE" ? "" : v)}>
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder="Select method" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="NONE">None</SelectItem>
+                  {PAYMENT_METHODS.filter((m) => m.value).map((m) => (
+                    <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Note (optional)</Label>
+              <Textarea
+                value={paymentNote}
+                onChange={(e) => setPaymentNote(e.target.value)}
+                rows={2}
+                placeholder="Transaction ref, UPI ID, etc."
+              />
+            </div>
+            <Button className="w-full" onClick={handleRecordPayment} disabled={paymentSubmitting}>
+              {paymentSubmitting ? "Recording…" : "Record payment"}
             </Button>
           </div>
         </DialogContent>

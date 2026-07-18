@@ -116,6 +116,8 @@ export default function ProjectDetailPage() {
   const [tokenSaving, setTokenSaving] = useState(false);
   const [revealedTokens, setRevealedTokens] = useState<Record<string, string>>({});
   const [revealing, setRevealing] = useState<string | null>(null);
+  const [newMilestoneTitle, setNewMilestoneTitle] = useState("");
+  const [milestoneSaving, setMilestoneSaving] = useState(false);
 
   // M-PRJ-6 FIX: Debounce timer ref for progress input
   const progressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -217,6 +219,23 @@ export default function ProjectDetailPage() {
     enabled: !!projectId,
     staleTime: 60 * 1000,
     gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: 1,
+  });
+
+  const { data: milestonesData = [], refetch: refetchMilestones } = useQuery({
+    queryKey: ["project-milestones", projectId],
+    queryFn: async () => {
+      if (!projectId) return [];
+      const res = await fetch(`/api/projects/${projectId}/milestones`, { credentials: "include" });
+      if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
+      if (!res.ok) return [];
+      const raw = deepSanitize(await res.json());
+      return Array.isArray(raw) ? raw as Record<string, unknown>[] : [];
+    },
+    enabled: !!projectId && !isInIframe,
+    staleTime: 30 * 1000,
+    gcTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
     retry: 1,
   });
@@ -423,6 +442,67 @@ export default function ProjectDetailPage() {
       }
       else { if (handle401(res)) return; toast.error("Failed to remove member"); }
     } catch { toast.error("Failed to remove member"); }
+  };
+
+  const handleAddMilestone = async () => {
+    if (!newMilestoneTitle.trim()) {
+      toast.error("Milestone title is required");
+      return;
+    }
+    setMilestoneSaving(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/milestones`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ title: newMilestoneTitle.trim() }),
+      });
+      if (res.ok) {
+        toast.success("Milestone added");
+        setNewMilestoneTitle("");
+        refetchMilestones();
+      } else {
+        if (handle401(res)) return;
+        const d = await res.json();
+        toast.error(d.error || "Failed to add milestone");
+      }
+    } catch {
+      toast.error("Failed to add milestone");
+    } finally {
+      setMilestoneSaving(false);
+    }
+  };
+
+  const handleToggleMilestone = async (id: string, done: boolean) => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/milestones`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ id, done: !done }),
+      });
+      if (res.ok) refetchMilestones();
+      else toast.error("Failed to update milestone");
+    } catch {
+      toast.error("Failed to update milestone");
+    }
+  };
+
+  const handleDeleteMilestone = async (id: string) => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/milestones?id=${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (res.ok) {
+        toast.success("Milestone removed");
+        refetchMilestones();
+      } else {
+        toast.error("Failed to delete milestone");
+      }
+    } catch {
+      toast.error("Failed to delete milestone");
+    }
   };
 
   // ── Derived values (ALL guaranteed primitives via safe extractors) ──
@@ -847,6 +927,65 @@ export default function ProjectDetailPage() {
               </DialogContent>
             </Dialog>
           )}
+        </div>
+      )}
+
+      {/* ═══════ Milestones ═══════ */}
+      {!isInIframe && (
+        <div className="rounded-xl border border-white/20 dark:border-white/10 bg-white/60 dark:bg-white/[0.02] backdrop-blur-xl overflow-hidden" style={{ animation: "card-enter 0.4s ease-out both", animationDelay: "165ms" }}>
+          <div className="flex items-center justify-between px-4 py-3 border-b border-black/[0.04] dark:border-white/[0.06]">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+              <h2 className="text-sm font-bold tracking-tight">Milestones</h2>
+              <Badge variant="secondary" className="text-[10px] h-5 px-1.5">
+                {milestonesData.filter((m) => m.done === true).length}/{milestonesData.length}
+              </Badge>
+            </div>
+          </div>
+          <div className="p-4 space-y-2">
+            {canManageProject && (
+              <div className="flex gap-2 mb-3">
+                <Input
+                  placeholder="New milestone…"
+                  value={newMilestoneTitle}
+                  onChange={(e) => setNewMilestoneTitle(e.target.value)}
+                  className="h-8 text-xs"
+                  onKeyDown={(e) => e.key === "Enter" && handleAddMilestone()}
+                />
+                <Button size="sm" className="h-8 text-xs shrink-0" onClick={handleAddMilestone} disabled={milestoneSaving}>
+                  {milestoneSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3 mr-1" />}
+                  Add
+                </Button>
+              </div>
+            )}
+            {milestonesData.length === 0 ? (
+              <p className="text-xs text-muted-foreground text-center py-4">No milestones yet</p>
+            ) : (
+              milestonesData.map((m) => {
+                const mId = extractStr(m, "id", "");
+                const mTitle = extractStr(m, "title", "");
+                const mDone = m.done === true;
+                return (
+                  <div key={mId} className="flex items-center gap-2 p-2 rounded-lg border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/[0.02]">
+                    <button
+                      type="button"
+                      onClick={() => canManageProject && handleToggleMilestone(mId, mDone)}
+                      className={cn("shrink-0", canManageProject ? "cursor-pointer" : "cursor-default")}
+                      disabled={!canManageProject}
+                    >
+                      <CheckCircle2 className={cn("h-4 w-4", mDone ? "text-emerald-500" : "text-muted-foreground/40")} />
+                    </button>
+                    <span className={cn("text-xs flex-1", mDone && "line-through text-muted-foreground")}>{mTitle}</span>
+                    {canManageProject && (
+                      <button type="button" onClick={() => handleDeleteMilestone(mId)} className="text-muted-foreground hover:text-red-500 transition-colors">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
       )}
 

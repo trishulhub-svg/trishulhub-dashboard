@@ -53,6 +53,7 @@ model User {
   trainingQrRequests TrainingQrRequest[]
   trainingAssignmentsAssigned TrainingAssignment[] @relation("TrainingAssignmentAssignee")
   trainingAssignmentsCreated  TrainingAssignment[] @relation("TrainingAssignmentAssigner")
+  leaveBalances               LeaveBalance[]
 
   @@map("User")
 }
@@ -242,6 +243,7 @@ model Project {
   credentials  ProjectCredential[]
   websites     ProjectWebsite[]
   infrastructure ProjectInfrastructure?
+  milestones   ProjectMilestone[]
   // methods are fetched via raw SQL on _ProjectMethodToProject join table
 
   @@index([clientId])
@@ -317,8 +319,21 @@ model ProjectMember {
 // Proposed: model InvoiceItem { id String @id @default(cuid()) invoiceId String invoice Invoice @relation(...) description String quantity Int rate Float amount Float }
 // TODO: Create ExchangeRate model for proper currency tracking:
 // model ExchangeRate { id String @id @default(cuid()) fromCurrency String toCurrency String rate Float effectiveDate DateTime @@unique([fromCurrency, toCurrency, effectiveDate]) }
-// TODO: Create Payment model for invoice payment tracking:
-// model Payment { id String @id @default(cuid()) invoiceId String invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade) amount Float method String reference String? paidAt DateTime status String @@index([invoiceId]) }
+model Payment {
+  id        String   @id @default(cuid())
+  invoiceId String
+  amount    Float
+  method    String?
+  paidAt    DateTime @default(now())
+  note      String?
+  createdAt DateTime @default(now())
+
+  invoice   Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@map("Payment")
+}
+
 model Invoice {
   id            String   @id @default(cuid())
   invoiceNumber String   @unique
@@ -331,14 +346,15 @@ model Invoice {
   subtotal      Float    @default(0)
   tax           Float    @default(0)
   total         Float    @default(0)
+  currency      String   @default("INR") // INR, USD, GBP, EUR — company default INR
   status        String   @default("DRAFT") // DRAFT, SENT, PAID, OVERDUE
   dueDate       DateTime?
   paidAt        DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  client        Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  project       Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  client        Client   @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  project       Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
   paymentMethod  String?   // UPI, CREDIT_DEBIT_CARD, BANK_TRANSFER, OTHER
   gst            Float?    // GST amount in INR
   gstPercent     Float?    // GST percentage (e.g., 18)
@@ -347,6 +363,7 @@ model Invoice {
 
   sentBy        User?    @relation(fields: [sentById], references: [id])
   sentById      String?
+  payments      Payment[]
 
   @@index([clientId])
   @@index([clientId, status])
@@ -400,7 +417,7 @@ model Deal {
   id                String    @id @default(cuid())
   title             String
   value             Float     @default(0)
-  currency          String    @default("USD") // USD, GBP, INR
+  currency          String    @default("INR") // USD, GBP, INR
   stage             String    @default("LEAD") // LEAD, QUALIFIED, PROPOSAL, NEGOTIATION, CLOSED_WON, CLOSED_LOST
   probability       Int       @default(0) // 0-100
   expectedCloseDate DateTime?
@@ -465,7 +482,7 @@ model SupportTicket {
   updatedAt   DateTime @updatedAt
 
   // TODO: Convert status, priority to Prisma enums when feasible
-  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Restrict)
   messages    TicketMessage[]
 
   @@index([assignedTo])
@@ -507,7 +524,7 @@ model TimeEntry {
   clockOutMethod String?
 
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  project     Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project     Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([userId, date])
@@ -594,8 +611,9 @@ model Expense {
   id          String   @id @default(cuid())
   category    String   // matches ExpenseCategory.name
   description String
-  // amount >= 0 enforced at application level
+  // amount >= 0 enforced at application level; round via lib/money
   amount      Float    @default(0)
+  currency    String   @default("INR") // INR, USD, GBP, EUR
   date        DateTime
   receiptUrl  String?
   projectId   String?
@@ -604,7 +622,7 @@ model Expense {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  project     Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project     Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
   employee    User?    @relation("ExpenseEmployee", fields: [employeeId], references: [id])
 
   @@index([projectId])
@@ -632,7 +650,7 @@ model Subscription {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  project      Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project      Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
   @@index([projectId])
   @@index([status])
@@ -772,6 +790,33 @@ model Leave {
   @@index([startDate])
   @@index([endDate])
   @@map("Leave")
+}
+
+model LeaveBalance {
+  id        String @id @default(cuid())
+  userId    String
+  year      Int
+  allowance Int    @default(12)
+  used      Int    @default(0)
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, year])
+  @@map("LeaveBalance")
+}
+
+model ProjectMilestone {
+  id        String    @id @default(cuid())
+  projectId String
+  title     String
+  done      Boolean   @default(false)
+  sortOrder Int       @default(0)
+  dueDate   DateTime?
+  createdAt DateTime  @default(now())
+
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("ProjectMilestone")
 }
 
 // ━━ Employee Availability ━━

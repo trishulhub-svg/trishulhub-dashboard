@@ -125,7 +125,6 @@ const roleColors: Record<string, string> = {
   ADMIN: "bg-primary/15 text-primary",
   PROJECT_MANAGER: "bg-primary/10 text-primary",
   DEVELOPER: "bg-muted text-foreground",
-  VIEWER: "bg-muted text-muted-foreground",
   CLIENT: "bg-success/15 text-success",
 };
 
@@ -980,7 +979,6 @@ function TeamPageInner() {
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="DEVELOPER">Developer</SelectItem>
-                  <SelectItem value="VIEWER">Viewer</SelectItem>
                   {/* [W17] Only SUPER_ADMIN can assign ADMIN, PROJECT_MANAGER, or SUPER_ADMIN roles */}
                   {session?.user?.role === "SUPER_ADMIN" && (
                     <>
@@ -1046,7 +1044,6 @@ function TeamPageInner() {
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="DEVELOPER">Developer</SelectItem>
-                  <SelectItem value="VIEWER">Viewer</SelectItem>
                   {/* [W17] Only SUPER_ADMIN can assign ADMIN, PROJECT_MANAGER, or SUPER_ADMIN roles */}
                   {session?.user?.role === "SUPER_ADMIN" && (
                     <>

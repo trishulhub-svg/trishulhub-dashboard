@@ -10,6 +10,7 @@ import { createInvoiceSchema, updateInvoiceSchema, validateRequest } from "@/lib
 import { deepSanitize } from "@/lib/utils"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
+import { COMPANY_DEFAULT_CURRENCY, normalizeCurrency, roundMoney } from "@/lib/money"
 
 // GET /api/invoices — CLIENT sees own; staff finance is ADMIN/SUPER_ADMIN only
 // (PROJECT_MANAGER / DEVELOPER / VIEWER must not read finance data)
@@ -110,7 +111,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 })
     }
 
-    let body: { invoiceNumber?: string; clientId?: string; projectId?: string; items?: unknown; subtotal?: number; tax?: number; total?: number; dueDate?: string; status?: string; paymentMethod?: string; gst?: number; gstPercent?: number; notes?: string; paymentStatus?: string; [key: string]: unknown }
+    let body: { invoiceNumber?: string; clientId?: string; projectId?: string; items?: unknown; subtotal?: number; tax?: number; total?: number; dueDate?: string; status?: string; paymentMethod?: string; gst?: number; gstPercent?: number; notes?: string; paymentStatus?: string; currency?: string; [key: string]: unknown }
     try {
       body = await req.json()
     } catch {
@@ -123,7 +124,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: validation.error }, { status: 400 })
     }
 
-    const { invoiceNumber, clientId, projectId, items, subtotal, tax, total, dueDate, paymentMethod, gst, gstPercent, notes, paymentStatus } = validation.data
+    const { invoiceNumber, clientId, projectId, items, subtotal, tax, total, dueDate, paymentMethod, gst, gstPercent, notes, paymentStatus, currency } = validation.data
 
     if (!clientId) {
       return NextResponse.json({ error: "Client ID is required" }, { status: 400 })
@@ -134,6 +135,11 @@ export async function POST(req: NextRequest) {
     if (tax !== undefined && tax < 0) return NextResponse.json({ error: "Tax cannot be negative" }, { status: 400 })
     if (subtotal !== undefined && subtotal < 0) return NextResponse.json({ error: "Subtotal cannot be negative" }, { status: 400 })
     if (gst !== undefined && gst < 0) return NextResponse.json({ error: "GST cannot be negative" }, { status: 400 })
+
+    const safeSub = roundMoney(subtotal ?? 0)
+    const safeTax = roundMoney(tax ?? 0)
+    const safeGst = roundMoney(typeof gst === "number" ? gst : 0)
+    const safeCurrency = normalizeCurrency(currency, COMPANY_DEFAULT_CURRENCY)
 
     // Generate invoice number if not provided (crypto-based for uniqueness)
     const autoInvoiceNumber = invoiceNumber || `INV-${crypto.randomUUID().split("-")[0].toUpperCase()}`
@@ -151,14 +157,15 @@ export async function POST(req: NextRequest) {
             clientId,
             projectId: projectId || null,
             items: items ? (typeof items === "string" ? items : JSON.stringify(items)) : "[]",
-            subtotal: subtotal ?? 0,
-            tax: tax ?? 0,
-            total: (subtotal ?? 0) + (tax ?? 0) + (gst ?? 0),
+            subtotal: safeSub,
+            tax: safeTax,
+            total: roundMoney(safeSub + safeTax + safeGst),
+            currency: safeCurrency,
             // SECURITY: Always create as DRAFT — ignore client-provided status
             status: "DRAFT",
             dueDate: dueDate ? new Date(dueDate) : null,
             paymentMethod: typeof paymentMethod === 'string' ? paymentMethod : null,
-            gst: typeof gst === 'number' ? gst : null,
+            gst: typeof gst === 'number' ? safeGst : null,
             gstPercent: typeof gstPercent === 'number' ? gstPercent : null,
             // INV-04: length-limit user-controlled string fields
             notes: typeof notes === 'string' ? deepSanitize(notes.slice(0, 5000)) : null,

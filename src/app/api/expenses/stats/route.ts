@@ -4,8 +4,6 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureAllTables } from "@/lib/auto-migrate"
-
 import { DEFAULT_EXPENSE_CATEGORIES } from "@/lib/expense-categories"
 
 async function getValidCategoryNames(): Promise<string[]> {
@@ -23,7 +21,7 @@ async function getValidCategoryNames(): Promise<string[]> {
 // GET /api/expenses/stats - Category and project-wise expense grouping
 export async function GET(req: NextRequest) {
   try {
-    await ensureAllTables()
+    // Skip ensureAllTables here — instrumentation/startup covers schema; this route must stay fast.
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -104,26 +102,6 @@ export async function GET(req: NextRequest) {
     // Note: `search` filters are translated to a Prisma `where` clause above, so all
     // aggregations below respect the same filters as the GET /api/expenses list.
 
-    // 1) Category aggregation — no join needed, use Prisma groupBy.
-    const categoryGroups = await db.expense.groupBy({
-      by: ["category"],
-      where,
-      _sum: { amount: true },
-      _count: true,
-    })
-
-    const byCategory = categoryGroups
-      .map((g) => ({
-        category: g.category || "OTHER",
-        total: g._sum.amount ?? 0,
-        count: g._count,
-      }))
-      .sort((a, b) => b.total - a.total)
-
-    // 2) Project aggregation — requires the project name + budget, so use raw SQL
-    //    with a LEFT JOIN so unassigned expenses (projectId IS NULL) are included.
-    //    Prisma's groupBy cannot join, so we build the query with $queryRawUnsafe
-    //    using parameterized inputs (safe against SQL injection).
     type ProjectGroupRow = {
       projectId: string | null
       projectName: string | null
@@ -132,10 +110,6 @@ export async function GET(req: NextRequest) {
       count: number
     }
 
-    // Build the WHERE clause mirroring the Prisma `where` above:
-    // - date range (gte/lte)
-    // - exact category match
-    // - search across description/category/paymentRef/project name/employee name/amount
     const dateClauses: string[] = []
     const categoryClauses: string[] = []
     const searchClauses: string[] = []
@@ -177,17 +151,39 @@ export async function GET(req: NextRequest) {
     if (searchClauses.length) whereParts.push(`(${searchClauses.join(" OR ")})`)
     const whereSql = whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : ""
 
-    const projectRows: ProjectGroupRow[] = await db.$queryRawUnsafe(
-      `SELECT e."projectId" AS projectId, p.name AS "projectName", p.budget AS budget,
-              COALESCE(SUM(e.amount), 0) AS total, COUNT(*) AS count
-       FROM "Expense" e
-       LEFT JOIN "Project" p ON e."projectId" = p.id
-       LEFT JOIN "User" u ON e."employeeId" = u.id
-       ${whereSql}
-       GROUP BY e."projectId"
-       ORDER BY total DESC`,
-      ...sqlParams
-    )
+    // Parallel aggregates — Turso round-trips were sequential (~minutes when cold).
+    const [categoryGroups, projectRows, totals] = await Promise.all([
+      db.expense.groupBy({
+        by: ["category"],
+        where,
+        _sum: { amount: true },
+        _count: true,
+      }),
+      db.$queryRawUnsafe(
+        `SELECT e."projectId" AS projectId, p.name AS "projectName", p.budget AS budget,
+                COALESCE(SUM(e.amount), 0) AS total, COUNT(*) AS count
+         FROM "Expense" e
+         LEFT JOIN "Project" p ON e."projectId" = p.id
+         LEFT JOIN "User" u ON e."employeeId" = u.id
+         ${whereSql}
+         GROUP BY e."projectId"
+         ORDER BY total DESC`,
+        ...sqlParams
+      ) as Promise<ProjectGroupRow[]>,
+      db.expense.aggregate({
+        where,
+        _sum: { amount: true },
+        _count: true,
+      }),
+    ])
+
+    const byCategory = categoryGroups
+      .map((g) => ({
+        category: g.category || "OTHER",
+        total: g._sum.amount ?? 0,
+        count: g._count,
+      }))
+      .sort((a, b) => b.total - a.total)
 
     const byProject = projectRows.map((row) => ({
       projectId: row.projectId,
@@ -197,21 +193,11 @@ export async function GET(req: NextRequest) {
       budget: row.budget !== null ? Number(row.budget) : null,
     }))
 
-    // 3) Totals via aggregate — authoritative count and sum across the full filtered set.
-    const totals = await db.expense.aggregate({
-      where,
-      _sum: { amount: true },
-      _count: true,
-    })
-
-    const totalExpenses = totals._sum.amount ?? 0
-    const totalEntries = totals._count
-
     return NextResponse.json({
       byCategory,
       byProject,
-      totalExpenses,
-      totalEntries,
+      totalExpenses: totals._sum.amount ?? 0,
+      totalEntries: totals._count,
     })
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

@@ -3,16 +3,14 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { isAdmin, canManageApprovals } from "@/lib/rbac"
 import { db } from "@/lib/db"
-import { ensureTable } from "@/lib/auto-migrate"
+import { ensureAllTables } from "@/lib/auto-migrate"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
 // GET /api/approvals/pending-counts
 // Returns a map of nav-href → count for notification badges.
-// Different roles see different badge data:
 //   ADMIN/SUPER_ADMIN: pending approvals, all leaves
-//   PROJECT_MANAGER:   pending AI approvals (cannot act on leaves)
-//   DEVELOPER:          their pending leaves, unread notifications
-//   VIEWER:             (no badges currently)
+//   PROJECT_MANAGER:   pending approvals + own leaves
+//   DEVELOPER:         their pending leaves, unread notifications
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -32,10 +30,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 })
     }
 
-    await Promise.all([
-      ensureTable("Approval"),
-      ensureTable("Leave"),
-    ])
+    await ensureAllTables()
 
     const badges: Record<string, number> = {}
 

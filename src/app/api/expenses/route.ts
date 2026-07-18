@@ -9,6 +9,7 @@ import { isAdmin } from "@/lib/rbac"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
 import { DEFAULT_EXPENSE_CATEGORIES } from "@/lib/expense-categories"
+import { COMPANY_DEFAULT_CURRENCY, normalizeCurrency, roundMoney } from "@/lib/money"
 
 async function getValidCategoryNames(): Promise<string[]> {
   try {
@@ -160,13 +161,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 })
     }
 
-    let body: { category?: string; description?: string; amount?: number; date?: string; receiptUrl?: string; projectId?: string; employeeId?: string; paymentRef?: string }
+    let body: { category?: string; description?: string; amount?: number; currency?: string; date?: string; receiptUrl?: string; projectId?: string; employeeId?: string; paymentRef?: string }
     try {
       body = await req.json()
     } catch {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
     }
-    const { category, description, amount, date, receiptUrl, projectId, employeeId, paymentRef } = body
+    const { category, description, amount, currency, date, receiptUrl, projectId, employeeId, paymentRef } = body
 
     if (!category || !description || amount === undefined) {
       return NextResponse.json({ error: "Category, description, and amount are required" }, { status: 400 })
@@ -205,7 +206,8 @@ export async function POST(req: NextRequest) {
       data: {
         category,
         description,
-        amount: parsed,
+        amount: roundMoney(parsed),
+        currency: normalizeCurrency(currency, COMPANY_DEFAULT_CURRENCY),
         date: date ? new Date(date) : new Date(),
         receiptUrl: receiptUrl || null,
         projectId: projectId || null,

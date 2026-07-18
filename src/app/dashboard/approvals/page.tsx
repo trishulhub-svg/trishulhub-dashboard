@@ -86,17 +86,7 @@ const approvalTypeColors: Record<string, string> = {
   QUOTATION: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300",
   PROJECT_PLAN: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300",
   CODE_REVIEW: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300",
-  LEAD_OUTREACH: "bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300",
-  CONTENT_PIECE: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
-  CHAT_DELETION: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
-  TASK_EXECUTION: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
   EXPENSE_APPROVAL: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
-  INVOICE_SENDING: "bg-lime-100 text-lime-700 dark:bg-lime-900/30 dark:text-lime-300",
-  EMAIL_SENDING: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300",
-  CODE_DEPLOYMENT: "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300",
-  DATA_EXPORT: "bg-slate-100 text-slate-700 dark:bg-slate-900/30 dark:text-slate-300",
-  SCHEDULED_ACTION: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300",
-  CROSS_AGENT_REQUEST: "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-300",
 };
 
 const statusColors: Record<string, string> = {
@@ -273,7 +263,7 @@ function ApprovalsPageInner() {
   // - ADMIN/SUPER_ADMIN: all pending leaves + all pending AI approvals
   // - PROJECT_MANAGER: own pending leaves + all pending AI approvals
   //   (PM can manage AI approvals but only has developer-level leave access)
-  // - DEVELOPER/VIEWER: own pending leaves only (no AI approvals)
+  // - DEVELOPER: own pending leaves only (no AI approvals)
   const unifiedPending: UnifiedPendingItem[] = useMemo(() => [
     ...(isAdminUser ? pendingLeaves : myPendingLeaves).map((l) => ({
       id: l.id,
@@ -301,52 +291,33 @@ function ApprovalsPageInner() {
   // Data Fetching
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  const fetchAllData = useCallback(async () => {
+  const fetchPendingData = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
-      // I7: Optimization opportunity — parallel API calls are acceptable here
-      // because each serves a distinct data domain (approvals, leaves).
-      // Could be consolidated into a single batched endpoint if needed in future.
-      // 2 requests instead of 5: pending AI + all leaves; history statuses in parallel only when needed
-      const [approvalsRes, leavesRes, approvedRes, rejectedRes, needsImprovementRes] =
-        await Promise.allSettled([
-          fetch("/api/approvals?status=PENDING", { credentials: "include" }),
-          fetch("/api/leaves?limit=200", { credentials: "include" }),
-          fetch("/api/approvals?status=APPROVED", { credentials: "include" }),
-          fetch("/api/approvals?status=REJECTED", { credentials: "include" }),
-          fetch("/api/approvals?status=NEEDS_IMPROVEMENT", { credentials: "include" }),
-        ]);
+      // Pending only on first paint — history statuses load when History tab opens (L1/L7).
+      const [approvalsRes, leavesRes] = await Promise.allSettled([
+        fetch("/api/approvals?status=PENDING", { credentials: "include" }),
+        fetch("/api/leaves?limit=200", { credentials: "include" }),
+      ]);
 
-      // Handle approvals
-      if (approvalsRes.status === "fulfilled" && approvalsRes.value.ok) {
-        setAiApprovals(safeArray<Approval>(await approvalsRes.value.json()));
-      }
       if (approvalsRes.status === "fulfilled" && approvalsRes.value.status === 401) {
         router.push("/login");
         return;
       }
+      if (approvalsRes.status === "fulfilled" && approvalsRes.value.ok) {
+        setAiApprovals(safeArray<Approval>(await approvalsRes.value.json()));
+      } else if (approvalsRes.status === "fulfilled") {
+        setAiApprovals([]);
+      }
 
-      // Handle approved + rejected + needs_improvement AI approvals for history
-      const historyPromises = [approvedRes, rejectedRes, needsImprovementRes]
-        .filter((r) => r.status === "fulfilled" && r.value.ok)
-        .map(async (r) => safeArray<Approval>(await (r as PromiseFulfilledResult<Response>).value.json()));
-      const historyArrays = await Promise.all(historyPromises);
-      setHistoryItems(
-        historyArrays.flat().sort(
-          (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-        )
-      );
-
-      // Handle leaves — use for both pending list and history
       let rawLeaves: Leave[] = [];
       if (leavesRes.status === "fulfilled" && leavesRes.value.ok) {
         rawLeaves = safeArray<Leave>(await leavesRes.value.json());
         setLeaveRequests(rawLeaves);
       }
 
-      // Build leave history: approved/rejected leaves (sort by decision time)
       setLeaveHistory(
         rawLeaves
           .filter((l: Leave) => l.status === "APPROVED" || l.status === "REJECTED")
@@ -356,20 +327,50 @@ function ApprovalsPageInner() {
             return tb - ta;
           })
       );
-
     } catch (err) {
-      console.error("[approvals] fetchAllData Error:", err);
+      console.error("[approvals] fetchPendingData Error:", err);
       setError("Failed to load data");
     } finally {
       setLoading(false);
     }
   }, [router]);
 
+  const fetchHistoryData = useCallback(async () => {
+    try {
+      const results = await Promise.allSettled([
+        fetch("/api/approvals?status=APPROVED", { credentials: "include" }),
+        fetch("/api/approvals?status=REJECTED", { credentials: "include" }),
+        fetch("/api/approvals?status=NEEDS_IMPROVEMENT", { credentials: "include" }),
+      ]);
+      const arrays = await Promise.all(
+        results
+          .filter((r): r is PromiseFulfilledResult<Response> => r.status === "fulfilled" && r.value.ok)
+          .map(async (r) => safeArray<Approval>(await r.value.json()))
+      );
+      setHistoryItems(
+        arrays.flat().sort(
+          (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+        )
+      );
+    } catch (err) {
+      console.error("[approvals] fetchHistoryData Error:", err);
+    }
+  }, []);
+
+  const fetchAllData = fetchPendingData;
+
   useEffect(() => {
     if (!isSessionLoading && session) {
-      fetchAllData();
+      fetchPendingData();
     }
-  }, [isSessionLoading, session, fetchAllData]);
+  }, [isSessionLoading, session, fetchPendingData]);
+
+  // Lazy-load history when that tab is selected
+  useEffect(() => {
+    if (activeTab === "history") {
+      void fetchHistoryData();
+    }
+  }, [activeTab, fetchHistoryData]);
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // Action Handlers

@@ -243,3 +243,28 @@ export async function checkDbRateLimit(
     return { allowed: true, remaining: maxAttempts }
   }
 }
+
+/** Read-only check — does not increment. Used before login attempt. */
+export async function peekDbRateLimit(
+  key: string,
+  maxAttempts: number,
+  windowMs: number
+): Promise<{ allowed: boolean; remaining: number }> {
+  await ensureRateLimitTable()
+  if (!_dbTableEnsured) return { allowed: true, remaining: maxAttempts }
+
+  try {
+    const rows: Array<{ count: number; windowStart: string; windowMs: number }> = await db.$queryRawUnsafe(
+      `SELECT "count", "windowStart", "windowMs" FROM "RateLimitEntry" WHERE "key" = ? LIMIT 1`,
+      key
+    )
+    const row = rows[0]
+    if (!row) return { allowed: true, remaining: maxAttempts }
+    const resetAt = new Date(row.windowStart).getTime() + (row.windowMs || windowMs)
+    if (Date.now() > resetAt) return { allowed: true, remaining: maxAttempts }
+    const remaining = Math.max(0, maxAttempts - row.count)
+    return { allowed: row.count < maxAttempts, remaining }
+  } catch {
+    return { allowed: true, remaining: maxAttempts }
+  }
+}

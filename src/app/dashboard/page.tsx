@@ -6,14 +6,14 @@ import { useSession } from "next-auth/react";
 import {
   Rocket, DollarSign, FolderKanban, TrendingUp, AlertCircle,
   Clock, ArrowRight, Plus, Send, IndianRupee, Wallet, ChevronDown,
-  Ticket, Users, CalendarDays, Eye,
+  Ticket, Users, CalendarDays,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { cn, safeArray, safeText, deepSanitize, safeNumber, safeDate } from "@/lib/utils";
 
-type UserRole = "SUPER_ADMIN" | "ADMIN" | "PROJECT_MANAGER" | "DEVELOPER" | "VIEWER" | string;
+type UserRole = "SUPER_ADMIN" | "ADMIN" | "PROJECT_MANAGER" | "DEVELOPER" | string;
 
 type ProjectRow = {
   id: string;
@@ -97,8 +97,6 @@ function roleSubtitle(role: UserRole): string {
       return "Delivery focus — keep projects moving and the team unblocked.";
     case "DEVELOPER":
       return "Work focus — track time, ship progress, stay on your projects.";
-    case "VIEWER":
-      return "Read-only view of projects assigned to you.";
     default:
       return "Here's your workspace overview for today.";
   }
@@ -310,7 +308,6 @@ export default function DashboardPage() {
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
   const isPm = userRole === "PROJECT_MANAGER";
   const isDeveloper = userRole === "DEVELOPER";
-  const isViewer = userRole === "VIEWER";
   const isAuthenticated = sessionStatus === "authenticated";
 
   const fetchDashboard = useCallback(async () => {
@@ -477,11 +474,6 @@ export default function DashboardPage() {
           {isAdminUser && (
             <Button size="sm" variant="outline" onClick={() => router.push("/dashboard/finance/invoices")}>
               <Send className="mr-1 h-4 w-4" /> Send Invoice
-            </Button>
-          )}
-          {isViewer && (
-            <Button size="sm" variant="outline" onClick={() => router.push("/dashboard/workspace")}>
-              <Eye className="mr-1 h-4 w-4" /> Workspace
             </Button>
           )}
         </div>
@@ -759,38 +751,8 @@ export default function DashboardPage() {
         </>
       )}
 
-      {/* ── VIEWER ── */}
-      {isViewer && (
-        <>
-          <div className="rounded-xl border border-border/70 bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
-            You have read-only access. Tracking time, leave, invoices, and revenue are hidden for this role.
-          </div>
-
-          <SectionShell
-            title="Assigned projects"
-            action={
-              projects.length > 0 ? (
-                <span className="text-[11px] text-muted-foreground">{projects.length} assigned</span>
-              ) : null
-            }
-          >
-            <ProjectList
-              projects={projects}
-              emptyLabel="No projects assigned yet. Contact your admin if you expected access."
-              onOpen={openProject}
-            />
-          </SectionShell>
-
-          <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" onClick={() => router.push("/dashboard/workspace")}>
-              <Rocket className="mr-1 h-4 w-4" /> Workspace
-            </Button>
-          </div>
-        </>
-      )}
-
       {/* Fallback for unexpected roles */}
-      {!isAdminUser && !isPm && !isDeveloper && !isViewer && (
+      {!isAdminUser && !isPm && !isDeveloper && (
         <SectionShell title="Projects">
           <ProjectList
             projects={projects}

@@ -469,6 +469,13 @@ function ClientsPageInner() {
   const [contractLinkOpen, setContractLinkOpen] = useState(false);
   const [contractLinkInput, setContractLinkInput] = useState("");
   const [contractLinkSaving, setContractLinkSaving] = useState(false);
+  const [dealTitle, setDealTitle] = useState("");
+  const [dealValue, setDealValue] = useState("");
+  const [dealStage, setDealStage] = useState("LEAD");
+  const [dealSubmitting, setDealSubmitting] = useState(false);
+  const [contactFirstName, setContactFirstName] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [contactSubmitting, setContactSubmitting] = useState(false);
   const [permanentDelete, setPermanentDelete] = useState(false);
   const [editLoading, setEditLoading] = useState(false);
 
@@ -879,6 +886,10 @@ function ClientsPageInner() {
   };
 
   const openSavedContract = (client: ClientRow) => {
+    if (!isFinanceAdmin) {
+      toast.error("Only admins can open contract links");
+      return;
+    }
     const url = (client.contractUrl || "").trim();
     if (!url) {
       toast.error("No contract link saved yet — use Add Contract first");
@@ -936,6 +947,76 @@ function ClientsPageInner() {
       toast.error("Failed to save contract link");
     } finally {
       setContractLinkSaving(false);
+    }
+  };
+
+  const handleCreateDeal = async () => {
+    if (!detailClient || !dealTitle.trim()) {
+      toast.error("Deal title is required");
+      return;
+    }
+    setDealSubmitting(true);
+    try {
+      const res = await fetch("/api/deals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          title: dealTitle.trim(),
+          value: dealValue ? Number(dealValue) : 0,
+          stage: dealStage,
+          clientId: detailClient.id,
+        }),
+      });
+      if (handleFetchError(res)) return;
+      if (res.ok) {
+        toast.success("Deal created");
+        setDealTitle("");
+        setDealValue("");
+        setDealStage("LEAD");
+        fetchDetail(detailClient.id);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        toast.error((err.error || "Failed to create deal").slice(0, 100));
+      }
+    } catch {
+      toast.error("Failed to create deal");
+    } finally {
+      setDealSubmitting(false);
+    }
+  };
+
+  const handleCreateContact = async () => {
+    if (!detailClient || !contactFirstName.trim() || !contactEmail.trim()) {
+      toast.error("First name and email are required");
+      return;
+    }
+    setContactSubmitting(true);
+    try {
+      const res = await fetch("/api/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          firstName: contactFirstName.trim(),
+          email: contactEmail.trim(),
+          clientId: detailClient.id,
+        }),
+      });
+      if (handleFetchError(res)) return;
+      if (res.ok) {
+        toast.success("Contact created");
+        setContactFirstName("");
+        setContactEmail("");
+        fetchDetail(detailClient.id);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        toast.error((err.error || "Failed to create contact").slice(0, 100));
+      }
+    } catch {
+      toast.error("Failed to create contact");
+    } finally {
+      setContactSubmitting(false);
     }
   };
 
@@ -1280,6 +1361,11 @@ function ClientsPageInner() {
                               ) : null}
                             </>
                           )}
+                          {isAdminUser && !isFinanceAdmin && client.contractUrl ? (
+                            <DropdownMenuItem disabled className="opacity-70">
+                              <FileText className="h-4 w-4 mr-2" /> Contract on file
+                            </DropdownMenuItem>
+                          ) : null}
                           {client.status === "CHURNED" && isFinanceAdmin ? (
                             <DropdownMenuItem
                               onClick={(e) => { e.stopPropagation(); setPermanentDelete(true); setDeleteTarget(client); }}
@@ -1688,6 +1774,24 @@ function ClientsPageInner() {
                     </Badge>
                   </div>
                 )}
+                {detailClient.contractUrl && (
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1">
+                    <FileText className="h-3 w-3" />
+                    {isFinanceAdmin ? (
+                      <a
+                        href={detailClient.contractUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 dark:text-blue-400 hover:underline"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        Open contract
+                      </a>
+                    ) : (
+                      <span>Contract on file (admin can open)</span>
+                    )}
+                  </div>
+                )}
               </SheetHeader>
 
               {/* Tabs */}
@@ -1837,6 +1941,40 @@ function ClientsPageInner() {
 
                   {/* Deals Tab */}
                   <TabsContent value="deals" className="mt-3 space-y-2">
+                    {isAdminUser && (
+                      <div className="rounded-xl p-3 bg-muted/30 border border-border/50 space-y-2">
+                        <p className="text-xs font-medium text-muted-foreground">Add deal</p>
+                        <div className="flex flex-wrap gap-2">
+                          <Input
+                            placeholder="Title"
+                            value={dealTitle}
+                            onChange={(e) => setDealTitle(e.target.value)}
+                            className="h-8 text-xs flex-1 min-w-[120px]"
+                          />
+                          <Input
+                            type="number"
+                            placeholder="Value"
+                            value={dealValue}
+                            onChange={(e) => setDealValue(e.target.value)}
+                            className="h-8 text-xs w-24"
+                          />
+                          <Select value={dealStage} onValueChange={setDealStage}>
+                            <SelectTrigger className="h-8 text-xs w-[130px]">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {Object.entries(dealStageLabels).map(([k, v]) => (
+                                <SelectItem key={k} value={k} className="text-xs">{v}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Button size="sm" className="h-8 text-xs" onClick={handleCreateDeal} disabled={dealSubmitting}>
+                            {dealSubmitting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3 mr-1" />}
+                            Add
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                     {detailClient.deals.length === 0 ? (
                       <p className="text-sm text-muted-foreground py-6 text-center">No deals yet</p>
                     ) : (
@@ -1860,6 +1998,30 @@ function ClientsPageInner() {
 
                   {/* Contacts Tab */}
                   <TabsContent value="contacts" className="mt-3 space-y-2">
+                    {isAdminUser && (
+                      <div className="rounded-xl p-3 bg-muted/30 border border-border/50 space-y-2">
+                        <p className="text-xs font-medium text-muted-foreground">Add contact</p>
+                        <div className="flex flex-wrap gap-2">
+                          <Input
+                            placeholder="First name"
+                            value={contactFirstName}
+                            onChange={(e) => setContactFirstName(e.target.value)}
+                            className="h-8 text-xs flex-1 min-w-[100px]"
+                          />
+                          <Input
+                            type="email"
+                            placeholder="Email"
+                            value={contactEmail}
+                            onChange={(e) => setContactEmail(e.target.value)}
+                            className="h-8 text-xs flex-1 min-w-[140px]"
+                          />
+                          <Button size="sm" className="h-8 text-xs" onClick={handleCreateContact} disabled={contactSubmitting}>
+                            {contactSubmitting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3 mr-1" />}
+                            Add
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                     {detailClient.contacts.length === 0 ? (
                       <p className="text-sm text-muted-foreground py-6 text-center">No contacts yet</p>
                     ) : (
@@ -1934,7 +2096,7 @@ function ClientsPageInner() {
               <Link2 className="h-4 w-4" /> Add Contract
             </DialogTitle>
             <DialogDescription>
-              Paste the contract link for {safeText(contractLinkClient?.company || contractLinkClient?.name)}. Leave empty to clear.
+              Paste Google Drive / Docx link — opens in new tab. Leave empty to clear the link for {safeText(contractLinkClient?.company || contractLinkClient?.name)}.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 pt-1">

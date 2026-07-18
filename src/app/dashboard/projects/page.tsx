@@ -14,7 +14,7 @@ import {
   Plus, Search, FolderKanban, Pencil, Trash2, MoreHorizontal,
   Key, Eye, EyeOff, Copy, X, Activity, CheckCircle2,
   LayoutGrid, ClipboardCheck, List, ArrowUpDown, CircleDot, ExternalLink, Globe,
-  Settings, Check, ChevronDown, ChevronUp,
+  Settings, Check, ChevronDown, ChevronUp, GripVertical,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -339,8 +339,19 @@ function SortableProjectCard({
     opacity: isDragging ? 0.5 : 1,
   };
 
+  // Drag handle only — card body click opens project detail (L5).
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+    <div ref={setNodeRef} style={style} className="relative">
+      <button
+        type="button"
+        className="absolute left-1 top-1 z-20 flex h-6 w-6 items-center justify-center rounded text-muted-foreground/70 hover:bg-muted hover:text-foreground cursor-grab active:cursor-grabbing"
+        aria-label="Drag to move"
+        {...attributes}
+        {...listeners}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <GripVertical className="h-3.5 w-3.5" />
+      </button>
       <KanbanProjectCard
         project={project}
         onClick={onCardClick}

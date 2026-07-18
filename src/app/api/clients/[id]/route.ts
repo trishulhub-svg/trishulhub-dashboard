@@ -345,7 +345,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Client not found" }, { status: 404 })
     }
 
-    // Permanent wipe — admin only, and only for already-churned clients
+    // Permanent wipe — admin only, and only when nothing related remains
     if (permanent) {
       if (!isAdmin(role)) {
         return NextResponse.json({ error: "Only admins can permanently delete clients" }, { status: 403 })
@@ -357,13 +357,34 @@ export async function DELETE(
         )
       }
 
+      const [invoices, projects, tickets, websites, deals, contacts] = await Promise.all([
+        db.invoice.count({ where: { clientId: id } }),
+        db.project.count({ where: { clientId: id } }),
+        db.supportTicket.count({ where: { clientId: id } }),
+        db.clientWebsite.count({ where: { clientId: id } }),
+        db.deal.count({ where: { clientId: id } }),
+        db.contact.count({ where: { clientId: id } }),
+      ])
+      const blockers = [
+        invoices && `${invoices} invoice(s)`,
+        projects && `${projects} project(s)`,
+        tickets && `${tickets} support ticket(s)`,
+        websites && `${websites} website(s)`,
+        deals && `${deals} deal(s)`,
+        contacts && `${contacts} contact(s)`,
+      ].filter(Boolean)
+      if (blockers.length > 0) {
+        return NextResponse.json(
+          {
+            error: `Cannot permanently delete client while related records exist: ${blockers.join(", ")}. Remove or reassign them first.`,
+            counts: { invoices, projects, tickets, websites, deals, contacts },
+          },
+          { status: 409 }
+        )
+      }
+
       await db.$transaction(async (tx) => {
-        // Detach non-cascading relations, then delete client
-        // (invoices, tickets, websites cascade via schema)
-        await tx.contact.updateMany({ where: { clientId: id }, data: { clientId: null } })
-        await tx.deal.updateMany({ where: { clientId: id }, data: { clientId: null } })
         await tx.lead.updateMany({ where: { clientId: id }, data: { clientId: null } })
-        await tx.project.updateMany({ where: { clientId: id }, data: { clientId: null } })
         await tx.client.delete({ where: { id } })
       })
 

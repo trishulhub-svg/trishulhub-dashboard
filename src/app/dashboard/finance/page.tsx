@@ -489,21 +489,31 @@ function FinancePageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Re-fetch expenses and stats when date/category/search filters change
+  // Defer heavy expense/stats fetches until those tabs are open (L3 / L7).
   useEffect(() => {
+    if (activeTab !== "expenses" && activeTab !== "by-category" && activeTab !== "by-project" && activeTab !== "overview") {
+      return;
+    }
+    // Overview only needs stats; expense tabs need list + stats
     const controller = new AbortController();
-    fetchAllExpenses(controller.signal);
-    fetchExpenses(controller.signal);
-    fetchStats(controller.signal);
+    if (activeTab === "overview" || activeTab === "by-category" || activeTab === "by-project") {
+      fetchStats(controller.signal);
+    }
+    if (activeTab === "expenses" || activeTab === "by-category" || activeTab === "by-project") {
+      fetchAllExpenses(controller.signal);
+      fetchExpenses(controller.signal);
+      if (activeTab === "expenses") fetchStats(controller.signal);
+    }
     return () => controller.abort();
-  }, [expStartDate, expEndDate, expCategory, expSearchDebounced, fetchAllExpenses, fetchExpenses, fetchStats]);
+  }, [activeTab, expStartDate, expEndDate, expCategory, expSearchDebounced, fetchAllExpenses, fetchExpenses, fetchStats]);
 
-  // Task 11: Re-fetch subscriptions when subscription search or shared date filters change
+  // Subscriptions only when that tab is active
   useEffect(() => {
+    if (activeTab !== "subscriptions" && activeTab !== "overview") return;
     const controller = new AbortController();
     fetchSubscriptions(controller.signal);
     return () => controller.abort();
-  }, [subSearchDebounced, expStartDate, expEndDate, fetchSubscriptions]);
+  }, [activeTab, subSearchDebounced, expStartDate, expEndDate, fetchSubscriptions]);
 
   // Fetch live exchange rates
   useEffect(() => {

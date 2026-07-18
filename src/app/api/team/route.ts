@@ -15,7 +15,7 @@ function toLocalDateStr(d: Date): string {
 }
 
 // [T4/T6] Valid role values
-const VALID_ROLES = ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER", "VIEWER", "CLIENT"] as const
+const VALID_ROLES = ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER", "CLIENT"] as const
 
 // [W15] Helper: verify user account is still active
 async function requireActiveUser(userId: string): Promise<NextResponse | null> {
@@ -460,7 +460,10 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Invalid email format" }, { status: 400 });
       }
 
-      // [T4/T6] Validate role value
+      // [T4/T6] Validate role value (VIEWER is legacy — no longer assignable)
+      if (role === "VIEWER") {
+        return NextResponse.json({ error: "VIEWER role is no longer assignable" }, { status: 400 });
+      }
       if (role && !VALID_ROLES.includes(role as typeof VALID_ROLES[number])) {
         return NextResponse.json({ error: "Invalid role" }, { status: 400 });
       }
@@ -614,7 +617,10 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
-    // [T4/T6] Validate role value on update
+    // [T4/T6] Validate role value on update (VIEWER is legacy — no longer assignable)
+    if (data.role === "VIEWER") {
+      return NextResponse.json({ error: "VIEWER role is no longer assignable" }, { status: 400 });
+    }
     if (data.role && !VALID_ROLES.includes(data.role as typeof VALID_ROLES[number])) {
       return NextResponse.json({ error: "Invalid role" }, { status: 400 });
     }

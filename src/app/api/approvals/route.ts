@@ -6,6 +6,12 @@ import { canManageApprovals } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { deepSanitize } from "@/lib/utils"
 import { notifyRoles, notifyUsers } from "@/lib/notify"
+import { ensureAllTables } from "@/lib/auto-migrate"
+import {
+  APPROVAL_TYPES,
+  isValidApprovalStatus,
+  isValidApprovalType,
+} from "@/lib/approval-types"
 
 // GET /api/approvals - List approvals (ADMIN/SUPER_ADMIN only for full access)
 export async function GET(req: NextRequest) {
@@ -15,9 +21,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // Rate limiting
     const rl = rateLimit(`approvals-get-${session.user.id}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+
+    await ensureAllTables()
 
     const userRole = session.user.role
     const userId = session.user.id
@@ -25,55 +32,46 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const statusParam = searchParams.get("status")
     const type = searchParams.get("type")
-    // W27: Validate type against whitelist of valid approval types
-    const validApprovalTypes = ["TASK", "INVOICE", "EMAIL", "QUOTATION", "PROJECT_PLAN", "CODE_REVIEW", "LEAD_OUTREACH", "CONTENT_PIECE", "EXPENSE_APPROVAL", "INVOICE_SENDING", "EMAIL_SENDING", "CODE_DEPLOYMENT", "DATA_EXPORT", "SCHEDULED_ACTION"]
-    if (type && !validApprovalTypes.includes(type)) {
+    if (type && !isValidApprovalType(type)) {
       return NextResponse.json({ error: "Invalid approval type" }, { status: 400 })
     }
     const where: Record<string, unknown> = {}
     if (type) where.type = type
 
-    // Non-admin users can only see their own approval requests.
-    // PROJECT_MANAGER (via canManageApprovals) can see all approvals — they
-    // can manage non-leave approvals (AI approvals, task approvals, etc.).
-    // Leave approvals are gated separately via /api/team and canApproveLeave.
     const canManage = canManageApprovals(userRole)
     if (!canManage) {
       where.requesterId = userId
-      // W26: Validate statusParam against whitelist for non-admins
-      const validStatuses = ["PENDING", "APPROVED", "REJECTED", "NEEDS_IMPROVEMENT"]
-      if (statusParam && !validStatuses.includes(statusParam)) {
+      if (statusParam && !isValidApprovalStatus(statusParam)) {
         return NextResponse.json({ error: "Invalid status parameter" }, { status: 400 })
       }
       if (statusParam) where.status = statusParam
     } else {
-      // W26: Validate statusParam against whitelist for admins/PM
-      const validStatuses = ["PENDING", "APPROVED", "REJECTED", "NEEDS_IMPROVEMENT"]
-      if (statusParam && !validStatuses.includes(statusParam)) {
+      if (statusParam && !isValidApprovalStatus(statusParam)) {
         return NextResponse.json({ error: "Invalid status parameter" }, { status: 400 })
       }
-      // Admins/PM default to PENDING but can override via ?status=
       where.status = statusParam || "PENDING"
     }
 
-    // Pagination
     const page = Math.max(Number(searchParams.get("page")) || 1, 1)
-    // W25: Upper-bound take to prevent unbounded queries
     const take = Math.min(Math.max(Number(searchParams.get("limit")) || 50, 1), 200)
     const skip = (page - 1) * take
 
-    const approvals = await db.approval.findMany({
-      where,
-      include: {
-        approvedBy: { select: { id: true, name: true } },
-      },
-      orderBy: { createdAt: "desc" },
-      take,
-      skip,
-    })
-
-    // W3: Apply deepSanitize to all approval responses
-    return NextResponse.json(deepSanitize(approvals))
+    try {
+      const approvals = await db.approval.findMany({
+        where,
+        include: {
+          approvedBy: { select: { id: true, name: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take,
+        skip,
+      })
+      return NextResponse.json(deepSanitize(approvals))
+    } catch (queryErr: unknown) {
+      // Soft-fail: schema drift should not blank the Approvals UI for minutes
+      console.error("[approvals] GET query error (returning []):", queryErr instanceof Error ? queryErr.message : String(queryErr))
+      return NextResponse.json([])
+    }
   } catch (error: unknown) {
     console.error("[approvals] GET Error:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -101,10 +99,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Type and title are required" }, { status: 400 })
     }
 
-    // SECURITY: Validate approval type and requester type
-    const validApprovalTypes = ["TASK", "INVOICE", "EMAIL", "QUOTATION", "PROJECT_PLAN", "CODE_REVIEW", "LEAD_OUTREACH", "CONTENT_PIECE", "EXPENSE_APPROVAL", "INVOICE_SENDING", "EMAIL_SENDING", "CODE_DEPLOYMENT", "DATA_EXPORT", "SCHEDULED_ACTION"]
-    if (!validApprovalTypes.includes(type)) {
-      return NextResponse.json({ error: "Invalid approval type" }, { status: 400 })
+    if (!isValidApprovalType(type)) {
+      return NextResponse.json({
+        error: `Invalid approval type. Must be one of: ${APPROVAL_TYPES.join(", ")}`,
+      }, { status: 400 })
     }
     if (requesterType && !["AI", "HUMAN"].includes(requesterType)) {
       return NextResponse.json({ error: "Invalid requester type" }, { status: 400 })

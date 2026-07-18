@@ -46,7 +46,7 @@ export function isAdminOrProjectManager(role: string): boolean {
  * Get the list of project IDs that a user has access to.
  * SUPER_ADMIN, ADMIN, and PROJECT_MANAGER see all projects (returns null to indicate "no filter needed").
  * CLIENT users see projects belonging to their linked client record.
- * DEVELOPER / VIEWER see only projects they are members of.
+ * DEVELOPER sees only projects they are members of.
  *
  * @returns Array of project IDs the user has access to, or null if admin/pm (all access)
  */
@@ -63,8 +63,7 @@ export async function getAssignedProjectIds(userId: string, role: string): Promi
     return clientProjects.map((cp) => cp.id)
   }
 
-  // VIEWER: read-only access, filtered by project membership
-  // ADMIN, DEVELOPER, VIEWER: only see projects they are members of
+  // DEVELOPER: filtered by project membership
   const memberships = await db.projectMember.findMany({
     where: { userId },
     select: { projectId: true },
@@ -112,7 +111,7 @@ export function canManageApprovals(role: string): boolean {
  * PROJECT_MANAGER is included so they can view audit logs (read-only —
  * export is gated by `canExportAuditTrail`). */
 export function canViewAuditTrail(role: string): boolean {
-  return ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER", "VIEWER"].includes(role)
+  return ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"].includes(role)
 }
 
 /** Check if user can export audit trail data.
@@ -122,12 +121,12 @@ export function canExportAuditTrail(role: string): boolean {
 }
 
 /** Get accessible departments for audit trail based on role.
- * PROJECT_MANAGER is treated like DEVELOPER/VIEWER — they only see their
+ * PROJECT_MANAGER is treated like DEVELOPER — they only see their
  * own department. Only SUPER_ADMIN/ADMIN see all departments. */
 export function getAccessibleDepartments(role: string, userDepartment?: string): string[] {
   const depts = ["BUSINESS", "TEAM_WORK", "HR_PEOPLE", "LEARNING", "SYSTEM"]
   if (["SUPER_ADMIN", "ADMIN"].includes(role)) return depts
-  // DEVELOPER, VIEWER, and PROJECT_MANAGER can only see their own department
+  // DEVELOPER and PROJECT_MANAGER can only see their own department
   if (userDepartment) return [userDepartment]
   return []
 }

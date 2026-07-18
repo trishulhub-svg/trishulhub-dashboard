@@ -41,6 +41,8 @@ import {
   Wallet,
   ChevronRight,
   IdCard,
+  LifeBuoy,
+  BarChart3,
 } from "lucide-react";
 import Image from "next/image";
 import LoadingScreen from "@/components/ui/loading-screen";
@@ -106,6 +108,7 @@ const navGroups: NavGroup[] = [
       { title: "CRM", href: "/dashboard/crm", icon: Crosshair, roles: ["SUPER_ADMIN", "ADMIN"] },
       { title: "Demo Projects", href: "/dashboard/demo", icon: FlaskConical, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER"] },
       { title: "Time Tracking", href: "/dashboard/time-tracking", icon: Clock, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
+      { title: "Support", href: "/dashboard/support", icon: LifeBuoy, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER"] },
     ],
   },
   {
@@ -115,6 +118,7 @@ const navGroups: NavGroup[] = [
       { title: "My Details", href: "/dashboard/my-details", icon: IdCard, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
       { title: "Team", href: "/dashboard/team", icon: Users, roles: ["SUPER_ADMIN", "ADMIN"] },
       { title: "Availability", href: "/dashboard/availability", icon: Clock, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER"] },
+      { title: "Capacity", href: "/dashboard/capacity", icon: BarChart3, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER"] },
       { title: "Approvals", href: "/dashboard/approvals", icon: Shield, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER"] },
     ],
   },
@@ -136,15 +140,7 @@ const navGroups: NavGroup[] = [
   {
     label: "System",
     items: [
-      {
-        title: "Access Hub",
-        href: "/dashboard/access-hub",
-        icon: KeyRound,
-        roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"],
-        children: [
-          { title: "Credentials", href: "/dashboard/access-hub", icon: Shield, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
-        ],
-      },
+      { title: "Access Hub", href: "/dashboard/access-hub", icon: KeyRound, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
       { title: "API Keys", href: "/dashboard/api-keys", icon: Key, roles: ["SUPER_ADMIN", "ADMIN"] },
       { title: "Audit Trail", href: "/dashboard/audit-trail", icon: ScrollText, roles: ["SUPER_ADMIN", "ADMIN"] },
       { title: "Email Logs", href: "/dashboard/email-logs", icon: Mail, roles: ["SUPER_ADMIN"] },
@@ -501,7 +497,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [navBadgeData, setNavBadgeData] = useState<NavBadgeMap>({});
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
 
-  const VALID_ROLES = ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER", "VIEWER", "CLIENT"] as const;
+  const VALID_ROLES = ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER", "CLIENT"] as const;
   const rawRole = session?.user?.role;
   const userRole = rawRole && VALID_ROLES.includes(rawRole as typeof VALID_ROLES[number])
     ? rawRole
@@ -580,20 +576,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [pathname]);
 
-  // PERF: Defer notification + counts fetch by 200ms so page data loads first.
-  // Notifications are non-critical UI — they should not compete with the
-  // page's own API calls for network bandwidth on navigation.
+  // PERF: Defer shell fetches; poll slowly; do not refetch avatar on every route (L7).
   useEffect(() => {
     if (session) {
       const timer = setTimeout(() => {
         fetchNotifications();
         fetchPendingCounts();
         fetchUserAvatar();
-      }, 200);
+      }, 400);
       const interval = setInterval(() => {
         fetchNotifications();
         fetchPendingCounts();
-      }, 45000);
+      }, 90_000);
       return () => {
         clearTimeout(timer);
         clearInterval(interval);
@@ -601,9 +595,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [session, fetchNotifications, fetchPendingCounts, fetchUserAvatar]);
 
-  // Refresh avatar when leaving the settings page (user may have updated it)
+  // Refresh avatar only after leaving settings
+  const prevPathRef = React.useRef(pathname);
   useEffect(() => {
-    if (pathname && pathname !== "/dashboard/settings") {
+    const prev = prevPathRef.current;
+    prevPathRef.current = pathname;
+    if (prev?.startsWith("/dashboard/settings") && pathname && !pathname.startsWith("/dashboard/settings")) {
       fetchUserAvatar();
     }
   }, [pathname, fetchUserAvatar]);
@@ -970,7 +967,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </header>
 
         {/* Page Content - more padding */}
-        <main className="flex-1 min-h-0 p-3 sm:p-4 md:p-6 lg:p-8 overflow-y-auto overscroll-y-contain touch-pan-y">{children}</main>
+        <main className="flex-1 min-h-0 p-3 sm:p-4 md:p-6 lg:p-8 pb-20 overflow-y-auto overscroll-y-contain touch-pan-y">{children}</main>
       </div>
 
       {/* Agentation — visual feedback tool (SUPER_ADMIN only) */}

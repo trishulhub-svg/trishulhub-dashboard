@@ -21,17 +21,9 @@ function maskKeyValue(plaintext: string): string {
   return `****${plaintext.slice(-4)}`
 }
 
+/** Fail closed — never store vault secrets as plaintext. */
 function safeEncryptKey(plaintext: string): string {
-  try {
-    return encryptToJson(plaintext)
-  } catch (err) {
-    console.warn(
-      "[vault-secrets] Encryption failed — storing plaintext as fallback. " +
-        "Set ENCRYPTION_KEY to enable at-rest encryption:",
-      err instanceof Error ? err.message : String(err)
-    )
-    return plaintext
-  }
+  return encryptToJson(plaintext)
 }
 
 function requireVaultAdmin(role: string | undefined): boolean {
@@ -115,7 +107,18 @@ async function updateSecret(req: NextRequest, context: RouteContext) {
       if (typeof body.keyValue !== "string" || !body.keyValue.trim()) {
         return NextResponse.json({ error: "Secret value cannot be empty" }, { status: 400 })
       }
-      data.keyValue = safeEncryptKey(body.keyValue.trim())
+      try {
+        data.keyValue = safeEncryptKey(body.keyValue.trim())
+      } catch (err) {
+        console.error(
+          "[vault-secrets] ENCRYPTION_KEY missing or invalid — refusing plaintext store:",
+          err instanceof Error ? err.message : String(err)
+        )
+        return NextResponse.json(
+          { error: "Server encryption is not configured. Set ENCRYPTION_KEY before storing secrets." },
+          { status: 503 }
+        )
+      }
       rotatedValue = true
     }
 

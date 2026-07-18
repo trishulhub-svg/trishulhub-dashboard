@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { APPROVAL_TYPES } from "@/lib/approval-types"
 import { VALID_LEAVE_TYPES, type LeaveType } from "@/lib/types"
 
 // ━━ Project Member Schema ━━
@@ -141,6 +142,7 @@ export const createInvoiceSchema = z.object({
   notes: z.string().max(5000).nullable().optional(),
   paymentStatus: z.enum(["PAID", "UNPAID", "DUE"]).optional(),
   invoiceNumber: z.string().max(50).optional(),
+  currency: z.enum(["INR", "USD", "GBP", "EUR"]).optional(),
   // Note: If not provided, backend auto-generates one. Optional is correct here.
 })
 .refine((data) => {
@@ -166,6 +168,7 @@ export const updateInvoiceSchema = z.object({
   dueDate: z.string().nullable().optional(),
   paidAt: z.string().nullable().optional(),
   paymentMethod: z.enum(["UPI", "CREDIT_DEBIT_CARD", "BANK_TRANSFER", "OTHER"]).nullable().optional(),
+  currency: z.enum(["INR", "USD", "GBP", "EUR"]).optional(),
   gst: z.number().min(0).max(99_999_999).finite().optional(),
   gstPercent: z.number().min(0).max(100).optional(),
   notes: z.string().max(5000).nullable().optional(),
@@ -187,6 +190,7 @@ export const createExpenseSchema = z.object({
   category: z.enum(["HOSTING", "DOMAINS", "API_COSTS", "TOOLS", "MARKETING", "SALARY", "SOFTWARE", "OTHER"]),
   description: z.string().min(1).max(2000),
   amount: z.number().min(0).max(99_999_999).finite().describe("Amount in selected currency"),
+  currency: z.enum(["INR", "USD", "GBP", "EUR"]).optional(),
   date: z.string().min(1), // ISO date string — validated as Date at API level
   receiptUrl: z.string().max(500).optional().nullable(),
   projectId: z.string().max(100).optional().nullable(),
@@ -200,6 +204,7 @@ export const updateExpenseSchema = z.object({
   category: z.enum(["HOSTING", "DOMAINS", "API_COSTS", "TOOLS", "MARKETING", "SALARY", "SOFTWARE", "OTHER"]).optional(),
   description: z.string().max(2000).optional(),
   amount: z.number().min(0).max(99_999_999).finite().optional(),
+  currency: z.enum(["INR", "USD", "GBP", "EUR"]).optional(),
   date: z.string().optional(),
   receiptUrl: z.string().url().nullable().optional(),
   projectId: z.string().nullable().optional(),
@@ -456,16 +461,7 @@ export const createTicketMessageSchema = z.object({
 })
 
 // Approval
-export const validApprovalTypes = [
-  "TASK",
-  "INVOICE",
-  "EMAIL",
-  "QUOTATION",
-  "PROJECT_PLAN",
-  "CODE_REVIEW",
-  "LEAD_OUTREACH",
-  "CONTENT_PIECE",
-] as const
+export const validApprovalTypes = APPROVAL_TYPES
 
 export const createApprovalSchema = z.object({
   title: z.string().min(1).max(200),

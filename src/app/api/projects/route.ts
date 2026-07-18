@@ -539,27 +539,27 @@ export async function DELETE(req: NextRequest) {
     // Capture project name before deletion for the audit log
     const projectName = existing.name
 
-    // ── Bulletproof cleanup: delete ALL child rows ──
-    // We clean up using BOTH Prisma ORM (for known relations) AND raw SQL
-    // (for orphaned tables from removed models that may still exist in the
-    // production DB with FK constraints pointing at Project.id).
-    //
-    // relationMode = "prisma" emulates FKs at the app layer, but the auto-migrate
-    // script also creates real DB-level FK constraints. If orphaned tables
-    // (Task, Meeting, LarkTaskMapping, etc.) still exist in the DB from a
-    // previous schema version, their FK constraints will block the final
-    // project.delete() even though Prisma doesn't know about them.
+    // Protect accounting history — never wipe invoices with the project.
+    const invoiceCount = await db.invoice.count({ where: { projectId: id } })
+    if (invoiceCount > 0) {
+      return NextResponse.json(
+        {
+          error: `Cannot delete project while ${invoiceCount} invoice(s) are linked. Mark the project Completed or reassign invoices first.`,
+          invoiceCount,
+        },
+        { status: 409 }
+      )
+    }
 
-    // 1. Prisma ORM cleanup for current schema relations
+    // Detach financial/ops children instead of cascading deletes.
     const childCleanup = [
       () => db.projectCredential.deleteMany({ where: { projectId: id } }),
       () => db.projectMember.deleteMany({ where: { projectId: id } }),
       () => db.projectWebsite.deleteMany({ where: { projectId: id } }),
       () => db.projectInfrastructure.deleteMany({ where: { projectId: id } }),
-      () => db.timeEntry.deleteMany({ where: { projectId: id } }),
-      () => db.expense.deleteMany({ where: { projectId: id } }),
-      () => db.subscription.deleteMany({ where: { projectId: id } }),
-      () => db.invoice.deleteMany({ where: { projectId: id } }),
+      () => db.timeEntry.updateMany({ where: { projectId: id }, data: { projectId: null } }),
+      () => db.expense.updateMany({ where: { projectId: id }, data: { projectId: null } }),
+      () => db.subscription.updateMany({ where: { projectId: id }, data: { projectId: null } }),
     ]
 
     for (const cleanup of childCleanup) {

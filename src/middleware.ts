@@ -116,6 +116,8 @@ export async function middleware(request: NextRequest) {
       "/dashboard/projects",
       "/dashboard/demo",
       "/dashboard/approvals",
+      "/dashboard/support",
+      "/dashboard/capacity",
       "/dashboard/availability", // PM read-only — mutations require isAdmin in API
     ]
 
@@ -180,16 +182,21 @@ function addSecurityHeaders(request: NextRequest, response: NextResponse): NextR
   response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
   // Referrer policy — send origin only on cross-origin
   response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin")
-  // Content Security Policy — REPORT-ONLY to start (won't break anything, just reports violations)
-  // Upgrade to enforce after reviewing violation reports in production.
-  response.headers.set("Content-Security-Policy-Report-Only",
-    "default-src 'self'; " +
-    "script-src 'self' 'unsafe-eval' 'unsafe-inline'; " +
-    "style-src 'self' 'unsafe-inline'; " +
-    "img-src 'self' data: blob:; " +
-    "font-src 'self' data:; " +
-    "connect-src 'self' https://*.turso.tech; " +
-    "frame-ancestors 'self'"
+  // Enforcing CSP (Next.js still needs unsafe-inline/eval for runtime; tighten further later).
+  response.headers.set(
+    "Content-Security-Policy",
+    [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: blob: https:",
+      "font-src 'self' data:",
+      "connect-src 'self' https://*.turso.tech https://*.vercel.app https://vercel.live",
+      "frame-ancestors 'self'",
+      "base-uri 'self'",
+      "form-action 'self'",
+      "object-src 'none'",
+    ].join("; ")
   )
   return response
 }

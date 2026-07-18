@@ -10,58 +10,34 @@ import {
   validateSessionToken,
   removeSessionToken,
 } from "@/lib/session-manager"
+import { checkDbRateLimit, peekDbRateLimit } from "@/lib/rate-limit"
 
 const isDev = process.env.NODE_ENV === "development"
 const log = isDev ? console.log.bind(console) : () => {}
 const logError = console.error.bind(console) // always log errors
 
-// ── In-memory brute-force protection for login attempts ──
-// Tracks failed login attempts per email to prevent credential stuffing.
-// NOTE: On Vercel serverless, this Map is per-instance and gets reset on cold start.
-// For production-scale protection, consider a Redis-based rate limiter.
-const failedAttempts = new Map<string, { count: number; lastAttempt: number }>()
-
-const RATE_LIMIT_5_THRESHOLD = 5
-const RATE_LIMIT_5_COOLDOWN_MS = 30 * 1000   // 30 seconds
-const RATE_LIMIT_20_THRESHOLD = 20
-const RATE_LIMIT_20_COOLDOWN_MS = 5 * 60 * 1000 // 5 minutes
-const RATE_LIMIT_CLEANUP_MS = 5 * 60 * 1000     // 5 minutes
-
-function isRateLimited(email: string): boolean {
-  const now = Date.now()
-  const attempts = failedAttempts.get(email)
-  if (!attempts) return false
-
-  const elapsed = now - attempts.lastAttempt
-
-  if (attempts.count >= RATE_LIMIT_20_THRESHOLD && elapsed < RATE_LIMIT_20_COOLDOWN_MS) {
-    if (isDev) console.warn(`[auth] Rate limited (${attempts.count} attempts, 5min cooldown): ${email}`)
+/** DB-backed login throttle — survives Vercel cold starts. Peek does not increment. */
+async function isLoginRateLimited(email: string): Promise<boolean> {
+  const key = `login-fail:${email.toLowerCase()}`
+  const soft = await peekDbRateLimit(key + ":soft", 5, 30_000)
+  if (!soft.allowed) {
+    if (isDev) console.warn(`[auth] Rate limited (soft 5/30s): ${email}`)
     return true
   }
-
-  if (attempts.count >= RATE_LIMIT_5_THRESHOLD && elapsed < RATE_LIMIT_5_COOLDOWN_MS) {
-    if (isDev) console.warn(`[auth] Rate limited (${attempts.count} attempts, 30s cooldown): ${email}`)
+  const hard = await peekDbRateLimit(key + ":hard", 20, 5 * 60_000)
+  if (!hard.allowed) {
+    if (isDev) console.warn(`[auth] Rate limited (hard 20/5min): ${email}`)
     return true
   }
-
   return false
 }
 
-function trackFailedAttempt(email: string): void {
-  const now = Date.now()
-  const existing = failedAttempts.get(email) || { count: 0, lastAttempt: 0 }
-  existing.count++
-  existing.lastAttempt = now
-  failedAttempts.set(email, existing)
-
-  // Periodic cleanup of stale entries (probabilistic to avoid overhead)
-  if (Math.random() < 0.1) {
-    for (const [key, val] of failedAttempts) {
-      if (now - val.lastAttempt > RATE_LIMIT_CLEANUP_MS) {
-        failedAttempts.delete(key)
-      }
-    }
-  }
+async function trackFailedLogin(email: string): Promise<void> {
+  const key = `login-fail:${email.toLowerCase()}`
+  await Promise.all([
+    checkDbRateLimit(key + ":soft", 5, 30_000),
+    checkDbRateLimit(key + ":hard", 20, 5 * 60_000),
+  ])
 }
 
 // Debug: Log auth configuration on module load
@@ -89,14 +65,12 @@ export const authOptions: NextAuthOptions = {
 
         const email = credentials.email
 
-        // ── Brute-force / rate limiting check ──
-        // Returns null (same as invalid credentials) to avoid revealing rate limiting.
-        if (isRateLimited(email)) {
+        // ── Brute-force / rate limiting (DB-backed) ──
+        if (await isLoginRateLimited(email)) {
           return null
         }
 
         try {
-          // Test database connection first
           log("[auth] Attempting database lookup...")
           const user = await db.user.findUnique({
             where: { email },
@@ -106,13 +80,19 @@ export const authOptions: NextAuthOptions = {
 
           if (!user) {
             log("[auth] No user found with email:", email)
-            trackFailedAttempt(email)
+            await trackFailedLogin(email)
             return null
           }
 
           if (!user.isActive) {
             log("[auth] User account is deactivated:", email)
-            trackFailedAttempt(email)
+            await trackFailedLogin(email)
+            return null
+          }
+
+          if (user.role === "VIEWER") {
+            log("[auth] VIEWER role removed — blocking login:", email)
+            await trackFailedLogin(email)
             return null
           }
 
@@ -122,7 +102,7 @@ export const authOptions: NextAuthOptions = {
 
           if (!isValid) {
             log("[auth] Invalid password for:", email)
-            trackFailedAttempt(email)
+            await trackFailedLogin(email)
             return null
           }
 
@@ -136,7 +116,7 @@ export const authOptions: NextAuthOptions = {
         } catch (error: unknown) {
           const errMsg = error instanceof Error ? error.message : String(error)
           logError(`[auth] Authorize error for ${email}: ${errMsg}`)
-          trackFailedAttempt(email)
+          await trackFailedLogin(email)
           return null
         }
       },

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
+import { isAdmin, isAdminOrProjectManager, getAssignedClientIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { deepSanitize } from "@/lib/utils"
@@ -36,6 +36,29 @@ export async function GET(req: NextRequest) {
 
     // Issue #28: pagination on GET
     const { searchParams } = new URL(req.url)
+    const ticketId = searchParams.get("id")
+
+    // Staff detail view: full message thread for a single ticket
+    if (ticketId) {
+      if (!isAdminOrProjectManager(userRole)) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+      }
+      if (!/^[a-zA-Z0-9_-]{1,100}$/.test(ticketId)) {
+        return NextResponse.json({ error: "Invalid ticket ID" }, { status: 400 })
+      }
+      const ticket = await db.supportTicket.findUnique({
+        where: { id: ticketId },
+        include: {
+          client: true,
+          messages: { orderBy: { createdAt: "asc" } },
+        },
+      })
+      if (!ticket) {
+        return NextResponse.json({ error: "Ticket not found" }, { status: 404 })
+      }
+      return NextResponse.json(deepSanitize(ticket))
+    }
+
     const page = Math.max(1, parseInt(searchParams.get("page") || "1"))
     const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || "50")), 200)
     const offset = (page - 1) * limit
@@ -52,8 +75,8 @@ export async function GET(req: NextRequest) {
       db.supportTicket.count({ where: ticketWhere }),
     ])
 
-    // SECURITY: For developers, limit client details to prevent data leakage
-    if (!isAdmin(userRole)) {
+    // SECURITY: For non-staff roles, limit client details to prevent data leakage
+    if (!isAdminOrProjectManager(userRole)) {
       const sanitized = tickets.map(t => ({
         ...t,
         client: { id: t.client.id, name: t.client.name, company: t.client.company },
@@ -166,9 +189,8 @@ export async function PUT(req: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    // Only admins can update ticket details
     const userRole = session.user.role
-    if (!isAdmin(userRole)) {
+    if (!isAdminOrProjectManager(userRole)) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
 
@@ -262,8 +284,8 @@ export async function PATCH(req: NextRequest) {
       if (k !== 'id' && k !== 'message') rest[k] = v
     }
 
-    // CLIENT/DEVELOPER users can only add messages to their own tickets
-    if (!isAdmin(userRole)) {
+    // CLIENT users can only add messages to their own tickets
+    if (!isAdminOrProjectManager(userRole)) {
       // C19: Wrap ownership check + message create + re-fetch in transaction
       const updated = await db.$transaction(async (tx) => {
         // For CLIENT users, find their client profile to check ownership
@@ -316,40 +338,67 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json(deepSanitize(updated))
     }
 
-    // FIX #9: Check ticket exists before admin update
+    // Staff (admin / PM): reply, update status, or fetch full thread
     const existingTicket = await db.supportTicket.findUnique({ where: { id } })
     if (!existingTicket) {
       return NextResponse.json({ error: "Ticket not found" }, { status: 404 })
     }
 
-    // Issue #24: Zod validation on PATCH (for admin updates)
-    const validation = validateRequest(updateSupportTicketSchema, body)
-    if (!validation.success) {
-      return NextResponse.json({ error: validation.error }, { status: 400 })
+    const hasFieldUpdates = Object.keys(rest).some((k) =>
+      ["subject", "description", "priority", "status", "assignedTo", "resolution"].includes(k)
+    )
+
+    if (!message && !hasFieldUpdates) {
+      const ticket = await db.supportTicket.findUnique({
+        where: { id },
+        include: { client: true, messages: { orderBy: { createdAt: "asc" } } },
+      })
+      return NextResponse.json(deepSanitize(ticket))
     }
 
-    // SECURITY: Whitelist allowed fields to prevent mass assignment
+    if (hasFieldUpdates) {
+      const validation = validateRequest(updateSupportTicketSchema, body)
+      if (!validation.success) {
+        return NextResponse.json({ error: validation.error }, { status: 400 })
+      }
+    }
+
     const allowedFields = ["subject", "description", "priority", "status", "assignedTo", "resolution"]
-    const sanitizedData: Record<string, any> = {}
+    const sanitizedData: Record<string, unknown> = {}
     for (const key of allowedFields) {
       if (rest[key] !== undefined) sanitizedData[key] = rest[key]
     }
 
-    // Issue #25: status and priority validation on PATCH
-    if (sanitizedData.status && !VALID_STATUSES.includes(sanitizedData.status)) {
+    if (sanitizedData.status && !VALID_STATUSES.includes(String(sanitizedData.status))) {
       return NextResponse.json({ error: "Invalid status" }, { status: 400 })
     }
-    if (sanitizedData.priority && !VALID_PRIORITIES.includes(sanitizedData.priority)) {
+    if (sanitizedData.priority && !VALID_PRIORITIES.includes(String(sanitizedData.priority))) {
       return NextResponse.json({ error: "Invalid priority" }, { status: 400 })
     }
 
     try {
-      const ticket = await db.supportTicket.update({ where: { id }, data: sanitizedData })
-      // Issue #27: deepSanitize on PATCH response
+      const ticket = await db.$transaction(async (tx) => {
+        if (message) {
+          await tx.ticketMessage.create({
+            data: {
+              ticketId: id,
+              senderId: sessionUserId,
+              senderType: "HUMAN",
+              message,
+            },
+          })
+        }
+        if (Object.keys(sanitizedData).length > 0) {
+          await tx.supportTicket.update({ where: { id }, data: sanitizedData })
+        }
+        return tx.supportTicket.findUnique({
+          where: { id },
+          include: { client: true, messages: { orderBy: { createdAt: "asc" } } },
+        })
+      })
       return NextResponse.json(deepSanitize(ticket))
     } catch (error: unknown) {
       console.error("[support] PATCH DB error:", error instanceof Error ? error.message : error)
-      // Issue #26: P2025 error handling
       const prismaError = error as { code?: string }
       if (prismaError?.code === "P2025") {
         return NextResponse.json({ error: "Ticket not found" }, { status: 404 })
