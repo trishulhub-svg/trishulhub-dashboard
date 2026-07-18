@@ -1326,7 +1326,9 @@ export default function TrishulWorkspacePage() {
         }
 
         .ws-feed-line {
-          display: flex; align-items: center; gap: 0.4rem;
+          display: flex; align-items: flex-start; gap: 0.4rem;
+          flex-wrap: wrap;
+          row-gap: 0.15rem;
           padding: 0.25rem 1rem;
           font-size: 0.7rem;
           line-height: 1.5;
@@ -1356,10 +1358,20 @@ export default function TrishulWorkspacePage() {
         .ws-feed-prefix--idle { color: var(--ws-text-dim); }
 
         .ws-feed-msg {
+          min-width: 0;
+          flex: 1 1 8rem;
           color: var(--ws-text-muted);
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
+          overflow-wrap: anywhere;
+          word-break: break-word;
+          white-space: normal;
+        }
+        @media (min-width: 768px) {
+          .ws-feed-line { flex-wrap: nowrap; align-items: center; }
+          .ws-feed-msg {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
         }
         .ws-feed-check {
           color: var(--ws-accent-green);

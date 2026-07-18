@@ -319,7 +319,7 @@ const SidebarContent = React.memo(function SidebarContent({
       )}>
         <div className={cn(
           "th-sidebar-brand-mark relative shrink-0 overflow-hidden",
-          collapsed ? "h-12 w-12" : "h-16 w-16 sm:h-14 sm:w-14"
+          collapsed ? "h-12 w-12" : "h-[4.25rem] w-[4.25rem] sm:h-14 sm:w-14"
         )}>
           <Image
             src="/200px.png"
@@ -783,7 +783,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Mobile Sidebar */}
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-        <SheetContent side="left" className="w-[272px] p-0 th-sidebar-shell border-sidebar-border">
+        <SheetContent side="left" className="w-[min(100vw-2.5rem,300px)] p-0 th-sidebar-shell border-sidebar-border">
           <SidebarContent
             collapsed={false}
             userRole={userRole as UserRole}
@@ -999,7 +999,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </header>
 
         {/* Page Content - more padding */}
-        <main className="flex-1 min-h-0 p-3 sm:p-4 md:p-6 lg:p-8 pb-20 overflow-y-auto overscroll-y-contain touch-pan-y">{children}</main>
+        <main className="flex-1 min-h-0 max-w-full p-3 sm:p-4 md:p-6 lg:p-8 pb-20 overflow-y-auto overflow-x-hidden overscroll-y-contain touch-pan-y">{children}</main>
       </div>
 
       {/* Agentation — visual feedback tool (SUPER_ADMIN only) */}

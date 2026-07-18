@@ -89,7 +89,7 @@ export function TimesheetView({
           <Button variant="outline" size="icon" className="h-9 w-9" onClick={onPrevWeek} aria-label="Previous week">
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <div className="min-w-[170px] sm:min-w-[200px] text-center px-2">
+          <div className="min-w-0 flex-1 sm:flex-none sm:min-w-[200px] text-center px-1 sm:px-2">
             <p className="text-sm font-semibold tabular-nums">{formatWeekLabel(weekDays)}</p>
             <p className="text-[10px] text-muted-foreground">
               {getDateStr(weekDays[0])} → {getDateStr(weekDays[6])}

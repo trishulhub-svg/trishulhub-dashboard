@@ -225,65 +225,107 @@ export default function EmailLogsPage() {
               <p className="text-xs text-muted-foreground mt-1">Email activity will appear here when emails are sent</p>
             </div>
           ) : (
-            <div className="rounded-lg border max-h-[32rem] overflow-auto -mx-4 px-4 sm:mx-0 sm:px-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="text-xs">Type</TableHead>
-                    <TableHead className="text-xs">To</TableHead>
-                    <TableHead className="text-xs">Subject</TableHead>
-                    <TableHead className="text-xs">Status</TableHead>
-                    <TableHead className="text-xs">SMTP</TableHead>
-                    <TableHead className="text-xs">Time</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {emailLogs.map((log) => (
-                    <TableRow key={log.id}>
-                      <TableCell>
-                        <Badge variant="outline" className="text-[10px]">
-                          {emailTypeLabels[log.type] || log.type}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground truncate max-w-[150px]">
-                        {log.to}
-                      </TableCell>
-                      <TableCell className="text-xs truncate max-w-[180px]" title={log.subject}>
-                        {log.subject}
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant="secondary"
-                          className={`text-[10px] ${
-                            log.status === "SENT"
-                              ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
-                              : log.status === "FAILED"
-                              ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
-                              : ""
-                          }`}
-                        >
-                          {log.status}
-                        </Badge>
-                        {log.status === "FAILED" && log.error && (
-                          <p className="text-[10px] text-red-500 mt-0.5 truncate max-w-[200px] cursor-help" title={log.error}>
-                            {log.error}
-                          </p>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground truncate max-w-[120px]">
-                        {log.smtpHost || "—"}
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                        <div className="flex items-center gap-1">
-                          <Clock className="h-3 w-3" />
-                          {getRelativeTime(log.createdAt)}
-                        </div>
-                      </TableCell>
+            <>
+              {/* Mobile: stacked rows (no cramped multi-column table) */}
+              <div className="space-y-2 md:hidden">
+                {emailLogs.map((log) => (
+                  <div key={log.id} className="rounded-lg border border-border/70 p-3 space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <Badge variant="outline" className="text-[10px] shrink-0">
+                        {emailTypeLabels[log.type] || log.type}
+                      </Badge>
+                      <Badge
+                        variant="secondary"
+                        className={`text-[10px] shrink-0 ${
+                          log.status === "SENT"
+                            ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+                            : log.status === "FAILED"
+                            ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+                            : ""
+                        }`}
+                      >
+                        {log.status}
+                      </Badge>
+                    </div>
+                    <p className="text-xs font-medium break-words">{log.subject}</p>
+                    <p className="text-[11px] text-muted-foreground break-all">{log.to}</p>
+                    <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                      <span className="truncate">{log.smtpHost || "—"}</span>
+                      <span className="inline-flex items-center gap-1 shrink-0">
+                        <Clock className="h-3 w-3" />
+                        {getRelativeTime(log.createdAt)}
+                      </span>
+                    </div>
+                    {log.status === "FAILED" && log.error && (
+                      <p className="text-[10px] text-red-500 break-words" title={log.error}>
+                        {log.error}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop / tablet table */}
+              <div className="hidden md:block rounded-lg border max-h-[32rem] overflow-auto">
+                <Table className="min-w-[720px]">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="text-xs">Type</TableHead>
+                      <TableHead className="text-xs">To</TableHead>
+                      <TableHead className="text-xs">Subject</TableHead>
+                      <TableHead className="text-xs">Status</TableHead>
+                      <TableHead className="text-xs">SMTP</TableHead>
+                      <TableHead className="text-xs">Time</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableHeader>
+                  <TableBody>
+                    {emailLogs.map((log) => (
+                      <TableRow key={log.id}>
+                        <TableCell>
+                          <Badge variant="outline" className="text-[10px]">
+                            {emailTypeLabels[log.type] || log.type}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground truncate max-w-[150px]">
+                          {log.to}
+                        </TableCell>
+                        <TableCell className="text-xs truncate max-w-[180px]" title={log.subject}>
+                          {log.subject}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="secondary"
+                            className={`text-[10px] ${
+                              log.status === "SENT"
+                                ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+                                : log.status === "FAILED"
+                                ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+                                : ""
+                            }`}
+                          >
+                            {log.status}
+                          </Badge>
+                          {log.status === "FAILED" && log.error && (
+                            <p className="text-[10px] text-red-500 mt-0.5 truncate max-w-[200px] cursor-help" title={log.error}>
+                              {log.error}
+                            </p>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground truncate max-w-[120px]">
+                          {log.smtpHost || "—"}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                          <div className="flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            {getRelativeTime(log.createdAt)}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>

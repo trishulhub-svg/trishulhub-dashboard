@@ -557,13 +557,16 @@ table tbody tr:hover {
 /* Mobile drawer: larger brand mark for readability */
 @media (max-width: 767px) {
   .th-sidebar-brand-mark {
-    width: 4rem !important;
-    height: 4rem !important;
+    width: 4.25rem !important;
+    height: 4.25rem !important;
   }
   .th-sidebar-brand {
     gap: 0.9rem;
     padding-top: 1.15rem;
     padding-bottom: 1.15rem;
+  }
+  .th-sidebar-brand h1 {
+    font-size: 1.15rem !important;
   }
 }
 .th-sidebar-section-label {
