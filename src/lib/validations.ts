@@ -265,6 +265,9 @@ export const supportTicketSchema = createSupportTicketSchema
 export const startTimeEntrySchema = z.object({
   projectId: z.string().optional(),
   description: z.string().max(500).optional(),
+  // Device clock integrity (required for self-serve clock-in)
+  clientNow: z.string().min(1).optional(),
+  timezone: z.string().max(64).optional(),
 })
 
 export const updateTimeEntrySchema = z.object({
@@ -272,6 +275,9 @@ export const updateTimeEntrySchema = z.object({
   description: z.string().max(500).optional(),
   projectId: z.string().optional(),
   status: z.enum(["ACTIVE", "COMPLETED"]).optional(),
+  // Device clock integrity (required when status → COMPLETED / clock-out)
+  clientNow: z.string().min(1).optional(),
+  timezone: z.string().max(64).optional(),
 })
 
 // ━━ Subscriptions ━━

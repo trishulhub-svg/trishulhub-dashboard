@@ -320,6 +320,8 @@ function TimeTrackingPageInner() {
   const handleStart = useCallback(async () => {
     setStarting(true);
     try {
+      const { buildClientClockPayload } = await import("@/lib/clock-integrity");
+      const clockPayload = buildClientClockPayload();
       const res = await fetch("/api/time-tracking", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -327,6 +329,7 @@ function TimeTrackingPageInner() {
         body: JSON.stringify({
           projectId: selectedProject === "none" ? undefined : selectedProject || undefined,
           description: timerDescription || undefined,
+          ...clockPayload,
         }),
       });
       if (res.ok) {
@@ -366,6 +369,8 @@ function TimeTrackingPageInner() {
           ? `${existing}\n\nClock-out notes: ${notes}`
           : notes
         : undefined;
+      const { buildClientClockPayload } = await import("@/lib/clock-integrity");
+      const clockPayload = buildClientClockPayload();
       const res = await fetch(`/api/time-tracking/${activeEntry.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -374,6 +379,7 @@ function TimeTrackingPageInner() {
           id: activeEntry.id,
           status: "COMPLETED",
           ...(description !== undefined ? { description } : {}),
+          ...clockPayload,
         }),
       });
       if (res.ok) {

@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { startTimeEntrySchema, adminCreateTimeEntrySchema, validateRequest } from "@/lib/validations"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
+import { checkClientClockIntegrity } from "@/lib/clock-integrity"
 
 type TimeEntryWithUser = {
   id: string; userId: string; status: string; clockIn: Date; clockOut: Date | null;
@@ -276,9 +277,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: validation.error }, { status: 400 })
     }
 
-    const { projectId, description } = validation.data
+    const { projectId, description, clientNow, timezone } = validation.data
 
-    const now = new Date()
+    // Block clock-in when the device clock was manually changed (India/UK OK if accurate)
+    const clockCheck = checkClientClockIntegrity({ clientNow, timezone })
+    if (!clockCheck.ok) {
+      return NextResponse.json(
+        { error: clockCheck.error, code: clockCheck.code, details: clockCheck.details },
+        { status: clockCheck.status }
+      )
+    }
+
+    const now = clockCheck.serverNow
 
     // Atomic check+create to prevent race condition on concurrent timer starts
     let entry

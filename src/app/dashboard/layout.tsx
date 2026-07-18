@@ -318,16 +318,16 @@ const SidebarContent = React.memo(function SidebarContent({
         collapsed && "justify-center px-2"
       )}>
         <div className={cn(
-          "th-sidebar-brand-mark relative shrink-0 overflow-hidden rounded-2xl",
-          collapsed ? "h-12 w-12" : "h-16 w-16 sm:h-14 sm:w-14"
+          "th-sidebar-brand-mark relative shrink-0 overflow-hidden rounded-xl",
+          collapsed ? "h-10 w-10" : "h-12 w-12 sm:h-11 sm:w-11"
         )}>
           <Image
             src="/logo-mark.png"
             alt="TrishulHub"
             fill
-            className="object-cover object-center !p-0 scale-105"
+            className="object-cover object-center !p-0"
             priority
-            sizes="72px"
+            sizes="48px"
           />
         </div>
         {!collapsed && (

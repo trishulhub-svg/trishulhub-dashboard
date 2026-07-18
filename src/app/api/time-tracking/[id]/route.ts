@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { updateTimeEntrySchema, adminUpdateTimeEntrySchema, validateRequest } from "@/lib/validations"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
+import { checkClientClockIntegrity } from "@/lib/clock-integrity"
 
 /**
  * PATCH /api/time-tracking/[id]
@@ -122,7 +123,7 @@ export async function PATCH(
       return NextResponse.json({ error: validation.error }, { status: 400 })
     }
 
-    const { description, projectId, status } = validation.data
+    const { description, projectId, status, clientNow, timezone } = validation.data
 
     const updateData: Prisma.TimeEntryUncheckedUpdateInput = {}
 
@@ -134,7 +135,17 @@ export async function PATCH(
       if (existing.status !== "ACTIVE") {
         return NextResponse.json({ error: "Cannot complete a timer that is not active" }, { status: 400 })
       }
-      const now = new Date()
+
+      // Block clock-out when the device clock was manually changed (India/UK OK if accurate)
+      const clockCheck = checkClientClockIntegrity({ clientNow, timezone })
+      if (!clockCheck.ok) {
+        return NextResponse.json(
+          { error: clockCheck.error, code: clockCheck.code, details: clockCheck.details },
+          { status: clockCheck.status }
+        )
+      }
+
+      const now = clockCheck.serverNow
       updateData.clockOut = now
       updateData.status = "COMPLETED"
       const diffMs = now.getTime() - new Date(existing.clockIn).getTime()
