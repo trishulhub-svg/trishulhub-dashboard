@@ -162,6 +162,7 @@ const SUB_FREQUENCY_COLORS: Record<string, string> = {
 };
 
 const EXPENSE_CATEGORIES_FALLBACK = [...DEFAULT_EXPENSE_CATEGORIES];
+const FINANCE_TABS = new Set(["overview", "subscriptions", "expenses", "category", "project"]);
 
 function isExpenseDetail(obj: unknown): obj is ExpenseDetail {
   return typeof obj === "object" && obj !== null && "id" in obj && "amount" in obj;
@@ -276,7 +277,29 @@ function FinancePageInner() {
   const [selectedExpense, setSelectedExpense] = useState<ExpenseDetail | null>(null);
 
   // ─── Fetch overview stats (lightweight: 7 queries vs 19 in full dashboard) ────
-  const [activeTab, setActiveTab] = useUrlState("tab", "overview");
+  const [rawTab, setRawTab] = useUrlState("tab", "overview");
+  const activeTab = (() => {
+    // Legacy URL/localStorage values from earlier builds
+    if (rawTab === "by-category") return "category";
+    if (rawTab === "by-project") return "project";
+    return FINANCE_TABS.has(rawTab) ? rawTab : "overview";
+  })();
+  const setActiveTab = useCallback(
+    (next: string) => {
+      const normalized =
+        next === "by-category" ? "category" : next === "by-project" ? "project" : next;
+      setRawTab(FINANCE_TABS.has(normalized) ? normalized : "overview");
+    },
+    [setRawTab]
+  );
+
+  // Rewrite legacy tab query/localStorage values so Tabs always match a real panel
+  useEffect(() => {
+    if (rawTab === "by-category" || rawTab === "by-project" || !FINANCE_TABS.has(rawTab)) {
+      setActiveTab(activeTab);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
       setDashLoading(true);
@@ -488,8 +511,8 @@ function FinancePageInner() {
   useEffect(() => {
     if (
       activeTab !== "expenses" &&
-      activeTab !== "by-category" &&
-      activeTab !== "by-project" &&
+      activeTab !== "category" &&
+      activeTab !== "project" &&
       activeTab !== "subscriptions"
     ) {
       return;
@@ -516,7 +539,7 @@ function FinancePageInner() {
 
   // Expense tabs only — not overview (overview uses dashboard/stats)
   useEffect(() => {
-    if (activeTab !== "expenses" && activeTab !== "by-category" && activeTab !== "by-project") {
+    if (activeTab !== "expenses" && activeTab !== "category" && activeTab !== "project") {
       return;
     }
     const controller = new AbortController();
@@ -904,6 +927,9 @@ function FinancePageInner() {
       {/* Header */}
       <PageHeader title="Finance" description="Revenue, invoices, expenses & subscriptions at a glance">
         <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={() => setActiveTab("subscriptions")}>
+            <CreditCard className="h-4 w-4 mr-1" /> Subscriptions
+          </Button>
           <Button size="sm" variant="outline" onClick={() => router.push("/dashboard/finance/invoices")}>
             <FileText className="h-4 w-4 mr-1" /> Invoices
           </Button>
@@ -916,7 +942,7 @@ function FinancePageInner() {
       <CollapsibleStatStrip
         title="Finance summary"
         storageKey="finance-hub-stats-open"
-        defaultOpen={false}
+        defaultOpen={true}
         items={[
           {
             key: "revenue",
