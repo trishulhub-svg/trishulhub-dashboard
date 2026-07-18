@@ -8,6 +8,12 @@ import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { VALID_DEPARTMENT_VALUES } from "@/lib/types"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
+import {
+  CONTROLLABLE_PAGES,
+  normalizePageAccessMode,
+  parsePageAccessPages,
+  type PageAccessMode,
+} from "@/lib/nav-pages"
 
 // [C3] Helper: convert Date to local YYYY-MM-DD string (avoids UTC timezone issue)
 function toLocalDateStr(d: Date): string {
@@ -90,6 +96,8 @@ export async function GET(req: NextRequest) {
           department: true,
           isActive: true,
           avatar: true, // [T7] Add avatar to user list
+          pageAccessMode: true,
+          pageAccessPages: true,
           createdAt: true,
         },
         orderBy: { name: "asc" },
@@ -586,15 +594,29 @@ export async function PATCH(req: NextRequest) {
     const sessionUserId = session.user.id;
     const sessionUserRole = session.user.role;
 
-    // SECURITY: For self-profile updates (name only, no role/isActive),
+    const hasPageAccessUpdate =
+      data.pageAccessMode !== undefined || data.pageAccessPages !== undefined
+
+    // SECURITY: For self-profile updates (name only, no role/isActive/pageAccess),
     // always use the session user's ID — don't trust the body `id`.
     // This prevents IDOR where an ADMIN could modify another user's name.
     // Avatar updates are also self-profile updates (no role/isActive).
-    const isSelfProfileUpdate = !data.role && data.isActive === undefined && (!!data.name || data.avatar !== undefined);
+    const isSelfProfileUpdate =
+      !data.role &&
+      data.isActive === undefined &&
+      !hasPageAccessUpdate &&
+      (!!data.name || data.avatar !== undefined)
     const effectiveId = isSelfProfileUpdate ? sessionUserId : (id as string);
 
     if (effectiveId !== sessionUserId && sessionUserRole !== "SUPER_ADMIN" && sessionUserRole !== "ADMIN") {
       return NextResponse.json({ error: "Forbidden: You can only update your own profile" }, { status: 403 });
+    }
+
+    // Page access ACL: ADMIN or SUPER_ADMIN only (not self-serve)
+    if (hasPageAccessUpdate) {
+      if (sessionUserRole !== "SUPER_ADMIN" && sessionUserRole !== "ADMIN") {
+        return NextResponse.json({ error: "Forbidden: Admin access required for page access" }, { status: 403 })
+      }
     }
 
     // Update user (SUPER_ADMIN only for role/active changes)
@@ -668,10 +690,44 @@ export async function PATCH(req: NextRequest) {
     }
     // Password updates NOT allowed here — use /api/password-change or /api/password-reset
 
+    if (hasPageAccessUpdate) {
+      const existing = await db.user.findUnique({
+        where: { id: effectiveId },
+        select: { pageAccessMode: true, pageAccessPages: true },
+      })
+      const mode: PageAccessMode =
+        data.pageAccessMode !== undefined
+          ? normalizePageAccessMode(data.pageAccessMode)
+          : normalizePageAccessMode(existing?.pageAccessMode)
+      const allowedHrefs = new Set(
+        CONTROLLABLE_PAGES.filter((p) => !p.locked).map((p) => p.href)
+      )
+      const pages =
+        data.pageAccessPages !== undefined
+          ? parsePageAccessPages(data.pageAccessPages).filter((h) => allowedHrefs.has(h))
+          : parsePageAccessPages(existing?.pageAccessPages).filter((h) => allowedHrefs.has(h))
+      updateData.pageAccessMode = mode
+      updateData.pageAccessPages = JSON.stringify(mode === "OFF" ? [] : pages)
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return NextResponse.json({ error: "No valid fields to update" }, { status: 400 })
+    }
+
     const user = await db.user.update({
       where: { id: effectiveId },
       data: updateData,
-      select: { id: true, name: true, email: true, role: true, department: true, isActive: true, avatar: true },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        department: true,
+        isActive: true,
+        avatar: true,
+        pageAccessMode: true,
+        pageAccessPages: true,
+      },
     })
 
     // Audit: log user profile update (fire-and-forget)

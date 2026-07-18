@@ -299,15 +299,9 @@ export async function PUT(req: NextRequest) {
       // Non-blocking: the password reset still succeeded
     }
 
-    // Log the event
-    await logEmailEvent({
-      to: user.email,
-      subject: "Password Reset Completed",
-      type: "RESET_LINK",
-      status: "SENT",
-      triggeredBy: resetRecord.triggeredBy ?? undefined,
-      metadata: JSON.stringify({ action: "password_reset_via_link", userId: user.id }),
-    })
+    // Do NOT write EmailLog here — the only real email was already logged when
+    // the reset link was sent (POST). A second RESET_LINK/SENT row looked like a
+    // duplicate send even though no email went out.
 
     return NextResponse.json({
       success: true,

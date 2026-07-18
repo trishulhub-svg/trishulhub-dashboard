@@ -8,6 +8,8 @@ declare module "next-auth" {
     role: UserRole
     id: string
     department?: string
+    pageAccessMode?: "OFF" | "ALLOW" | "RESTRICT"
+    pageAccessPages?: string[]
   }
   interface Session {
     user: User & DefaultUser
@@ -23,6 +25,9 @@ declare module "next-auth/jwt" {
     name?: string
     email?: string
     department?: string
+    pageAccessMode?: "OFF" | "ALLOW" | "RESTRICT"
+    pageAccessPages?: string[]
+    pageAccessAt?: number
     sessionToken?: string
     error?: string
   }

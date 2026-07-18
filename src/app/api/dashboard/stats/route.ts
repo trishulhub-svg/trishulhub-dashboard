@@ -3,8 +3,6 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin, getAssignedClientIds } from "@/lib/rbac"
-import { ensureAllTables } from "@/lib/auto-migrate"
-
 function sanitizeForJson(obj: any): any {
   if (obj === null || typeof obj !== 'object') return obj;
   if (obj instanceof Date) return obj.toISOString();
@@ -14,14 +12,17 @@ function sanitizeForJson(obj: any): any {
   return result;
 }
 
+function getMonthlyINR(amount: number, exchangeRate: number, frequency: string): number {
+  const inrAmount = amount * (exchangeRate || 1)
+  if (frequency === "YEARLY") return inrAmount / 12
+  return inrAmount
+}
+
 // Lightweight stats endpoint for the finance Overview tab.
-// Only runs 7 queries instead of the full dashboard's 19 — significantly faster.
+// Skip ensureAllTables here — migrations run on app boot / other routes.
 export async function GET() {
   try {
-    const [session, _migrateResult] = await Promise.all([
-      getServerSession(authOptions),
-      ensureAllTables().catch((err) => { console.error('[dashboard/stats] ensureAllTables failed:', err instanceof Error ? err.message : err) }),
-    ])
+    const session = await getServerSession(authOptions)
 
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -83,16 +84,15 @@ export async function GET() {
       })
     )
 
-    // All queries run in parallel
+    // All queries run in parallel (no full expense list — charts use monthlyAggregates)
     const [
       totalRevenue,
       pendingAmount,
       overdueAmount,
       totalExpenses,
       invoices,
-      recentExpenses,
+      activeSubscriptions,
     ] = await Promise.all([
-      // 4 aggregate queries
       admin
         ? db.invoice.aggregate({ where: { ...invoiceWhere, status: "PAID" }, _sum: { total: true } }).then(r => r._sum.total || 0)
         : Promise.resolve(0),
@@ -102,12 +102,9 @@ export async function GET() {
       admin
         ? db.invoice.aggregate({ where: { ...invoiceWhere, status: "OVERDUE" }, _sum: { total: true } }).then(r => r._sum.total || 0)
         : Promise.resolve(0),
-      // INTENTIONAL: Global aggregate with no where clause — this is the finance overview
-      // endpoint, which shows total expenses across all projects for admin reporting.
       admin
         ? db.expense.aggregate({ _sum: { amount: true } }).then(r => r._sum.amount || 0)
         : Promise.resolve(0),
-      // Recent invoices for "Recent Invoices" list (10 records, select-only)
       admin
         ? db.invoice.findMany({
             where: invoiceWhere,
@@ -116,25 +113,25 @@ export async function GET() {
             select: { id: true, invoiceNumber: true, status: true, total: true, client: { select: { name: true } }, dueDate: true, paidAt: true, createdAt: true },
           })
         : Promise.resolve([] as unknown[]),
-      // Recent expenses for chart data (50 records, select-only)
-      // NOTE: Kept for backward compatibility with any callers that read `data.expenses`.
-      // The Overview tab now uses `monthlyAggregates` for accurate chart data.
       admin
-        ? db.expense.findMany({
-            take: 50,
-            orderBy: { date: "desc" },
-            select: { id: true, category: true, description: true, amount: true, date: true },
+        ? db.subscription.findMany({
+            where: { status: "ACTIVE", frequency: { in: ["MONTHLY", "YEARLY"] } },
+            select: { amount: true, exchangeRate: true, frequency: true },
+            take: 500,
           })
-        : Promise.resolve([] as unknown[]),
+        : Promise.resolve([] as { amount: number; exchangeRate: number | null; frequency: string }[]),
     ])
 
-    const stats = { totalRevenue, pendingAmount, overdueAmount, totalExpenses }
+    const subscriptionMonthlyCost = (activeSubscriptions as { amount: number; exchangeRate: number | null; frequency: string }[])
+      .reduce((sum, s) => sum + getMonthlyINR(s.amount, s.exchangeRate || 1, s.frequency), 0)
+
+    const stats = { totalRevenue, pendingAmount, overdueAmount, totalExpenses, subscriptionMonthlyCost }
 
     return NextResponse.json(sanitizeForJson({
       stats,
       invoices,
-      expenses: recentExpenses,
-      // Phase 7c: Accurate monthly revenue + expense aggregates for the Overview chart.
+      expenses: [],
+      subscriptionMonthlyCost,
       monthlyAggregates: monthlyAggResults,
     }))
   } catch (error: unknown) {

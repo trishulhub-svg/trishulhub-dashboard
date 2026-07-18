@@ -37,6 +37,12 @@ import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { cn, safeArray, safeText } from "@/lib/utils";
 import { DEPARTMENTS } from "@/lib/types";
+import {
+  CONTROLLABLE_PAGES,
+  normalizePageAccessMode,
+  parsePageAccessPages,
+  type PageAccessMode,
+} from "@/lib/nav-pages";
 
 function getPasswordStrength(password: string): { label: string; color: string; width: string } {
   if (!password) return { label: "", color: "", width: "0%" };
@@ -93,6 +99,8 @@ interface TeamUser {
   department?: string | null;
   isActive: boolean;
   avatar?: string | null;
+  pageAccessMode?: string | null;
+  pageAccessPages?: string | string[] | null;
 }
 
 interface LeaveRecord {
@@ -194,7 +202,15 @@ function TeamPageInner() {
   // Edit user dialog state
   const [editUserOpen, setEditUserOpen] = useState(false);
   const [editUser, setEditUser] = useState<TeamUser | null>(null);
-  const [editForm, setEditForm] = useState({ name: "", role: "", department: "", isActive: true });
+  const [editForm, setEditForm] = useState({
+    name: "",
+    role: "",
+    department: "",
+    isActive: true,
+    pageAccessMode: "OFF" as PageAccessMode,
+    pageAccessPages: [] as string[],
+  });
+  const [pendingAccessMode, setPendingAccessMode] = useState<PageAccessMode | null>(null);
   const [editLoading, setEditLoading] = useState(false);
 
   // Password reset dialog (SUPER_ADMIN) — migrated from Settings
@@ -274,6 +290,8 @@ function TeamPageInner() {
           role: editForm.role,
           department: editForm.department || null,
           isActive: editForm.isActive,
+          pageAccessMode: editForm.pageAccessMode,
+          pageAccessPages: editForm.pageAccessPages,
         }),
       });
       if (res.ok) {
@@ -294,8 +312,48 @@ function TeamPageInner() {
 
   const openEditDialog = useCallback((user: TeamUser) => {
     setEditUser(user);
-    setEditForm({ name: user.name, role: user.role, department: user.department || "", isActive: user.isActive });
+    setPendingAccessMode(null);
+    setEditForm({
+      name: user.name,
+      role: user.role,
+      department: user.department || "",
+      isActive: user.isActive,
+      pageAccessMode: normalizePageAccessMode(user.pageAccessMode),
+      pageAccessPages: parsePageAccessPages(user.pageAccessPages),
+    });
     setEditUserOpen(true);
+  }, []);
+
+  const requestAccessMode = useCallback((next: PageAccessMode) => {
+    setEditForm((prev) => {
+      if (next === "OFF") {
+        return { ...prev, pageAccessMode: "OFF", pageAccessPages: [] };
+      }
+      if (prev.pageAccessMode !== "OFF" && prev.pageAccessMode !== next) {
+        setPendingAccessMode(next);
+        return prev;
+      }
+      return { ...prev, pageAccessMode: next };
+    });
+  }, []);
+
+  const confirmAccessModeSwitch = useCallback(() => {
+    if (!pendingAccessMode) return;
+    setEditForm((prev) => ({
+      ...prev,
+      pageAccessMode: pendingAccessMode,
+      pageAccessPages: [],
+    }));
+    setPendingAccessMode(null);
+  }, [pendingAccessMode]);
+
+  const toggleAccessPage = useCallback((href: string, on: boolean) => {
+    setEditForm((prev) => {
+      const set = new Set(prev.pageAccessPages);
+      if (on) set.add(href);
+      else set.delete(href);
+      return { ...prev, pageAccessPages: Array.from(set) };
+    });
   }, []);
 
   // Reactivate / toggle active — SUPER_ADMIN only (API enforces same)
@@ -964,7 +1022,7 @@ function TeamPageInner() {
         setEditUserOpen(open);
         if (!open) setEditUser(null);
       }}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Team Member</DialogTitle>
           </DialogHeader>
@@ -1013,6 +1071,50 @@ function TeamPageInner() {
                 <Label htmlFor="edit-active">Active</Label>
               </div>
             )}
+
+            {(isAdminUser || isSuperAdmin) && editUser?.role !== "SUPER_ADMIN" && (
+              <div className="space-y-3 rounded-lg border border-border/60 p-3">
+                <div>
+                  <Label className="text-sm">Page access</Label>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    Only one system can be on. Allow = only selected pages. Restrict = hide selected pages.
+                    Dashboard and Settings stay available.
+                  </p>
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center justify-between gap-3 sm:justify-start">
+                    <Label htmlFor="access-allow" className="text-xs font-medium">Allow list</Label>
+                    <Switch
+                      id="access-allow"
+                      checked={editForm.pageAccessMode === "ALLOW"}
+                      onCheckedChange={(on) => requestAccessMode(on ? "ALLOW" : "OFF")}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-3 sm:justify-start">
+                    <Label htmlFor="access-restrict" className="text-xs font-medium">Restrict list</Label>
+                    <Switch
+                      id="access-restrict"
+                      checked={editForm.pageAccessMode === "RESTRICT"}
+                      onCheckedChange={(on) => requestAccessMode(on ? "RESTRICT" : "OFF")}
+                    />
+                  </div>
+                </div>
+                {editForm.pageAccessMode !== "OFF" && (
+                  <div className="max-h-48 space-y-2 overflow-y-auto pr-1">
+                    {CONTROLLABLE_PAGES.filter((p) => !p.locked).map((page) => (
+                      <div key={page.href} className="flex items-center justify-between gap-2">
+                        <span className="text-xs text-foreground truncate">{page.title}</span>
+                        <Switch
+                          checked={editForm.pageAccessPages.includes(page.href)}
+                          onCheckedChange={(on) => toggleAccessPage(page.href, on)}
+                          aria-label={`${editForm.pageAccessMode === "ALLOW" ? "Allow" : "Restrict"} ${page.title}`}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditUserOpen(false)}>Cancel</Button>
@@ -1022,6 +1124,22 @@ function TeamPageInner() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={pendingAccessMode !== null} onOpenChange={(open) => { if (!open) setPendingAccessMode(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Switch page access mode?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Turning on {pendingAccessMode === "ALLOW" ? "Allow" : "Restrict"} will cancel the other system
+              and clear the current page selection. Continue?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmAccessModeSwitch}>Yes, switch</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Add Team Member Dialog */}
       <Dialog open={addMemberOpen} onOpenChange={setAddMemberOpen}>

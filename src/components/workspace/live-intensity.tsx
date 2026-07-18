@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Terminal } from "lucide-react";
 
 export type WorkspaceMode = "dark" | "light" | "bluelight";
@@ -17,28 +17,24 @@ export type LiveUser = {
 
 type AiLine = { prefix: string; msg: string; type: LineType };
 
+/** Cursor model / agent flavour — replaces old ZAI/GLM lines */
 const AI_LINES: AiLine[] = [
-  { prefix: "ZAI", msg: "GLM 5.1 deep reasoning engine initialized", type: "success" },
-  { prefix: "BLUEPRINT", msg: "Loading e-commerce blueprint — smart execution mode", type: "info" },
-  { prefix: "WORKSPACE", msg: "Session recovered — last state restored", type: "success" },
+  { prefix: "CURSOR", msg: "Composer model ready — context window warm", type: "success" },
+  { prefix: "CURSOR", msg: "Auto mode planning next edit sequence", type: "info" },
+  { prefix: "SONNET", msg: "Claude Sonnet reasoning pass complete", type: "success" },
+  { prefix: "OPUS", msg: "Claude Opus deep review — architecture check", type: "info" },
+  { prefix: "GPT", msg: "GPT-5.4 patch proposal staged", type: "success" },
+  { prefix: "CODEX", msg: "Codex fast path — 14 files indexed", type: "info" },
+  { prefix: "CURSOR", msg: "Agent loop: apply → test → iterate", type: "info" },
   { prefix: "DEPLOY", msg: "Next.js build compiled — 0 TypeScript errors", type: "success" },
-  { prefix: "STACK", msg: "Prisma migration applied to PostgreSQL", type: "success" },
-  { prefix: "COLLAB", msg: "Real-time sync: 2 files updated by remote user", type: "info" },
-  { prefix: "TASK", msg: "Sprint backlog: 7 active, 3 pending, 12 done", type: "info" },
-  { prefix: "ZAI", msg: "GLM-5 Turbo fast execution — 2.1s response time", type: "success" },
-  { prefix: "AGENT", msg: "Workspace credentials verified — access granted", type: "success" },
-  { prefix: "DEPLOY", msg: "CI/CD pipeline passed — all 14 checks green", type: "success" },
-  { prefix: "STACK", msg: "Redis cache hit ratio: 97.3% — healthy", type: "success" },
-  { prefix: "BLUEPRINT", msg: "Component tree diff: 12 files changed", type: "info" },
-  { prefix: "COLLAB", msg: "WebSocket heartbeat — 3 connections stable", type: "success" },
-  { prefix: "ZAI", msg: "Autonomous loop: step 7/24 in progress", type: "info" },
-  { prefix: "STACK", msg: "Memory usage spike: 78% — monitoring", type: "warn" },
-  { prefix: "DEPLOY", msg: "Rate limit approaching: 450/500 requests/min", type: "warn" },
-  { prefix: "TASK", msg: "Task deadline in 2h — priority escalated", type: "warn" },
+  { prefix: "STACK", msg: "Prisma client in sync with schema", type: "success" },
+  { prefix: "COLLAB", msg: "Real-time sync: workspace state healthy", type: "info" },
+  { prefix: "CURSOR", msg: "Background agent scanning for dead code", type: "info" },
+  { prefix: "SONNET", msg: "Diff review — no security regressions flagged", type: "success" },
+  { prefix: "STACK", msg: "Memory usage elevated — monitoring", type: "warn" },
+  { prefix: "CURSOR", msg: "Auto mode waiting for human confirmation", type: "warn" },
   { prefix: "WORKSPACE", msg: "System idle — background sync paused", type: "idle" },
-  { prefix: "STACK", msg: "Health check OK — all services sleeping", type: "idle" },
-  { prefix: "ZAI", msg: "Model warming up — standby mode", type: "idle" },
-  { prefix: "DEPLOY", msg: "No deployments queued — pipeline idle", type: "idle" },
+  { prefix: "CURSOR", msg: "Models on standby — no active sessions", type: "idle" },
 ];
 
 const INTENSITY = [
@@ -49,9 +45,11 @@ const INTENSITY = [
   { label: "MAX OPS", pulseMs: 650, min: 400, max: 1100, maxVisible: 14, pool: ["success", "info", "info", "warn", "success", "info", "success"] as LineType[] },
 ];
 
+const AUTO_MODE_AFTER_SEC = 5 * 60;
+
 function pickLine(pool: LineType[]) {
   const filtered = AI_LINES.filter((l) => pool.includes(l.type));
-  return filtered[Math.floor(Math.random() * filtered.length)];
+  return filtered[Math.floor(Math.random() * filtered.length)] ?? AI_LINES[0];
 }
 
 function formatClockInTime(iso: string) {
@@ -74,6 +72,13 @@ function formatElapsedHm(sec: number) {
   return `${h}h ${m.toString().padStart(2, "0")}m`;
 }
 
+function elapsedFor(u: LiveUser) {
+  return Math.max(
+    0,
+    Math.floor((Date.now() - new Date(u.clockInAt).getTime()) / 1000) || u.elapsedSec
+  );
+}
+
 export function LiveIntensity({
   liveUsers,
   mode,
@@ -89,13 +94,32 @@ export function LiveIntensity({
   const level = Math.min(4, count) as 0 | 1 | 2 | 3 | 4;
   const cfg = INTENSITY[level];
   const [aiLogs, setAiLogs] = useState<AiLine[]>([]);
+  const [tick, setTick] = useState(0);
   const feedRef = useRef<HTMLDivElement>(null);
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const onLineRef = useRef(onActivityLine);
   onLineRef.current = onActivityLine;
 
+  // Tick every 30s so Auto mode appears after 5 min without waiting for poll
   useEffect(() => {
-    if (!entered) return;
+    if (liveUsers.length === 0) return;
+    const id = setInterval(() => setTick((t) => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, [liveUsers.length]);
+
+  const autoModeUsers = useMemo(
+    () => liveUsers.filter((u) => elapsedFor(u) >= AUTO_MODE_AFTER_SEC),
+    [liveUsers, tick]
+  );
+
+  // AI / Cursor feed only while someone is clocked in
+  useEffect(() => {
+    if (!entered || liveUsers.length === 0) {
+      setAiLogs([]);
+      timersRef.current.forEach(clearTimeout);
+      timersRef.current = [];
+      return;
+    }
     const cfg = INTENSITY[Math.min(4, liveUsers.length) as 0 | 1 | 2 | 3 | 4];
     timersRef.current.forEach(clearTimeout);
     timersRef.current = [];
@@ -127,10 +151,16 @@ export function LiveIntensity({
 
   useEffect(() => {
     feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight, behavior: "smooth" });
-  }, [aiLogs, liveUsers]);
+  }, [aiLogs, liveUsers, autoModeUsers.length]);
 
   const prefixClass = (type: LineType) =>
-    type === "success" ? "ws-feed-prefix--success" : type === "warn" ? "ws-feed-prefix--warn" : type === "idle" ? "ws-feed-prefix--idle" : "ws-feed-prefix--info";
+    type === "success"
+      ? "ws-feed-prefix--success"
+      : type === "warn"
+        ? "ws-feed-prefix--warn"
+        : type === "idle"
+          ? "ws-feed-prefix--idle"
+          : "ws-feed-prefix--info";
 
   return (
     <div className={`ws-card ws-feed-card ${entered ? "ws-in" : ""}`} style={{ transitionDelay: "0.35s" }}>
@@ -147,36 +177,61 @@ export function LiveIntensity({
       <div ref={feedRef} className="ws-feed-scroll">
         {liveUsers.length === 0 ? (
           <div className="ws-feed-line ws-feed-line--empty">
-            <span className={`ws-feed-msg ws-feed-msg--${mode} ws-feed-msg--idle`}>No one is currently working</span>
+            <span className={`ws-feed-msg ws-feed-msg--${mode} ws-feed-msg--idle`}>
+              No one is currently working
+            </span>
           </div>
         ) : (
-          liveUsers.map((u, i) => {
-            const elapsed =
-              Math.max(0, Math.floor((Date.now() - new Date(u.clockInAt).getTime()) / 1000)) || u.elapsedSec;
-            return (
-              <div key={`${u.userId}-${i}`} className="ws-feed-line ws-feed-line--enter">
-                <span className={`ws-feed-time ws-feed-time--${mode}`}>{formatClockInTime(u.clockInAt)}</span>
-                <span className="ws-feed-prefix ws-feed-prefix--info">{u.name}</span>
-                <span className="ws-live-user-dot" aria-hidden title="Clocked in" />
+          <>
+            {liveUsers.map((u, i) => {
+              const elapsed = elapsedFor(u);
+              return (
+                <div key={`${u.userId}-${i}`} className="ws-feed-line ws-feed-line--enter">
+                  <span className={`ws-feed-time ws-feed-time--${mode}`}>{formatClockInTime(u.clockInAt)}</span>
+                  <span className="ws-feed-prefix ws-feed-prefix--info">{u.name}</span>
+                  <span className="ws-live-user-dot" aria-hidden title="Clocked in" />
+                  <span className={`ws-feed-msg ws-feed-msg--${mode}`}>
+                    working on {u.projectName ?? "no project"} ({formatElapsedHm(elapsed)})
+                  </span>
+                </div>
+              );
+            })}
+            {autoModeUsers.map((u) => (
+              <div key={`auto-${u.userId}`} className="ws-feed-line ws-feed-line--enter">
+                <span className={`ws-feed-time ws-feed-time--${mode}`}>
+                  {new Date().toLocaleTimeString("en-US", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit",
+                    hour12: false,
+                  })}
+                </span>
+                <span className="ws-feed-prefix ws-feed-prefix--success">CURSOR</span>
+                <span className="ws-live-user-dot" aria-hidden />
                 <span className={`ws-feed-msg ws-feed-msg--${mode}`}>
-                  working on {u.projectName ?? "no project"} ({formatElapsedHm(elapsed)})
+                  Auto mode running for {u.name} — agent loop active
                 </span>
               </div>
-            );
-          })
+            ))}
+            {aiLogs.map((line, i) => (
+              <div key={`ai-${i}-${line.prefix}`} className="ws-feed-line ws-feed-line--enter">
+                <span className={`ws-feed-time ws-feed-time--${mode}`}>
+                  {new Date().toLocaleTimeString("en-US", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit",
+                    hour12: false,
+                  })}
+                </span>
+                <span className={`ws-feed-prefix ${prefixClass(line.type)}`}>{line.prefix}</span>
+                {line.type === "success" && <span className="ws-feed-check">✓</span>}
+                {line.type === "warn" && <span className="ws-feed-warn">⚠</span>}
+                {line.type === "idle" && <span className="ws-feed-idle">○</span>}
+                <span className={`ws-feed-msg ws-feed-msg--${mode}`}>{line.msg}</span>
+              </div>
+            ))}
+          </>
         )}
-        {aiLogs.map((line, i) => (
-          <div key={`ai-${i}-${line.prefix}`} className="ws-feed-line ws-feed-line--enter">
-            <span className={`ws-feed-time ws-feed-time--${mode}`}>
-              {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
-            </span>
-            <span className={`ws-feed-prefix ${prefixClass(line.type)}`}>{line.prefix}</span>
-            {line.type === "success" && <span className="ws-feed-check">✓</span>}
-            {line.type === "warn" && <span className="ws-feed-warn">⚠</span>}
-            {line.type === "idle" && <span className="ws-feed-idle">○</span>}
-            <span className={`ws-feed-msg ws-feed-msg--${mode}`}>{line.msg}</span>
-          </div>
-        ))}
       </div>
     </div>
   );

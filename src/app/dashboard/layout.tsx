@@ -76,6 +76,12 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import type { UserRole } from "@/lib/types";
+import {
+  isNavHrefVisible,
+  isPageAccessAllowed,
+  normalizePageAccessMode,
+  type PageAccessMode,
+} from "@/lib/nav-pages";
 
 interface NavItem {
   title: string;
@@ -208,12 +214,16 @@ const SidebarContent = React.memo(function SidebarContent({
   pathname,
   onNavigate,
   badgeCounts,
+  pageAccessMode,
+  pageAccessPages,
 }: {
   collapsed: boolean;
   userRole: UserRole;
   pathname: string;
   onNavigate: (href: string) => void;
   badgeCounts: Record<string, number>;
+  pageAccessMode: PageAccessMode;
+  pageAccessPages: string[];
 }) {
   // Helper: check if a nav item (or any of its children) is active
   const isItemActive = (item: NavItem): boolean => {
@@ -237,23 +247,29 @@ const SidebarContent = React.memo(function SidebarContent({
     return pathname === child.href;
   };
 
-  // Filter groups: only show groups that have at least one visible item for this role
-  // Parent items are visible if their role matches OR any child's role matches
-  // Children within parent items are filtered by role
+  // Filter groups: role first, then per-user page-access ACL (Allow / Restrict)
   const visibleGroups = navGroups
     .map((group) => ({
       ...group,
       items: group.items
         .map((item) => {
           if (item.children) {
-            const visibleChildren = item.children.filter((c) => c.roles.includes(userRole));
-            // Show parent if parent role matches or any visible child exists
-            if (item.roles.includes(userRole) || visibleChildren.length > 0) {
+            const visibleChildren = item.children.filter(
+              (c) =>
+                c.roles.includes(userRole) &&
+                isNavHrefVisible(c.href, userRole, pageAccessMode, pageAccessPages)
+            );
+            const parentOk =
+              (item.roles.includes(userRole) || visibleChildren.length > 0) &&
+              isNavHrefVisible(item.href, userRole, pageAccessMode, pageAccessPages);
+            if (parentOk || visibleChildren.length > 0) {
               return { ...item, children: visibleChildren };
             }
             return null;
           }
-          return item.roles.includes(userRole) ? item : null;
+          if (!item.roles.includes(userRole)) return null;
+          if (!isNavHrefVisible(item.href, userRole, pageAccessMode, pageAccessPages)) return null;
+          return item;
         })
         .filter((item): item is NavItem => item !== null),
     }))
@@ -303,15 +319,15 @@ const SidebarContent = React.memo(function SidebarContent({
       )}>
         <div className={cn(
           "th-sidebar-brand-mark relative shrink-0 overflow-hidden",
-          collapsed ? "h-10 w-10" : "h-11 w-11"
+          collapsed ? "h-12 w-12" : "h-16 w-16 sm:h-14 sm:w-14"
         )}>
           <Image
             src="/200px.png"
             alt="TrishulHub"
             fill
-            className="object-contain p-1"
+            className="object-contain p-0.5"
             priority
-            sizes="44px"
+            sizes="64px"
           />
         </div>
         {!collapsed && (
@@ -505,6 +521,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const userName = session?.user?.name || "User";
   const userEmail = session?.user?.email || "";
   const userId = session?.user?.id || "";
+  const pageAccessMode = normalizePageAccessMode(session?.user?.pageAccessMode);
+  const pageAccessPages = Array.isArray(session?.user?.pageAccessPages)
+    ? session.user.pageAccessPages
+    : [];
 
   const unreadCount = useMemo(() => notifications.filter((n) => !n.isRead).length, [notifications]);
 
@@ -568,6 +588,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       router.push("/portal");
     }
   }, [status, router, userRole]);
+
+  // Enforce per-user page ACL when navigating by URL (nav already hides items)
+  useEffect(() => {
+    if (status !== "authenticated" || userRole === "CLIENT") return;
+    if (!isPageAccessAllowed(pathname, userRole, pageAccessMode, pageAccessPages)) {
+      router.replace("/dashboard");
+    }
+  }, [status, userRole, pathname, pageAccessMode, pageAccessPages, router]);
 
   // Auto-collapse sidebar when navigating to workspace landing page
   useEffect(() => {
@@ -739,6 +767,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           pathname={pathname}
           onNavigate={handleNavigate}
           badgeCounts={navBadgeData}
+          pageAccessMode={pageAccessMode}
+          pageAccessPages={pageAccessPages}
         />
         <Button
           variant="ghost"
@@ -760,6 +790,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             pathname={pathname}
             onNavigate={handleNavigate}
             badgeCounts={navBadgeData}
+            pageAccessMode={pageAccessMode}
+            pageAccessPages={pageAccessPages}
           />
         </SheetContent>
       </Sheet>

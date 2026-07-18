@@ -81,8 +81,14 @@ export async function GET() {
       }
     }
 
-    // ── 2. Recently active projects (by updatedAt) — top 3 ──
+    // ── 2. Long Horizon: recent incomplete projects only (hide 100%) ──
     const recentProjects = await db.project.findMany({
+      where: {
+        AND: [
+          { progress: { lt: 100 } },
+          { status: { not: "COMPLETED" } },
+        ],
+      },
       orderBy: { updatedAt: "desc" },
       take: 3,
       select: {
@@ -97,7 +103,7 @@ export async function GET() {
     const liveProjects = recentProjects.map((p) => ({
       projectId: p.id,
       name: p.name,
-      progress: p.progress ?? 0,
+      progress: Math.min(99, p.progress ?? 0),
       status: p.status,
       activeUserCount: activeUserCountByProject.get(p.id) ?? 0,
       isActive: activeProjectIdSet.has(p.id),

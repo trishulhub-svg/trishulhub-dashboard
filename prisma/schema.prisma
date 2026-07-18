@@ -25,6 +25,9 @@ model User {
   department    String?  // MANAGEMENT, ENGINEERING, DESIGN, MARKETING, SALES, FINANCE, OPERATIONS, DEV, HR, CONTENT, SUPPORT
   avatar        String?
   isActive      Boolean  @default(true)
+  // Page access ACL — OFF | ALLOW | RESTRICT (only one mode active; see nav-pages.ts)
+  pageAccessMode  String  @default("OFF")
+  pageAccessPages String  @default("[]") // JSON string[] of /dashboard/... hrefs
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

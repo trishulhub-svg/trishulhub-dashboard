@@ -1685,10 +1685,10 @@ function AvailabilityPageInner() {
         <TabsContent value="schedule" className="space-y-4">
           {/* Controls */}
           <Card className="py-3 px-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3 flex-1 min-w-0">
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+              <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
                 <Select value={schedUserId} onValueChange={setSchedUserId}>
-                  <SelectTrigger className="w-[180px] sm:w-[260px] h-9 text-xs sm:text-sm">
+                  <SelectTrigger className="h-9 w-full text-xs sm:w-[260px] sm:text-sm">
                     <SelectValue placeholder="Select employee" />
                   </SelectTrigger>
                   <SelectContent>
@@ -1706,23 +1706,29 @@ function AvailabilityPageInner() {
                     ))}
                   </SelectContent>
                 </Select>
-                {isUserAdmin && schedUserId && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-9 text-xs"
-                    onClick={() => openCopyDialog(schedUserId)}
-                    disabled={availabilities.filter((a) => a.userId === schedUserId).length === 0}
-                  >
-                    <Copy className="h-3.5 w-3.5 mr-1.5" /> Copy Schedule
-                  </Button>
+                {isUserAdmin && (
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    {schedUserId && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-9 shrink-0 text-xs"
+                        onClick={() => openCopyDialog(schedUserId)}
+                        disabled={availabilities.filter((a) => a.userId === schedUserId).length === 0}
+                      >
+                        <Copy className="mr-1.5 h-3.5 w-3.5" /> Copy Schedule
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      className="h-9 shrink-0"
+                      onClick={() => { resetAvailForm(); setAvailDialogOpen(true); }}
+                    >
+                      <Plus className="mr-1.5 h-4 w-4" /> Add Slot
+                    </Button>
+                  </div>
                 )}
               </div>
-              {isUserAdmin && (
-                <Button size="sm" className="h-9" onClick={() => { resetAvailForm(); setAvailDialogOpen(true); }}>
-                  <Plus className="h-4 w-4 mr-1.5" /> Add Slot
-                </Button>
-              )}
             </div>
           </Card>
 

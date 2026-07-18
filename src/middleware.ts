@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { getToken } from "next-auth/jwt"
+import {
+  isPageAccessAllowed,
+  normalizePageAccessMode,
+  parsePageAccessPages,
+} from "@/lib/nav-pages"
 
 // Paths where middleware doesn't enforce auth (route handlers may have their own auth)
 // /api/setup must remain public — its own auth logic handles first-time seeding (SETUP_TOKEN) and requires SUPER_ADMIN when users exist.
@@ -141,6 +146,13 @@ export async function middleware(request: NextRequest) {
 
     // Check admin or PM routes
     if (!isAdminOrPm && adminOrPmRoutes.some(route => pathname.startsWith(route))) {
+      return addSecurityHeaders(request, NextResponse.redirect(new URL("/dashboard", request.url)))
+    }
+
+    // Per-user page access ACL (Allow / Restrict) — SUPER_ADMIN bypasses in helper
+    const pageMode = normalizePageAccessMode(token?.pageAccessMode)
+    const pagePages = parsePageAccessPages(token?.pageAccessPages)
+    if (!isPageAccessAllowed(pathname, role, pageMode, pagePages)) {
       return addSecurityHeaders(request, NextResponse.redirect(new URL("/dashboard", request.url)))
     }
   }

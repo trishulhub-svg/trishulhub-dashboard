@@ -71,6 +71,9 @@ const CRITICAL_COLUMNS: Array<{ table: string; column: string; sql: string }> = 
   // Attendance — updatedAt column (added in schema but missing from older DBs)
   { table: "Attendance", column: "updatedAt", sql: `ALTER TABLE "Attendance" ADD COLUMN "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP` },
   { table: "Leave", column: "feedback", sql: `ALTER TABLE "Leave" ADD COLUMN "feedback" TEXT` },
+  // Team page-access ACL (Allow / Restrict modes)
+  { table: "User", column: "pageAccessMode", sql: `ALTER TABLE "User" ADD COLUMN "pageAccessMode" TEXT NOT NULL DEFAULT 'OFF'` },
+  { table: "User", column: "pageAccessPages", sql: `ALTER TABLE "User" ADD COLUMN "pageAccessPages" TEXT NOT NULL DEFAULT '[]'` },
 ]
 
 /** Tables to create if missing (simplified CREATE TABLE IF NOT EXISTS) */

@@ -11,6 +11,7 @@ import {
   removeSessionToken,
 } from "@/lib/session-manager"
 import { checkDbRateLimit, peekDbRateLimit } from "@/lib/rate-limit"
+import { normalizePageAccessMode, parsePageAccessPages } from "@/lib/nav-pages"
 
 const isDev = process.env.NODE_ENV === "development"
 const log = isDev ? console.log.bind(console) : () => {}
@@ -112,6 +113,13 @@ export const authOptions: NextAuthOptions = {
             email: user.email,
             name: user.name,
             role: user.role as UserRole,
+            department: user.department || undefined,
+            pageAccessMode: normalizePageAccessMode(
+              (user as { pageAccessMode?: string }).pageAccessMode
+            ),
+            pageAccessPages: parsePageAccessPages(
+              (user as { pageAccessPages?: string }).pageAccessPages
+            ),
           }
         } catch (error: unknown) {
           const errMsg = error instanceof Error ? error.message : String(error)
@@ -129,6 +137,9 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.role = user.role
         token.id = user.id
+        token.department = user.department
+        token.pageAccessMode = user.pageAccessMode ?? "OFF"
+        token.pageAccessPages = user.pageAccessPages ?? []
 
         // Generate and store session token for multi-device enforcement (max 2).
         // If 2 sessions already exist, the oldest is removed (FIFO — 1st device kicked).
@@ -157,12 +168,22 @@ export const authOptions: NextAuthOptions = {
           try {
             const freshUser = await db.user.findUnique({
               where: { id: userId },
-              select: { name: true, email: true, role: true },
+              select: {
+                name: true,
+                email: true,
+                role: true,
+                department: true,
+                pageAccessMode: true,
+                pageAccessPages: true,
+              },
             })
             if (freshUser) {
               token.name = freshUser.name
               token.email = freshUser.email
               token.role = freshUser.role as UserRole
+              token.department = freshUser.department || undefined
+              token.pageAccessMode = normalizePageAccessMode(freshUser.pageAccessMode)
+              token.pageAccessPages = parsePageAccessPages(freshUser.pageAccessPages)
               log("[auth] Session updated from DB for user:", userId, "name:", freshUser.name)
             }
           } catch (err) {
@@ -197,6 +218,25 @@ export const authOptions: NextAuthOptions = {
         }
       }
 
+      // Refresh page-access ACL from DB (throttled) so admin changes apply without re-login
+      const lastAccessAt = typeof token.pageAccessAt === "number" ? token.pageAccessAt : 0
+      if (userId && trigger !== "update" && Date.now() - lastAccessAt > 60_000) {
+        try {
+          const access = await db.user.findUnique({
+            where: { id: userId },
+            select: { pageAccessMode: true, pageAccessPages: true },
+          })
+          if (access) {
+            token.pageAccessMode = normalizePageAccessMode(access.pageAccessMode)
+            token.pageAccessPages = parsePageAccessPages(access.pageAccessPages)
+            token.pageAccessAt = Date.now()
+          }
+        } catch (err) {
+          // Columns may not exist yet on first boot — keep token defaults
+          logError("[auth] Failed to refresh page access:", err)
+        }
+      }
+
       return token
     },
 
@@ -212,6 +252,8 @@ export const authOptions: NextAuthOptions = {
         session.user.role = token.role
         session.user.id = token.id
         session.user.department = token.department
+        session.user.pageAccessMode = token.pageAccessMode ?? "OFF"
+        session.user.pageAccessPages = token.pageAccessPages ?? []
       }
 
       // Pass session errors to client for handling

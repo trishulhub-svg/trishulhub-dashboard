@@ -166,37 +166,16 @@ export async function sendEmailWithFailover(options: {
         })
         return { success: true, method }
       }
-      // If primary fails, log and try next
+      // Intermediate SMTP failures: console only. Logging each attempt as FAILED
+      // duplicated EmailLog rows for one password-reset (user receives one email via failover).
       console.warn(`[email] SMTP ${config.isPrimary ? "primary" : "failover"} (${config.host}) failed: ${result.error}`)
-      // Log failure for this attempt
-      await logEmailEvent({
-        to: safeTo,
-        subject: safeSubject,
-        type: options.type || "UNKNOWN",
-        status: "FAILED",
-        smtpConfigId: config.id,
-        smtpHost: config.host,
-        method: config.isPrimary ? "primary" : "failover",
-        error: result.error,
-        triggeredBy: options.triggeredBy,
-      })
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err)
       console.warn(`[email] SMTP ${config.isPrimary ? "primary" : "failover"} (${config.host}) error: ${errMsg}`)
-      await logEmailEvent({
-        to: safeTo,
-        subject: safeSubject,
-        type: options.type || "UNKNOWN",
-        status: "FAILED",
-        smtpConfigId: config.id,
-        smtpHost: config.host,
-        method: config.isPrimary ? "primary" : "failover",
-        error: errMsg,
-        triggeredBy: options.triggeredBy,
-      })
     }
   }
 
+  // Single FAILED row only when every SMTP config failed
   await logEmailEvent({
     to: safeTo,
     subject: safeSubject,

@@ -65,6 +65,7 @@ interface DashboardData {
     overdueAmount: number;
     totalExpenses: number;
     monthlyBudget: number;
+    subscriptionMonthlyCost?: number;
   };
   invoices: {
     id: string; invoiceNumber: string; status: string; total: number;
@@ -73,6 +74,7 @@ interface DashboardData {
   expenses: { id: string; category: string; description: string; amount: number; date: string; project?: { id: string; name: string } }[];
   // Phase 7c: Server-computed monthly aggregates for accurate Overview charts.
   monthlyAggregates?: MonthlyAggregate[];
+  subscriptionMonthlyCost?: number;
 }
 
 interface Subscription {
@@ -184,7 +186,7 @@ function FinancePageInner() {
 
   // Subscriptions
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
-  const [subLoading, setSubLoading] = useState(true);
+  const [subLoading, setSubLoading] = useState(false);
   const [subTotalMonthly, setSubTotalMonthly] = useState(0);
   const [subDialogOpen, setSubDialogOpen] = useState(false);
   const [editingSub, setEditingSub] = useState<Subscription | null>(null);
@@ -283,7 +285,17 @@ function FinancePageInner() {
       if (handleFetchError(res, router)) return;
       if (res.ok) {
         const raw = await res.json().catch(() => null);
-        setData(deepSanitize<DashboardData | null>(raw));
+        const sanitized = deepSanitize<DashboardData | null>(raw);
+        setData(sanitized);
+        const subCost =
+          sanitized?.stats?.subscriptionMonthlyCost ??
+          (raw as { subscriptionMonthlyCost?: number } | null)?.subscriptionMonthlyCost;
+        if (typeof subCost === "number") {
+          setSubTotalMonthly(subCost);
+        }
+        if (typeof sanitized?.stats?.totalExpenses === "number") {
+          setStatsTotal(sanitized.stats.totalExpenses);
+        }
       } else {
         setDashError("Failed to load overview data. Please refresh the page.");
       }
@@ -460,15 +472,28 @@ function FinancePageInner() {
     };
   }, [subSearch]);
 
-  // Pre-fetch overview stats on mount so data is ready when user clicks Overview tab
+  // Overview: single lightweight /api/dashboard/stats call
   useEffect(() => {
-    fetchData();
+    if (activeTab !== "overview") return;
+    const controller = new AbortController();
+    void (async () => {
+      await fetchData(controller.signal);
+      // Pull subscription monthly from the same stats payload when available
+    })();
+    return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [activeTab]);
 
-  // Initial data load (runs once) — fetch core data only.
-  // Expenses/stats/subscriptions are handled by the filter effect below (avoids double-fetch on mount).
+  // Deferred: projects / employees / categories only when expense or subscription forms need them
   useEffect(() => {
+    if (
+      activeTab !== "expenses" &&
+      activeTab !== "by-category" &&
+      activeTab !== "by-project" &&
+      activeTab !== "subscriptions"
+    ) {
+      return;
+    }
     const controller = new AbortController();
     const signal = controller.signal;
     fetchProjects(signal);
@@ -487,36 +512,31 @@ function FinancePageInner() {
     })();
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [activeTab]);
 
-  // Defer heavy expense/stats fetches until those tabs are open (L3 / L7).
+  // Expense tabs only — not overview (overview uses dashboard/stats)
   useEffect(() => {
-    if (activeTab !== "expenses" && activeTab !== "by-category" && activeTab !== "by-project" && activeTab !== "overview") {
+    if (activeTab !== "expenses" && activeTab !== "by-category" && activeTab !== "by-project") {
       return;
     }
-    // Overview only needs stats; expense tabs need list + stats
     const controller = new AbortController();
-    if (activeTab === "overview" || activeTab === "by-category" || activeTab === "by-project") {
-      fetchStats(controller.signal);
-    }
-    if (activeTab === "expenses" || activeTab === "by-category" || activeTab === "by-project") {
-      fetchAllExpenses(controller.signal);
-      fetchExpenses(controller.signal);
-      if (activeTab === "expenses") fetchStats(controller.signal);
-    }
+    fetchStats(controller.signal);
+    fetchAllExpenses(controller.signal);
+    fetchExpenses(controller.signal);
     return () => controller.abort();
   }, [activeTab, expStartDate, expEndDate, expCategory, expSearchDebounced, fetchAllExpenses, fetchExpenses, fetchStats]);
 
-  // Subscriptions only when that tab is active
+  // Subscriptions tab only
   useEffect(() => {
-    if (activeTab !== "subscriptions" && activeTab !== "overview") return;
+    if (activeTab !== "subscriptions") return;
     const controller = new AbortController();
     fetchSubscriptions(controller.signal);
     return () => controller.abort();
   }, [activeTab, subSearchDebounced, expStartDate, expEndDate, fetchSubscriptions]);
 
-  // Fetch live exchange rates
+  // Exchange rates only when subscription dialogs/tabs need them
   useEffect(() => {
+    if (activeTab !== "subscriptions" && !subDialogOpen) return;
     const fetchRates = async () => {
       try {
         const res = await fetch("/api/exchange-rates", { credentials: "include" });
@@ -533,7 +553,7 @@ function FinancePageInner() {
       }
     };
     fetchRates();
-  }, []);
+  }, [activeTab, subDialogOpen]);
 
   // ─── Subscription form helpers ────
   const getRateForCurrency = useCallback((currency: string) => {
