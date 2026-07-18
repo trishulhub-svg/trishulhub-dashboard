@@ -680,6 +680,62 @@ export async function ensureAllTables(): Promise<void> {
       console.warn(`[auto-migrate] Drop Contract table: ${getErrMsg(err)}`)
     }
 
+    // 1h2. P3 — permanently drop old Agent / Task / Meeting / Protocol / Chat system tables.
+    // These are not in the current Prisma schema. Safe DROP IF EXISTS (no-op if already gone).
+    // Do NOT drop: Approval, Leave, TrainingAssignment, TrainingQr*, UserCredential, VaultSecret.
+    const ORPHAN_TABLES_TO_DROP = [
+      // Agent OS
+      "AgentActivityLog",
+      "AgentAutonomousPrompt",
+      "AgentAutonomyConfig",
+      "AgentConversation",
+      "AgentRoleConfig",
+      "Agent",
+      "UserAgentAccess",
+      "CrossAgentMessage",
+      "ApiUsageLog",
+      // Chat
+      "ChatMessage",
+      "Chat",
+      // Tasks / meetings / timetable
+      "MeetingAttendee",
+      "Meeting",
+      "TaskGitConfig",
+      "LarkTaskMapping",
+      "Task",
+      "PersonalTimetableTask",
+      "TimetableSettings",
+      "ProjectAttachment",
+      "ScheduledTask",
+      "_TaskToProject",
+      "_MeetingToProject",
+      // Legacy API keys / leave requests (replaced by VaultSecret + Leave)
+      "ApiKey",
+      "LeaveRequest",
+      // Protocol system
+      "ProtocolAccessLog",
+      "UserProtocolAccess",
+      "ProtocolInvite",
+      "ProtocolVersion",
+      // Old training quiz system (replaced by TrainingQr / TrainingAssignment)
+      "TestAttempt",
+      "TrainingTest",
+      "TrainingDocument",
+      // Misc file ACL leftovers
+      "FilePermission",
+      "FileMetadata",
+    ] as const
+    for (const table of ORPHAN_TABLES_TO_DROP) {
+      try {
+        await db.$executeRawUnsafe(`DROP TABLE IF EXISTS "${table}"`)
+      } catch (err: unknown) {
+        const msg = getErrMsg(err)
+        if (!msg.includes("no such table")) {
+          console.warn(`[auto-migrate] Drop orphan ${table}: ${msg}`)
+        }
+      }
+    }
+
     // 1i. Missing indexes declared in Prisma schema
     // ProjectWebsite indexes
     try {

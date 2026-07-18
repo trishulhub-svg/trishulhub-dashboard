@@ -570,40 +570,17 @@ export async function DELETE(req: NextRequest) {
       }
     }
 
-    // 2. Raw SQL cleanup for orphaned tables from REMOVED models
-    // These tables may still exist in the production DB even though they were
-    // removed from the Prisma schema. Their FK constraints will block
-    // project.delete() if we don't clean them up first.
-    const orphanedTableCleanup = [
-      // Tables removed from schema but may still exist in DB
-      `DELETE FROM "ProjectAttachment" WHERE "projectId" = ?`,
-      `DELETE FROM "Task" WHERE "projectId" = ?`,
-      `DELETE FROM "LarkTaskMapping" WHERE "projectId" = ?`,
-      `DELETE FROM "Meeting" WHERE "projectId" = ?`,
-      `DELETE FROM "MeetingAttendee" WHERE "meetingId" IN (SELECT "id" FROM "Meeting" WHERE "projectId" = ?)`,
-      `DELETE FROM "PersonalTimetableTask" WHERE "projectId" = ?`,
-      `DELETE FROM "TimetableSettings" WHERE "projectId" = ?`,
-      `DELETE FROM "TaskGitConfig" WHERE "projectId" = ?`,
-      // Join tables that may reference Project
-      `DELETE FROM "_ProjectMethodToProject" WHERE "B" = ?`,
-      // Also clean up any _TaskToProject or _MeetingToProject join tables
-      `DELETE FROM "_TaskToProject" WHERE "B" = ?`,
-      `DELETE FROM "_MeetingToProject" WHERE "B" = ?`,
-    ]
-
-    for (const sql of orphanedTableCleanup) {
-      try {
-        await db.$executeRawUnsafe(sql, id)
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        // "no such table" is expected — the table may not exist
-        if (!msg.includes("no such table") && !msg.includes("does not exist")) {
-          console.warn(`[projects] DELETE: orphan cleanup failed (non-fatal):`, msg)
-        }
+    // Detach project↔method join (if present), then delete project.
+    try {
+      await db.$executeRawUnsafe(`DELETE FROM "_ProjectMethodToProject" WHERE "B" = ?`, id)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (!msg.includes("no such table") && !msg.includes("does not exist")) {
+        console.warn(`[projects] DELETE: method join cleanup failed (non-fatal):`, msg)
       }
     }
 
-    // 3. Delete the project — try Prisma ORM first, then raw SQL fallback
+    // Delete the project — try Prisma ORM first, then raw SQL fallback
     try {
       await db.project.delete({ where: { id } })
     } catch (deleteErr) {

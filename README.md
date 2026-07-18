@@ -285,9 +285,9 @@ NODE_OPTIONS=--max-old-space-size=512 npm run build
 ├── public/             # Static assets (logo, icons)
 ├── src/
 │   ├── app/            # Next.js App Router pages and API routes
-│   │   ├── api/        # API endpoints (auth, agents, clients, etc.)
+│   │   ├── api/        # API endpoints (auth, clients, finance, etc.)
 │   │   ├── login/      # Authentication page
-│   │   └── dashboard/  # Dashboard pages (agents, projects, CRM, etc.)
+│   │   └── dashboard/  # Dashboard pages (projects, CRM, finance, etc.)
 │   ├── components/     # Reusable UI components (shadcn/ui based)
 │   ├── hooks/          # Custom React hooks
 │   └── lib/            # Utility functions and configurations

@@ -225,22 +225,6 @@ function KanbanProjectCard({
         </div>
       )}
 
-      {/* Pending Tasks Badge — clickable */}
-      {typeof pendingCount === "number" && pendingCount > 0 && !isDragging && (
-        <button
-          type="button"
-          className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 border border-amber-500/20 dark:border-amber-500/10 shadow-sm transition-colors cursor-pointer"
-          onClick={(e) => {
-            e.stopPropagation();
-            onPendingClick?.();
-          }}
-          title={`${pendingCount} pending task${pendingCount > 1 ? "s" : ""}`}
-        >
-          <ClipboardCheck className="h-2.5 w-2.5" />
-          {pendingCount} Pending
-        </button>
-      )}
-
       {/* Progress Bar */}
       <div className="mt-2.5 space-y-1">
         <div className="flex justify-between text-[11px]">
@@ -535,26 +519,6 @@ function ListViewRow({
         {/* Task 7 (Phase 4): per-card DEMO badge removed — demos no longer
             surface in the main projects list. The demo view shows a single
             header-level DEMO badge instead. */}
-      </div>
-
-      {/* Pending Tasks Badge */}
-      <div className="hidden sm:flex items-center shrink-0">
-        {typeof pendingCount === "number" && pendingCount > 0 ? (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 border border-amber-500/20 dark:border-amber-500/10 shadow-sm transition-colors cursor-pointer"
-            onClick={(e) => {
-              e.stopPropagation();
-              onPendingClick?.();
-            }}
-            title={`${pendingCount} pending task${pendingCount > 1 ? "s" : ""}`}
-          >
-            <ClipboardCheck className="h-2.5 w-2.5" />
-            {pendingCount}
-          </button>
-        ) : (
-          <span className="text-[11px] text-muted-foreground/40 w-6 text-center">—</span>
-        )}
       </div>
 
       {/* Progress */}

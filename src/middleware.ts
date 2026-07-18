@@ -77,12 +77,16 @@ export async function middleware(request: NextRequest) {
       return addSecurityHeaders(request, NextResponse.redirect(new URL("/portal", request.url)))
     }
 
-    // Legacy routes removed — keep bookmarks working
-    if (pathname.startsWith("/dashboard/agents")) {
-      return addSecurityHeaders(request, NextResponse.redirect(new URL("/dashboard/workspace", request.url)))
-    }
+    // Legacy training setup bookmark
     if (pathname.startsWith("/dashboard/training/setup")) {
       return addSecurityHeaders(request, NextResponse.redirect(new URL("/dashboard/training/my", request.url)))
+    }
+    // Old Agent OS routes — gone (P3). Send anyone with a bookmark to Workspace.
+    if (pathname.startsWith("/dashboard/agents") || pathname.startsWith("/api/agents")) {
+      if (pathname.startsWith("/api/")) {
+        return addSecurityHeaders(request, NextResponse.json({ error: "Removed" }, { status: 410 }))
+      }
+      return addSecurityHeaders(request, NextResponse.redirect(new URL("/dashboard/workspace", request.url)))
     }
 
     // Granular role-based route protection.

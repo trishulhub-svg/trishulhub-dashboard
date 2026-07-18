@@ -1,55 +1,30 @@
-# Hold list — review later (do not wipe without approval)
+# Hold list — review later
 
-Saved 2026-07-16 after dead-code wipe (#26). Keep until product review.
+Updated 2026-07-18 after P3 orphan wipe (Agent/Task/Meeting/Protocol/Chat).
 
-## Product / models (still in use lightly or dual systems)
+## Removed permanently (P3)
 
-| Item | Notes |
-|---|---|
-| Contact / Deal models + client detail tabs | Read via `/api/clients/[id]`; no dedicated CRUD UI |
-| Approval model + page | Lightly used (PATCH / counts); AI-era types remain |
-| Attendance vs TimeEntry | Two presence systems |
-| Leave vs unavailable date ranges | Overlapping “time off” concepts |
-| Availability weekly / override / date-range | Three schedule layers |
-| `Client.website` legacy field | Dual with `ClientWebsite` |
-| `TimeEntry` AGENT_OTP / agentSessionId / clock methods | Legacy columns; display only |
-| NotificationPreference unused toggles / quiet hours | Fields exist; not fully enforced in notify |
-| UserDetail reserved enc IV/tag fields | Never written |
-| Approvals UI `agent` / AI-era types | Cosmetic leftovers |
-| Workspace fake AGENT/PROTOCOL feed lines | Visual only |
+Dropped from DB via `auto-migrate` (DROP TABLE IF EXISTS) and removed from project-delete orphan SQL:
 
-## Ops / deploy (intentional)
+`Agent`, `AgentRoleConfig`, `AgentAutonomyConfig`, `AgentAutonomousPrompt`, `AgentActivityLog`, `AgentConversation`, `UserAgentAccess`, `CrossAgentMessage`, `ApiUsageLog`, `Chat`, `ChatMessage`, `Task`, `TaskGitConfig`, `LarkTaskMapping`, `Meeting`, `MeetingAttendee`, `PersonalTimetableTask`, `TimetableSettings`, `ProjectAttachment`, `ScheduledTask`, `_TaskToProject`, `_MeetingToProject`, `ApiKey`, `LeaveRequest`, `ProtocolVersion`, `ProtocolInvite`, `ProtocolAccessLog`, `UserProtocolAccess`, `TrainingDocument`, `TrainingTest`, `TestAttempt`, `FileMetadata`, `FilePermission`, `Contract`.
+
+**Kept:** current Training QR (`TrainingQr*`, `TrainingAssignment`), `VaultSecret`, `UserCredential`, `Leave`, `Approval`, etc.
+
+## Still intentional
 
 | Item | Notes |
 |---|---|
-| `/api/health` | External ops probe |
-| Hostinger stack (`app.js`, Caddyfile, …) | Non-Vercel deploy path |
-| Middleware redirects `/dashboard/agents`, `/training/setup` | Bookmark safety |
-| `agentation` (SUPER_ADMIN visual tool) | Mounted in dashboard layout |
+| `agentation` SUPER_ADMIN FAB | Temporary visual feedback tool — owner will remove later |
+| Workspace theatrical live feed | Intentional team vibe |
+| TimeEntry `agentSessionId` / `AGENT_OTP` columns | Harmless legacy columns on live time rows; not separate Agent tables |
+| Attendance vs TimeEntry | Dual presence — revisit later if needed |
+| `/api/health` | Ops probe |
 
-## DB cleanup (remote Turso — do not auto-drop)
+## Encryption note (not a UI page)
 
-Possible orphan tables from old migrations (may still exist in prod DB):
-`Agent*`, `Chat*`, `ApiKey`, `LeaveRequest`, `Meeting*`, `Task`, `TrainingDocument` / `TrainingTest` / `TestAttempt`, `PersonalTimetableTask`, `TimetableSettings`, `ProtocolVersion` / `ProtocolInvite` / `UserProtocolAccess`, `ScheduledTask`, `FileMetadata`, `FilePermission`, `ProjectAttachment`, `ProtocolAccessLog`.
+There is **no** “Encryption Key” settings screen anymore. Secrets still need a server env var:
 
-## Code leftovers (low priority trim)
+- **`ENCRYPTION_KEY`** on Vercel — locks **API Keys** vault, Access Hub passwords, My Details KYC, SMTP passwords
+- Optional: `CREDENTIAL_ENCRYPTION_KEY` or DB `AppSetting.credentialEncryptionKey` for project credentials
 
-| Item | Notes |
-|---|---|
-| Unused Zod schemas in `validations.ts` | Beyond deals/contacts already removed |
-| Empty `vercel.json` | No crons |
-| README agents routes | Outdated docs |
-| Audit taxonomy “tasks” page label | Historical |
-
-## RBAC policy decisions (hold — revisit when needed)
-
-| Item | Notes |
-|---|---|
-| VIEWER role | No nav items; can still hit open routes + write leaves/time via API |
-| Audit trail API vs page | `canViewAuditTrail` allows PM/DEV/VIEWER but middleware/nav is admin-only |
-| Soft-delete / archive for projects | Hard DELETE still cascades invoices/expenses — product decision |
-| DEVELOPER access to Projects page | Currently Admin/PM only (nav + middleware); members see via other surfaces |
-
----
-
-When ready: reply with items to remove or keep permanently.
+If missing, vault writes fail closed (by design).
