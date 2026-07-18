@@ -8,11 +8,10 @@ import { randomUUID } from "crypto"
 //
 // Uses an ActiveSession table to track valid session tokens per user.
 // The sessionToken field stores a JSON array of up to 2 tokens (FIFO order).
-// This avoids schema migrations — the existing column is repurposed.
 
 const MAX_SESSIONS = 2
 
-// In-memory cache for session validation (best-effort, reduced TTL for Vercel serverless)
+// In-memory cache for session validation (best-effort on Vercel serverless)
 const sessionCache = new Map<string, { tokens: string[]; checkedAt: number }>()
 const CACHE_TTL = 15 * 1000 // 15 seconds
 
@@ -27,7 +26,6 @@ function evictExpiredCacheEntries() {
   }
 }
 
-// Auto-migrate: ensure ActiveSession table exists
 let sessionTableChecked = false
 let sessionTableExists = false
 
@@ -35,29 +33,26 @@ async function ensureActiveSessionTable() {
   if (sessionTableChecked && sessionTableExists) return true
 
   try {
-    const count = await db.activeSession.count({ take: 1 })
+    await db.activeSession.findFirst({ select: { id: true } })
     sessionTableChecked = true
     sessionTableExists = true
-    return count >= 0
+    return true
   } catch (error) {
     console.warn("[session] ActiveSession table not found. Auto-migrate should have created it.")
+    sessionTableChecked = true
+    sessionTableExists = false
     return false
   }
 }
-
-// ── Token Array Helpers ──
-// The sessionToken column stores a JSON array of tokens: '["uuid1","uuid2"]'
-// Backward compatible: if a single UUID string is found, it's wrapped in an array.
 
 function parseTokens(raw: string | null): string[] {
   if (!raw) return []
   try {
     const parsed = JSON.parse(raw)
     if (Array.isArray(parsed)) return parsed.filter((t: unknown) => typeof t === "string")
-    if (typeof parsed === "string") return [parsed] // Legacy single-token format
+    if (typeof parsed === "string") return [parsed]
     return []
   } catch {
-    // Not JSON — might be a raw UUID string (legacy format)
     if (/^[0-9a-f-]{36}$/i.test(raw)) return [raw]
     return []
   }
@@ -77,7 +72,8 @@ export function generateSessionToken(): string {
 /**
  * Add a session token for a user (max 2 devices).
  * If 2 sessions already exist, the oldest is removed (FIFO).
- * Called on login to register the new session.
+ * Throws if the write cannot be completed — callers must not put the token
+ * on the JWT unless this resolves successfully.
  */
 export async function setSessionToken(
   userId: string,
@@ -85,53 +81,48 @@ export async function setSessionToken(
 ): Promise<void> {
   const tableReady = await ensureActiveSessionTable()
   if (!tableReady) {
-    console.error("[session] Cannot set session token - table not available")
-    return
+    throw new Error("[session] Cannot set session token - ActiveSession table not available")
   }
 
-  await Promise.race([
+  const updatedTokens = await Promise.race([
     (async () => {
-      // Read existing tokens
       const existing = await db.activeSession.findUnique({ where: { userId } })
       const currentTokens = existing ? parseTokens(existing.sessionToken) : []
 
-      // Add new token, enforce max sessions (FIFO — remove oldest)
-      const updatedTokens = [...currentTokens, token]
-      if (updatedTokens.length > MAX_SESSIONS) {
-        updatedTokens.splice(0, updatedTokens.length - MAX_SESSIONS)
+      // Deduplicate + append, enforce max sessions (FIFO — remove oldest)
+      const withoutDup = currentTokens.filter((t) => t !== token)
+      const next = [...withoutDup, token]
+      if (next.length > MAX_SESSIONS) {
+        next.splice(0, next.length - MAX_SESSIONS)
       }
 
       await db.activeSession.upsert({
         where: { userId },
-        update: { sessionToken: serializeTokens(updatedTokens), updatedAt: new Date() },
-        create: { id: randomUUID(), userId, sessionToken: serializeTokens([token]) },
+        update: { sessionToken: serializeTokens(next), updatedAt: new Date() },
+        create: { id: randomUUID(), userId, sessionToken: serializeTokens(next) },
       })
+      return next
     })(),
     new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error("[session] setSessionToken timed out (5s)")), 5000)
     ),
   ])
 
-  // Update cache
-  const cached = sessionCache.get(userId)
-  const tokens = cached ? [...cached.tokens, token] : [token]
-  if (tokens.length > MAX_SESSIONS) tokens.splice(0, tokens.length - MAX_SESSIONS)
-  sessionCache.set(userId, { tokens, checkedAt: Date.now() })
+  // Cache must mirror DB (never append onto a stale cache list)
+  sessionCache.set(userId, { tokens: updatedTokens, checkedAt: Date.now() })
   evictExpiredCacheEntries()
 }
 
 /**
  * Validate a session token against the database.
- * Returns true if the token exists in the user's active token list.
- * Returns false if the token was evicted (3rd device logged in, oldest kicked).
- *
- * Fail-open design: DB errors/timeout → returns true (allows session).
+ * Fail-open on DB errors/timeouts.
+ * Self-heal: if the ActiveSession row is missing but we have a JWT token,
+ * re-register it instead of kicking (avoids instant logout after login races).
  */
 export async function validateSessionToken(
   userId: string,
   token: string
 ): Promise<boolean> {
-  // Check cache first (fast path)
   const cached = sessionCache.get(userId)
   if (cached && Date.now() - cached.checkedAt < CACHE_TTL) {
     return cached.tokens.includes(token)
@@ -164,21 +155,29 @@ async function doValidateSession(
 
   const session = await db.activeSession.findUnique({ where: { userId } })
   const tokens = session ? parseTokens(session.sessionToken) : []
-  const isValid = tokens.includes(token)
 
-  // Update cache
-  if (session) {
-    sessionCache.set(userId, { tokens, checkedAt: Date.now() })
-    evictExpiredCacheEntries()
+  // No row / empty token list — self-heal instead of kicking
+  // (login upsert race or prior silent write failure). Do NOT self-heal when
+  // other device tokens exist but this one was FIFO-evicted.
+  if (!session || tokens.length === 0) {
+    try {
+      await setSessionToken(userId, token)
+      return true
+    } catch (err) {
+      console.warn("[session] Self-heal setSessionToken failed — fail-open:", err instanceof Error ? err.message : String(err))
+      return true
+    }
   }
+
+  const isValid = tokens.includes(token)
+  sessionCache.set(userId, { tokens, checkedAt: Date.now() })
+  evictExpiredCacheEntries()
 
   return isValid
 }
 
 /**
  * Invalidate ALL sessions for a user by replacing tokens with a new random one.
- * Used for password change, email change, admin-forced logout.
- * Returns the new token.
  */
 export async function invalidateSession(userId: string): Promise<string | null> {
   const tableReady = await ensureActiveSessionTable()
@@ -208,7 +207,6 @@ export async function invalidateSession(userId: string): Promise<string | null> 
 
 /**
  * Remove a specific session token for a user (on sign-out of one device).
- * Other devices remain logged in.
  */
 export async function removeSessionToken(
   userId: string,
@@ -224,7 +222,6 @@ export async function removeSessionToken(
     const tokens = parseTokens(existing.sessionToken).filter(t => t !== token)
 
     if (tokens.length === 0) {
-      // No more sessions — clean up
       await db.activeSession.deleteMany({ where: { userId } })
       sessionCache.delete(userId)
     } else {
@@ -241,8 +238,7 @@ export async function removeSessionToken(
 }
 
 /**
- * Remove ALL session records for a user (legacy cleanup).
- * Prefer removeSessionToken() for single-device sign-out.
+ * Remove ALL session records for a user.
  */
 export async function removeSession(userId: string): Promise<void> {
   const tableReady = await ensureActiveSessionTable()

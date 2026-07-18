@@ -73,9 +73,50 @@ export const authOptions: NextAuthOptions = {
 
         try {
           log("[auth] Attempting database lookup...")
-          const user = await db.user.findUnique({
-            where: { email },
-          })
+          // Prefer lean select so missing optional columns don't break login.
+          // Fall back to a minimal select if page-access columns are not migrated yet.
+          let user: {
+            id: string
+            email: string
+            name: string
+            role: string
+            department: string | null
+            password: string
+            isActive: boolean
+            pageAccessMode?: string | null
+            pageAccessPages?: string | null
+          } | null = null
+
+          try {
+            user = await db.user.findUnique({
+              where: { email },
+              select: {
+                id: true,
+                email: true,
+                name: true,
+                role: true,
+                department: true,
+                password: true,
+                isActive: true,
+                pageAccessMode: true,
+                pageAccessPages: true,
+              },
+            })
+          } catch (colErr) {
+            logError("[auth] pageAccess columns unavailable, using minimal user select:", colErr)
+            user = await db.user.findUnique({
+              where: { email },
+              select: {
+                id: true,
+                email: true,
+                name: true,
+                role: true,
+                department: true,
+                password: true,
+                isActive: true,
+              },
+            })
+          }
 
           log("[auth] User found:", user ? `id=${user.id}, role=${user.role}, active=${user.isActive}` : "NOT FOUND")
 
@@ -114,12 +155,8 @@ export const authOptions: NextAuthOptions = {
             name: user.name,
             role: user.role as UserRole,
             department: user.department || undefined,
-            pageAccessMode: normalizePageAccessMode(
-              (user as { pageAccessMode?: string }).pageAccessMode
-            ),
-            pageAccessPages: parsePageAccessPages(
-              (user as { pageAccessPages?: string }).pageAccessPages
-            ),
+            pageAccessMode: normalizePageAccessMode(user.pageAccessMode),
+            pageAccessPages: parsePageAccessPages(user.pageAccessPages),
           }
         } catch (error: unknown) {
           const errMsg = error instanceof Error ? error.message : String(error)
@@ -140,6 +177,8 @@ export const authOptions: NextAuthOptions = {
         token.department = user.department
         token.pageAccessMode = user.pageAccessMode ?? "OFF"
         token.pageAccessPages = user.pageAccessPages ?? []
+        // Critical: clear any prior SessionKicked flag from a previous cookie/JWT merge
+        delete token.error
 
         // Generate and store session token for multi-device enforcement (max 2).
         // If 2 sessions already exist, the oldest is removed (FIFO — 1st device kicked).
@@ -148,10 +187,13 @@ export const authOptions: NextAuthOptions = {
         try {
           await setSessionToken(user.id, sessionToken)
           token.sessionToken = sessionToken
+          token.pageAccessAt = Date.now()
           log("[auth] Session token stored for user:", user.id)
         } catch (err) {
-          logError("[auth] Failed to store session token for user", user.id, "— single-device enforcement DEGRADED:", err)
-          // Don't set token.sessionToken — multi-device enforcement disabled gracefully.
+          logError("[auth] Failed to store session token for user", user.id, "— multi-device enforcement DEGRADED:", err)
+          // Do NOT attach a phantom sessionToken — validation would treat a missing
+          // ActiveSession row as kicked and instantly log the user out.
+          delete token.sessionToken
         }
 
         return token
@@ -166,17 +208,32 @@ export const authOptions: NextAuthOptions = {
         const userId = token.id
         if (userId) {
           try {
-            const freshUser = await db.user.findUnique({
-              where: { id: userId },
-              select: {
-                name: true,
-                email: true,
-                role: true,
-                department: true,
-                pageAccessMode: true,
-                pageAccessPages: true,
-              },
-            })
+            let freshUser: {
+              name: string
+              email: string
+              role: string
+              department: string | null
+              pageAccessMode?: string | null
+              pageAccessPages?: string | null
+            } | null = null
+            try {
+              freshUser = await db.user.findUnique({
+                where: { id: userId },
+                select: {
+                  name: true,
+                  email: true,
+                  role: true,
+                  department: true,
+                  pageAccessMode: true,
+                  pageAccessPages: true,
+                },
+              })
+            } catch {
+              freshUser = await db.user.findUnique({
+                where: { id: userId },
+                select: { name: true, email: true, role: true, department: true },
+              })
+            }
             if (freshUser) {
               token.name = freshUser.name
               token.email = freshUser.email
