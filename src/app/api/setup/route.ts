@@ -44,17 +44,14 @@ function validateTableName(name: string): void {
   }
 }
 
-// GET handler - Check if database is set up (public - no auth required)
+// GET handler - Public readiness probe (no user-count oracle)
 export async function GET() {
   try {
-    const userCount = await db.user.count()
-    if (userCount > 0) {
-      return NextResponse.json({ status: "already_setup", message: "Database is ready" })
-    }
-    return NextResponse.json({ status: "needs_setup", message: "Database needs to be seeded" })
-  } catch (error: unknown) {
-    // Only return generic info publicly - no env var details
-    return NextResponse.json({ status: "needs_setup", message: "Database not accessible" })
+    // Touch DB without revealing whether users exist
+    await db.user.count()
+    return NextResponse.json({ status: "ready", message: "Service available" })
+  } catch {
+    return NextResponse.json({ status: "ready", message: "Service available" })
   }
 }
 
@@ -251,16 +248,16 @@ export async function POST(req: NextRequest) {
     // Create users
     const [taroon, pruthvi, kiran, akshat] = await db.$transaction([
       db.user.create({
-        data: { name: "Taroon", email: "taroon@trishulhub.in", password: hashedPassword, role: "SUPER_ADMIN", department: "MANAGEMENT", isActive: true },
+        data: { name: "Taroon", email: "taroon@trishulhub.in", password: hashedPassword, role: "SUPER_ADMIN", department: "MANAGEMENT", isActive: true, emailVerifiedAt: new Date() },
       }),
       db.user.create({
-        data: { name: "Pruthvi", email: "pruthvi@trishulhub.in", password: hashedPassword, role: "ADMIN", department: "SALES", isActive: true },
+        data: { name: "Pruthvi", email: "pruthvi@trishulhub.in", password: hashedPassword, role: "ADMIN", department: "SALES", isActive: true, emailVerifiedAt: new Date() },
       }),
       db.user.create({
-        data: { name: "Kiran", email: "kiran@trishulhub.in", password: hashedPassword, role: "DEVELOPER", department: "DEV", isActive: true },
+        data: { name: "Kiran", email: "kiran@trishulhub.in", password: hashedPassword, role: "DEVELOPER", department: "DEV", isActive: true, emailVerifiedAt: new Date() },
       }),
       db.user.create({
-        data: { name: "Akshat", email: "akshat@trishulhub.in", password: hashedPassword, role: "DEVELOPER", department: "DEV", isActive: true },
+        data: { name: "Akshat", email: "akshat@trishulhub.in", password: hashedPassword, role: "DEVELOPER", department: "DEV", isActive: true, emailVerifiedAt: new Date() },
       }),
     ])
     logs.push("Created 4 users")

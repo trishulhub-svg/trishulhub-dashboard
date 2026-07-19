@@ -25,6 +25,8 @@ model User {
   department    String?  // MANAGEMENT, ENGINEERING, DESIGN, MARKETING, SALES, FINANCE, OPERATIONS, DEV, HR, CONTENT, SUPPORT
   avatar        String?
   isActive      Boolean  @default(true)
+  // Null until the user proves email ownership (new accounts). Existing users are grandfathered via auto-migrate.
+  emailVerifiedAt DateTime?
   // Page access ACL — OFF | ALLOW | RESTRICT (only one mode active; see nav-pages.ts)
   pageAccessMode  String  @default("OFF")
   pageAccessPages String  @default("[]") // JSON string[] of /dashboard/... hrefs
@@ -737,10 +739,11 @@ model PasswordChange {
 model PasswordReset {
   id         String   @id @default(cuid())
   userId     String
-  token      String   @unique // Secure random token for reset link
+  token      String   @unique // SHA-256 hex of the raw token only — never store plaintext
   used       Boolean  @default(false)
   expiresAt  DateTime // Token expiry (1 hour)
-  triggeredBy String? // SUPER_ADMIN userId who initiated the reset
+  purpose    String   @default("PASSWORD_RESET") // PASSWORD_RESET | EMAIL_VERIFY
+  triggeredBy String? // SUPER_ADMIN userId who initiated the reset (or system)
   createdAt  DateTime @default(now())
 
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -748,6 +751,7 @@ model PasswordReset {
   @@index([token])
   @@index([userId])
   @@index([expiresAt])
+  @@index([purpose])
 }
 
 // ━━ Active Session (Single-Device Login Enforcement) ━━
