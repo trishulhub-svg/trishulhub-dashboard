@@ -577,12 +577,15 @@ function TeamPageInner() {
       });
       const data = await res.json();
       if (res.ok) {
-        toast.success(`${safeText(memberForm.name)} added to the team`);
-        setAddMemberOpen(false);
-        setMemberForm({ name: "", email: "", role: "DEVELOPER", department: "Engineering", password: "" });
-        fetchData();
+        toast.success(
+          data.message ||
+            `${safeText(memberForm.name)} added — they must verify email before signing in`
+        )
+        setAddMemberOpen(false)
+        setMemberForm({ name: "", email: "", role: "DEVELOPER", department: "Engineering", password: "" })
+        fetchData()
       } else {
-        toast.error(data.error || "Failed to add member");
+        toast.error(data.error || "Failed to add member")
       }
     } catch {
       toast.error("Failed to add member");

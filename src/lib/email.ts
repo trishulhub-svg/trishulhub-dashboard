@@ -285,6 +285,13 @@ export function generateResetToken(): string {
   return randomBytes(32).toString("hex")
 }
 
+function appBaseUrl(): string {
+  return (
+    process.env.NEXTAUTH_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
+  )
+}
+
 /**
  * Send OTP email for email verification
  */
@@ -356,7 +363,10 @@ export async function sendPasswordChangeOTP(
 }
 
 /**
- * Send password reset link email (SuperAdmin initiated)
+ * Send password reset link email.
+ * Token is placed in the URL fragment (#t=) so it is not sent to the server
+ * on page load and is less likely to appear in access logs / referrer headers.
+ * The client reads the fragment and submits the token in a POST/PUT body only.
  */
 export async function sendPasswordResetEmail(
   toEmail: string,
@@ -364,11 +374,12 @@ export async function sendPasswordResetEmail(
   userName: string,
   triggeredBy?: string
 ): Promise<{ success: boolean; error?: string }> {
-  // The reset link will point to the app's reset page
-  const baseUrl = process.env.NEXTAUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
-  const resetLink = `${baseUrl}/reset-password?token=${resetToken}`
+  const baseUrl = appBaseUrl()
+  // Fragment — not logged by most servers; never put raw token in query string
+  const resetLink = `${baseUrl}/reset-password#t=${resetToken}`
 
-  const escapeHtml = (s: string) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+  const escapeHtml = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
   const safeUserName = escapeHtml(userName)
 
   const html = `
@@ -379,13 +390,13 @@ export async function sendPasswordResetEmail(
       </div>
       <div style="background: white; border-radius: 8px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
         <p style="color: #374151; font-size: 16px; margin: 0 0 16px;">Hello ${safeUserName},</p>
-        <p style="color: #374151; font-size: 16px; margin: 0 0 16px;">An administrator has requested a password reset for your account. Click the button below to set a new password:</p>
+        <p style="color: #374151; font-size: 16px; margin: 0 0 16px;">A password reset was requested for your account. Click the button below to set a new password:</p>
         <div style="text-align: center; margin: 24px 0;">
-          <a href="${resetLink}" style="background: #4f46e5; color: white; padding: 12px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px; display: inline-block;">Reset Password</a>
+          <a href="${resetLink}" style="background: #0f766e; color: white; padding: 12px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px; display: inline-block;">Reset Password</a>
         </div>
-        <p style="color: #6b7280; font-size: 14px; margin: 12px 0 0;">This link expires in <strong>1 hour</strong>. If you did not request this reset, you can safely ignore this email.</p>
+        <p style="color: #6b7280; font-size: 14px; margin: 12px 0 0;">This link expires in <strong>1 hour</strong> and can only be used once. If you did not request this reset, you can safely ignore this email.</p>
         <p style="color: #6b7280; font-size: 13px; margin: 8px 0 0;">If the button doesn't work, copy and paste this link into your browser:</p>
-        <p style="color: #4f46e5; font-size: 13px; word-break: break-all; margin: 4px 0 0;">${resetLink}</p>
+        <p style="color: #0f766e; font-size: 13px; word-break: break-all; margin: 4px 0 0;">${resetLink}</p>
       </div>
       <p style="color: #9ca3af; font-size: 12px; text-align: center; margin-top: 16px;">This is an automated message from TrishulHub Technology. Do not reply.</p>
     </div>
@@ -395,8 +406,53 @@ export async function sendPasswordResetEmail(
     to: toEmail,
     subject: "TrishulHub - Password Reset Request",
     html,
-    text: `Hello ${safeUserName}, an administrator has requested a password reset for your account. Click this link to reset your password: ${resetLink}. This link expires in 1 hour. If you did not request this, ignore this email.`,
+    text: `Hello ${safeUserName}, a password reset was requested for your account. Open this link to reset your password: ${resetLink}. This link expires in 1 hour. If you did not request this, ignore this email.`,
     type: "RESET_LINK",
+    triggeredBy,
+  })
+}
+
+/**
+ * Send account email-ownership verification (new user activation).
+ */
+export async function sendAccountVerificationEmail(
+  toEmail: string,
+  verifyToken: string,
+  userName: string,
+  triggeredBy?: string
+): Promise<{ success: boolean; error?: string }> {
+  const baseUrl = appBaseUrl()
+  const verifyLink = `${baseUrl}/verify-email#t=${verifyToken}`
+
+  const escapeHtml = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+  const safeUserName = escapeHtml(userName)
+
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px; background: #f9fafb; border-radius: 12px;">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <h1 style="color: #1f2937; font-size: 24px; margin: 0;">TrishulHub</h1>
+        <p style="color: #6b7280; margin: 4px 0 0;">Verify your email</p>
+      </div>
+      <div style="background: white; border-radius: 8px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+        <p style="color: #374151; font-size: 16px; margin: 0 0 16px;">Hello ${safeUserName},</p>
+        <p style="color: #374151; font-size: 16px; margin: 0 0 16px;">Confirm you own this email address to activate your TrishulHub account:</p>
+        <div style="text-align: center; margin: 24px 0;">
+          <a href="${verifyLink}" style="background: #0f766e; color: white; padding: 12px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px; display: inline-block;">Verify email</a>
+        </div>
+        <p style="color: #6b7280; font-size: 14px; margin: 12px 0 0;">This link expires in <strong>1 hour</strong>. Until you verify, you cannot sign in.</p>
+        <p style="color: #0f766e; font-size: 13px; word-break: break-all; margin: 4px 0 0;">${verifyLink}</p>
+      </div>
+      <p style="color: #9ca3af; font-size: 12px; text-align: center; margin-top: 16px;">This is an automated message from TrishulHub Technology. Do not reply.</p>
+    </div>
+  `
+
+  return sendEmailWithFailover({
+    to: toEmail,
+    subject: "TrishulHub - Verify your email",
+    html,
+    text: `Hello ${safeUserName}, verify your email to activate your account: ${verifyLink}. Expires in 1 hour.`,
+    type: "EMAIL_VERIFY",
     triggeredBy,
   })
 }

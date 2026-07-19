@@ -11,6 +11,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Clock, Eye, EyeOff, LogOut, Mail, Shield, X } from "lucide-react";
 import { toast } from "sonner";
 import LoadingScreen from "@/components/ui/loading-screen";
+import Link from "next/link";
+import { TurnstileCaptcha } from "@/components/auth/turnstile-captcha";
 
 // Session expiry reason messages
 const sessionReasonMessages: Record<string, { title: string; description: string; icon: React.ComponentType<{ className?: string }> }> = {
@@ -53,6 +55,10 @@ function LoginForm() {
   const [showReasonBanner, setShowReasonBanner] = useState(true);
   const [dbReady, setDbReady] = useState<boolean | null>(null);
   const [setupLogs, setSetupLogs] = useState<string[]>([]);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [siteKey, setSiteKey] = useState<string | null>(null);
+  const [captchaRequired, setCaptchaRequired] = useState(false);
+  const [failCount, setFailCount] = useState(0);
   const router = useRouter();
   const { data: session, status } = useSession();
   const searchParams = useSearchParams();
@@ -78,25 +84,25 @@ function LoginForm() {
     router.replace(getRedirectUrl(role, callbackUrl));
   }, [status, session, router, callbackUrl]);
 
-  // Check if database has users
+  // Auth challenge (CAPTCHA) — IP-based, no email oracle
   useEffect(() => {
-    const controller = new AbortController();
-    fetch("/api/setup", { signal: controller.signal })
-      .then(r => r.json())
-      .then(data => {
-        if (!controller.signal.aborted) {
-          setDbReady(
-            data.status === "already_setup" || data.status === "success"
-              ? true
-              : data.status === "needs_setup"
-                ? false
-                : true
-          );
-        }
+    fetch("/api/auth/challenge")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.siteKey) setSiteKey(data.siteKey);
+        if (data.captchaRequired) setCaptchaRequired(true);
       })
-      .catch(() => { if (!controller.signal.aborted) setDbReady(null); });
-    return () => controller.abort();
+      .catch(() => {});
   }, []);
+
+  // Setup UI: only when explicitly requested (?setup=1) — public GET no longer reveals empty DB
+  useEffect(() => {
+    if (searchParams.get("setup") !== "1") {
+      setDbReady(true);
+      return;
+    }
+    setDbReady(false);
+  }, [searchParams]);
 
   // Show toast for session reason on mount
   useEffect(() => {
@@ -153,11 +159,16 @@ function LoginForm() {
       const result = await signIn("credentials", {
         email,
         password,
+        captchaToken: captchaToken || "",
         redirect: false,
       });
 
       if (result?.error) {
-        toast.error("Invalid credentials. Please try again.");
+        const nextFails = failCount + 1;
+        setFailCount(nextFails);
+        if (siteKey && nextFails >= 3) setCaptchaRequired(true);
+        toast.error("Invalid email or password.");
+        setCaptchaToken(null);
         setLoading(false);
       } else {
         toast.success("Login successful!");
@@ -172,7 +183,7 @@ function LoginForm() {
         }
       }
     } catch {
-      toast.error("Something went wrong. Please try again.");
+      toast.error("Invalid email or password.");
       setLoading(false);
     }
   };
@@ -314,13 +325,18 @@ function LoginForm() {
                     </Button>
                   </div>
                 </div>
+                {(captchaRequired || (siteKey && failCount >= 3)) && siteKey && (
+                  <TurnstileCaptcha siteKey={siteKey} onToken={setCaptchaToken} />
+                )}
                 <p className="text-[11px] text-muted-foreground text-right">
-                  Contact your administrator to reset your password
+                  <Link href="/forgot-password" className="underline underline-offset-2 hover:text-foreground">
+                    Forgot password?
+                  </Link>
                 </p>
                 <Button
                   type="submit"
                   className="login-submit-btn w-full h-10 text-sm font-semibold"
-                  disabled={loading}
+                  disabled={loading || Boolean(captchaRequired && siteKey && !captchaToken)}
                 >
                   {loading ? (
                     <span className="login-loading-wrap">

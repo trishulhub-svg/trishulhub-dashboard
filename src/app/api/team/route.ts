@@ -14,6 +14,14 @@ import {
   parsePageAccessPages,
   type PageAccessMode,
 } from "@/lib/nav-pages"
+import { generateResetToken, sendAccountVerificationEmail } from "@/lib/email"
+import {
+  AUTH_MSG,
+  AUTH_TIMING_MS,
+  AUTH_TOKEN_TTL_MS,
+  hashAuthToken,
+  withConstantTiming,
+} from "@/lib/auth-security"
 
 // [C3] Helper: convert Date to local YYYY-MM-DD string (avoids UTC timezone issue)
 function toLocalDateStr(d: Date): string {
@@ -488,41 +496,103 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Only Super Admins can create Admin, Super Admin, or Project Manager users" }, { status: 403 });
       }
 
-      // Check if email already exists
-      const existing = await db.user.findUnique({ where: { email: email as string } })
-      if (existing) {
-        return NextResponse.json({ error: "Email already in use" }, { status: 409 })
-      }
+      // Anti-enumeration: always take similar time; never say "email already in use".
+      return withConstantTiming(AUTH_TIMING_MS.signup, async () => {
+        const existing = await db.user.findUnique({
+          where: { email: email as string },
+          select: { id: true },
+        })
 
-      const hashedPassword = await bcrypt.hash(password as string, 12)
-      const user = await db.user.create({
-        data: {
-          name: name as string,
-          email: email as string,
-          password: hashedPassword,
-          role: (role as string) || "DEVELOPER",
-          department: (department as string) || null,
-          isActive: true,
+        // Burn the same work path when email exists (hash still runs)
+        const hashedPassword = await bcrypt.hash(password as string, 12)
+
+        if (existing) {
+          return NextResponse.json(
+            { success: true, message: AUTH_MSG.signupGeneric },
+            { status: 201 }
+          )
         }
-      })
 
-      // Audit: log new user creation (fire-and-forget)
-      void logAudit({
-        userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
-        department: "HR_PEOPLE", page: "team", action: "CREATE",
-        entityType: "User", entityId: user.id,
-        description: `Created user: ${user.name} (${user.email}, role: ${user.role})`,
-        ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
-      })
+        const user = await db.user.create({
+          data: {
+            name: name as string,
+            email: (email as string).trim().toLowerCase(),
+            password: hashedPassword,
+            role: (role as string) || "DEVELOPER",
+            department: (department as string) || null,
+            // Inactive until email ownership is verified
+            isActive: false,
+            emailVerifiedAt: null,
+          },
+        })
 
-      return NextResponse.json({ id: user.id, name: user.name, email: user.email, role: user.role }, { status: 201 })
+        const verifyToken = generateResetToken()
+        const expiresAt = new Date(Date.now() + AUTH_TOKEN_TTL_MS)
+        try {
+          await db.passwordReset.create({
+            data: {
+              userId: user.id,
+              token: hashAuthToken(verifyToken),
+              expiresAt,
+              purpose: "EMAIL_VERIFY",
+              triggeredBy: session.user.id,
+            },
+          })
+          const mail = await sendAccountVerificationEmail(
+            user.email,
+            verifyToken,
+            user.name,
+            session.user.id
+          )
+          if (!mail.success) {
+            console.error("[team] verification email failed:", mail.error)
+          }
+        } catch (verifyErr) {
+          console.error(
+            "[team] verification token setup failed:",
+            verifyErr instanceof Error ? verifyErr.message : String(verifyErr)
+          )
+        }
+
+        void logAudit({
+          userId: session.user.id,
+          userName: session.user.name || "unknown",
+          userRole: session.user.role,
+          department: "HR_PEOPLE",
+          page: "team",
+          action: "CREATE",
+          entityType: "User",
+          entityId: user.id,
+          description: `Created user (pending email verify): ${user.name} (${user.email}, role: ${user.role})`,
+          ipAddress: getIpAddress(req),
+          userAgent: getUserAgent(req),
+        })
+
+        // Same message always; include id only when a row was created (admin UX).
+        // Duplicate path never says "email already in use".
+        return NextResponse.json(
+          {
+            success: true,
+            message: AUTH_MSG.signupGeneric,
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            pendingEmailVerification: true,
+          },
+          { status: 201 }
+        )
+      })
     }
 
     return NextResponse.json({ error: "Invalid type" }, { status: 400 })
   } catch (error: unknown) {
-    // [C5] Handle race condition on email uniqueness
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-      return NextResponse.json({ error: "Email already in use" }, { status: 409 })
+    // Anti-enumeration: unique constraint must not say "email already in use"
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return NextResponse.json(
+        { success: true, message: AUTH_MSG.signupGeneric },
+        { status: 201 }
+      )
     }
     // [T2] Fixed error: any → error: unknown
     console.error("[team] POST error:", error instanceof Error ? error.message : String(error))

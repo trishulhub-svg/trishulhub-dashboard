@@ -74,6 +74,9 @@ const CRITICAL_COLUMNS: Array<{ table: string; column: string; sql: string }> = 
   // Team page-access ACL (Allow / Restrict modes)
   { table: "User", column: "pageAccessMode", sql: `ALTER TABLE "User" ADD COLUMN "pageAccessMode" TEXT NOT NULL DEFAULT 'OFF'` },
   { table: "User", column: "pageAccessPages", sql: `ALTER TABLE "User" ADD COLUMN "pageAccessPages" TEXT NOT NULL DEFAULT '[]'` },
+  // Auth hardening — email ownership before login; reset token purpose
+  { table: "User", column: "emailVerifiedAt", sql: `ALTER TABLE "User" ADD COLUMN "emailVerifiedAt" DATETIME` },
+  { table: "PasswordReset", column: "purpose", sql: `ALTER TABLE "PasswordReset" ADD COLUMN "purpose" TEXT NOT NULL DEFAULT 'PASSWORD_RESET'` },
 ]
 
 /** Tables to create if missing (simplified CREATE TABLE IF NOT EXISTS) */
@@ -1141,6 +1144,16 @@ export async function ensureAllTables(): Promise<void> {
           console.warn(`[auto-migrate] Column ${colDef.column} on ${colDef.table}: ${msg}`)
         }
       }
+    }
+
+    // Grandfather existing active users as email-verified so login keeps working.
+    // New accounts created after this change start with emailVerifiedAt = NULL.
+    try {
+      await db.$executeRawUnsafe(
+        `UPDATE "User" SET "emailVerifiedAt" = COALESCE("createdAt", CURRENT_TIMESTAMP) WHERE "emailVerifiedAt" IS NULL AND "isActive" = 1`
+      )
+    } catch (err: unknown) {
+      console.warn("[auto-migrate] emailVerifiedAt grandfather:", getErrMsg(err))
     }
 
     // Mark as done ONLY after all migrations succeed

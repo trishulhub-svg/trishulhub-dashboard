@@ -1,7 +1,6 @@
 import NextAuth, { type NextAuthOptions } from "next-auth"
 import CredentialsProvider from "next-auth/providers/credentials"
 
-import bcrypt from "bcryptjs"
 import { db } from "@/lib/db"
 import { type UserRole } from "@/lib/types"
 import {
@@ -10,36 +9,19 @@ import {
   validateSessionToken,
   removeSessionToken,
 } from "@/lib/session-manager"
-import { checkDbRateLimit, peekDbRateLimit } from "@/lib/rate-limit"
 import { normalizePageAccessMode, parsePageAccessPages } from "@/lib/nav-pages"
+import {
+  AUTH_TIMING_MS,
+  gateAuthAttempt,
+  getClientIp,
+  recordAuthFailure,
+  verifyPasswordConstantTime,
+  withConstantTiming,
+} from "@/lib/auth-security"
 
 const isDev = process.env.NODE_ENV === "development"
 const log = isDev ? console.log.bind(console) : () => {}
 const logError = console.error.bind(console) // always log errors
-
-/** DB-backed login throttle — survives Vercel cold starts. Peek does not increment. */
-async function isLoginRateLimited(email: string): Promise<boolean> {
-  const key = `login-fail:${email.toLowerCase()}`
-  const soft = await peekDbRateLimit(key + ":soft", 5, 30_000)
-  if (!soft.allowed) {
-    if (isDev) console.warn(`[auth] Rate limited (soft 5/30s): ${email}`)
-    return true
-  }
-  const hard = await peekDbRateLimit(key + ":hard", 20, 5 * 60_000)
-  if (!hard.allowed) {
-    if (isDev) console.warn(`[auth] Rate limited (hard 20/5min): ${email}`)
-    return true
-  }
-  return false
-}
-
-async function trackFailedLogin(email: string): Promise<void> {
-  const key = `login-fail:${email.toLowerCase()}`
-  await Promise.all([
-    checkDbRateLimit(key + ":soft", 5, 30_000),
-    checkDbRateLimit(key + ":hard", 20, 5 * 60_000),
-  ])
-}
 
 // Debug: Log auth configuration on module load
 log("[auth] Module loaded")
@@ -48,6 +30,25 @@ log("[auth] NEXTAUTH_SECRET:", process.env.NEXTAUTH_SECRET ? "SET" : "MISSING!")
 log("[auth] TURSO_DATABASE_URL:", process.env.TURSO_DATABASE_URL ? "SET" : "MISSING!")
 log("[auth] TURSO_AUTH_TOKEN:", process.env.TURSO_AUTH_TOKEN ? "SET" : "MISSING!")
 
+function extractIpFromAuthorizeReq(req: unknown): string {
+  try {
+    const headers = (req as { headers?: Headers | Record<string, string | string[] | undefined> })?.headers
+    if (!headers) return "unknown"
+    if (typeof (headers as Headers).get === "function") {
+      return getClientIp(headers as Headers)
+    }
+    const h = headers as Record<string, string | string[] | undefined>
+    const fwd = h["x-forwarded-for"] || h["X-Forwarded-For"]
+    const first = Array.isArray(fwd) ? fwd[0] : fwd?.split(",")[0]
+    if (first?.trim()) return first.trim().slice(0, 64)
+    const real = h["x-real-ip"] || h["X-Real-Ip"]
+    if (typeof real === "string" && real) return real.slice(0, 64)
+  } catch {
+    /* ignore */
+  }
+  return "unknown"
+}
+
 export const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
@@ -55,115 +56,145 @@ export const authOptions: NextAuthOptions = {
       credentials: {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
+        captchaToken: { label: "Captcha", type: "text" },
       },
-      async authorize(credentials, _req) {
-        log("[auth] Authorize called for:", credentials?.email)
+      async authorize(credentials, req) {
+        return withConstantTiming(AUTH_TIMING_MS.login, async () => {
+          log("[auth] Authorize called")
 
-        if (!credentials?.email || !credentials?.password) {
-          log("[auth] Missing email or password")
-          return null
-        }
+          if (!credentials?.email || !credentials?.password) {
+            return null
+          }
 
-        const email = credentials.email
+          const emailRaw = String(credentials.email).trim()
+          const email = emailRaw.toLowerCase()
+          const password = String(credentials.password)
+          const captchaToken =
+            typeof credentials.captchaToken === "string" ? credentials.captchaToken : null
+          const ip = extractIpFromAuthorizeReq(req)
 
-        // ── Brute-force / rate limiting (DB-backed) ──
-        if (await isLoginRateLimited(email)) {
-          return null
-        }
-
-        try {
-          log("[auth] Attempting database lookup...")
-          // Prefer lean select so missing optional columns don't break login.
-          // Fall back to a minimal select if page-access columns are not migrated yet.
-          let user: {
-            id: string
-            email: string
-            name: string
-            role: string
-            department: string | null
-            password: string
-            isActive: boolean
-            pageAccessMode?: string | null
-            pageAccessPages?: string | null
-          } | null = null
+          const gate = await gateAuthAttempt({
+            action: "login",
+            ip,
+            email,
+            captchaToken,
+          })
+          if (!gate.ok) {
+            // Same outcome as bad credentials — no distinct error to the client
+            await recordAuthFailure({ action: "login", ip, email })
+            return null
+          }
 
           try {
-            user = await db.user.findUnique({
-              where: { email },
-              select: {
-                id: true,
-                email: true,
-                name: true,
-                role: true,
-                department: true,
-                password: true,
-                isActive: true,
-                pageAccessMode: true,
-                pageAccessPages: true,
-              },
-            })
-          } catch (colErr) {
-            logError("[auth] pageAccess columns unavailable, using minimal user select:", colErr)
-            user = await db.user.findUnique({
-              where: { email },
-              select: {
-                id: true,
-                email: true,
-                name: true,
-                role: true,
-                department: true,
-                password: true,
-                isActive: true,
-              },
-            })
-          }
+            let user: {
+              id: string
+              email: string
+              name: string
+              role: string
+              department: string | null
+              password: string
+              isActive: boolean
+              emailVerifiedAt?: Date | null
+              pageAccessMode?: string | null
+              pageAccessPages?: string | null
+            } | null = null
 
-          log("[auth] User found:", user ? `id=${user.id}, role=${user.role}, active=${user.isActive}` : "NOT FOUND")
+            try {
+              user = await db.user.findUnique({
+                where: { email: emailRaw },
+                select: {
+                  id: true,
+                  email: true,
+                  name: true,
+                  role: true,
+                  department: true,
+                  password: true,
+                  isActive: true,
+                  emailVerifiedAt: true,
+                  pageAccessMode: true,
+                  pageAccessPages: true,
+                },
+              })
+              // Retry with normalized email if stored lowercase
+              if (!user && emailRaw !== email) {
+                user = await db.user.findUnique({
+                  where: { email },
+                  select: {
+                    id: true,
+                    email: true,
+                    name: true,
+                    role: true,
+                    department: true,
+                    password: true,
+                    isActive: true,
+                    emailVerifiedAt: true,
+                    pageAccessMode: true,
+                    pageAccessPages: true,
+                  },
+                })
+              }
+            } catch (colErr) {
+              logError("[auth] optional columns unavailable, using minimal user select:", colErr)
+              user = await db.user.findUnique({
+                where: { email: emailRaw },
+                select: {
+                  id: true,
+                  email: true,
+                  name: true,
+                  role: true,
+                  department: true,
+                  password: true,
+                  isActive: true,
+                },
+              })
+              if (!user && emailRaw !== email) {
+                user = await db.user.findUnique({
+                  where: { email },
+                  select: {
+                    id: true,
+                    email: true,
+                    name: true,
+                    role: true,
+                    department: true,
+                    password: true,
+                    isActive: true,
+                  },
+                })
+              }
+            }
 
-          if (!user) {
-            log("[auth] No user found with email:", email)
-            await trackFailedLogin(email)
+            // Always run slow KDF compare (dummy hash when user missing) to kill timing enumeration
+            const passwordOk = await verifyPasswordConstantTime(password, user?.password)
+
+            if (!user || !passwordOk || !user.isActive || user.role === "VIEWER") {
+              await recordAuthFailure({ action: "login", ip, email })
+              return null
+            }
+
+            // Require proven email ownership when the column is present and unset.
+            // Minimal-select fallback omits the field → skip until migrated.
+            if ("emailVerifiedAt" in user && user.emailVerifiedAt == null) {
+              await recordAuthFailure({ action: "login", ip, email })
+              return null
+            }
+
+            log("[auth] Authorization successful")
+            return {
+              id: user.id,
+              email: user.email,
+              name: user.name,
+              role: user.role as UserRole,
+              department: user.department || undefined,
+              pageAccessMode: normalizePageAccessMode(user.pageAccessMode),
+              pageAccessPages: parsePageAccessPages(user.pageAccessPages),
+            }
+          } catch (error: unknown) {
+            const errMsg = error instanceof Error ? error.message : String(error)
+            logError(`[auth] Authorize error: ${errMsg}`)
+            await recordAuthFailure({ action: "login", ip, email })
             return null
           }
-
-          if (!user.isActive) {
-            log("[auth] User account is deactivated:", email)
-            await trackFailedLogin(email)
-            return null
-          }
-
-          if (user.role === "VIEWER") {
-            log("[auth] VIEWER role removed — blocking login:", email)
-            await trackFailedLogin(email)
-            return null
-          }
-
-          log("[auth] Comparing passwords...")
-          const isValid = await bcrypt.compare(credentials.password, user.password)
-          log("[auth] Password valid:", isValid)
-
-          if (!isValid) {
-            log("[auth] Invalid password for:", email)
-            await trackFailedLogin(email)
-            return null
-          }
-
-          log("[auth] Authorization successful for:", email)
-          return {
-            id: user.id,
-            email: user.email,
-            name: user.name,
-            role: user.role as UserRole,
-            department: user.department || undefined,
-            pageAccessMode: normalizePageAccessMode(user.pageAccessMode),
-            pageAccessPages: parsePageAccessPages(user.pageAccessPages),
-          }
-        } catch (error: unknown) {
-          const errMsg = error instanceof Error ? error.message : String(error)
-          logError(`[auth] Authorize error for ${email}: ${errMsg}`)
-          await trackFailedLogin(email)
-          return null
-        }
+        })
       },
     }),
   ],

@@ -9,7 +9,16 @@ import {
 
 // Paths where middleware doesn't enforce auth (route handlers may have their own auth)
 // /api/setup must remain public — its own auth logic handles first-time seeding (SETUP_TOKEN) and requires SUPER_ADMIN when users exist.
-const publicPaths = ["/login", "/api/auth", "/api/health", "/api/setup", "/reset-password", "/api/password-reset"]
+const publicPaths = [
+  "/login",
+  "/forgot-password",
+  "/verify-email",
+  "/api/auth",
+  "/api/health",
+  "/api/setup",
+  "/reset-password",
+  "/api/password-reset",
+]
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -224,6 +233,8 @@ export const config = {
     "/portal/:path*",
     "/api/:path*",
     "/login",
+    "/forgot-password",
+    "/verify-email",
     "/reset-password",
   ],
 }
