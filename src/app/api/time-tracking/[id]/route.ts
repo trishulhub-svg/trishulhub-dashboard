@@ -6,6 +6,11 @@ import { Prisma } from "@prisma/client"
 import { updateTimeEntrySchema, adminUpdateTimeEntrySchema, validateRequest } from "@/lib/validations"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { checkClientClockIntegrity } from "@/lib/clock-integrity"
+import {
+  isDueOnOrBefore,
+  isMilestoneRelevantToUser,
+  todayDateKey,
+} from "@/lib/milestones"
 
 /**
  * PATCH /api/time-tracking/[id]
@@ -143,6 +148,44 @@ export async function PATCH(
           { error: clockCheck.error, code: clockCheck.code, details: clockCheck.details },
           { status: clockCheck.status }
         )
+      }
+
+      // Gate: open milestones due today/overdue for this project must be completed first
+      const projectForGate = projectId !== undefined ? projectId || null : existing.projectId
+      if (projectForGate && !isAdmin) {
+        try {
+          const openMilestones = await db.projectMilestone.findMany({
+            where: { projectId: projectForGate, done: false },
+            include: { assignees: { select: { userId: true } } },
+          })
+          const today = todayDateKey(clockCheck.serverNow)
+          const blocking = openMilestones.filter(
+            (m) =>
+              m.dueDate &&
+              isDueOnOrBefore(m.dueDate, today) &&
+              isMilestoneRelevantToUser(m.assignees, userId)
+          )
+          if (blocking.length > 0) {
+            return NextResponse.json(
+              {
+                error: `Complete ${blocking.length} due milestone${blocking.length === 1 ? "" : "s"} before clocking out`,
+                code: "MILESTONES_INCOMPLETE",
+                milestones: blocking.map((m) => ({
+                  id: m.id,
+                  title: m.title,
+                  dueDate: m.dueDate,
+                })),
+              },
+              { status: 409 }
+            )
+          }
+        } catch (mileErr) {
+          // If milestone tables aren't ready, don't block clock-out
+          console.warn(
+            "[time-tracking] milestone gate skipped:",
+            mileErr instanceof Error ? mileErr.message : mileErr
+          )
+        }
       }
 
       const now = clockCheck.serverNow

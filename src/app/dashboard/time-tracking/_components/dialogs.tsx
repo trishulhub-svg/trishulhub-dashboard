@@ -1,7 +1,7 @@
 "use client";
 
 import type { Dispatch, SetStateAction } from "react";
-import { ArrowLeft, Clock, Eye, Loader2, Pencil, Plus, StopCircle } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Clock, Eye, Loader2, Pencil, Plus, StopCircle } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,15 +37,27 @@ import type { Project, TeamUser, TimeEntry } from "./types";
 import { formatDate, formatDuration, formatHours, formatTime } from "./utils";
 
 /* ── Clock Out ── */
+export type SessionMilestone = {
+  id: string
+  title: string
+  dueDate?: string | null
+  done?: boolean
+}
+
 interface ClockOutDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  activeEntry: TimeEntry | null;
-  elapsed: number;
-  notes: string;
-  onNotesChange: (v: string) => void;
-  stopping: boolean;
-  onConfirm: () => void;
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  activeEntry: TimeEntry | null
+  elapsed: number
+  notes: string
+  onNotesChange: (v: string) => void
+  stopping: boolean
+  onConfirm: () => void
+  dueMilestones?: SessionMilestone[]
+  milestonesLoading?: boolean
+  checkedMilestoneIds?: Set<string>
+  onToggleMilestone?: (id: string, checked: boolean) => void
+  togglingMilestoneId?: string | null
 }
 
 export function ClockOutDialog({
@@ -57,16 +69,24 @@ export function ClockOutDialog({
   onNotesChange,
   stopping,
   onConfirm,
+  dueMilestones = [],
+  milestonesLoading = false,
+  checkedMilestoneIds = new Set(),
+  onToggleMilestone,
+  togglingMilestoneId = null,
 }: ClockOutDialogProps) {
+  const allDueDone =
+    dueMilestones.length === 0 || dueMilestones.every((m) => checkedMilestoneIds.has(m.id) || m.done)
+
   return (
     <Dialog
       open={open}
       onOpenChange={(o) => {
-        onOpenChange(o);
-        if (!o) onNotesChange("");
+        onOpenChange(o)
+        if (!o) onNotesChange("")
       }}
     >
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <StopCircle className="h-5 w-5 text-destructive" />
@@ -80,7 +100,10 @@ export function ClockOutDialog({
                 {activeEntry.project?.name && (
                   <>
                     {" "}
-                    on <span className="font-semibold text-foreground">{safeText(activeEntry.project.name)}</span>
+                    on{" "}
+                    <span className="font-semibold text-foreground">
+                      {safeText(activeEntry.project.name)}
+                    </span>
                   </>
                 )}
                 .
@@ -91,6 +114,53 @@ export function ClockOutDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
+          {(milestonesLoading || dueMilestones.length > 0) && (
+            <div className="space-y-2 rounded-lg border border-border/60 bg-muted/30 p-3">
+              <Label className="text-xs font-semibold">
+                Due milestones — tick all before clock-out
+              </Label>
+              {milestonesLoading ? (
+                <p className="text-xs text-muted-foreground flex items-center gap-2">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
+                </p>
+              ) : (
+                <ul className="space-y-2 max-h-40 overflow-y-auto">
+                  {dueMilestones.map((m) => {
+                    const checked = checkedMilestoneIds.has(m.id) || !!m.done
+                    return (
+                      <li key={m.id} className="flex items-start gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          className="mt-1 h-4 w-4 accent-emerald-600"
+                          checked={checked}
+                          disabled={checked || togglingMilestoneId === m.id}
+                          onChange={() => onToggleMilestone?.(m.id, true)}
+                        />
+                        <span className={checked ? "line-through text-muted-foreground" : ""}>
+                          {safeText(m.title)}
+                          {m.dueDate && (
+                            <span className="block text-[10px] text-muted-foreground">
+                              Due{" "}
+                              {new Date(m.dueDate).toLocaleDateString(undefined, {
+                                month: "short",
+                                day: "numeric",
+                                timeZone: "UTC",
+                              })}
+                            </span>
+                          )}
+                        </span>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+              {!allDueDone && (
+                <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                  Complete every due milestone checkbox to unlock clock-out.
+                </p>
+              )}
+            </div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="clock-out-notes">
               Work Summary / Notes
@@ -120,13 +190,13 @@ export function ClockOutDialog({
           <Button
             variant="outline"
             onClick={() => {
-              onOpenChange(false);
-              onNotesChange("");
+              onOpenChange(false)
+              onNotesChange("")
             }}
           >
             Cancel
           </Button>
-          <Button onClick={onConfirm} disabled={stopping}>
+          <Button onClick={onConfirm} disabled={stopping || !allDueDone || milestonesLoading}>
             {stopping ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -142,7 +212,72 @@ export function ClockOutDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
+  )
+}
+
+/* ── Clock-in milestone briefing ── */
+export function MilestoneBriefingDialog({
+  open,
+  onOpenChange,
+  projectName,
+  milestones,
+  loading,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  projectName?: string
+  milestones: SessionMilestone[]
+  loading?: boolean
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[460px]">
+        <DialogHeader>
+          <DialogTitle>Today&apos;s milestones</DialogTitle>
+          <DialogDescription>
+            {projectName
+              ? `Open items for ${safeText(projectName)}. Close this and continue when ready.`
+              : "Open milestones for your project."}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="py-2 max-h-64 overflow-y-auto space-y-2">
+          {loading ? (
+            <p className="text-sm text-muted-foreground flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+            </p>
+          ) : milestones.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No open milestones for you on this project.</p>
+          ) : (
+            milestones.map((m) => (
+              <div
+                key={m.id}
+                className="flex items-start gap-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2"
+              >
+                <CheckCircle2 className="h-4 w-4 mt-0.5 text-muted-foreground/50 shrink-0" />
+                <div>
+                  <p className="text-sm font-medium">{safeText(m.title)}</p>
+                  {m.dueDate && (
+                    <p className="text-[11px] text-muted-foreground">
+                      Due{" "}
+                      {new Date(m.dueDate).toLocaleDateString(undefined, {
+                        weekday: "short",
+                        month: "short",
+                        day: "numeric",
+                        timeZone: "UTC",
+                      })}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+        <DialogFooter>
+          <Button onClick={() => onOpenChange(false)}>Got it — continue</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
 }
 
 /* ── Delete Entry ── */
@@ -151,9 +286,9 @@ export function DeleteEntryDialog({
   onOpenChange,
   onConfirm,
 }: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onConfirm: () => void;
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onConfirm: () => void
 }) {
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
