@@ -216,6 +216,8 @@ function TotalsDisplay({
   gstAmount,
   total,
   onGstPercentChange,
+  gstEnabled = true,
+  onGstEnabledChange,
   currencyFormatter,
 }: {
   subtotal: number;
@@ -223,29 +225,49 @@ function TotalsDisplay({
   gstAmount: number;
   total: number;
   onGstPercentChange: (v: number) => void;
+  gstEnabled?: boolean;
+  onGstEnabledChange?: (enabled: boolean) => void;
   currencyFormatter: (n: number) => string;
 }) {
   return (
-    <div className="border rounded-md p-3 space-y-1 text-sm bg-muted/30">
+    <div className="border rounded-md p-3 space-y-2 text-sm bg-muted/30">
       <div className="flex justify-between">
         <span className="text-muted-foreground">Subtotal</span>
         <span className="font-medium">{currencyFormatter(subtotal)}</span>
       </div>
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <span className="text-muted-foreground">GST</span>
+      {onGstEnabledChange && (
+        <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
           <input
-            className="w-16 border rounded px-2 py-0.5 text-xs bg-background text-right"
-            type="number"
-            min={0}
-            max={100}
-            value={gstPercent}
-            onChange={(e) => onGstPercentChange(parseFloat(e.target.value) || 0)}
+            type="checkbox"
+            className="h-3.5 w-3.5 accent-emerald-600"
+            checked={!gstEnabled}
+            onChange={(e) => onGstEnabledChange(!e.target.checked)}
           />
-          <span className="text-xs text-muted-foreground">%</span>
+          No GST — exclude GST from this invoice
+        </label>
+      )}
+      {gstEnabled ? (
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground">GST</span>
+            <input
+              className="w-16 border rounded px-2 py-0.5 text-xs bg-background text-right"
+              type="number"
+              min={0}
+              max={100}
+              value={gstPercent}
+              onChange={(e) => onGstPercentChange(parseFloat(e.target.value) || 0)}
+            />
+            <span className="text-xs text-muted-foreground">%</span>
+          </div>
+          <span className="font-medium">{currencyFormatter(gstAmount)}</span>
         </div>
-        <span className="font-medium">{currencyFormatter(gstAmount)}</span>
-      </div>
+      ) : (
+        <div className="flex justify-between text-muted-foreground">
+          <span>GST</span>
+          <span className="font-medium">Excluded</span>
+        </div>
+      )}
       <div className="flex justify-between font-bold text-lg pt-2 border-t">
         <span>Total</span>
         <span>{currencyFormatter(total)}</span>
@@ -292,9 +314,10 @@ function InvoicesPageInner() {
 
   // ━━ Line items state (create) ━━
   const [lineItems, setLineItems] = useState<LineItem[]>([
-    { description: "Web Development", quantity: 1, rate: 50000, amount: 50000 },
+    { description: "Web Development", quantity: 1, rate: 0, amount: 0 },
   ]);
-  // TODO: Make GST percent configurable via system settings
+  // GST optional — default on at 18%; "No GST" sets 0
+  const [gstEnabled, setGstEnabled] = useState(true);
   const [gstPercent, setGstPercent] = useState<number>(18);
   const [paymentMethod, setPaymentMethod] = useState<string>("");
   const [paymentStatus, setPaymentStatus] = useState<string>("UNPAID");
@@ -302,6 +325,7 @@ function InvoicesPageInner() {
 
   // ━━ Edit invoice state ━━
   const [editLineItems, setEditLineItems] = useState<LineItem[]>([]);
+  const [editGstEnabled, setEditGstEnabled] = useState(true);
   const [editGstPercent, setEditGstPercent] = useState<number>(18);
   const [editPaymentMethod, setEditPaymentMethod] = useState<string>("");
   const [editPaymentStatus, setEditPaymentStatus] = useState<string>("UNPAID");
@@ -398,13 +422,15 @@ function InvoicesPageInner() {
 
   // ━━ Create form helpers ━━
   const subtotal = lineItems.reduce((sum, item) => sum + item.amount, 0);
-  const gstAmount = subtotal * (gstPercent / 100);
+  const effectiveGstPercent = gstEnabled ? gstPercent : 0;
+  const gstAmount = subtotal * (effectiveGstPercent / 100);
   const totalAmount = subtotal + gstAmount;
 
   const resetInvoiceForm = () => {
     setLineItems([
-      { description: "Web Development", quantity: 1, rate: 50000, amount: 50000 },
+      { description: "Web Development", quantity: 1, rate: 0, amount: 0 },
     ]);
+    setGstEnabled(true);
     setGstPercent(18);
     setPaymentMethod("");
     setPaymentStatus("UNPAID");
@@ -456,7 +482,7 @@ function InvoicesPageInner() {
       tax: 0,
       total: totalAmount,
       dueDate: (form.get("dueDate") as string) || null,
-      gstPercent,
+      gstPercent: effectiveGstPercent,
       gst: gstAmount,
       paymentMethod: paymentMethod || null,
       paymentStatus,
@@ -655,7 +681,8 @@ function InvoicesPageInner() {
         ? items
         : [{ description: "", quantity: 1, rate: 0, amount: 0 }]
     );
-    setEditGstPercent(inv.gstPercent || 18);
+    setEditGstEnabled((inv.gstPercent ?? 0) > 0);
+    setEditGstPercent(inv.gstPercent && inv.gstPercent > 0 ? inv.gstPercent : 18);
     setEditPaymentMethod(inv.paymentMethod || "");
     setEditPaymentStatus(inv.paymentStatus || "UNPAID");
     setEditNotes(inv.notes || "");
@@ -675,7 +702,8 @@ function InvoicesPageInner() {
     (sum, item) => sum + item.amount,
     0
   );
-  const editGstAmount = editSubtotal * (editGstPercent / 100);
+  const effectiveEditGstPercent = editGstEnabled ? editGstPercent : 0;
+  const editGstAmount = editSubtotal * (effectiveEditGstPercent / 100);
   const editTotalAmount = editSubtotal + editGstAmount;
 
   const handleSaveEdit = async () => {
@@ -722,7 +750,7 @@ function InvoicesPageInner() {
           // total === subtotal + tax + gst, so tax MUST be 0 here.
           tax: 0,
           total: editTotalAmount,
-          gstPercent: editGstPercent,
+          gstPercent: effectiveEditGstPercent,
           gst: editGstAmount,
           paymentMethod: editPaymentMethod || null,
           paymentStatus: editPaymentStatus,
@@ -925,6 +953,7 @@ function InvoicesPageInner() {
                     options={clientOptions}
                     placeholder="Search client..."
                     emptyLabel="No clients found"
+                    recentLimit={3}
                     onSelect={(opt) => {
                       setCreateClientId(opt.id);
                       setClientSearch(opt.label);
@@ -943,6 +972,7 @@ function InvoicesPageInner() {
                     options={projectOptions}
                     placeholder="Search project..."
                     emptyLabel="No projects found"
+                    recentLimit={3}
                     leadingOption={{ id: "NONE", label: "No Project" }}
                     onSelect={(opt) => {
                       setCreateProjectId(opt.id);
@@ -964,6 +994,8 @@ function InvoicesPageInner() {
                 gstAmount={gstAmount}
                 total={totalAmount}
                 onGstPercentChange={setGstPercent}
+                gstEnabled={gstEnabled}
+                onGstEnabledChange={setGstEnabled}
                 currencyFormatter={formatCurrency}
               />
 
@@ -1615,6 +1647,7 @@ function InvoicesPageInner() {
                   options={clientOptions}
                   placeholder="Search client..."
                   emptyLabel="No clients found"
+                  recentLimit={3}
                   onSelect={(opt) => {
                     setEditClientId(opt.id);
                     setEditClientSearch(opt.label);
@@ -1632,6 +1665,7 @@ function InvoicesPageInner() {
                   options={projectOptions}
                   placeholder="Search project..."
                   emptyLabel="No projects found"
+                  recentLimit={3}
                   leadingOption={{ id: "NONE", label: "No Project" }}
                   onSelect={(opt) => {
                     setEditProjectId(opt.id);
@@ -1653,6 +1687,8 @@ function InvoicesPageInner() {
               gstAmount={editGstAmount}
               total={editTotalAmount}
               onGstPercentChange={setEditGstPercent}
+              gstEnabled={editGstEnabled}
+              onGstEnabledChange={setEditGstEnabled}
               currencyFormatter={formatCurrency}
             />
 

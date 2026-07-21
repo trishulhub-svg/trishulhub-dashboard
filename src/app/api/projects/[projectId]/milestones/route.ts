@@ -11,6 +11,7 @@ import {
   formatDueDateLabel,
   isDueOnOrBefore,
   parseDueDateInput,
+  syncProjectProgressFromMilestones,
   todayDateKey,
   toDateKey,
 } from "@/lib/milestones"
@@ -194,7 +195,8 @@ export async function POST(
       _max: { sortOrder: true },
     })
 
-    const milestone = await db.projectMilestone.create({
+    // Two-step create (Turso/libSQL nested creates can fail intermittently)
+    const created = await db.projectMilestone.create({
       data: {
         projectId,
         title: parsed.data.title,
@@ -202,12 +204,40 @@ export async function POST(
         dueDate: due,
         sortOrder: (maxOrder._max.sortOrder ?? -1) + 1,
         createdById: session.user.id,
-        assignees: {
-          create: parsed.data.assigneeIds.map((userId) => ({ userId })),
-        },
       },
+    })
+
+    try {
+      await db.projectMilestoneAssignee.createMany({
+        data: parsed.data.assigneeIds.map((userId) => ({
+          milestoneId: created.id,
+          userId,
+        })),
+      })
+    } catch (assignErr) {
+      // Roll back milestone if assignees failed
+      await db.projectMilestone.delete({ where: { id: created.id } }).catch(() => null)
+      console.error(
+        "[milestones] assignee create failed:",
+        assignErr instanceof Error ? assignErr.message : assignErr
+      )
+      return NextResponse.json(
+        {
+          error:
+            "Failed to assign team members. Ensure they are project members, then try again.",
+        },
+        { status: 500 }
+      )
+    }
+
+    const milestone = await db.projectMilestone.findUnique({
+      where: { id: created.id },
       include: milestoneInclude,
     })
+
+    void syncProjectProgressFromMilestones(projectId).catch((err) =>
+      console.warn("[milestones] progress sync failed:", err instanceof Error ? err.message : err)
+    )
 
     const dueLabel = formatDueDateLabel(due)
     const link = `/dashboard/projects/${projectId}`
@@ -215,27 +245,31 @@ export async function POST(
     // Assigned members → notify the team assignees
     void notifyUsers(parsed.data.assigneeIds, {
       title: "Milestone assigned",
-      message: `You were assigned "${milestone.title}" on ${project.name} — due ${dueLabel}`,
+      message: `You were assigned "${milestone?.title || parsed.data.title}" on ${project.name} — due ${dueLabel}`,
       type: "TASK",
       link,
-      metadata: { projectId, milestoneId: milestone.id, dueDate: toDateKey(due) },
+      metadata: { projectId, milestoneId: created.id, dueDate: toDateKey(due) },
     })
 
     // Due today/overdue → notify Admin + SuperAdmin
     if (isDueOnOrBefore(due, todayDateKey())) {
       void notifyAdmins({
         title: "Milestone due",
-        message: `"${milestone.title}" on ${project.name} is due ${dueLabel}`,
+        message: `"${parsed.data.title}" on ${project.name} is due ${dueLabel}`,
         type: "WARNING",
         link,
-        metadata: { projectId, milestoneId: milestone.id, dueDate: toDateKey(due) },
+        metadata: { projectId, milestoneId: created.id, dueDate: toDateKey(due) },
       })
     }
 
     return NextResponse.json(deepSanitize(milestone), { status: 201 })
   } catch (error: unknown) {
-    console.error("[milestones] POST error:", error instanceof Error ? error.message : error)
-    return NextResponse.json({ error: "Failed to create milestone" }, { status: 500 })
+    const msg = error instanceof Error ? error.message : String(error)
+    console.error("[milestones] POST error:", msg)
+    return NextResponse.json(
+      { error: msg.includes("no such table") ? "Milestone tables not ready — refresh and retry" : "Failed to create milestone" },
+      { status: 500 }
+    )
   }
 }
 
@@ -285,6 +319,7 @@ export async function PATCH(
     if (!existing) return NextResponse.json({ error: "Milestone not found" }, { status: 404 })
 
     const isAdmin = canManageMilestones(session.user.role)
+    const isAssignee = existing.assignees.some((a) => a.userId === session.user.id)
     const isCompletionOnly =
       done !== undefined &&
       title === undefined &&
@@ -294,15 +329,12 @@ export async function PATCH(
       assigneeIds === undefined
 
     if (!isAdmin) {
-      // Any project member may tick-complete a milestone (clock-out requires all due ones)
-      if (!isCompletionOnly || done !== true) {
+      // Assigned team members may mark milestones done/undone (drives project progress)
+      if (!isCompletionOnly || !isAssignee) {
         return NextResponse.json(
-          { error: "Forbidden: Only Admin or Super Admin can edit milestones" },
+          { error: "Forbidden: Only Admin/Super Admin can edit milestones (assignees may mark done)" },
           { status: 403 }
         )
-      }
-      if (existing.done) {
-        return NextResponse.json(deepSanitize({ ...existing, assignees: existing.assignees }))
       }
     }
 
@@ -370,6 +402,12 @@ export async function PATCH(
       }
     }
 
+    if (done !== undefined) {
+      void syncProjectProgressFromMilestones(projectId).catch((err) =>
+        console.warn("[milestones] progress sync failed:", err instanceof Error ? err.message : err)
+      )
+    }
+
     return NextResponse.json(deepSanitize(milestone))
   } catch (error: unknown) {
     console.error("[milestones] PATCH error:", error instanceof Error ? error.message : error)
@@ -399,6 +437,9 @@ export async function DELETE(
     if (!existing) return NextResponse.json({ error: "Milestone not found" }, { status: 404 })
 
     await db.projectMilestone.delete({ where: { id } })
+    void syncProjectProgressFromMilestones(projectId).catch((err) =>
+      console.warn("[milestones] progress sync failed:", err instanceof Error ? err.message : err)
+    )
     return NextResponse.json({ success: true })
   } catch (error: unknown) {
     console.error("[milestones] DELETE error:", error instanceof Error ? error.message : error)

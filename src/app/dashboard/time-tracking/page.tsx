@@ -179,11 +179,12 @@ function TimeTrackingPageInner() {
   const thisWeekStart = useMemo(() => getWeekDays()[0], []);
   const canGoNextWeek = weekDays[0].getTime() < thisWeekStart.getTime();
 
-  // ── Deep-link: ?action=start ──
+  // ── Deep-link: ?action=start | ?action=clockout ──
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
-    if (params.get("action") === "start") {
+    const action = params.get("action");
+    if (action === "start") {
       setFromWorkspace(true);
       setActiveTab("today");
       setTimeout(() => {
@@ -194,7 +195,7 @@ function TimeTrackingPageInner() {
         }, 3000);
       }, 500);
     }
-  }, [loading]);
+  }, [loading, setActiveTab]);
 
   // ── Fetch entries (default week + active) ──
   const fetchEntries = useCallback(async (signal?: AbortSignal) => {
@@ -423,6 +424,23 @@ function TimeTrackingPageInner() {
       .catch(() => setDueMilestones([]))
       .finally(() => setDueMilestonesLoading(false));
   }, [activeEntry]);
+
+  // Open clock-out dialog when arriving from workspace Clock Out button
+  useEffect(() => {
+    if (typeof window === "undefined" || loading) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("action") !== "clockout") return;
+    setActiveTab("today");
+    if (!activeEntry) return;
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("action");
+      window.history.replaceState({}, "", url.pathname + url.search);
+    } catch {
+      /* ignore */
+    }
+    handleClockOutClick();
+  }, [loading, activeEntry, setActiveTab, handleClockOutClick]);
 
   const handleToggleDueMilestone = useCallback((milestoneId: string, checked: boolean) => {
     setCheckedMilestoneIds((prev) => {

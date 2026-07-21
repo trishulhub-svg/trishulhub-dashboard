@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef, useCallback } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useParams, useRouter, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -16,7 +16,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import {
@@ -44,12 +43,6 @@ const projectStatusColors: Record<string, string> = {
 };
 
 const VALID_STATUSES = ["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"];
-
-function getProgressColor(progress: number) {
-  if (progress < 30) return "[&>div]:bg-red-500 [&>div]:shadow-red-500/30";
-  if (progress < 70) return "[&>div]:bg-amber-500 [&>div]:shadow-amber-500/30";
-  return "[&>div]:bg-emerald-500 [&>div]:shadow-emerald-500/30";
-}
 
 export default function ProjectDetailPage() {
   const params = useParams();
@@ -125,12 +118,6 @@ export default function ProjectDetailPage() {
   const [editMilestoneDue, setEditMilestoneDue] = useState("");
   const [editMilestoneAssignees, setEditMilestoneAssignees] = useState<string[]>([]);
   const canManageMilestones = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
-
-  // M-PRJ-6 FIX: Debounce timer ref for progress input
-  const progressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const progressTrackRef = useRef<HTMLDivElement>(null);
-  const dragValueRef = useRef<number>(0);
-  const [dragProgress, setDragProgress] = useState<number | null>(null);
 
   // ── React Query: Project data with aggressive caching ──
   const { data: projectData, isLoading: projectLoading } = useQuery({
@@ -451,6 +438,11 @@ export default function ProjectDetailPage() {
     } catch { toast.error("Failed to remove member"); }
   };
 
+  const refreshProgress = useCallback(() => {
+    void refetchMilestones();
+    queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+  }, [refetchMilestones, queryClient, projectId]);
+
   const handleAddMilestone = async () => {
     if (!newMilestoneTitle.trim()) {
       toast.error("Milestone title is required");
@@ -481,11 +473,11 @@ export default function ProjectDetailPage() {
         setNewMilestoneTitle("");
         setNewMilestoneDue("");
         setNewMilestoneAssignees([]);
-        refetchMilestones();
+        refreshProgress();
       } else {
         if (handle401(res)) return;
-        const d = await res.json();
-        toast.error(d.error || "Failed to add milestone");
+        const d = await res.json().catch(() => null);
+        toast.error(d?.error || "Failed to add milestone");
       }
     } catch {
       toast.error("Failed to add milestone");
@@ -534,10 +526,10 @@ export default function ProjectDetailPage() {
       if (res.ok) {
         toast.success("Milestone updated");
         setEditingMilestone(null);
-        refetchMilestones();
+        refreshProgress();
       } else {
-        const d = await res.json();
-        toast.error(d.error || "Failed to update milestone");
+        const d = await res.json().catch(() => null);
+        toast.error(d?.error || "Failed to update milestone");
       }
     } catch {
       toast.error("Failed to update milestone");
@@ -554,8 +546,13 @@ export default function ProjectDetailPage() {
         credentials: "include",
         body: JSON.stringify({ id, done: !done }),
       });
-      if (res.ok) refetchMilestones();
-      else toast.error("Failed to update milestone");
+      if (res.ok) {
+        toast.success(!done ? "Milestone marked done — progress updated" : "Milestone reopened");
+        refreshProgress();
+      } else {
+        const d = await res.json().catch(() => null);
+        toast.error(d?.error || "Failed to update milestone");
+      }
     } catch {
       toast.error("Failed to update milestone");
     }
@@ -569,7 +566,7 @@ export default function ProjectDetailPage() {
       });
       if (res.ok) {
         toast.success("Milestone removed");
-        refetchMilestones();
+        refreshProgress();
       } else {
         toast.error("Failed to delete milestone");
       }
@@ -586,7 +583,15 @@ export default function ProjectDetailPage() {
   const projectName = project ? extractStr(project, "name", "Untitled") : "";
   const projectDesc = project ? extractStr(project, "description", "") : "";
   const projectStatus = project ? extractStr(project, "status", "PLANNING") : "PLANNING";
-  const projectProgress = project ? extractNum(project, "progress", 0) : 0;
+  // Progress is driven only by milestone completion (not manually editable)
+  const milestoneTotal = milestonesData.length;
+  const milestoneDone = milestonesData.filter((m) => m.done === true).length;
+  const projectProgress =
+    milestoneTotal > 0
+      ? Math.round((milestoneDone / milestoneTotal) * 100)
+      : project
+        ? extractNum(project, "progress", 0)
+        : 0;
   const projectBudget = project ? extractNum(project, "budget", 0) : 0;
   const projectDeadline = project ? extractStr(project, "deadline", "") : "";
 
@@ -716,63 +721,30 @@ export default function ProjectDetailPage() {
 
       {/* ═══════ Compact Stats Row (glassmorphism pills) ═══════ */}
       <div className="flex flex-wrap items-center gap-2">
-        {/* Progress pill — draggable for project managers (mouse + touch via pointer events) */}
-        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-sm">
+        {/* Progress pill — auto from milestones (uneditable) */}
+        <div
+          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-sm"
+          title="Progress = completed milestones / total milestones"
+        >
           <Gauge className={cn("h-3.5 w-3.5", progressColorClass)} />
           {(() => {
-            const displayProgress = dragProgress !== null ? dragProgress : safeNumber(projectProgress);
+            const displayProgress = safeNumber(projectProgress);
             const fillColor = displayProgress < 30 ? "bg-red-500" : displayProgress < 70 ? "bg-amber-500" : "bg-emerald-500";
             const handleShadow = displayProgress < 30 ? "shadow-red-500/30" : displayProgress < 70 ? "shadow-amber-500/30" : "shadow-emerald-500/30";
-            const cursorClass = canManageProject ? "cursor-pointer" : "cursor-default";
             return (
               <div className="flex items-center gap-1.5">
-                <div
-                  ref={progressTrackRef}
-                  className={cn("relative h-2 w-24 rounded-full bg-black/10 dark:bg-white/10 select-none", cursorClass)}
-                  onPointerDown={canManageProject ? (e) => {
-                    e.preventDefault();
-                    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-                    const getVal = (clientX: number) => {
-                      if (!progressTrackRef.current) return 0;
-                      const rect = progressTrackRef.current.getBoundingClientRect();
-                      const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
-                      return Math.round((x / rect.width) * 100);
-                    };
-                    const val = getVal(e.clientX);
-                    dragValueRef.current = val;
-                    setDragProgress(val);
-                    const handleMove = (ev: PointerEvent) => {
-                      const v = getVal(ev.clientX);
-                      dragValueRef.current = v;
-                      setDragProgress(v);
-                    };
-                    const handleUp = () => {
-                      document.removeEventListener("pointermove", handleMove);
-                      document.removeEventListener("pointerup", handleUp);
-                      const finalVal = dragValueRef.current;
-                      if (progressTimerRef.current) clearTimeout(progressTimerRef.current);
-                      progressTimerRef.current = setTimeout(() => {
-                        handleUpdateProject({ progress: finalVal });
-                      }, 500);
-                      setDragProgress(null);
-                    };
-                    document.addEventListener("pointermove", handleMove);
-                    document.addEventListener("pointerup", handleUp);
-                  } : undefined}
-                >
-                  <div className={cn("absolute inset-y-0 left-0 rounded-full transition-[width] duration-75", fillColor, handleShadow)} style={{ width: `${displayProgress}%` }} />
-                  {canManageProject && (
-                    <div
-                      className="absolute top-1/2 -translate-y-1/2 h-3 w-3 rounded-full border-2 border-white dark:border-gray-800 shadow-md transition-[left] duration-75 pointer-events-none"
-                      style={{ left: `calc(${displayProgress}% - 6px)`, backgroundColor: displayProgress < 30 ? "#ef4444" : displayProgress < 70 ? "#f59e0b" : "#10b981" }}
-                    />
-                  )}
+                <div className="relative h-2 w-24 rounded-full bg-black/10 dark:bg-white/10 select-none cursor-default">
+                  <div
+                    className={cn("absolute inset-y-0 left-0 rounded-full transition-[width] duration-300", fillColor, handleShadow)}
+                    style={{ width: `${displayProgress}%` }}
+                  />
                 </div>
-                {canManageProject ? (
-                  <span className={cn("text-[11px] font-bold tabular-nums w-7 text-right", progressColorClass)}>{displayProgress}%</span>
-                ) : (
-                  <span className={cn("text-[11px] font-bold tabular-nums", progressColorClass)}>{displayProgress}%</span>
-                )}
+                <span className={cn("text-[11px] font-bold tabular-nums", progressColorClass)}>
+                  {displayProgress}%
+                </span>
+                <span className="text-[10px] text-muted-foreground tabular-nums">
+                  {milestoneDone}/{milestoneTotal || 0}
+                </span>
               </div>
             );
           })()}
@@ -1085,13 +1057,20 @@ export default function ProjectDetailPage() {
                 const mDone = m.done === true;
                 const mDue = extractStr(m, "dueDate", "");
                 const assignees = Array.isArray(m.assignees) ? (m.assignees as Record<string, unknown>[]) : [];
+                const isAssignee = assignees.some(
+                  (a) =>
+                    extractStr(a, "userId", "") === userId ||
+                    extractNestedStr(a, ["user", "id"], "") === userId
+                );
+                const canToggleDone = canManageMilestones || isAssignee;
                 return (
                   <div key={mId} className="flex items-start gap-2 p-2.5 rounded-lg border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/[0.02]">
                     <button
                       type="button"
-                      onClick={() => canManageMilestones && handleToggleMilestone(mId, mDone)}
-                      className={cn("shrink-0 mt-0.5", canManageMilestones ? "cursor-pointer" : "cursor-default")}
-                      disabled={!canManageMilestones}
+                      onClick={() => canToggleDone && handleToggleMilestone(mId, mDone)}
+                      className={cn("shrink-0 mt-0.5", canToggleDone ? "cursor-pointer" : "cursor-default")}
+                      disabled={!canToggleDone}
+                      title={canToggleDone ? (mDone ? "Mark incomplete" : "Mark done") : "Only assignees or admin can mark done"}
                     >
                       <CheckCircle2 className={cn("h-4 w-4", mDone ? "text-emerald-500" : "text-muted-foreground/40")} />
                     </button>

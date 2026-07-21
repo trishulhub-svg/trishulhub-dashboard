@@ -14,8 +14,10 @@ import {
   Rocket,
   Activity,
   Clock,
+  StopCircle,
 } from "lucide-react";
 import { LiveIntensity, type LineType, type LiveUser } from "@/components/workspace/live-intensity";
+import { openCursorWorkspace, openQwenWorkspace } from "@/lib/open-external-app";
 
 /* ═══════════════════════════════════════════════════════════════
    TRISHULHUB WORKSPACE v2.1 — Live AI + Dynamic Agents
@@ -393,24 +395,27 @@ export default function TrishulWorkspacePage() {
 
    /* ── START handler ──
      If the user is clocked in (has an active TimeEntry / appears in
-     liveUsers), open Cursor Agents. Otherwise, send them to the
-     time-tracking page so they can clock in first. */
+     liveUsers), open Cursor Workspace (app when available). Otherwise,
+     send them to the time-tracking page so they can clock in first. */
   const handleStart = useCallback(() => {
     if (currentUserIsLive) {
-      window.open("https://cursor.com/agents", "_blank", "noopener,noreferrer");
+      openCursorWorkspace();
     } else {
-      // Deep-link to time tracking with action=start so it scrolls directly to the timer
       router.push("/dashboard/time-tracking?action=start");
     }
   }, [currentUserIsLive, router]);
 
   const handleResearchSpace = useCallback(() => {
     if (currentUserIsLive) {
-      window.open("https://chat.qwen.ai/", "_blank", "noopener,noreferrer");
+      openQwenWorkspace();
     } else {
       router.push("/dashboard/time-tracking?action=start");
     }
   }, [currentUserIsLive, router]);
+
+  const handleClockOut = useCallback(() => {
+    router.push("/dashboard/time-tracking?action=clockout");
+  }, [router]);
 
   /* ── Bar positions for smooth reordering (absolute positioning) ── */
   const statusBarsRef = useRef<HTMLDivElement>(null);
@@ -513,15 +518,15 @@ export default function TrishulWorkspacePage() {
                     type="button"
                     onClick={handleStart}
                     className={`ws-btn-primary ws-btn-primary--${mode}`}
-                    aria-label={currentUserIsLive ? "Start working — open workspace" : "Start session — clock in first"}
-                    title={currentUserIsLive ? "Start Working — open workspace" : "Start Session — clock in first"}
+                    aria-label={currentUserIsLive ? "Cursor Workspace — open Cursor" : "Start session — clock in first"}
+                    title={currentUserIsLive ? "Cursor Workspace" : "Start Session — clock in first"}
                   >
                     {currentUserIsLive ? (
                       <Zap size={16} strokeWidth={2.5} />
                     ) : (
                       <Clock size={16} strokeWidth={2.5} />
                     )}
-                    <span>{currentUserIsLive ? "Start Working" : "Start Session"}</span>
+                    <span>{currentUserIsLive ? "Cursor Workspace" : "Start Session"}</span>
                     <ArrowUpRight size={14} />
                   </button>
                   {currentUserIsLive && (
@@ -529,11 +534,11 @@ export default function TrishulWorkspacePage() {
                       type="button"
                       onClick={handleResearchSpace}
                       className={`ws-btn-primary ws-btn-primary--${mode}`}
-                      aria-label="Research Space — open Qwen"
-                      title="Research Space — open Qwen chat"
+                      aria-label="QWEN workspace — open Qwen"
+                      title="QWEN workspace"
                     >
                       <Zap size={16} strokeWidth={2.5} />
-                      <span>Research Space</span>
+                      <span>QWEN workspace</span>
                       <ArrowUpRight size={14} />
                     </button>
                   )}
@@ -547,6 +552,23 @@ export default function TrishulWorkspacePage() {
                     <span>Access Hub</span>
                   </button>
                 </div>
+                {currentUserIsLive && (
+                  <div className="ws-clockout-row">
+                    <button
+                      type="button"
+                      onClick={handleClockOut}
+                      className={`ws-btn-clockout ws-btn-clockout--${mode}`}
+                      aria-label="Clock out of your active session"
+                      title="Clock Out"
+                    >
+                      <StopCircle size={15} strokeWidth={2.5} />
+                      <span>Clock Out</span>
+                    </button>
+                    <p className={`ws-clockout-hint ws-clockout-hint--${mode}`}>
+                      Only you see this while clocked in
+                    </p>
+                  </div>
+                )}
               </div>
               {/* Decorative ring cluster */}
               <div className={`ws-hero-rings ws-hero-rings--${mode}`} aria-hidden>
@@ -730,8 +752,8 @@ export default function TrishulWorkspacePage() {
                 type="button"
                 onClick={handleStart}
                 className="ws-start-card-inner"
-                aria-label={currentUserIsLive ? "Start Working — open Cursor Agents" : "Start your session — clock in first"}
-                title={currentUserIsLive ? "Start Working" : "Clock in first"}
+                aria-label={currentUserIsLive ? "Cursor Workspace — open Cursor" : "Start your session — clock in first"}
+                title={currentUserIsLive ? "Cursor Workspace" : "Clock in first"}
               >
                 <div className="ws-start-left">
                   <div className={`ws-start-icon-box ws-start-icon-box--${mode}`}>
@@ -739,11 +761,11 @@ export default function TrishulWorkspacePage() {
                   </div>
                   <div>
                     <h3 className={`ws-start-heading ws-start-heading--${mode}`}>
-                      {currentUserIsLive ? "Start Working" : "Start Session"}
+                      {currentUserIsLive ? "Cursor Workspace" : "Start Session"}
                     </h3>
                     <p className={`ws-start-sub ws-start-sub--${mode}`}>
                       {currentUserIsLive
-                        ? "Open Cursor Agents workspace"
+                        ? "Open Cursor Workspace"
                         : "Clock in to begin working"}
                     </p>
                   </div>
@@ -759,8 +781,8 @@ export default function TrishulWorkspacePage() {
                   onClick={handleResearchSpace}
                   className="ws-start-card-inner"
                   style={{ marginTop: "0.5rem", borderTop: "1px solid color-mix(in oklch, var(--border) 80%, transparent)" }}
-                  aria-label="Research Space — open Qwen"
-                  title="Research Space"
+                  aria-label="QWEN workspace — open Qwen"
+                  title="QWEN workspace"
                 >
                   <div className="ws-start-left">
                     <div className={`ws-start-icon-box ws-start-icon-box--${mode}`}>
@@ -768,10 +790,10 @@ export default function TrishulWorkspacePage() {
                     </div>
                     <div>
                       <h3 className={`ws-start-heading ws-start-heading--${mode}`}>
-                        Research Space
+                        QWEN workspace
                       </h3>
                       <p className={`ws-start-sub ws-start-sub--${mode}`}>
-                        Open Qwen research chat
+                        Open QWEN workspace
                       </p>
                     </div>
                   </div>
@@ -1254,6 +1276,46 @@ export default function TrishulWorkspacePage() {
           display: flex; align-items: center; gap: 0.5rem;
           flex-wrap: wrap;
         }
+
+        .ws-clockout-row {
+          margin-top: 0.85rem;
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 0.35rem;
+        }
+        .ws-btn-clockout {
+          display: inline-flex; align-items: center; gap: 0.45rem;
+          padding: 0.55rem 1.1rem;
+          border-radius: 10px;
+          font-family: inherit;
+          font-size: 0.78rem; font-weight: 600;
+          letter-spacing: 0.06em; text-transform: uppercase;
+          cursor: pointer;
+          transition: all 0.25s ease;
+        }
+        .ws-btn-clockout--dark,
+        .ws-btn-clockout--bluelight {
+          background: rgba(239, 68, 68, 0.12);
+          color: #f87171;
+          border: 1px solid rgba(239, 68, 68, 0.35);
+        }
+        .ws-btn-clockout--light {
+          background: rgba(220, 38, 38, 0.08);
+          color: #dc2626;
+          border: 1px solid rgba(220, 38, 38, 0.28);
+        }
+        .ws-btn-clockout:hover {
+          transform: translateY(-1px);
+          background: rgba(239, 68, 68, 0.2);
+        }
+        .ws-clockout-hint {
+          font-size: 0.65rem;
+          margin: 0;
+        }
+        .ws-clockout-hint--dark,
+        .ws-clockout-hint--bluelight { color: var(--ws-text-dim); }
+        .ws-clockout-hint--light { color: rgba(0,0,0,0.35); }
 
         .ws-btn-primary {
           display: inline-flex; align-items: center; gap: 0.5rem;

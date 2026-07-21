@@ -9,15 +9,26 @@ import { logAudit, getIpAddress, getUserAgent, buildDescription } from "@/lib/au
 import { encryptToJson } from "@/lib/encryption";
 
 // ── Zod Schemas ──
+function normalizeOptionalUrl(v: unknown): string | null | undefined {
+  if (v === "" || v === null || v === undefined) return null
+  if (typeof v !== "string") return undefined
+  const trimmed = v.trim()
+  if (!trimmed) return null
+  if (/^https?:\/\//i.test(trimmed)) return trimmed
+  return `https://${trimmed}`
+}
+
+const optionalUrl = z.preprocess(
+  normalizeOptionalUrl,
+  z.union([z.string().url().max(500), z.null()]).optional()
+)
+
 const createCredentialSchema = z.object({
   userId: z.string().min(1),
   label: z.string().min(1).max(100),
   username: z.string().min(1).max(200),
   password: z.string().min(1).max(500),
-  url: z.preprocess(
-    (v) => (v === "" ? undefined : v),
-    z.string().url().max(500).optional().nullable()
-  ),
+  url: optionalUrl,
   notes: z.string().max(2000).optional().nullable(),
 });
 
@@ -26,10 +37,7 @@ const updateCredentialSchema = z.object({
   label: z.string().min(1).max(100).optional(),
   username: z.string().min(1).max(200).optional(),
   password: z.string().min(1).max(500).optional(),
-  url: z.preprocess(
-    (v) => (v === "" ? undefined : v),
-    z.string().url().max(500).optional().nullable()
-  ),
+  url: optionalUrl,
   notes: z.string().max(2000).optional().nullable(),
 });
 

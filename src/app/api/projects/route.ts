@@ -456,8 +456,9 @@ export async function PUT(req: NextRequest) {
     if (validated.status !== undefined) {
       sanitizedData.status = validated.status
     }
+    // Progress is derived from milestone completion — ignore manual edits
     if (validated.progress !== undefined) {
-      sanitizedData.progress = validated.progress
+      /* no-op: project.progress syncs from ProjectMilestone done ratio */
     }
     if (validated.deadline !== undefined) {
       // deadline is nullable — null/"" means "clear the deadline"

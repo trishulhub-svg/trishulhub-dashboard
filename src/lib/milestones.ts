@@ -4,6 +4,27 @@
  */
 
 import { WORK_TIMEZONE } from "@/lib/clock-integrity"
+import { db } from "@/lib/db"
+
+/** Progress % from completed / total milestones (0 when none). */
+export function milestoneProgressPercent(doneCount: number, totalCount: number): number {
+  if (totalCount <= 0) return 0
+  return Math.round((doneCount / totalCount) * 100)
+}
+
+/** Sync Project.progress from milestone completion ratio. */
+export async function syncProjectProgressFromMilestones(projectId: string): Promise<number> {
+  const [total, done] = await Promise.all([
+    db.projectMilestone.count({ where: { projectId } }),
+    db.projectMilestone.count({ where: { projectId, done: true } }),
+  ])
+  const progress = milestoneProgressPercent(done, total)
+  await db.project.update({
+    where: { id: projectId },
+    data: { progress },
+  })
+  return progress
+}
 
 /** Calendar day YYYY-MM-DD in the company work timezone. */
 export function toDateKey(d: Date | string, timeZone: string = WORK_TIMEZONE): string {

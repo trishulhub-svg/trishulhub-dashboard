@@ -21,6 +21,7 @@ type SearchableComboboxProps = {
   placeholder?: string
   emptyLabel?: string
   recentHint?: string
+  /** Default 3 — only show a few recent until the user searches */
   recentLimit?: number
   leadingOption?: ComboboxOption
   className?: string
@@ -30,6 +31,9 @@ type SearchableComboboxProps = {
 /**
  * Searchable select that portals its list (Radix Popover) so scrolling
  * the options does not scroll a parent dialog/form.
+ *
+ * Browse mode: empty search OR search equals the selected label → recent N.
+ * Typing anything else → smart filter across all options.
  */
 export function SearchableCombobox({
   valueId,
@@ -42,20 +46,45 @@ export function SearchableCombobox({
   placeholder = "Search...",
   emptyLabel = "No results found",
   recentHint = "Recent",
-  recentLimit = 10,
+  recentLimit = 3,
   leadingOption,
   className,
   inputClassName,
 }: SearchableComboboxProps) {
   const anchorRef = useRef<HTMLDivElement>(null)
 
+  const selected = useMemo(
+    () => options.find((o) => o.id === valueId) || null,
+    [options, valueId]
+  )
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return options.slice(0, recentLimit)
+    const selectedLabel = selected?.label.trim().toLowerCase() || ""
+    // Re-opening after a selection: search still holds the label — treat as browse
+    const browsing = !q || (selectedLabel && q === selectedLabel)
+    if (browsing) {
+      const recent = options.slice(0, recentLimit)
+      if (selected && !recent.some((r) => r.id === selected.id)) {
+        return [selected, ...recent].slice(0, recentLimit)
+      }
+      return recent
+    }
     return options.filter((o) => o.label.toLowerCase().includes(q))
-  }, [options, search, recentLimit])
+  }, [options, search, recentLimit, selected])
 
-  const showRecentHint = !search.trim() && options.length > 0
+  const showRecentHint =
+    (!search.trim() ||
+      (!!selected && search.trim().toLowerCase() === selected.label.trim().toLowerCase())) &&
+    options.length > 0
+
+  const openBrowse = () => {
+    // Clear filter so recent list shows when changing selection
+    if (selected && search.trim().toLowerCase() === selected.label.trim().toLowerCase()) {
+      onSearchChange("")
+    }
+    onOpenChange(true)
+  }
 
   return (
     <Popover modal open={open} onOpenChange={onOpenChange}>
@@ -67,19 +96,22 @@ export function SearchableCombobox({
               "w-full rounded border bg-background px-3 py-2 pr-8 text-sm",
               inputClassName
             )}
-            placeholder={placeholder}
+            placeholder={selected ? selected.label : placeholder}
             value={search}
             onChange={(e) => {
               onSearchChange(e.target.value)
               onOpenChange(true)
             }}
-            onFocus={() => onOpenChange(true)}
+            onFocus={openBrowse}
             autoComplete="off"
           />
           <button
             type="button"
             className="absolute right-2 top-1/2 -translate-y-1/2"
-            onClick={() => onOpenChange(!open)}
+            onClick={() => {
+              if (open) onOpenChange(false)
+              else openBrowse()
+            }}
             aria-label="Toggle options"
           >
             <ChevronDown className="h-4 w-4 text-muted-foreground" />

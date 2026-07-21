@@ -239,21 +239,46 @@ function AccessHubContent() {
   };
 
   const handleSaveCred = async () => {
-    if (!formLabel || !formUsername || (!formPassword && !editingCredential)) return;
-    if (canManageCredentials && !formTargetUserId) return;
+    if (!formLabel.trim() || !formUsername.trim() || (!formPassword && !editingCredential)) {
+      toast.error("Label, username, and password are required");
+      return;
+    }
+    if (canManageCredentials && !formTargetUserId) {
+      toast.error("Select a user to assign this credential to");
+      return;
+    }
     setSaving(true);
     try {
+      // Normalize optional URL — empty is fine; bare domains get https://
+      let normalizedUrl = formUrl.trim();
+      if (normalizedUrl && !/^https?:\/\//i.test(normalizedUrl)) {
+        normalizedUrl = `https://${normalizedUrl}`;
+      }
+
       const body: Record<string, string> = {
-        label: formLabel,
-        username: formUsername,
+        label: formLabel.trim(),
+        username: formUsername.trim(),
         ...(formPassword && { password: formPassword }),
-        url: formUrl,
+        url: normalizedUrl,
         notes: formNotes,
       };
       if (editingCredential) {
         body.id = editingCredential.id;
-        const res = await fetch("/api/credentials", { method: "PUT", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(body) });
-        if (res.ok) { setShowAddDialog(false); resetCredForm(); fetchCredentials(); }
+        const res = await fetch("/api/credentials", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(body),
+        });
+        if (res.ok) {
+          toast.success("Credential updated");
+          setShowAddDialog(false);
+          resetCredForm();
+          fetchCredentials();
+        } else {
+          const d = await res.json().catch(() => null);
+          toast.error(d?.error || d?.details?.formErrors?.[0] || "Failed to update credential");
+        }
       } else {
         const userId = canManageCredentials ? formTargetUserId : session?.user?.id;
         if (!userId) {
@@ -261,11 +286,31 @@ function AccessHubContent() {
           return;
         }
         body.userId = userId;
-        const res = await fetch("/api/credentials", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(body) });
-        if (res.ok) { setShowAddDialog(false); resetCredForm(); fetchCredentials(); }
+        const res = await fetch("/api/credentials", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(body),
+        });
+        if (res.ok) {
+          toast.success("Credential created");
+          setShowAddDialog(false);
+          resetCredForm();
+          fetchCredentials();
+        } else {
+          const d = await res.json().catch(() => null);
+          const detail =
+            d?.error ||
+            (Array.isArray(d?.details?.fieldErrors?.url) ? d.details.fieldErrors.url[0] : null) ||
+            "Failed to create credential";
+          toast.error(detail);
+        }
       }
-    } catch { toast.error("Failed to save credential"); }
-    finally { setSaving(false); }
+    } catch {
+      toast.error("Failed to save credential");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDeleteCred = async (id: string) => {
