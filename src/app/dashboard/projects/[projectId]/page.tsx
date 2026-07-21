@@ -117,7 +117,14 @@ export default function ProjectDetailPage() {
   const [revealedTokens, setRevealedTokens] = useState<Record<string, string>>({});
   const [revealing, setRevealing] = useState<string | null>(null);
   const [newMilestoneTitle, setNewMilestoneTitle] = useState("");
+  const [newMilestoneDue, setNewMilestoneDue] = useState("");
+  const [newMilestoneAssignees, setNewMilestoneAssignees] = useState<string[]>([]);
   const [milestoneSaving, setMilestoneSaving] = useState(false);
+  const [editingMilestone, setEditingMilestone] = useState<Record<string, unknown> | null>(null);
+  const [editMilestoneTitle, setEditMilestoneTitle] = useState("");
+  const [editMilestoneDue, setEditMilestoneDue] = useState("");
+  const [editMilestoneAssignees, setEditMilestoneAssignees] = useState<string[]>([]);
+  const canManageMilestones = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
   // M-PRJ-6 FIX: Debounce timer ref for progress input
   const progressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -449,17 +456,27 @@ export default function ProjectDetailPage() {
       toast.error("Milestone title is required");
       return;
     }
+    if (!newMilestoneDue) {
+      toast.error("Due date is required");
+      return;
+    }
     setMilestoneSaving(true);
     try {
       const res = await fetch(`/api/projects/${projectId}/milestones`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ title: newMilestoneTitle.trim() }),
+        body: JSON.stringify({
+          title: newMilestoneTitle.trim(),
+          dueDate: newMilestoneDue,
+          assigneeIds: newMilestoneAssignees,
+        }),
       });
       if (res.ok) {
-        toast.success("Milestone added");
+        toast.success("Milestone added — assignees notified");
         setNewMilestoneTitle("");
+        setNewMilestoneDue("");
+        setNewMilestoneAssignees([]);
         refetchMilestones();
       } else {
         if (handle401(res)) return;
@@ -468,6 +485,54 @@ export default function ProjectDetailPage() {
       }
     } catch {
       toast.error("Failed to add milestone");
+    } finally {
+      setMilestoneSaving(false);
+    }
+  };
+
+  const openEditMilestone = (m: Record<string, unknown>) => {
+    setEditingMilestone(m);
+    setEditMilestoneTitle(extractStr(m, "title", ""));
+    const due = extractStr(m, "dueDate", "");
+    setEditMilestoneDue(due ? due.slice(0, 10) : "");
+    const assignees = Array.isArray(m.assignees)
+      ? (m.assignees as Record<string, unknown>[]).map((a) =>
+          extractStr(a, "userId", "") || extractNestedStr(a, ["user", "id"], "")
+        ).filter(Boolean)
+      : [];
+    setEditMilestoneAssignees(assignees);
+  };
+
+  const handleSaveMilestoneEdit = async () => {
+    if (!editingMilestone) return;
+    const id = extractStr(editingMilestone, "id", "");
+    if (!id || !editMilestoneTitle.trim() || !editMilestoneDue) {
+      toast.error("Title and due date are required");
+      return;
+    }
+    setMilestoneSaving(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/milestones`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          id,
+          title: editMilestoneTitle.trim(),
+          dueDate: editMilestoneDue,
+          assigneeIds: editMilestoneAssignees,
+        }),
+      });
+      if (res.ok) {
+        toast.success("Milestone updated");
+        setEditingMilestone(null);
+        refetchMilestones();
+      } else {
+        const d = await res.json();
+        toast.error(d.error || "Failed to update milestone");
+      }
+    } catch {
+      toast.error("Failed to update milestone");
     } finally {
       setMilestoneSaving(false);
     }
@@ -503,6 +568,10 @@ export default function ProjectDetailPage() {
     } catch {
       toast.error("Failed to delete milestone");
     }
+  };
+
+  const toggleAssignee = (list: string[], setList: (v: string[]) => void, userId: string) => {
+    setList(list.includes(userId) ? list.filter((id) => id !== userId) : [...list, userId]);
   };
 
   // ── Derived values (ALL guaranteed primitives via safe extractors) ──
@@ -943,19 +1012,57 @@ export default function ProjectDetailPage() {
             </div>
           </div>
           <div className="p-4 space-y-2">
-            {canManageProject && (
-              <div className="flex gap-2 mb-3">
+            {canManageMilestones && (
+              <div className="space-y-2 mb-3 rounded-lg border border-dashed border-border/60 p-3 bg-white/30 dark:bg-white/[0.02]">
                 <Input
-                  placeholder="New milestone…"
+                  placeholder="Milestone title…"
                   value={newMilestoneTitle}
                   onChange={(e) => setNewMilestoneTitle(e.target.value)}
                   className="h-8 text-xs"
-                  onKeyDown={(e) => e.key === "Enter" && handleAddMilestone()}
                 />
-                <Button size="sm" className="h-8 text-xs shrink-0" onClick={handleAddMilestone} disabled={milestoneSaving}>
-                  {milestoneSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3 mr-1" />}
-                  Add
-                </Button>
+                <div className="flex flex-wrap gap-2 items-center">
+                  <div className="space-y-0.5">
+                    <Label className="text-[10px] text-muted-foreground">Due date *</Label>
+                    <Input
+                      type="date"
+                      value={newMilestoneDue}
+                      onChange={(e) => setNewMilestoneDue(e.target.value)}
+                      className="h-8 text-xs w-[150px]"
+                    />
+                  </div>
+                  <Button size="sm" className="h-8 text-xs shrink-0 ml-auto mt-3" onClick={handleAddMilestone} disabled={milestoneSaving}>
+                    {milestoneSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3 mr-1" />}
+                    Add
+                  </Button>
+                </div>
+                {members.length > 0 && (
+                  <div className="space-y-1">
+                    <Label className="text-[10px] text-muted-foreground">Assign to (project members)</Label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {members.map((member) => {
+                        const mUserId = extractStr(member, "userId", "");
+                        const mUserName = extractNestedStr(member, ["user", "name"], "Unknown");
+                        const selected = newMilestoneAssignees.includes(mUserId);
+                        return (
+                          <button
+                            key={mUserId}
+                            type="button"
+                            onClick={() => toggleAssignee(newMilestoneAssignees, setNewMilestoneAssignees, mUserId)}
+                            className={cn(
+                              "text-[10px] px-2 py-1 rounded-full border transition-colors",
+                              selected
+                                ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-700 dark:text-emerald-300"
+                                : "bg-muted/40 border-transparent text-muted-foreground hover:border-border"
+                            )}
+                          >
+                            {mUserName}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">Leave empty to show to all project members.</p>
+                  </div>
+                )}
               </div>
             )}
             {milestonesData.length === 0 ? (
@@ -965,21 +1072,50 @@ export default function ProjectDetailPage() {
                 const mId = extractStr(m, "id", "");
                 const mTitle = extractStr(m, "title", "");
                 const mDone = m.done === true;
+                const mDue = extractStr(m, "dueDate", "");
+                const assignees = Array.isArray(m.assignees) ? (m.assignees as Record<string, unknown>[]) : [];
                 return (
-                  <div key={mId} className="flex items-center gap-2 p-2 rounded-lg border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/[0.02]">
+                  <div key={mId} className="flex items-start gap-2 p-2.5 rounded-lg border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/[0.02]">
                     <button
                       type="button"
-                      onClick={() => canManageProject && handleToggleMilestone(mId, mDone)}
-                      className={cn("shrink-0", canManageProject ? "cursor-pointer" : "cursor-default")}
-                      disabled={!canManageProject}
+                      onClick={() => canManageMilestones && handleToggleMilestone(mId, mDone)}
+                      className={cn("shrink-0 mt-0.5", canManageMilestones ? "cursor-pointer" : "cursor-default")}
+                      disabled={!canManageMilestones}
                     >
                       <CheckCircle2 className={cn("h-4 w-4", mDone ? "text-emerald-500" : "text-muted-foreground/40")} />
                     </button>
-                    <span className={cn("text-xs flex-1", mDone && "line-through text-muted-foreground")}>{mTitle}</span>
-                    {canManageProject && (
-                      <button type="button" onClick={() => handleDeleteMilestone(mId)} className="text-muted-foreground hover:text-red-500 transition-colors">
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <span className={cn("text-xs font-medium block", mDone && "line-through text-muted-foreground")}>{mTitle}</span>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {mDue && (
+                          <Badge variant="outline" className="text-[9px] h-5 px-1.5 gap-1 font-normal">
+                            <CalendarDays className="h-2.5 w-2.5" />
+                            {new Date(mDue).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}
+                          </Badge>
+                        )}
+                        {assignees.length === 0 ? (
+                          <span className="text-[9px] text-muted-foreground">All members</span>
+                        ) : (
+                          assignees.map((a) => {
+                            const name = extractNestedStr(a, ["user", "name"], "?");
+                            return (
+                              <Badge key={extractStr(a, "userId", name)} variant="secondary" className="text-[9px] h-5 px-1.5 font-normal">
+                                {name}
+                              </Badge>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                    {canManageMilestones && (
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button type="button" onClick={() => openEditMilestone(m)} className="text-muted-foreground hover:text-foreground transition-colors p-1" title="Edit">
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button type="button" onClick={() => handleDeleteMilestone(mId)} className="text-muted-foreground hover:text-red-500 transition-colors p-1" title="Delete">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     )}
                   </div>
                 );
@@ -988,6 +1124,58 @@ export default function ProjectDetailPage() {
           </div>
         </div>
       )}
+
+      {/* Edit milestone dialog */}
+      <Dialog open={!!editingMilestone} onOpenChange={(o) => !o && setEditingMilestone(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-base">Edit milestone</DialogTitle>
+            <DialogDescription className="text-xs">Update title, due date, and assignees.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Title</Label>
+              <Input value={editMilestoneTitle} onChange={(e) => setEditMilestoneTitle(e.target.value)} className="h-9 text-sm" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Due date</Label>
+              <Input type="date" value={editMilestoneDue} onChange={(e) => setEditMilestoneDue(e.target.value)} className="h-9 text-sm" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Assignees</Label>
+              <div className="flex flex-wrap gap-1.5">
+                {members.map((member) => {
+                  const mUserId = extractStr(member, "userId", "");
+                  const mUserName = extractNestedStr(member, ["user", "name"], "Unknown");
+                  const selected = editMilestoneAssignees.includes(mUserId);
+                  return (
+                    <button
+                      key={mUserId}
+                      type="button"
+                      onClick={() => toggleAssignee(editMilestoneAssignees, setEditMilestoneAssignees, mUserId)}
+                      className={cn(
+                        "text-[10px] px-2 py-1 rounded-full border transition-colors",
+                        selected
+                          ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-700 dark:text-emerald-300"
+                          : "bg-muted/40 border-transparent text-muted-foreground"
+                      )}
+                    >
+                      {mUserName}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" size="sm" onClick={() => setEditingMilestone(null)}>Cancel</Button>
+              <Button size="sm" onClick={handleSaveMilestoneEdit} disabled={milestoneSaving}>
+                {milestoneSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1" />}
+                Save
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* ═══════ Infrastructure Section ═══════ */}
       <div className="rounded-xl border border-white/20 dark:border-white/10 bg-white/60 dark:bg-white/[0.02] backdrop-blur-xl overflow-hidden" style={{ animation: "card-enter 0.4s ease-out both", animationDelay: "180ms" }}>

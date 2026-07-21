@@ -74,6 +74,12 @@ const CRITICAL_COLUMNS: Array<{ table: string; column: string; sql: string }> = 
   // Team page-access ACL (Allow / Restrict modes)
   { table: "User", column: "pageAccessMode", sql: `ALTER TABLE "User" ADD COLUMN "pageAccessMode" TEXT NOT NULL DEFAULT 'OFF'` },
   { table: "User", column: "pageAccessPages", sql: `ALTER TABLE "User" ADD COLUMN "pageAccessPages" TEXT NOT NULL DEFAULT '[]'` },
+  // Project milestones — assignees + richer metadata
+  { table: "ProjectMilestone", column: "description", sql: `ALTER TABLE "ProjectMilestone" ADD COLUMN "description" TEXT` },
+  { table: "ProjectMilestone", column: "createdById", sql: `ALTER TABLE "ProjectMilestone" ADD COLUMN "createdById" TEXT` },
+  { table: "ProjectMilestone", column: "completedAt", sql: `ALTER TABLE "ProjectMilestone" ADD COLUMN "completedAt" DATETIME` },
+  { table: "ProjectMilestone", column: "completedBy", sql: `ALTER TABLE "ProjectMilestone" ADD COLUMN "completedBy" TEXT` },
+  { table: "ProjectMilestone", column: "updatedAt", sql: `ALTER TABLE "ProjectMilestone" ADD COLUMN "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP` },
 ]
 
 /** Tables to create if missing (simplified CREATE TABLE IF NOT EXISTS) */
@@ -251,11 +257,27 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
       "id" TEXT NOT NULL PRIMARY KEY,
       "projectId" TEXT NOT NULL,
       "title" TEXT NOT NULL,
+      "description" TEXT,
       "done" BOOLEAN NOT NULL DEFAULT 0,
       "sortOrder" INTEGER NOT NULL DEFAULT 0,
       "dueDate" DATETIME,
+      "createdById" TEXT,
+      "completedAt" DATETIME,
+      "completedBy" TEXT,
       "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE CASCADE
+    )`
+  },
+  {
+    name: "ProjectMilestoneAssignee",
+    sql: `CREATE TABLE IF NOT EXISTS "ProjectMilestoneAssignee" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "milestoneId" TEXT NOT NULL,
+      "userId" TEXT NOT NULL,
+      "assignedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("milestoneId") REFERENCES "ProjectMilestone"("id") ON DELETE CASCADE,
+      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
     )`
   },
   {

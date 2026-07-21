@@ -37,6 +37,7 @@ model User {
   approvalActions    Approval[]       @relation("ApprovalActions")
   timeEntries        TimeEntry[]
   projectMemberships ProjectMember[]
+  milestoneAssignments ProjectMilestoneAssignee[]
   emailVerifications EmailVerification[]
   passwordChanges    PasswordChange[]
   passwordResets     PasswordReset[]
@@ -808,18 +809,41 @@ model LeaveBalance {
 }
 
 model ProjectMilestone {
-  id        String    @id @default(cuid())
-  projectId String
-  title     String
-  done      Boolean   @default(false)
-  sortOrder Int       @default(0)
-  dueDate   DateTime?
-  createdAt DateTime  @default(now())
+  id          String    @id @default(cuid())
+  projectId   String
+  title       String
+  description String?
+  done        Boolean   @default(false)
+  sortOrder   Int       @default(0)
+  dueDate     DateTime?
+  createdById String?
+  completedAt DateTime?
+  completedBy String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project   Project                      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignees ProjectMilestoneAssignee[]
 
   @@index([projectId])
+  @@index([dueDate])
+  @@index([done])
   @@map("ProjectMilestone")
+}
+
+model ProjectMilestoneAssignee {
+  id          String   @id @default(cuid())
+  milestoneId String
+  userId      String
+  assignedAt  DateTime @default(now())
+
+  milestone ProjectMilestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([milestoneId, userId])
+  @@index([userId])
+  @@index([milestoneId])
+  @@map("ProjectMilestoneAssignee")
 }
 
 // ━━ Employee Availability ━━

@@ -359,6 +359,14 @@ export default function TrishulWorkspacePage() {
     }
   }, [currentUserIsLive, router]);
 
+  const handleResearchSpace = useCallback(() => {
+    if (currentUserIsLive) {
+      window.open("https://chat.qwen.ai/", "_blank", "noopener,noreferrer");
+    } else {
+      router.push("/dashboard/time-tracking?action=start");
+    }
+  }, [currentUserIsLive, router]);
+
   /* ── Bar positions for smooth reordering (absolute positioning) ── */
   const statusBarsRef = useRef<HTMLDivElement>(null);
   const [barStep, setBarStep] = useState(28); // px — will be measured
@@ -471,6 +479,19 @@ export default function TrishulWorkspacePage() {
                     <span>{currentUserIsLive ? "Start Working" : "Start Session"}</span>
                     <ArrowUpRight size={14} />
                   </button>
+                  {currentUserIsLive && (
+                    <button
+                      type="button"
+                      onClick={handleResearchSpace}
+                      className={`ws-btn-primary ws-btn-primary--${mode}`}
+                      aria-label="Research Space — open Qwen"
+                      title="Research Space — open Qwen chat"
+                    >
+                      <Globe size={16} strokeWidth={2.5} />
+                      <span>Research Space</span>
+                      <ArrowUpRight size={14} />
+                    </button>
+                  )}
                   <button
                     onClick={handleCredentials}
                     className={`ws-btn-ghost ws-btn-ghost--${mode}`}
@@ -687,6 +708,34 @@ export default function TrishulWorkspacePage() {
                   <ArrowUpRight size={14} />
                 </div>
               </button>
+              {currentUserIsLive && (
+                <button
+                  type="button"
+                  onClick={handleResearchSpace}
+                  className="ws-start-card-inner"
+                  style={{ marginTop: "0.5rem", borderTop: "1px solid color-mix(in oklch, var(--border) 80%, transparent)" }}
+                  aria-label="Research Space — open Qwen"
+                  title="Research Space"
+                >
+                  <div className="ws-start-left">
+                    <div className={`ws-start-icon-box ws-start-icon-box--${mode}`}>
+                      <Globe size={20} />
+                    </div>
+                    <div>
+                      <h3 className={`ws-start-heading ws-start-heading--${mode}`}>
+                        Research Space
+                      </h3>
+                      <p className={`ws-start-sub ws-start-sub--${mode}`}>
+                        Open Qwen research chat
+                      </p>
+                    </div>
+                  </div>
+                  <div className={`ws-start-badge ws-start-badge--${mode}`}>
+                    <span>Open</span>
+                    <ArrowUpRight size={14} />
+                  </div>
+                </button>
+              )}
               <div className="ws-start-accent" />
             </div>
 

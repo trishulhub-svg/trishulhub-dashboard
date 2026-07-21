@@ -47,8 +47,10 @@ import {
   EditAttendanceDialog,
   EditEntryDialog,
   EndSessionDialog,
+  MilestoneBriefingDialog,
   RedirectWorkspaceDialog,
   ViewDescriptionDialog,
+  type SessionMilestone,
 } from "./_components/dialogs";
 
 export default function TimeTrackingPage() {
@@ -162,6 +164,16 @@ function TimeTrackingPageInner() {
   // Deep-link
   const [showRedirectPopup, setShowRedirectPopup] = useState(false);
   const [fromWorkspace, setFromWorkspace] = useState(false);
+
+  // Milestone briefing (clock-in) + due checklist (clock-out)
+  const [briefingOpen, setBriefingOpen] = useState(false);
+  const [briefingLoading, setBriefingLoading] = useState(false);
+  const [briefingMilestones, setBriefingMilestones] = useState<SessionMilestone[]>([]);
+  const [briefingProjectName, setBriefingProjectName] = useState("");
+  const [dueMilestones, setDueMilestones] = useState<SessionMilestone[]>([]);
+  const [dueMilestonesLoading, setDueMilestonesLoading] = useState(false);
+  const [checkedMilestoneIds, setCheckedMilestoneIds] = useState<Set<string>>(new Set());
+  const [togglingMilestoneId, setTogglingMilestoneId] = useState<string | null>(null);
 
   const weekDays = useMemo(() => getWeekDays(weekAnchor), [weekAnchor]);
   const thisWeekStart = useMemo(() => getWeekDays()[0], []);
@@ -317,17 +329,42 @@ function TimeTrackingPageInner() {
   }, [isAdminUser, activeEntries, updateActiveElapsedMap]);
 
   // ── Start / stop ──
+  const loadBriefing = useCallback(async (projectId: string, projectName?: string) => {
+    setBriefingLoading(true);
+    setBriefingProjectName(projectName || "");
+    setBriefingOpen(true);
+    try {
+      const res = await fetch(
+        `/api/milestones/session?projectId=${encodeURIComponent(projectId)}&mode=briefing`,
+        { credentials: "include" }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setBriefingMilestones(safeArray<SessionMilestone>(data.milestones));
+        if (data.projectName) setBriefingProjectName(safeText(data.projectName));
+      } else {
+        setBriefingMilestones([]);
+      }
+    } catch {
+      setBriefingMilestones([]);
+    } finally {
+      setBriefingLoading(false);
+    }
+  }, []);
+
   const handleStart = useCallback(async () => {
     setStarting(true);
     try {
       const { buildClientClockPayload } = await import("@/lib/clock-integrity");
       const clockPayload = buildClientClockPayload();
+      const projectId =
+        selectedProject === "none" ? undefined : selectedProject || undefined;
       const res = await fetch("/api/time-tracking", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          projectId: selectedProject === "none" ? undefined : selectedProject || undefined,
+          projectId,
           description: timerDescription || undefined,
           ...clockPayload,
         }),
@@ -337,6 +374,13 @@ function TimeTrackingPageInner() {
         setActiveEntry(entry);
         toast.success("Timer started!");
         fetchEntries();
+        if (projectId) {
+          const pname =
+            entry?.project?.name ||
+            projects.find((p) => p.id === projectId)?.name ||
+            "";
+          void loadBriefing(projectId, pname);
+        }
         if (fromWorkspace) setShowRedirectPopup(true);
       } else {
         const err = await res.json().catch(() => null);
@@ -347,15 +391,62 @@ function TimeTrackingPageInner() {
     } finally {
       setStarting(false);
     }
-  }, [selectedProject, timerDescription, fetchEntries, fromWorkspace]);
+  }, [selectedProject, timerDescription, fetchEntries, fromWorkspace, loadBriefing, projects]);
 
   const handleClockOutClick = useCallback(() => {
-    if (activeEntry) {
-      setClockOutNotes("");
-      clockOutNotesRef.current = "";
-      setClockOutOpen(true);
-    }
+    if (!activeEntry) return;
+    setClockOutNotes("");
+    clockOutNotesRef.current = "";
+    setCheckedMilestoneIds(new Set());
+    setDueMilestones([]);
+    setClockOutOpen(true);
+
+    const projectId = activeEntry.projectId || activeEntry.project?.id;
+    if (!projectId) return;
+
+    setDueMilestonesLoading(true);
+    fetch(
+      `/api/milestones/session?projectId=${encodeURIComponent(projectId)}&mode=due`,
+      { credentials: "include" }
+    )
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data) setDueMilestones(safeArray<SessionMilestone>(data.milestones));
+      })
+      .catch(() => setDueMilestones([]))
+      .finally(() => setDueMilestonesLoading(false));
   }, [activeEntry]);
+
+  const handleToggleDueMilestone = useCallback(
+    async (milestoneId: string) => {
+      if (!activeEntry?.projectId && !activeEntry?.project?.id) return;
+      const projectId = activeEntry.projectId || activeEntry.project?.id;
+      if (!projectId) return;
+      setTogglingMilestoneId(milestoneId);
+      try {
+        const res = await fetch(`/api/projects/${projectId}/milestones`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ id: milestoneId, done: true }),
+        });
+        if (res.ok) {
+          setCheckedMilestoneIds((prev) => new Set(prev).add(milestoneId));
+          setDueMilestones((prev) =>
+            prev.map((m) => (m.id === milestoneId ? { ...m, done: true } : m))
+          );
+        } else {
+          const err = await res.json().catch(() => null);
+          toast.error(safeText(err?.error, "Failed to complete milestone"));
+        }
+      } catch {
+        toast.error("Failed to complete milestone");
+      } finally {
+        setTogglingMilestoneId(null);
+      }
+    },
+    [activeEntry]
+  );
 
   const executeClockOut = useCallback(async () => {
     if (!activeEntry) return;
@@ -387,10 +478,17 @@ function TimeTrackingPageInner() {
         toast.success("Clocked out successfully!");
         setClockOutOpen(false);
         setClockOutNotes("");
+        setDueMilestones([]);
+        setCheckedMilestoneIds(new Set());
         fetchEntries();
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(safeText(err?.error, "Failed to clock out"));
+        if (err?.code === "MILESTONES_INCOMPLETE" && Array.isArray(err.milestones)) {
+          setDueMilestones(err.milestones as SessionMilestone[]);
+          toast.error(safeText(err.error, "Complete due milestones first"));
+        } else {
+          toast.error(safeText(err?.error, "Failed to clock out"));
+        }
       }
     } catch {
       toast.error("Failed to clock out");
@@ -1098,6 +1196,19 @@ function TimeTrackingPageInner() {
         }}
         stopping={stopping}
         onConfirm={executeClockOut}
+        dueMilestones={dueMilestones}
+        milestonesLoading={dueMilestonesLoading}
+        checkedMilestoneIds={checkedMilestoneIds}
+        onToggleMilestone={(id) => void handleToggleDueMilestone(id)}
+        togglingMilestoneId={togglingMilestoneId}
+      />
+
+      <MilestoneBriefingDialog
+        open={briefingOpen}
+        onOpenChange={setBriefingOpen}
+        projectName={briefingProjectName}
+        milestones={briefingMilestones}
+        loading={briefingLoading}
       />
 
       <DeleteEntryDialog
