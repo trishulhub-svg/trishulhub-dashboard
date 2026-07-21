@@ -460,6 +460,10 @@ export default function ProjectDetailPage() {
       toast.error("Due date is required");
       return;
     }
+    if (newMilestoneAssignees.length === 0) {
+      toast.error("Select at least one project member to assign");
+      return;
+    }
     setMilestoneSaving(true);
     try {
       const res = await fetch(`/api/projects/${projectId}/milestones`, {
@@ -508,6 +512,10 @@ export default function ProjectDetailPage() {
     const id = extractStr(editingMilestone, "id", "");
     if (!id || !editMilestoneTitle.trim() || !editMilestoneDue) {
       toast.error("Title and due date are required");
+      return;
+    }
+    if (editMilestoneAssignees.length === 0) {
+      toast.error("Select at least one project member to assign");
       return;
     }
     setMilestoneSaving(true);
@@ -1035,9 +1043,9 @@ export default function ProjectDetailPage() {
                     Add
                   </Button>
                 </div>
-                {members.length > 0 && (
+                {members.length > 0 ? (
                   <div className="space-y-1">
-                    <Label className="text-[10px] text-muted-foreground">Assign to (project members)</Label>
+                    <Label className="text-[10px] text-muted-foreground">Assign to * (project members — single or multiple)</Label>
                     <div className="flex flex-wrap gap-1.5">
                       {members.map((member) => {
                         const mUserId = extractStr(member, "userId", "");
@@ -1060,8 +1068,11 @@ export default function ProjectDetailPage() {
                         );
                       })}
                     </div>
-                    <p className="text-[10px] text-muted-foreground">Leave empty to show to all project members.</p>
                   </div>
+                ) : (
+                  <p className="text-[10px] text-amber-600 dark:text-amber-400">
+                    Add team members to this project first, then assign the milestone.
+                  </p>
                 )}
               </div>
             )}

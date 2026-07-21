@@ -1,15 +1,28 @@
 /**
  * Shared milestone helpers for clock-in briefing / clock-out gates.
+ * Work calendar day uses Europe/London (same as clock integrity).
  */
 
-/** Calendar day YYYY-MM-DD in UTC (date inputs store dueDate as UTC midnight). */
-export function toDateKey(d: Date | string): string {
+import { WORK_TIMEZONE } from "@/lib/clock-integrity"
+
+/** Calendar day YYYY-MM-DD in the company work timezone. */
+export function toDateKey(d: Date | string, timeZone: string = WORK_TIMEZONE): string {
   const date = typeof d === "string" ? new Date(d) : d
-  return date.toISOString().slice(0, 10)
+  try {
+    // en-CA → YYYY-MM-DD
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(date)
+  } catch {
+    return date.toISOString().slice(0, 10)
+  }
 }
 
 export function todayDateKey(now: Date = new Date()): string {
-  return toDateKey(now)
+  return toDateKey(now, WORK_TIMEZONE)
 }
 
 /** Parse HTML date input (YYYY-MM-DD) to Date at UTC midnight. */
@@ -32,15 +45,22 @@ export function formatDueDateLabel(d: Date | string): string {
 
 /**
  * True when milestone is due today or overdue (not a future due date).
+ * Used for clock-out checklist — "due day, not future ones".
  */
 export function isDueOnOrBefore(dueDate: Date | string, todayKey: string): boolean {
-  return toDateKey(dueDate) <= todayKey
+  // dueDate stored as UTC midnight of the picked calendar day
+  const dueKey =
+    typeof dueDate === "string" && /^\d{4}-\d{2}-\d{2}/.test(dueDate)
+      ? dueDate.slice(0, 10)
+      : new Date(dueDate).toISOString().slice(0, 10)
+  return dueKey <= todayKey
 }
 
 type AssigneeLike = { userId: string }
 
 /**
- * Visible to user when unassigned OR user is an assignee.
+ * Used for assignment UI / notifications only.
+ * Clock-in briefing and clock-out gates use ALL project milestones (per product prompt).
  */
 export function isMilestoneRelevantToUser(
   assignees: AssigneeLike[],

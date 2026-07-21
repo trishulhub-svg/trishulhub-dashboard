@@ -685,8 +685,8 @@ export default function TrishulWorkspacePage() {
                 type="button"
                 onClick={handleStart}
                 className="ws-start-card-inner"
-                aria-label={currentUserIsLive ? "Launch Technology" : "Start your session — clock in first"}
-                title={currentUserIsLive ? "Open technology workspace" : "Clock in first"}
+                aria-label={currentUserIsLive ? "Start Working — open Cursor Agents" : "Start your session — clock in first"}
+                title={currentUserIsLive ? "Start Working" : "Clock in first"}
               >
                 <div className="ws-start-left">
                   <div className={`ws-start-icon-box ws-start-icon-box--${mode}`}>
@@ -694,11 +694,11 @@ export default function TrishulWorkspacePage() {
                   </div>
                   <div>
                     <h3 className={`ws-start-heading ws-start-heading--${mode}`}>
-                      {currentUserIsLive ? "Launch Technology" : "Start Session"}
+                      {currentUserIsLive ? "Start Working" : "Start Session"}
                     </h3>
                     <p className={`ws-start-sub ws-start-sub--${mode}`}>
                       {currentUserIsLive
-                        ? "Open the technology workspace"
+                        ? "Open Cursor Agents workspace"
                         : "Clock in to begin working"}
                     </p>
                   </div>
