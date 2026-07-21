@@ -117,7 +117,7 @@ export function ClockOutDialog({
           {(milestonesLoading || dueMilestones.length > 0) && (
             <div className="space-y-2 rounded-lg border border-border/60 bg-muted/30 p-3">
               <Label className="text-xs font-semibold">
-                Due milestones — tick all before clock-out
+                Due milestones for this project — tick all before clock-out
               </Label>
               {milestonesLoading ? (
                 <p className="text-xs text-muted-foreground flex items-center gap-2">
@@ -231,30 +231,33 @@ export function MilestoneBriefingDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[460px]">
+      <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
-          <DialogTitle>Today&apos;s milestones</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+            Project milestones
+          </DialogTitle>
           <DialogDescription>
             {projectName
-              ? `Open items for ${safeText(projectName)}. Close this and continue when ready.`
-              : "Open milestones for your project."}
+              ? `All open milestones for ${safeText(projectName)} — including upcoming due dates — so you know what to work on. Close this and continue when ready.`
+              : "All open milestones for your project. Close this and continue when ready."}
           </DialogDescription>
         </DialogHeader>
-        <div className="py-2 max-h-64 overflow-y-auto space-y-2">
+        <div className="py-2 max-h-72 overflow-y-auto space-y-2">
           {loading ? (
             <p className="text-sm text-muted-foreground flex items-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading…
             </p>
           ) : milestones.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No open milestones for you on this project.</p>
+            <p className="text-sm text-muted-foreground">No open milestones on this project.</p>
           ) : (
             milestones.map((m) => (
               <div
                 key={m.id}
-                className="flex items-start gap-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2"
+                className="flex items-start gap-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5"
               >
-                <CheckCircle2 className="h-4 w-4 mt-0.5 text-muted-foreground/50 shrink-0" />
-                <div>
+                <CheckCircle2 className="h-4 w-4 mt-0.5 text-muted-foreground/45 shrink-0" />
+                <div className="min-w-0">
                   <p className="text-sm font-medium">{safeText(m.title)}</p>
                   {m.dueDate && (
                     <p className="text-[11px] text-muted-foreground">
@@ -263,6 +266,7 @@ export function MilestoneBriefingDialog({
                         weekday: "short",
                         month: "short",
                         day: "numeric",
+                        year: "numeric",
                         timeZone: "UTC",
                       })}
                     </p>

@@ -10,15 +10,17 @@ import { checkDbRateLimit } from "@/lib/rate-limit"
 import {
   formatDueDateLabel,
   isDueOnOrBefore,
-  isMilestoneRelevantToUser,
   todayDateKey,
   toDateKey,
 } from "@/lib/milestones"
 
 /**
  * GET /api/milestones/session?projectId=&mode=briefing|due
- * Clock-in briefing / clock-out checklist for the current user.
- * Also nudges admins once/day about due milestones on this project (briefing only).
+ *
+ * briefing (clock-in): ALL open milestones for the selected project
+ *   (so the team sees what is coming — e.g. due tomorrow still appears today).
+ * due (clock-out): ALL open milestones for the project with dueDate <= today
+ *   (due day + overdue; never future). Checkboxes required before clock-out.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -60,19 +62,14 @@ export async function GET(req: NextRequest) {
     })
 
     const today = todayDateKey()
-    const userId = session.user.id
 
+    // Prompt: clock-in → all project milestones; clock-out → due day, not future
     const filtered =
       mode === "due"
-        ? milestones.filter(
-            (m) =>
-              m.dueDate &&
-              isDueOnOrBefore(m.dueDate, today) &&
-              isMilestoneRelevantToUser(m.assignees, userId)
-          )
-        : milestones.filter((m) => isMilestoneRelevantToUser(m.assignees, userId))
+        ? milestones.filter((m) => m.dueDate && isDueOnOrBefore(m.dueDate, today))
+        : milestones
 
-    // On clock-in briefing: notify admins about due/overdue items at most once/day/project
+    // Due reminder to Admin/SuperAdmin once per project/day (on briefing)
     if (mode === "briefing") {
       const dueNow = milestones.filter(
         (m) => m.dueDate && isDueOnOrBefore(m.dueDate, today)
@@ -83,8 +80,7 @@ export async function GET(req: NextRequest) {
           1,
           24 * 60 * 60 * 1000
         )
-        if (gate.allowed && gate.remaining >= 0) {
-          // checkDbRateLimit increments — first call of the day has count 1 and allowed true
+        if (gate.allowed) {
           const titles = dueNow
             .slice(0, 5)
             .map((m) => `"${m.title}" (${m.dueDate ? formatDueDateLabel(m.dueDate) : "—"})`)

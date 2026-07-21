@@ -8,7 +8,6 @@ import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { checkClientClockIntegrity } from "@/lib/clock-integrity"
 import {
   isDueOnOrBefore,
-  isMilestoneRelevantToUser,
   todayDateKey,
 } from "@/lib/milestones"
 
@@ -150,20 +149,18 @@ export async function PATCH(
         )
       }
 
-      // Gate: open milestones due today/overdue for this project must be completed first
+      // Gate: ALL open milestones due today/overdue for this project must be completed
+      // (prompt: selected project + due day, not future — no assignee filter, no admin skip)
       const projectForGate = projectId !== undefined ? projectId || null : existing.projectId
-      if (projectForGate && !isAdmin) {
+      if (projectForGate) {
         try {
           const openMilestones = await db.projectMilestone.findMany({
             where: { projectId: projectForGate, done: false },
-            include: { assignees: { select: { userId: true } } },
+            select: { id: true, title: true, dueDate: true },
           })
           const today = todayDateKey(clockCheck.serverNow)
           const blocking = openMilestones.filter(
-            (m) =>
-              m.dueDate &&
-              isDueOnOrBefore(m.dueDate, today) &&
-              isMilestoneRelevantToUser(m.assignees, userId)
+            (m) => m.dueDate && isDueOnOrBefore(m.dueDate, today)
           )
           if (blocking.length > 0) {
             return NextResponse.json(

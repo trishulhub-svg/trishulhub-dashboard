@@ -164,6 +164,7 @@ function TimeTrackingPageInner() {
   // Deep-link
   const [showRedirectPopup, setShowRedirectPopup] = useState(false);
   const [fromWorkspace, setFromWorkspace] = useState(false);
+  const [pendingWorkspaceRedirect, setPendingWorkspaceRedirect] = useState(false);
 
   // Milestone briefing (clock-in) + due checklist (clock-out)
   const [briefingOpen, setBriefingOpen] = useState(false);
@@ -374,14 +375,21 @@ function TimeTrackingPageInner() {
         setActiveEntry(entry);
         toast.success("Timer started!");
         fetchEntries();
+        // Briefing first (all project milestones). Defer workspace redirect until briefing closes.
         if (projectId) {
           const pname =
             entry?.project?.name ||
             projects.find((p) => p.id === projectId)?.name ||
             "";
           void loadBriefing(projectId, pname);
+          if (fromWorkspace) {
+            // Remember to offer redirect after briefing — handled via pendingRedirect
+            setPendingWorkspaceRedirect(true);
+          }
+        } else {
+          toast.message("Tip: select a project when clocking in to see milestones.");
+          if (fromWorkspace) setShowRedirectPopup(true);
         }
-        if (fromWorkspace) setShowRedirectPopup(true);
       } else {
         const err = await res.json().catch(() => null);
         toast.error(safeText(err?.error, "Failed to start timer"));
@@ -1205,7 +1213,13 @@ function TimeTrackingPageInner() {
 
       <MilestoneBriefingDialog
         open={briefingOpen}
-        onOpenChange={setBriefingOpen}
+        onOpenChange={(open) => {
+          setBriefingOpen(open);
+          if (!open && pendingWorkspaceRedirect) {
+            setPendingWorkspaceRedirect(false);
+            setShowRedirectPopup(true);
+          }
+        }}
         projectName={briefingProjectName}
         milestones={briefingMilestones}
         loading={briefingLoading}

@@ -10,7 +10,6 @@ import { notifyAdmins, notifyUsers } from "@/lib/notifications"
 import {
   formatDueDateLabel,
   isDueOnOrBefore,
-  isMilestoneRelevantToUser,
   parseDueDateInput,
   todayDateKey,
   toDateKey,
@@ -25,7 +24,8 @@ const createSchema = z.object({
   title: z.string().trim().min(1).max(200),
   description: z.string().trim().max(2000).optional().nullable(),
   dueDate: z.string().min(1, "Due date is required"),
-  assigneeIds: z.array(z.string().min(1)).max(50).optional().default([]),
+  // Prompt: ask who to assign — at least one project member (single or multi)
+  assigneeIds: z.array(z.string().min(1)).min(1, "Select at least one project member").max(50),
 })
 
 const patchSchema = z.object({
@@ -35,7 +35,7 @@ const patchSchema = z.object({
   done: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
   dueDate: z.string().optional().nullable(),
-  assigneeIds: z.array(z.string().min(1)).max(50).optional(),
+  assigneeIds: z.array(z.string().min(1)).min(1).max(50).optional(),
 })
 
 const milestoneInclude = {
@@ -111,24 +111,15 @@ export async function GET(
     })
 
     const today = todayDateKey()
-    const userId = session.user.id
 
     let filtered = milestones
     if (scope === "briefing") {
-      // Clock-in: open milestones relevant to this user (awareness; includes upcoming)
-      filtered = milestones.filter(
-        (m) =>
-          !m.done &&
-          isMilestoneRelevantToUser(m.assignees, userId)
-      )
+      // Clock-in: ALL open milestones for this project (includes upcoming dues)
+      filtered = milestones.filter((m) => !m.done)
     } else if (scope === "due") {
-      // Clock-out: open + due today or overdue + relevant (no future)
+      // Clock-out: ALL open due today/overdue (never future)
       filtered = milestones.filter(
-        (m) =>
-          !m.done &&
-          m.dueDate &&
-          isDueOnOrBefore(m.dueDate, today) &&
-          isMilestoneRelevantToUser(m.assignees, userId)
+        (m) => !m.done && m.dueDate && isDueOnOrBefore(m.dueDate, today)
       )
     }
 
@@ -221,17 +212,16 @@ export async function POST(
     const dueLabel = formatDueDateLabel(due)
     const link = `/dashboard/projects/${projectId}`
 
-    if (parsed.data.assigneeIds.length > 0) {
-      void notifyUsers(parsed.data.assigneeIds, {
-        title: "Milestone assigned",
-        message: `"${milestone.title}" on ${project.name} is due ${dueLabel}`,
-        type: "TASK",
-        link,
-        metadata: { projectId, milestoneId: milestone.id, dueDate: toDateKey(due) },
-      })
-    }
+    // Assigned members → notify the team assignees
+    void notifyUsers(parsed.data.assigneeIds, {
+      title: "Milestone assigned",
+      message: `"${milestone.title}" on ${project.name} is due ${dueLabel}`,
+      type: "TASK",
+      link,
+      metadata: { projectId, milestoneId: milestone.id, dueDate: toDateKey(due) },
+    })
 
-    // Notify admins when due today or overdue at create time
+    // Due today/overdue → notify Admin + SuperAdmin
     if (isDueOnOrBefore(due, todayDateKey())) {
       void notifyAdmins({
         title: "Milestone due",
@@ -304,7 +294,7 @@ export async function PATCH(
       assigneeIds === undefined
 
     if (!isAdmin) {
-      // Members may only mark relevant open milestones done (clock-out flow)
+      // Any project member may tick-complete a milestone (clock-out requires all due ones)
       if (!isCompletionOnly || done !== true) {
         return NextResponse.json(
           { error: "Forbidden: Only Admin or Super Admin can edit milestones" },
@@ -312,10 +302,7 @@ export async function PATCH(
         )
       }
       if (existing.done) {
-        return NextResponse.json(deepSanitize(existing))
-      }
-      if (!isMilestoneRelevantToUser(existing.assignees, session.user.id)) {
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+        return NextResponse.json(deepSanitize({ ...existing, assignees: existing.assignees }))
       }
     }
 
