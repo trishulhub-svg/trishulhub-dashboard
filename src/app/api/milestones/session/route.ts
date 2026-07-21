@@ -69,34 +69,32 @@ export async function GET(req: NextRequest) {
         ? milestones.filter((m) => m.dueDate && isDueOnOrBefore(m.dueDate, today))
         : milestones
 
-    // Due reminder to Admin/SuperAdmin once per project/day (on briefing)
-    if (mode === "briefing") {
-      const dueNow = milestones.filter(
-        (m) => m.dueDate && isDueOnOrBefore(m.dueDate, today)
+    // Due reminder to Admin/SuperAdmin once per project/day (briefing or due checklist)
+    const dueNow = milestones.filter(
+      (m) => m.dueDate && isDueOnOrBefore(m.dueDate, today)
+    )
+    if (dueNow.length > 0) {
+      const gate = await checkDbRateLimit(
+        `milestone-due-admin:${projectId}:${today}`,
+        1,
+        24 * 60 * 60 * 1000
       )
-      if (dueNow.length > 0) {
-        const gate = await checkDbRateLimit(
-          `milestone-due-admin:${projectId}:${today}`,
-          1,
-          24 * 60 * 60 * 1000
-        )
-        if (gate.allowed) {
-          const titles = dueNow
-            .slice(0, 5)
-            .map((m) => `"${m.title}" (${m.dueDate ? formatDueDateLabel(m.dueDate) : "—"})`)
-            .join(", ")
-          void notifyAdmins({
-            title: `Milestones due — ${project.name}`,
-            message: `${dueNow.length} open due/overdue: ${titles}`,
-            type: "WARNING",
-            link: `/dashboard/projects/${projectId}`,
-            metadata: {
-              projectId,
-              dueKeys: dueNow.map((m) => toDateKey(m.dueDate!)),
-              day: today,
-            },
-          })
-        }
+      if (gate.allowed) {
+        const titles = dueNow
+          .slice(0, 5)
+          .map((m) => `"${m.title}" (${m.dueDate ? formatDueDateLabel(m.dueDate) : "—"})`)
+          .join(", ")
+        void notifyAdmins({
+          title: `Milestones due — ${project.name}`,
+          message: `${dueNow.length} open due/overdue: ${titles}`,
+          type: "WARNING",
+          link: `/dashboard/projects/${projectId}`,
+          metadata: {
+            projectId,
+            dueKeys: dueNow.map((m) => toDateKey(m.dueDate!)),
+            day: today,
+          },
+        })
       }
     }
 

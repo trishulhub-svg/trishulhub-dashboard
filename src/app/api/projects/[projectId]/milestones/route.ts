@@ -215,7 +215,7 @@ export async function POST(
     // Assigned members → notify the team assignees
     void notifyUsers(parsed.data.assigneeIds, {
       title: "Milestone assigned",
-      message: `"${milestone.title}" on ${project.name} is due ${dueLabel}`,
+      message: `You were assigned "${milestone.title}" on ${project.name} — due ${dueLabel}`,
       type: "TASK",
       link,
       metadata: { projectId, milestoneId: milestone.id, dueDate: toDateKey(due) },

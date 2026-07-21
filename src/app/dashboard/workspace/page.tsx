@@ -317,6 +317,8 @@ export default function TrishulWorkspacePage() {
 
   const [liveUsers, setLiveUsers] = useState<LiveUser[]>([]);
   const [liveProjects, setLiveProjects] = useState<LiveProject[]>([]);
+  /* Direct active-session check — do not rely only on live-ops (can lag/fail) */
+  const [hasActiveSession, setHasActiveSession] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -342,8 +344,51 @@ export default function TrishulWorkspacePage() {
 
   /* Whether the currently-logged-in user is clocked in */
   const currentUserId = session?.user?.id;
+
+  useEffect(() => {
+    if (!currentUserId) {
+      setHasActiveSession(false);
+      return;
+    }
+    let cancelled = false;
+    const checkActive = async () => {
+      try {
+        const res = await fetch("/api/time-tracking?status=ACTIVE&limit=50", {
+          cache: "no-store",
+          credentials: "include",
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        const entries = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.entries)
+            ? data.entries
+            : Array.isArray(data?.activeEntries)
+              ? data.activeEntries
+              : [];
+        if (cancelled) return;
+        setHasActiveSession(
+          entries.some(
+            (e: { userId?: string; user?: { id?: string }; status?: string }) =>
+              (e.userId === currentUserId || e.user?.id === currentUserId) &&
+              (!e.status || e.status === "ACTIVE")
+          )
+        );
+      } catch {
+        /* keep last known */
+      }
+    };
+    checkActive();
+    const id = setInterval(checkActive, 8000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [currentUserId]);
+
   const currentUserIsLive = Boolean(
-    currentUserId && liveUsers.some((u) => u.userId === currentUserId)
+    (currentUserId && liveUsers.some((u) => u.userId === currentUserId)) ||
+      hasActiveSession
   );
 
    /* ── START handler ──
@@ -487,7 +532,7 @@ export default function TrishulWorkspacePage() {
                       aria-label="Research Space — open Qwen"
                       title="Research Space — open Qwen chat"
                     >
-                      <Globe size={16} strokeWidth={2.5} />
+                      <Zap size={16} strokeWidth={2.5} />
                       <span>Research Space</span>
                       <ArrowUpRight size={14} />
                     </button>
@@ -719,7 +764,7 @@ export default function TrishulWorkspacePage() {
                 >
                   <div className="ws-start-left">
                     <div className={`ws-start-icon-box ws-start-icon-box--${mode}`}>
-                      <Globe size={20} />
+                      <Zap size={20} />
                     </div>
                     <div>
                       <h3 className={`ws-start-heading ws-start-heading--${mode}`}>
