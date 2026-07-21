@@ -57,7 +57,6 @@ interface ClockOutDialogProps {
   milestonesLoading?: boolean
   checkedMilestoneIds?: Set<string>
   onToggleMilestone?: (id: string, checked: boolean) => void
-  togglingMilestoneId?: string | null
 }
 
 export function ClockOutDialog({
