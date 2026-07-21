@@ -73,10 +73,9 @@ export function ClockOutDialog({
   milestonesLoading = false,
   checkedMilestoneIds = new Set(),
   onToggleMilestone,
-  togglingMilestoneId = null,
 }: ClockOutDialogProps) {
   const allDueDone =
-    dueMilestones.length === 0 || dueMilestones.every((m) => checkedMilestoneIds.has(m.id) || m.done)
+    dueMilestones.length === 0 || dueMilestones.every((m) => checkedMilestoneIds.has(m.id))
 
   return (
     <Dialog
@@ -117,7 +116,7 @@ export function ClockOutDialog({
           {(milestonesLoading || dueMilestones.length > 0) && (
             <div className="space-y-2 rounded-lg border border-border/60 bg-muted/30 p-3">
               <Label className="text-xs font-semibold">
-                Due milestones for this project — tick all before clock-out
+                Due today / overdue — tick every checkbox to clock out (not future)
               </Label>
               {milestonesLoading ? (
                 <p className="text-xs text-muted-foreground flex items-center gap-2">
@@ -126,15 +125,14 @@ export function ClockOutDialog({
               ) : (
                 <ul className="space-y-2 max-h-40 overflow-y-auto">
                   {dueMilestones.map((m) => {
-                    const checked = checkedMilestoneIds.has(m.id) || !!m.done
+                    const checked = checkedMilestoneIds.has(m.id)
                     return (
                       <li key={m.id} className="flex items-start gap-2 text-sm">
                         <input
                           type="checkbox"
                           className="mt-1 h-4 w-4 accent-emerald-600"
                           checked={checked}
-                          disabled={checked || togglingMilestoneId === m.id}
-                          onChange={() => onToggleMilestone?.(m.id, true)}
+                          onChange={(e) => onToggleMilestone?.(m.id, e.target.checked)}
                         />
                         <span className={checked ? "line-through text-muted-foreground" : ""}>
                           {safeText(m.title)}
@@ -156,7 +154,7 @@ export function ClockOutDialog({
               )}
               {!allDueDone && (
                 <p className="text-[11px] text-amber-600 dark:text-amber-400">
-                  Complete every due milestone checkbox to unlock clock-out.
+                  Tick every due milestone checkbox to unlock clock-out.
                 </p>
               )}
             </div>
@@ -239,8 +237,8 @@ export function MilestoneBriefingDialog({
           </DialogTitle>
           <DialogDescription>
             {projectName
-              ? `All open milestones for ${safeText(projectName)} — including upcoming due dates — so you know what to work on. Close this and continue when ready.`
-              : "All open milestones for your project. Close this and continue when ready."}
+              ? `All open milestones for ${safeText(projectName)} with due dates — including upcoming (e.g. due tomorrow still shows today). Close this popup and continue.`
+              : "All open milestones for your project with due dates. Close this popup and continue."}
           </DialogDescription>
         </DialogHeader>
         <div className="py-2 max-h-72 overflow-y-auto space-y-2">
@@ -254,9 +252,16 @@ export function MilestoneBriefingDialog({
             milestones.map((m) => (
               <div
                 key={m.id}
-                className="flex items-start gap-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5"
+                className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5"
               >
-                <CheckCircle2 className="h-4 w-4 mt-0.5 text-muted-foreground/45 shrink-0" />
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 accent-emerald-600 opacity-60"
+                  checked={false}
+                  disabled
+                  readOnly
+                  aria-hidden
+                />
                 <div className="min-w-0">
                   <p className="text-sm font-medium">{safeText(m.title)}</p>
                   {m.dueDate && (

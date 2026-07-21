@@ -127,7 +127,8 @@ export async function PATCH(
       return NextResponse.json({ error: validation.error }, { status: 400 })
     }
 
-    const { description, projectId, status, clientNow, timezone } = validation.data
+    const { description, projectId, status, clientNow, timezone, acknowledgedMilestoneIds } =
+      validation.data
 
     const updateData: Prisma.TimeEntryUncheckedUpdateInput = {}
 
@@ -149,8 +150,8 @@ export async function PATCH(
         )
       }
 
-      // Gate: ALL open milestones due today/overdue for this project must be completed
-      // (prompt: selected project + due day, not future — no assignee filter, no admin skip)
+      // Gate: ALL open milestones due today/overdue for this project must be ticked
+      // (prompt: selected project + due day, not future — session ack, no admin skip)
       const projectForGate = projectId !== undefined ? projectId || null : existing.projectId
       if (projectForGate) {
         try {
@@ -162,10 +163,12 @@ export async function PATCH(
           const blocking = openMilestones.filter(
             (m) => m.dueDate && isDueOnOrBefore(m.dueDate, today)
           )
-          if (blocking.length > 0) {
+          const acked = new Set(acknowledgedMilestoneIds || [])
+          const missing = blocking.filter((m) => !acked.has(m.id))
+          if (missing.length > 0) {
             return NextResponse.json(
               {
-                error: `Complete ${blocking.length} due milestone${blocking.length === 1 ? "" : "s"} before clocking out`,
+                error: `Tick ${missing.length} due milestone${missing.length === 1 ? "" : "s"} before clocking out`,
                 code: "MILESTONES_INCOMPLETE",
                 milestones: blocking.map((m) => ({
                   id: m.id,

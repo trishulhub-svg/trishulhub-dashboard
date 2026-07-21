@@ -174,7 +174,6 @@ function TimeTrackingPageInner() {
   const [dueMilestones, setDueMilestones] = useState<SessionMilestone[]>([]);
   const [dueMilestonesLoading, setDueMilestonesLoading] = useState(false);
   const [checkedMilestoneIds, setCheckedMilestoneIds] = useState<Set<string>>(new Set());
-  const [togglingMilestoneId, setTogglingMilestoneId] = useState<string | null>(null);
 
   const weekDays = useMemo(() => getWeekDays(weekAnchor), [weekAnchor]);
   const thisWeekStart = useMemo(() => getWeekDays()[0], []);
@@ -425,36 +424,14 @@ function TimeTrackingPageInner() {
       .finally(() => setDueMilestonesLoading(false));
   }, [activeEntry]);
 
-  const handleToggleDueMilestone = useCallback(
-    async (milestoneId: string) => {
-      if (!activeEntry?.projectId && !activeEntry?.project?.id) return;
-      const projectId = activeEntry.projectId || activeEntry.project?.id;
-      if (!projectId) return;
-      setTogglingMilestoneId(milestoneId);
-      try {
-        const res = await fetch(`/api/projects/${projectId}/milestones`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ id: milestoneId, done: true }),
-        });
-        if (res.ok) {
-          setCheckedMilestoneIds((prev) => new Set(prev).add(milestoneId));
-          setDueMilestones((prev) =>
-            prev.map((m) => (m.id === milestoneId ? { ...m, done: true } : m))
-          );
-        } else {
-          const err = await res.json().catch(() => null);
-          toast.error(safeText(err?.error, "Failed to complete milestone"));
-        }
-      } catch {
-        toast.error("Failed to complete milestone");
-      } finally {
-        setTogglingMilestoneId(null);
-      }
-    },
-    [activeEntry]
-  );
+  const handleToggleDueMilestone = useCallback((milestoneId: string, checked: boolean) => {
+    setCheckedMilestoneIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(milestoneId);
+      else next.delete(milestoneId);
+      return next;
+    });
+  }, []);
 
   const executeClockOut = useCallback(async () => {
     if (!activeEntry) return;
@@ -478,6 +455,7 @@ function TimeTrackingPageInner() {
           id: activeEntry.id,
           status: "COMPLETED",
           ...(description !== undefined ? { description } : {}),
+          acknowledgedMilestoneIds: Array.from(checkedMilestoneIds),
           ...clockPayload,
         }),
       });
@@ -493,7 +471,7 @@ function TimeTrackingPageInner() {
         const err = await res.json().catch(() => null);
         if (err?.code === "MILESTONES_INCOMPLETE" && Array.isArray(err.milestones)) {
           setDueMilestones(err.milestones as SessionMilestone[]);
-          toast.error(safeText(err.error, "Complete due milestones first"));
+          toast.error(safeText(err.error, "Tick due milestones first"));
         } else {
           toast.error(safeText(err?.error, "Failed to clock out"));
         }
@@ -503,7 +481,7 @@ function TimeTrackingPageInner() {
     } finally {
       setStopping(false);
     }
-  }, [activeEntry, fetchEntries]);
+  }, [activeEntry, fetchEntries, checkedMilestoneIds]);
 
   // ── Timesheet fetch ──
   const fetchTimesheet = useCallback(
@@ -1207,8 +1185,7 @@ function TimeTrackingPageInner() {
         dueMilestones={dueMilestones}
         milestonesLoading={dueMilestonesLoading}
         checkedMilestoneIds={checkedMilestoneIds}
-        onToggleMilestone={(id) => void handleToggleDueMilestone(id)}
-        togglingMilestoneId={togglingMilestoneId}
+        onToggleMilestone={(id, checked) => handleToggleDueMilestone(id, checked)}
       />
 
       <MilestoneBriefingDialog

@@ -1153,7 +1153,7 @@ export default function ProjectDetailPage() {
               <Input type="date" value={editMilestoneDue} onChange={(e) => setEditMilestoneDue(e.target.value)} className="h-9 text-sm" />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Assignees</Label>
+              <Label className="text-xs">Assignees * (single or multiple)</Label>
               <div className="flex flex-wrap gap-1.5">
                 {members.map((member) => {
                   const mUserId = extractStr(member, "userId", "");

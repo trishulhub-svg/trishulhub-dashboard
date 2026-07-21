@@ -278,6 +278,8 @@ export const updateTimeEntrySchema = z.object({
   // Device clock integrity (required when status → COMPLETED / clock-out)
   clientNow: z.string().min(1).optional(),
   timezone: z.string().max(64).optional(),
+  // Clock-out: session tick-acks for due/overdue project milestones (not permanent done)
+  acknowledgedMilestoneIds: z.array(z.string().min(1)).max(100).optional(),
 })
 
 // ━━ Subscriptions ━━

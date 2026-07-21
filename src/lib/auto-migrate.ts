@@ -1129,6 +1129,27 @@ export async function ensureAllTables(): Promise<void> {
       }
     }
     try {
+      await db.$executeRawUnsafe(
+        `CREATE UNIQUE INDEX IF NOT EXISTS "ProjectMilestoneAssignee_milestoneId_userId_key" ON "ProjectMilestoneAssignee"("milestoneId", "userId")`
+      )
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes("already exists")) {
+        console.warn(
+          `[auto-migrate] ProjectMilestoneAssignee_milestoneId_userId_key: ${getErrMsg(err)}`
+        )
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(
+        `CREATE INDEX IF NOT EXISTS "ProjectMilestone_dueDate_idx" ON "ProjectMilestone"("dueDate")`
+      )
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes("already exists")) {
+        console.warn(`[auto-migrate] ProjectMilestone_dueDate_idx: ${getErrMsg(err)}`)
+      }
+    }
+
+    try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "TrainingAssignment_dueDate_status_idx" ON "TrainingAssignment"("dueDate", "status")`)
     } catch (err: unknown) {
       if (!getErrMsg(err)?.includes('already exists')) {
