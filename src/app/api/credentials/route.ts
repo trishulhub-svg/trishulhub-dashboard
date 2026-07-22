@@ -24,13 +24,18 @@ const optionalUrl = z.preprocess(
 )
 
 const createCredentialSchema = z.object({
-  userId: z.string().min(1),
+  // Single or multi-assign — at least one user required
+  userId: z.string().min(1).optional(),
+  userIds: z.array(z.string().min(1)).min(1).max(50).optional(),
   label: z.string().min(1).max(100),
   username: z.string().min(1).max(200),
   password: z.string().min(1).max(500),
   url: optionalUrl,
   notes: z.string().max(2000).optional().nullable(),
-});
+}).refine(
+  (d) => !!(d.userId || (d.userIds && d.userIds.length > 0)),
+  { message: "Select at least one user", path: ["userIds"] }
+);
 
 const updateCredentialSchema = z.object({
   id: z.string().min(1),
@@ -164,11 +169,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { userId, label, username, password, url, notes } = parsed.data;
+    const { userId, userIds, label, username, password, url, notes } = parsed.data;
+    const targetIds = [...new Set([
+      ...(userIds || []),
+      ...(userId ? [userId] : []),
+    ])];
+    if (targetIds.length === 0) {
+      return NextResponse.json({ error: "Select at least one user" }, { status: 400 });
+    }
 
-    const targetUser = await db.user.findUnique({ where: { id: userId } });
-    if (!targetUser) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    const targetUsers = await db.user.findMany({
+      where: { id: { in: targetIds } },
+      select: { id: true },
+    });
+    if (targetUsers.length !== targetIds.length) {
+      return NextResponse.json({ error: "One or more users not found" }, { status: 404 });
     }
 
     let encryptedPassword: string
@@ -182,27 +197,36 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const credential = await db.userCredential.create({
-      data: {
-        userId,
-        label: sanitizeStr(label, 100),
-        username: sanitizeStr(username, 200),
-        password: encryptedPassword,
-        url: url || null,
-        notes: notes || null,
-        createdBy: session.user.id,
-      },
-    });
+    const safeLabel = sanitizeStr(label, 100)
+    const safeUsername = sanitizeStr(username, 200)
+    const created = await db.$transaction(
+      targetIds.map((uid) =>
+        db.userCredential.create({
+          data: {
+            userId: uid,
+            label: safeLabel,
+            username: safeUsername,
+            password: encryptedPassword,
+            url: url || null,
+            notes: notes || null,
+            createdBy: session.user.id,
+          },
+        })
+      )
+    );
 
     void logAudit({
       userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
       department: "SYSTEM", page: "credentials", action: "CREATE",
-      entityType: "credential", entityId: credential.id,
-      description: buildDescription("CREATE", "credential", credential.label),
+      entityType: "credential", entityId: created.map((c) => c.id).join(","),
+      description: buildDescription("CREATE", "credential", `${safeLabel} ×${created.length}`),
       ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
     })
-    const { password: _pwd, ...safe } = credential;
-    return NextResponse.json(safe, { status: 201 });
+    const safe = created.map(({ password: _pwd, ...rest }) => rest);
+    return NextResponse.json(
+      { created: safe, count: safe.length },
+      { status: 201 }
+    );
   } catch (error: unknown) {
     console.error("[credentials] POST error:", error);
     const msg = error instanceof Error ? error.message : ""

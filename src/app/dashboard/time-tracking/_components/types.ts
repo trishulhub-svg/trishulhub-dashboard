@@ -35,6 +35,8 @@ export interface Project {
   id: string;
   name: string;
   status: string;
+  progress?: number;
+  hasOpenAssignedMilestones?: boolean;
 }
 
 export interface AttendanceRecord {

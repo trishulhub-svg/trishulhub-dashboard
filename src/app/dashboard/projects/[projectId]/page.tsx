@@ -44,6 +44,33 @@ const projectStatusColors: Record<string, string> = {
 
 const VALID_STATUSES = ["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"];
 
+/** Monday (UTC) of the week containing dateKey YYYY-MM-DD, as YYYY-MM-DD. */
+function weekStartKey(dueIso: string): string {
+  const d = new Date(dueIso.includes("T") ? dueIso : `${dueIso.slice(0, 10)}T00:00:00.000Z`);
+  if (Number.isNaN(d.getTime())) return "none";
+  const day = d.getUTCDay(); // 0 Sun … 6 Sat
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  d.setUTCDate(d.getUTCDate() + mondayOffset);
+  return d.toISOString().slice(0, 10);
+}
+
+function formatWeekLabel(mondayKey: string, todayKey: string): string {
+  if (mondayKey === "none") return "No due date";
+  const thisMonday = weekStartKey(todayKey);
+  const next = new Date(`${thisMonday}T00:00:00.000Z`);
+  next.setUTCDate(next.getUTCDate() + 7);
+  const nextMonday = next.toISOString().slice(0, 10);
+  if (mondayKey === thisMonday) return "This week";
+  if (mondayKey === nextMonday) return "Next week";
+  const mon = new Date(`${mondayKey}T00:00:00.000Z`);
+  const sun = new Date(mon);
+  sun.setUTCDate(sun.getUTCDate() + 6);
+  const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", timeZone: "UTC" };
+  const range = `${mon.toLocaleDateString(undefined, opts)} – ${sun.toLocaleDateString(undefined, opts)}`;
+  if (mondayKey < thisMonday) return `Earlier · ${range}`;
+  return `Week of ${range}`;
+}
+
 export default function ProjectDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -613,6 +640,36 @@ export default function ProjectDetailPage() {
   const projectBudget = project ? extractNum(project, "budget", 0) : 0;
   const projectDeadline = project ? extractStr(project, "deadline", "") : "";
 
+  // Admin/SuperAdmin: group milestones by due-date week for easier planning
+  const milestonesByWeek = useMemo(() => {
+    const todayKey = new Date().toISOString().slice(0, 10);
+    const buckets = new Map<string, Record<string, unknown>[]>();
+    for (const m of milestonesData) {
+      const due = extractStr(m, "dueDate", "");
+      const key = due ? weekStartKey(due) : "none";
+      const list = buckets.get(key) || [];
+      list.push(m);
+      buckets.set(key, list);
+    }
+    const keys = [...buckets.keys()].sort((a, b) => {
+      if (a === "none") return 1;
+      if (b === "none") return -1;
+      return a.localeCompare(b);
+    });
+    return keys.map((key) => ({
+      key,
+      label: formatWeekLabel(key, todayKey),
+      items: (buckets.get(key) || []).slice().sort((a, b) => {
+        const da = extractStr(a, "dueDate", "");
+        const db = extractStr(b, "dueDate", "");
+        if (!da && !db) return 0;
+        if (!da) return 1;
+        if (!db) return -1;
+        return da.localeCompare(db);
+      }),
+    }));
+  }, [milestonesData]);
+
   const memberUserIds = useMemo(() => members.map((m) => extractStr(m, "userId", "")), [members]);
   const availableUsers = useMemo(() => {
     const ids = memberUserIds;
@@ -1068,6 +1125,84 @@ export default function ProjectDetailPage() {
             )}
             {milestonesData.length === 0 ? (
               <p className="text-xs text-muted-foreground text-center py-4">No milestones yet</p>
+            ) : canManageMilestones ? (
+              <div className="space-y-4">
+                {milestonesByWeek.map((week) => {
+                  const weekDone = week.items.filter((m) => m.done === true).length;
+                  return (
+                    <div key={week.key} className="space-y-2">
+                      <div className="flex items-center justify-between gap-2 sticky top-0 z-[1] bg-white/80 dark:bg-background/80 backdrop-blur-sm py-1">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <CalendarDays className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                          <h3 className="text-xs font-semibold tracking-tight truncate">{week.label}</h3>
+                          <Badge variant="secondary" className="text-[9px] h-4 px-1.5 shrink-0">
+                            {weekDone}/{week.items.length}
+                          </Badge>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        {week.items.map((m) => {
+                          const mId = extractStr(m, "id", "");
+                          const mTitle = extractStr(m, "title", "");
+                          const mDone = m.done === true;
+                          const mDue = extractStr(m, "dueDate", "");
+                          const assignees = Array.isArray(m.assignees) ? (m.assignees as Record<string, unknown>[]) : [];
+                          const isAssignee = assignees.some(
+                            (a) =>
+                              extractStr(a, "userId", "") === userId ||
+                              extractNestedStr(a, ["user", "id"], "") === userId
+                          );
+                          const canToggleDone = canManageMilestones || isAssignee;
+                          return (
+                            <div key={mId} className="flex items-start gap-2 p-2.5 rounded-lg border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/[0.02]">
+                              <button
+                                type="button"
+                                onClick={() => canToggleDone && handleToggleMilestone(mId, mDone)}
+                                className={cn("shrink-0 mt-0.5", canToggleDone ? "cursor-pointer" : "cursor-default")}
+                                disabled={!canToggleDone}
+                                title={canToggleDone ? (mDone ? "Mark incomplete" : "Mark done") : "Only assignees or admin can mark done"}
+                              >
+                                <CheckCircle2 className={cn("h-4 w-4", mDone ? "text-emerald-500" : "text-muted-foreground/40")} />
+                              </button>
+                              <div className="flex-1 min-w-0 space-y-1">
+                                <span className={cn("text-xs font-medium block", mDone && "line-through text-muted-foreground")}>{mTitle}</span>
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  {mDue && (
+                                    <Badge variant="outline" className="text-[9px] h-5 px-1.5 gap-1 font-normal">
+                                      <CalendarDays className="h-2.5 w-2.5" />
+                                      {new Date(mDue).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" })}
+                                    </Badge>
+                                  )}
+                                  {assignees.length === 0 ? (
+                                    <span className="text-[9px] text-muted-foreground">All members</span>
+                                  ) : (
+                                    assignees.map((a) => {
+                                      const name = extractNestedStr(a, ["user", "name"], "?");
+                                      return (
+                                        <Badge key={extractStr(a, "userId", name)} variant="secondary" className="text-[9px] h-5 px-1.5 font-normal">
+                                          {name}
+                                        </Badge>
+                                      );
+                                    })
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button type="button" onClick={() => openEditMilestone(m)} className="text-muted-foreground hover:text-foreground transition-colors p-1" title="Edit">
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                                <button type="button" onClick={() => handleDeleteMilestone(mId)} className="text-muted-foreground hover:text-red-500 transition-colors p-1" title="Delete">
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             ) : (
               milestonesData.map((m) => {
                 const mId = extractStr(m, "id", "");
@@ -1115,16 +1250,6 @@ export default function ProjectDetailPage() {
                         )}
                       </div>
                     </div>
-                    {canManageMilestones && (
-                      <div className="flex items-center gap-1 shrink-0">
-                        <button type="button" onClick={() => openEditMilestone(m)} className="text-muted-foreground hover:text-foreground transition-colors p-1" title="Edit">
-                          <Pencil className="h-3.5 w-3.5" />
-                        </button>
-                        <button type="button" onClick={() => handleDeleteMilestone(mId)} className="text-muted-foreground hover:text-red-500 transition-colors p-1" title="Delete">
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    )}
                   </div>
                 );
               })

@@ -115,7 +115,35 @@ export async function GET(req: NextRequest) {
         orderBy: { createdAt: "desc" },
         take: limit,
       })
-      return NextResponse.json(projects)
+
+      // Open assigned milestones for current user (yellow blink in clock-in picker)
+      const openAssigned = new Set<string>()
+      const ids = projects.map((p) => p.id)
+      if (ids.length > 0 && userId) {
+        try {
+          const placeholders = ids.map(() => "?").join(",")
+          const rows = await db.$queryRawUnsafe(
+            `SELECT DISTINCT m."projectId" as "projectId"
+             FROM "ProjectMilestone" m
+             INNER JOIN "ProjectMilestoneAssignee" a ON a."milestoneId" = m."id"
+             WHERE m."projectId" IN (${placeholders})
+               AND m."done" = 0
+               AND a."userId" = ?`,
+            ...ids,
+            userId
+          ) as Array<{ projectId: string }>
+          for (const row of rows) openAssigned.add(row.projectId)
+        } catch {
+          /* non-fatal */
+        }
+      }
+
+      return NextResponse.json(
+        projects.map((p) => ({
+          ...p,
+          hasOpenAssignedMilestones: openAssigned.has(p.id),
+        }))
+      )
     }
 
     // DETAIL VIEW: When projectId is specified, return scalar fields + websites only

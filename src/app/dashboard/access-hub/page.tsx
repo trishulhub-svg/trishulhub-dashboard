@@ -101,7 +101,7 @@ function AccessHubContent() {
   const [formPassword, setFormPassword] = useState("");
   const [formUrl, setFormUrl] = useState("");
   const [formNotes, setFormNotes] = useState("");
-  const [formTargetUserId, setFormTargetUserId] = useState("");
+  const [formTargetUserIds, setFormTargetUserIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
   const fetchCredentials = useCallback(async () => {
@@ -221,11 +221,17 @@ function AccessHubContent() {
     setFormPassword("");
     setFormUrl("");
     setFormNotes("");
-    setFormTargetUserId(session?.user?.id || "");
+    setFormTargetUserIds(session?.user?.id ? [session.user.id] : []);
     setEditingCredential(null);
   };
 
   const openAddCredDialog = () => { resetCredForm(); setShowAddDialog(true); };
+
+  const toggleFormUser = (userId: string) => {
+    setFormTargetUserIds((prev) =>
+      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]
+    );
+  };
 
   const openEditCredDialog = (cred: Credential) => {
     setEditingCredential(cred);
@@ -234,7 +240,7 @@ function AccessHubContent() {
     setFormPassword("");
     setFormUrl(cred.url || "");
     setFormNotes(cred.notes || "");
-    setFormTargetUserId(cred.user?.id || session?.user?.id || "");
+    setFormTargetUserIds(cred.user?.id ? [cred.user.id] : session?.user?.id ? [session.user.id] : []);
     setShowAddDialog(true);
   };
 
@@ -243,8 +249,8 @@ function AccessHubContent() {
       toast.error("Label, username, and password are required");
       return;
     }
-    if (canManageCredentials && !formTargetUserId) {
-      toast.error("Select a user to assign this credential to");
+    if (canManageCredentials && formTargetUserIds.length === 0) {
+      toast.error("Select at least one user to assign this credential to");
       return;
     }
     setSaving(true);
@@ -255,7 +261,7 @@ function AccessHubContent() {
         normalizedUrl = `https://${normalizedUrl}`;
       }
 
-      const body: Record<string, string> = {
+      const body: Record<string, unknown> = {
         label: formLabel.trim(),
         username: formUsername.trim(),
         ...(formPassword && { password: formPassword }),
@@ -280,12 +286,16 @@ function AccessHubContent() {
           toast.error(d?.error || d?.details?.formErrors?.[0] || "Failed to update credential");
         }
       } else {
-        const userId = canManageCredentials ? formTargetUserId : session?.user?.id;
-        if (!userId) {
+        const userIds = canManageCredentials
+          ? formTargetUserIds
+          : session?.user?.id
+            ? [session.user.id]
+            : [];
+        if (userIds.length === 0) {
           toast.error("No user session found");
           return;
         }
-        body.userId = userId;
+        body.userIds = userIds;
         const res = await fetch("/api/credentials", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -293,7 +303,13 @@ function AccessHubContent() {
           body: JSON.stringify(body),
         });
         if (res.ok) {
-          toast.success("Credential created");
+          const d = await res.json().catch(() => null);
+          const count = typeof d?.count === "number" ? d.count : userIds.length;
+          toast.success(
+            count > 1
+              ? `Credential assigned to ${count} users`
+              : "Credential created"
+          );
           setShowAddDialog(false);
           resetCredForm();
           fetchCredentials();
@@ -302,6 +318,7 @@ function AccessHubContent() {
           const detail =
             d?.error ||
             (Array.isArray(d?.details?.fieldErrors?.url) ? d.details.fieldErrors.url[0] : null) ||
+            (Array.isArray(d?.details?.fieldErrors?.userIds) ? d.details.fieldErrors.userIds[0] : null) ||
             "Failed to create credential";
           toast.error(detail);
         }
@@ -511,23 +528,72 @@ function AccessHubContent() {
             <DialogDescription>
               {editingCredential
                 ? "Update the credential details below."
-                : "Create a new ID & Password credential for a team member."}
+                : "Create a credential and assign it to one or more team members."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            {canManageCredentials && (
+            {canManageCredentials && !editingCredential && (
               <div className="space-y-2">
-                <Label>Assign to User</Label>
-                <Select value={formTargetUserId} onValueChange={setFormTargetUserId}>
-                  <SelectTrigger><SelectValue placeholder="Select user" /></SelectTrigger>
-                  <SelectContent>
-                    {allUsers.map((u) => (
-                      <SelectItem key={u.id} value={u.id}>
-                        {safeText(u.name, "")} ({safeText(u.email, "")})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex items-center justify-between gap-2">
+                  <Label>Assign to users *</Label>
+                  <div className="flex gap-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-[10px] px-2"
+                      onClick={() => setFormTargetUserIds(allUsers.map((u) => u.id))}
+                    >
+                      Select all
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-[10px] px-2"
+                      onClick={() => setFormTargetUserIds([])}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Same credential can be given to multiple people at once.
+                  {formTargetUserIds.length > 0 && (
+                    <> Selected: <span className="font-medium text-foreground">{formTargetUserIds.length}</span></>
+                  )}
+                </p>
+                <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto rounded-md border border-border/60 p-2">
+                  {allUsers.map((u) => {
+                    const selected = formTargetUserIds.includes(u.id);
+                    return (
+                      <button
+                        key={u.id}
+                        type="button"
+                        onClick={() => toggleFormUser(u.id)}
+                        className={cn(
+                          "text-[11px] px-2 py-1 rounded-full border transition-colors",
+                          selected
+                            ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-700 dark:text-emerald-300"
+                            : "bg-muted/40 border-transparent text-muted-foreground hover:border-border"
+                        )}
+                      >
+                        {safeText(u.name, u.email)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {canManageCredentials && editingCredential && (
+              <div className="space-y-1 rounded-md border border-border/50 bg-muted/30 px-3 py-2">
+                <Label className="text-xs text-muted-foreground">Assigned to</Label>
+                <p className="text-sm font-medium">
+                  {safeText(editingCredential.user?.name, "")}{" "}
+                  <span className="text-muted-foreground font-normal text-xs">
+                    ({safeText(editingCredential.user?.email, "")})
+                  </span>
+                </p>
               </div>
             )}
             <div className="space-y-2">

@@ -141,9 +141,18 @@ export const TimerHero = forwardRef<HTMLDivElement, TimerHeroProps>(function Tim
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">No Project</SelectItem>
+                    <SelectItem value="__training__">Training</SelectItem>
                     {projects.map((p) => (
                       <SelectItem key={p.id} value={p.id}>
-                        {safeText(p.name)}
+                        <span className="inline-flex items-center gap-2">
+                          {p.hasOpenAssignedMilestones && (
+                            <span className="relative inline-flex h-2 w-2 shrink-0" title="Open milestones assigned to you">
+                              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
+                              <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-400" />
+                            </span>
+                          )}
+                          <span>{safeText(p.name)}</span>
+                        </span>
                       </SelectItem>
                     ))}
                   </SelectContent>

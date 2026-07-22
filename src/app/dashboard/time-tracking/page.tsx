@@ -360,22 +360,28 @@ function TimeTrackingPageInner() {
     try {
       const { buildClientClockPayload } = await import("@/lib/clock-integrity");
       const clockPayload = buildClientClockPayload();
+      const isTraining = selectedProject === "__training__";
       const projectId =
-        selectedProject === "none" ? undefined : selectedProject || undefined;
+        selectedProject === "none" || isTraining || !selectedProject
+          ? undefined
+          : selectedProject;
+      const description = isTraining
+        ? (timerDescription.trim() || "Training")
+        : (timerDescription || undefined);
       const res = await fetch("/api/time-tracking", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
           projectId,
-          description: timerDescription || undefined,
+          description,
           ...clockPayload,
         }),
       });
       if (res.ok) {
         const entry = await res.json();
         setActiveEntry(entry);
-        toast.success("Timer started!");
+        toast.success(isTraining ? "Training session started!" : "Timer started!");
         fetchEntries();
         // Briefing first (all project milestones). Defer workspace redirect until briefing closes.
         if (projectId) {
@@ -646,8 +652,14 @@ function TimeTrackingPageInner() {
         userId: addEntryUserId,
         clockIn: fromDatetimeLocal(addEntryClockIn),
       };
-      if (addEntryProjectId && addEntryProjectId !== "none") payload.projectId = addEntryProjectId;
-      if (addEntryDescription) payload.description = addEntryDescription;
+      if (addEntryProjectId && addEntryProjectId !== "none" && addEntryProjectId !== "__training__") {
+        payload.projectId = addEntryProjectId;
+      }
+      if (addEntryProjectId === "__training__") {
+        payload.description = addEntryDescription.trim() || "Training";
+      } else if (addEntryDescription) {
+        payload.description = addEntryDescription;
+      }
       if (addEntryClockOut) payload.clockOut = fromDatetimeLocal(addEntryClockOut);
 
       const res = await fetch("/api/time-tracking", {
@@ -697,8 +709,14 @@ function TimeTrackingPageInner() {
     try {
       const payload: Record<string, unknown> = {
         id: editEntry.id,
-        description: editDescription || undefined,
-        projectId: editProjectId === "none" ? null : editProjectId || undefined,
+        description:
+          editProjectId === "__training__" && !editDescription.trim()
+            ? "Training"
+            : editDescription || undefined,
+        projectId:
+          editProjectId === "none" || editProjectId === "__training__"
+            ? null
+            : editProjectId || undefined,
         clockIn: fromDatetimeLocal(editClockIn),
       };
       payload.clockOut = editClockOut ? fromDatetimeLocal(editClockOut) : null;
