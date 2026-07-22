@@ -15,6 +15,7 @@ import {
   todayDateKey,
   toDateKey,
 } from "@/lib/milestones"
+import { logAudit, getIpAddress, getUserAgent, buildDescription } from "@/lib/audit-log"
 import { z } from "zod"
 
 function canManageMilestones(role: string): boolean {
@@ -265,6 +266,27 @@ export async function POST(
       })
     }
 
+    void logAudit({
+      userId: session.user.id,
+      userName: session.user.name || "unknown",
+      userRole: session.user.role,
+      department: "TEAM_WORK",
+      page: "milestones",
+      action: "CREATE",
+      entityType: "ProjectMilestone",
+      entityId: created.id,
+      description: `Created milestone "${parsed.data.title}" on ${project.name} (due ${dueLabel}, ${parsed.data.assigneeIds.length} assignee${parsed.data.assigneeIds.length === 1 ? "" : "s"})`,
+      newValue: JSON.stringify({
+        title: parsed.data.title,
+        dueDate: toDateKey(due),
+        assigneeIds: parsed.data.assigneeIds,
+        projectId,
+      }),
+      ipAddress: getIpAddress(req),
+      userAgent: getUserAgent(req),
+      metadata: JSON.stringify({ projectId, projectName: project.name }),
+    })
+
     return NextResponse.json(deepSanitize(milestone), { status: 201 })
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error)
@@ -414,6 +436,50 @@ export async function PATCH(
       }
     }
 
+    const action =
+      done !== undefined && isCompletionOnly
+        ? "STATUS_CHANGE"
+        : assigneeIds !== undefined &&
+            title === undefined &&
+            description === undefined &&
+            sortOrder === undefined &&
+            dueDate === undefined &&
+            done === undefined
+          ? "ASSIGN"
+          : "UPDATE"
+
+    void logAudit({
+      userId: session.user.id,
+      userName: session.user.name || "unknown",
+      userRole: session.user.role,
+      department: "TEAM_WORK",
+      page: "milestones",
+      action,
+      entityType: "ProjectMilestone",
+      entityId: milestone.id,
+      description:
+        action === "STATUS_CHANGE"
+          ? `${done ? "Marked done" : "Reopened"} milestone "${milestone.title}" (progress ${projectProgress ?? "?"}%)`
+          : action === "ASSIGN"
+            ? `Updated assignees on milestone "${milestone.title}"`
+            : buildDescription("UPDATE", "milestone", milestone.title),
+      oldValue:
+        done !== undefined
+          ? JSON.stringify({ done: existing.done })
+          : undefined,
+      newValue:
+        done !== undefined
+          ? JSON.stringify({ done, projectProgress })
+          : JSON.stringify({
+              title: milestone.title,
+              dueDate: milestone.dueDate,
+              assigneeCount: milestone.assignees?.length ?? 0,
+            }),
+      ipAddress: getIpAddress(req),
+      userAgent: getUserAgent(req),
+      metadata: JSON.stringify({ projectId }),
+    })
+
     return NextResponse.json(
       deepSanitize({ ...milestone, ...(projectProgress !== undefined ? { projectProgress } : {}) })
     )
@@ -448,6 +514,23 @@ export async function DELETE(
     void syncProjectProgressFromMilestones(projectId).catch((err) =>
       console.warn("[milestones] progress sync failed:", err instanceof Error ? err.message : err)
     )
+
+    void logAudit({
+      userId: session.user.id,
+      userName: session.user.name || "unknown",
+      userRole: session.user.role,
+      department: "TEAM_WORK",
+      page: "milestones",
+      action: "DELETE",
+      entityType: "ProjectMilestone",
+      entityId: id,
+      description: buildDescription("DELETE", "milestone", existing.title),
+      oldValue: JSON.stringify({ title: existing.title, done: existing.done, projectId }),
+      ipAddress: getIpAddress(req),
+      userAgent: getUserAgent(req),
+      metadata: JSON.stringify({ projectId }),
+    })
+
     return NextResponse.json({ success: true })
   } catch (error: unknown) {
     console.error("[milestones] DELETE error:", error instanceof Error ? error.message : error)

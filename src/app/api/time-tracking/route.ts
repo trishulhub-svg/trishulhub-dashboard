@@ -6,6 +6,7 @@ import { Prisma } from "@prisma/client"
 import { startTimeEntrySchema, adminCreateTimeEntrySchema, validateRequest } from "@/lib/validations"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { checkClientClockIntegrity } from "@/lib/clock-integrity"
+import { logAudit, getIpAddress, getUserAgent, buildDescription } from "@/lib/audit-log"
 
 type TimeEntryWithUser = {
   id: string; userId: string; status: string; clockIn: Date; clockOut: Date | null;
@@ -268,6 +269,21 @@ export async function POST(req: NextRequest) {
         },
       })
 
+      void logAudit({
+        userId: session.user.id,
+        userName: session.user.name || "unknown",
+        userRole,
+        department: "TEAM_WORK",
+        page: "time-tracking",
+        action: "CREATE",
+        entityType: "TimeEntry",
+        entityId: entry.id,
+        description: `Admin created time entry for ${targetUser.name || targetUserId}${entry.project?.name ? ` on ${entry.project.name}` : ""} (${entryStatus})`,
+        ipAddress: getIpAddress(req),
+        userAgent: getUserAgent(req),
+        metadata: JSON.stringify({ targetUserId, projectId: projectId || null }),
+      })
+
       return NextResponse.json(entry, { status: 201 })
     }
 
@@ -333,6 +349,21 @@ export async function POST(req: NextRequest) {
       }
       throw txError
     }
+
+    void logAudit({
+      userId: session.user.id,
+      userName: session.user.name || "unknown",
+      userRole,
+      department: "TEAM_WORK",
+      page: "time-tracking",
+      action: "CREATE",
+      entityType: "TimeEntry",
+      entityId: entry.id,
+      description: `Clocked in${entry.project?.name ? ` on ${entry.project.name}` : ""}${description ? `: ${String(description).slice(0, 80)}` : ""}`,
+      ipAddress: getIpAddress(req),
+      userAgent: getUserAgent(req),
+      metadata: JSON.stringify({ projectId: projectId || null }),
+    })
 
     return NextResponse.json(entry, { status: 201 })
   } catch (error: unknown) {

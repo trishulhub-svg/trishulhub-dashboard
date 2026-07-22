@@ -71,6 +71,87 @@ function formatWeekLabel(mondayKey: string, todayKey: string): string {
   return `Week of ${range}`;
 }
 
+function MilestoneRow({
+  m,
+  userId,
+  canManage,
+  onToggle,
+  onEdit,
+  onDelete,
+}: {
+  m: Record<string, unknown>;
+  userId: string;
+  canManage: boolean;
+  onToggle: (id: string, done: boolean) => void;
+  onEdit?: (m: Record<string, unknown>) => void;
+  onDelete?: (id: string) => void;
+}) {
+  const mId = extractStr(m, "id", "");
+  const mTitle = extractStr(m, "title", "");
+  const mDone = m.done === true;
+  const mDue = extractStr(m, "dueDate", "");
+  const assignees = Array.isArray(m.assignees) ? (m.assignees as Record<string, unknown>[]) : [];
+  const isAssignee = assignees.some(
+    (a) =>
+      extractStr(a, "userId", "") === userId ||
+      extractNestedStr(a, ["user", "id"], "") === userId
+  );
+  const canToggleDone = canManage || isAssignee;
+
+  return (
+    <div className="flex items-start gap-2 p-2.5 rounded-lg border border-white/20 dark:border-white/10 bg-white/60 dark:bg-white/[0.03]">
+      <button
+        type="button"
+        onClick={() => canToggleDone && onToggle(mId, mDone)}
+        className={cn("shrink-0 mt-0.5", canToggleDone ? "cursor-pointer" : "cursor-default")}
+        disabled={!canToggleDone}
+        title={canToggleDone ? (mDone ? "Mark incomplete" : "Mark done") : "Only assignees or admin can mark done"}
+      >
+        <CheckCircle2 className={cn("h-4 w-4", mDone ? "text-emerald-500" : "text-muted-foreground/40")} />
+      </button>
+      <div className="flex-1 min-w-0 space-y-1">
+        <span className={cn("text-xs font-medium block", mDone && "line-through text-muted-foreground")}>{mTitle}</span>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {mDue && (
+            <Badge variant="outline" className="text-[9px] h-5 px-1.5 gap-1 font-normal">
+              <CalendarDays className="h-2.5 w-2.5" />
+              {new Date(mDue).toLocaleDateString(undefined, {
+                weekday: canManage ? "short" : undefined,
+                month: "short",
+                day: "numeric",
+                year: canManage ? undefined : "numeric",
+                timeZone: "UTC",
+              })}
+            </Badge>
+          )}
+          {assignees.length === 0 ? (
+            <span className="text-[9px] text-muted-foreground">All members</span>
+          ) : (
+            assignees.map((a) => {
+              const name = extractNestedStr(a, ["user", "name"], "?");
+              return (
+                <Badge key={extractStr(a, "userId", name)} variant="secondary" className="text-[9px] h-5 px-1.5 font-normal">
+                  {name}
+                </Badge>
+              );
+            })
+          )}
+        </div>
+      </div>
+      {canManage && onEdit && onDelete && (
+        <div className="flex items-center gap-1 shrink-0">
+          <button type="button" onClick={() => onEdit(m)} className="text-muted-foreground hover:text-foreground transition-colors p-1" title="Edit">
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button type="button" onClick={() => onDelete(mId)} className="text-muted-foreground hover:text-red-500 transition-colors p-1" title="Delete">
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ProjectDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -1179,118 +1260,34 @@ export default function ProjectDetailPage() {
                         </div>
                       </div>
                       <div className="space-y-2">
-                        {week.items.map((m) => {
-                          const mId = extractStr(m, "id", "");
-                          const mTitle = extractStr(m, "title", "");
-                          const mDone = m.done === true;
-                          const mDue = extractStr(m, "dueDate", "");
-                          const assignees = Array.isArray(m.assignees) ? (m.assignees as Record<string, unknown>[]) : [];
-                          const isAssignee = assignees.some(
-                            (a) =>
-                              extractStr(a, "userId", "") === userId ||
-                              extractNestedStr(a, ["user", "id"], "") === userId
-                          );
-                          const canToggleDone = canManageMilestones || isAssignee;
-                          return (
-                            <div key={mId} className="flex items-start gap-2 p-2.5 rounded-lg border border-white/20 dark:border-white/10 bg-white/60 dark:bg-white/[0.03]">
-                              <button
-                                type="button"
-                                onClick={() => canToggleDone && handleToggleMilestone(mId, mDone)}
-                                className={cn("shrink-0 mt-0.5", canToggleDone ? "cursor-pointer" : "cursor-default")}
-                                disabled={!canToggleDone}
-                                title={canToggleDone ? (mDone ? "Mark incomplete" : "Mark done") : "Only assignees or admin can mark done"}
-                              >
-                                <CheckCircle2 className={cn("h-4 w-4", mDone ? "text-emerald-500" : "text-muted-foreground/40")} />
-                              </button>
-                              <div className="flex-1 min-w-0 space-y-1">
-                                <span className={cn("text-xs font-medium block", mDone && "line-through text-muted-foreground")}>{mTitle}</span>
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                  {mDue && (
-                                    <Badge variant="outline" className="text-[9px] h-5 px-1.5 gap-1 font-normal">
-                                      <CalendarDays className="h-2.5 w-2.5" />
-                                      {new Date(mDue).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" })}
-                                    </Badge>
-                                  )}
-                                  {assignees.length === 0 ? (
-                                    <span className="text-[9px] text-muted-foreground">All members</span>
-                                  ) : (
-                                    assignees.map((a) => {
-                                      const name = extractNestedStr(a, ["user", "name"], "?");
-                                      return (
-                                        <Badge key={extractStr(a, "userId", name)} variant="secondary" className="text-[9px] h-5 px-1.5 font-normal">
-                                          {name}
-                                        </Badge>
-                                      );
-                                    })
-                                  )}
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-1 shrink-0">
-                                <button type="button" onClick={() => openEditMilestone(m)} className="text-muted-foreground hover:text-foreground transition-colors p-1" title="Edit">
-                                  <Pencil className="h-3.5 w-3.5" />
-                                </button>
-                                <button type="button" onClick={() => handleDeleteMilestone(mId)} className="text-muted-foreground hover:text-red-500 transition-colors p-1" title="Delete">
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })}
+                        {week.items.map((m) => (
+                          <MilestoneRow
+                            key={extractStr(m, "id", "")}
+                            m={m}
+                            userId={userId}
+                            canManage={canManageMilestones}
+                            onToggle={handleToggleMilestone}
+                            onEdit={openEditMilestone}
+                            onDelete={handleDeleteMilestone}
+                          />
+                        ))}
                       </div>
                     </div>
                   );
                 })}
               </div>
             ) : (
-              milestonesData.map((m) => {
-                const mId = extractStr(m, "id", "");
-                const mTitle = extractStr(m, "title", "");
-                const mDone = m.done === true;
-                const mDue = extractStr(m, "dueDate", "");
-                const assignees = Array.isArray(m.assignees) ? (m.assignees as Record<string, unknown>[]) : [];
-                const isAssignee = assignees.some(
-                  (a) =>
-                    extractStr(a, "userId", "") === userId ||
-                    extractNestedStr(a, ["user", "id"], "") === userId
-                );
-                const canToggleDone = canManageMilestones || isAssignee;
-                return (
-                  <div key={mId} className="flex items-start gap-2 p-2.5 rounded-lg border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/[0.02]">
-                    <button
-                      type="button"
-                      onClick={() => canToggleDone && handleToggleMilestone(mId, mDone)}
-                      className={cn("shrink-0 mt-0.5", canToggleDone ? "cursor-pointer" : "cursor-default")}
-                      disabled={!canToggleDone}
-                      title={canToggleDone ? (mDone ? "Mark incomplete" : "Mark done") : "Only assignees or admin can mark done"}
-                    >
-                      <CheckCircle2 className={cn("h-4 w-4", mDone ? "text-emerald-500" : "text-muted-foreground/40")} />
-                    </button>
-                    <div className="flex-1 min-w-0 space-y-1">
-                      <span className={cn("text-xs font-medium block", mDone && "line-through text-muted-foreground")}>{mTitle}</span>
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {mDue && (
-                          <Badge variant="outline" className="text-[9px] h-5 px-1.5 gap-1 font-normal">
-                            <CalendarDays className="h-2.5 w-2.5" />
-                            {new Date(mDue).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}
-                          </Badge>
-                        )}
-                        {assignees.length === 0 ? (
-                          <span className="text-[9px] text-muted-foreground">All members</span>
-                        ) : (
-                          assignees.map((a) => {
-                            const name = extractNestedStr(a, ["user", "name"], "?");
-                            return (
-                              <Badge key={extractStr(a, "userId", name)} variant="secondary" className="text-[9px] h-5 px-1.5 font-normal">
-                                {name}
-                              </Badge>
-                            );
-                          })
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
+              <div className="space-y-2">
+                {milestonesData.map((m) => (
+                  <MilestoneRow
+                    key={extractStr(m, "id", "")}
+                    m={m}
+                    userId={userId}
+                    canManage={false}
+                    onToggle={handleToggleMilestone}
+                  />
+                ))}
+              </div>
             )}
           </div>
         </div>

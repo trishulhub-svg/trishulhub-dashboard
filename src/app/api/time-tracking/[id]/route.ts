@@ -11,6 +11,7 @@ import {
   syncProjectProgressFromMilestones,
   todayDateKey,
 } from "@/lib/milestones"
+import { logAudit, getIpAddress, getUserAgent, buildDescription } from "@/lib/audit-log"
 
 const WORK_NOTES_EDIT_WINDOW_MS = 24 * 60 * 60 * 1000
 
@@ -271,6 +272,50 @@ export async function PATCH(
       }
     }
 
+    if (status === "COMPLETED") {
+      void logAudit({
+        userId: session.user.id,
+        userName: session.user.name || "unknown",
+        userRole,
+        department: "TEAM_WORK",
+        page: "time-tracking",
+        action: "STATUS_CHANGE",
+        entityType: "TimeEntry",
+        entityId: entry.id,
+        description: `Clocked out${entry.project?.name ? ` on ${entry.project.name}` : ""} (${entry.totalHours ?? 0}h)${
+          milestonesToComplete.length > 0
+            ? ` — marked ${milestonesToComplete.length} milestone${milestonesToComplete.length === 1 ? "" : "s"} done`
+            : ""
+        }`,
+        oldValue: JSON.stringify({ status: "ACTIVE" }),
+        newValue: JSON.stringify({
+          status: "COMPLETED",
+          totalHours: entry.totalHours,
+          milestonesCompleted: milestonesToComplete.length,
+        }),
+        ipAddress: getIpAddress(req),
+        userAgent: getUserAgent(req),
+        metadata: JSON.stringify({
+          projectId: entry.projectId,
+          milestoneIds: milestonesToComplete,
+        }),
+      })
+    } else if (workNotes !== undefined) {
+      void logAudit({
+        userId: session.user.id,
+        userName: session.user.name || "unknown",
+        userRole,
+        department: "TEAM_WORK",
+        page: "time-tracking",
+        action: "UPDATE",
+        entityType: "TimeEntry",
+        entityId: entry.id,
+        description: `Updated work notes on time entry`,
+        ipAddress: getIpAddress(req),
+        userAgent: getUserAgent(req),
+      })
+    }
+
     return NextResponse.json(entry)
   } catch (error: unknown) {
     if (error instanceof Error && error.message === "NOT_FOUND") {
@@ -317,6 +362,21 @@ export async function DELETE(
     }
 
     await db.timeEntry.delete({ where: { id } })
+
+    void logAudit({
+      userId: session.user.id,
+      userName: session.user.name || "unknown",
+      userRole,
+      department: "TEAM_WORK",
+      page: "time-tracking",
+      action: "DELETE",
+      entityType: "TimeEntry",
+      entityId: id,
+      description: buildDescription("DELETE", "time entry", existing.description || id),
+      ipAddress: getIpAddress(req),
+      userAgent: getUserAgent(req),
+      metadata: JSON.stringify({ targetUserId: existing.userId, projectId: existing.projectId }),
+    })
 
     return NextResponse.json({ success: true })
   } catch (error: unknown) {
