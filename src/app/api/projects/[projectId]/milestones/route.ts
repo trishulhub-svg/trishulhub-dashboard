@@ -195,7 +195,9 @@ export async function POST(
       _max: { sortOrder: true },
     })
 
-    // Two-step create (Turso/libSQL nested creates can fail intermittently)
+    // Two-step create (Turso/libSQL nested creates can fail intermittently).
+    // Explicit updatedAt avoids null/empty after Turso-safe column backfills.
+    const now = new Date()
     const created = await db.projectMilestone.create({
       data: {
         projectId,
@@ -204,6 +206,7 @@ export async function POST(
         dueDate: due,
         sortOrder: (maxOrder._max.sortOrder ?? -1) + 1,
         createdById: session.user.id,
+        updatedAt: now,
       },
     })
 

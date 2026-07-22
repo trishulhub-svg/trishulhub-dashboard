@@ -583,15 +583,12 @@ export default function ProjectDetailPage() {
   const projectName = project ? extractStr(project, "name", "Untitled") : "";
   const projectDesc = project ? extractStr(project, "description", "") : "";
   const projectStatus = project ? extractStr(project, "status", "PLANNING") : "PLANNING";
-  // Progress is driven only by milestone completion (not manually editable)
+  // Progress is driven only by milestone completion (not manually editable).
+  // No milestones ⇒ always 0% (never fall back to a stale stored Project.progress).
   const milestoneTotal = milestonesData.length;
   const milestoneDone = milestonesData.filter((m) => m.done === true).length;
   const projectProgress =
-    milestoneTotal > 0
-      ? Math.round((milestoneDone / milestoneTotal) * 100)
-      : project
-        ? extractNum(project, "progress", 0)
-        : 0;
+    milestoneTotal > 0 ? Math.round((milestoneDone / milestoneTotal) * 100) : 0;
   const projectBudget = project ? extractNum(project, "budget", 0) : 0;
   const projectDeadline = project ? extractStr(project, "deadline", "") : "";
 

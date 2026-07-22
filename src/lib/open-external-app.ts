@@ -1,6 +1,10 @@
 /**
  * Open native apps when possible; fall back to the web URL if the app
  * is not installed (or the deep link is ignored).
+ *
+ * Important: never open the web URL in the same breath as the protocol
+ * attempt — that always looks like "it opens the previous (web) link".
+ * We only open web after a delay IF the page never lost focus.
  */
 
 export type DeviceKind = "ios" | "android" | "mac" | "windows" | "other"
@@ -14,130 +18,132 @@ export function detectDevice(ua: string = typeof navigator !== "undefined" ? nav
   return "other"
 }
 
-function tryDeepLink(url: string): void {
+function tryProtocolLaunch(url: string): void {
   try {
-    // Hidden iframe is more reliable than location.href for custom schemes on mobile
+    // 1) Hidden iframe — common pattern for custom schemes
     const iframe = document.createElement("iframe")
-    iframe.style.display = "none"
+    iframe.setAttribute("style", "display:none;width:0;height:0;border:0;position:absolute")
     iframe.src = url
     document.body.appendChild(iframe)
-    setTimeout(() => {
+    window.setTimeout(() => {
       try {
         document.body.removeChild(iframe)
       } catch {
         /* ignore */
       }
-    }, 2000)
+    }, 2500)
   } catch {
-    try {
-      window.location.href = url
-    } catch {
-      /* ignore */
-    }
+    /* ignore */
+  }
+
+  try {
+    // 2) Synthetic <a> click — more reliable on desktop Chromium/Windows
+    const a = document.createElement("a")
+    a.href = url
+    a.rel = "noopener noreferrer"
+    a.style.display = "none"
+    document.body.appendChild(a)
+    a.click()
+    window.setTimeout(() => {
+      try {
+        document.body.removeChild(a)
+      } catch {
+        /* ignore */
+      }
+    }, 0)
+  } catch {
+    /* ignore */
   }
 }
 
 /**
- * Attempt app deep link(s), then open the web fallback if the page is still
- * visible after a short delay (app likely not installed).
+ * Attempt app deep link(s), then open the web fallback only if the page is
+ * still focused after a short delay (app likely not installed).
  */
 export function openAppOrWeb(options: {
   deepLinks: string[]
   webUrl: string
   timeoutMs?: number
 }): void {
-  const { deepLinks, webUrl, timeoutMs = 1400 } = options
+  const { deepLinks, webUrl, timeoutMs = 2200 } = options
   if (typeof window === "undefined") return
 
-  const started = Date.now()
+  let appLikelyOpened = false
   let fallbackTimer: ReturnType<typeof setTimeout> | null = null
-  let cancelled = false
 
   const cleanup = () => {
-    cancelled = true
-    if (fallbackTimer) clearTimeout(fallbackTimer)
+    if (fallbackTimer) {
+      clearTimeout(fallbackTimer)
+      fallbackTimer = null
+    }
     document.removeEventListener("visibilitychange", onVisibility)
-    window.removeEventListener("pagehide", onHide)
-    window.removeEventListener("blur", onHide)
+    window.removeEventListener("pagehide", markOpened)
+    window.removeEventListener("blur", markOpened)
   }
 
-  const onHide = () => {
-    // App likely took focus — cancel web fallback
+  const markOpened = () => {
+    appLikelyOpened = true
     cleanup()
   }
 
   const onVisibility = () => {
-    if (document.hidden) onHide()
+    if (document.hidden) markOpened()
   }
 
   document.addEventListener("visibilitychange", onVisibility)
-  window.addEventListener("pagehide", onHide)
-  window.addEventListener("blur", onHide)
+  window.addEventListener("pagehide", markOpened)
+  window.addEventListener("blur", markOpened)
 
   for (const link of deepLinks) {
     if (link.startsWith("http://") || link.startsWith("https://")) {
-      // Universal / intent HTTPS links — open directly in a new tab/window
+      // Universal / HTTPS links — open in a new tab (no protocol race)
       window.open(link, "_blank", "noopener,noreferrer")
       cleanup()
       return
     }
-    tryDeepLink(link)
+    tryProtocolLaunch(link)
   }
 
   fallbackTimer = setTimeout(() => {
-    if (cancelled) return
-    // Still here → open web fallback
-    if (Date.now() - started < timeoutMs + 500 && !document.hidden) {
+    // Still focused & visible → app did not take over → open web
+    if (
+      !appLikelyOpened &&
+      document.visibilityState === "visible" &&
+      document.hasFocus()
+    ) {
       window.open(webUrl, "_blank", "noopener,noreferrer")
     }
     cleanup()
   }, timeoutMs)
 }
 
-/** Cursor Workspace — native app on iOS/Mac when available. */
+/** Cursor Workspace — try native app on every desktop/mobile OS, then web. */
 export function openCursorWorkspace(): void {
-  const device = detectDevice()
   const webUrl = "https://cursor.com/agents"
-  const deepLinks: string[] = []
-
-  if (device === "ios" || device === "mac") {
-    // Official Cursor deeplink scheme (opens desktop/iOS app when installed)
-    deepLinks.push("cursor://anysphere.cursor-deeplink/agents")
-    deepLinks.push("cursor://agents")
-  }
-
-  if (deepLinks.length === 0) {
-    window.open(webUrl, "_blank", "noopener,noreferrer")
-    return
-  }
-
-  openAppOrWeb({ deepLinks, webUrl })
+  // Official Cursor deeplink scheme (registered by desktop + iOS apps)
+  const deepLinks = [
+    "cursor://anysphere.cursor-deeplink/agents",
+    "cursor://agents",
+  ]
+  openAppOrWeb({ deepLinks, webUrl, timeoutMs: 2500 })
 }
 
-/** QWEN workspace — native app on iOS/Android/Mac when available. */
+/** QWEN workspace — try native app / intent, then web. */
 export function openQwenWorkspace(): void {
   const device = detectDevice()
   const webUrl = "https://chat.qwen.ai/"
   const deepLinks: string[] = []
 
-  if (device === "ios") {
-    deepLinks.push("qwen://")
-    deepLinks.push("qwen://chat")
-  } else if (device === "android") {
+  if (device === "android") {
     // Official Play package: com.tongyi.intl — Intent with browser fallback
     deepLinks.push(
       "intent://chat.qwen.ai/#Intent;scheme=https;package=com.tongyi.intl;S.browser_fallback_url=https%3A%2F%2Fchat.qwen.ai%2F;end"
     )
-    deepLinks.push("qwen://")
-  } else if (device === "mac") {
-    deepLinks.push("qwen://")
-    deepLinks.push("qwen://chat")
   }
 
-  if (deepLinks.length === 0) {
-    window.open(webUrl, "_blank", "noopener,noreferrer")
-    return
-  }
+  // Custom scheme used by Qwen desktop/mobile apps (Windows/Mac/iOS/Android)
+  deepLinks.push("qwen://chat")
+  deepLinks.push("qwen://")
 
-  openAppOrWeb({ deepLinks, webUrl })
+  openAppOrWeb({ deepLinks, webUrl, timeoutMs: 2500 })
 }

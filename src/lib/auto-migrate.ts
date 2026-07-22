@@ -69,7 +69,9 @@ const CRITICAL_COLUMNS: Array<{ table: string; column: string; sql: string }> = 
   // Project isDemo flag — demo projects get their own page at /dashboard/demo with a DEMO badge
   { table: "Project", column: "isDemo", sql: "ALTER TABLE Project ADD COLUMN isDemo BOOLEAN NOT NULL DEFAULT 0" },
   // Attendance — updatedAt column (added in schema but missing from older DBs)
-  { table: "Attendance", column: "updatedAt", sql: `ALTER TABLE "Attendance" ADD COLUMN "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP` },
+  // Turso/libSQL rejects non-constant defaults on ALTER ADD COLUMN (CURRENT_TIMESTAMP).
+  // Use a constant default, then backfill below.
+  { table: "Attendance", column: "updatedAt", sql: `ALTER TABLE "Attendance" ADD COLUMN "updatedAt" TEXT NOT NULL DEFAULT ''` },
   { table: "Leave", column: "feedback", sql: `ALTER TABLE "Leave" ADD COLUMN "feedback" TEXT` },
   // Team page-access ACL (Allow / Restrict modes)
   { table: "User", column: "pageAccessMode", sql: `ALTER TABLE "User" ADD COLUMN "pageAccessMode" TEXT NOT NULL DEFAULT 'OFF'` },
@@ -79,7 +81,8 @@ const CRITICAL_COLUMNS: Array<{ table: string; column: string; sql: string }> = 
   { table: "ProjectMilestone", column: "createdById", sql: `ALTER TABLE "ProjectMilestone" ADD COLUMN "createdById" TEXT` },
   { table: "ProjectMilestone", column: "completedAt", sql: `ALTER TABLE "ProjectMilestone" ADD COLUMN "completedAt" DATETIME` },
   { table: "ProjectMilestone", column: "completedBy", sql: `ALTER TABLE "ProjectMilestone" ADD COLUMN "completedBy" TEXT` },
-  { table: "ProjectMilestone", column: "updatedAt", sql: `ALTER TABLE "ProjectMilestone" ADD COLUMN "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP` },
+  // Turso-safe: constant default only (CURRENT_TIMESTAMP fails on ALTER)
+  { table: "ProjectMilestone", column: "updatedAt", sql: `ALTER TABLE "ProjectMilestone" ADD COLUMN "updatedAt" TEXT NOT NULL DEFAULT ''` },
 ]
 
 /** Tables to create if missing (simplified CREATE TABLE IF NOT EXISTS) */
@@ -1184,6 +1187,41 @@ export async function ensureAllTables(): Promise<void> {
           console.warn(`[auto-migrate] Column ${colDef.column} on ${colDef.table}: ${msg}`)
         }
       }
+    }
+
+    // Backfill Turso-safe updatedAt columns added with empty-string default
+    try {
+      await db.$executeRawUnsafe(
+        `UPDATE "ProjectMilestone" SET "updatedAt" = COALESCE(NULLIF("updatedAt", ''), "createdAt", datetime('now')) WHERE "updatedAt" IS NULL OR "updatedAt" = ''`
+      )
+    } catch (err: unknown) {
+      console.warn("[auto-migrate] ProjectMilestone.updatedAt backfill:", getErrMsg(err))
+    }
+    try {
+      await db.$executeRawUnsafe(
+        `UPDATE "Attendance" SET "updatedAt" = COALESCE(NULLIF("updatedAt", ''), "createdAt", datetime('now')) WHERE "updatedAt" IS NULL OR "updatedAt" = ''`
+      )
+    } catch (err: unknown) {
+      console.warn("[auto-migrate] Attendance.updatedAt backfill:", getErrMsg(err))
+    }
+
+    // Keep Project.progress = completed/total milestones (0 when none)
+    try {
+      await db.$executeRawUnsafe(`
+        UPDATE "Project"
+        SET "progress" = COALESCE((
+          SELECT CAST(ROUND(
+            CASE WHEN COUNT(*) = 0 THEN 0.0
+            ELSE (SUM(CASE WHEN "done" = 1 THEN 1.0 ELSE 0.0 END) * 100.0) / COUNT(*)
+            END
+          ) AS INTEGER)
+          FROM "ProjectMilestone" m
+          WHERE m."projectId" = "Project"."id"
+        ), 0)
+      `)
+      console.log("[auto-migrate] Synced Project.progress from milestones")
+    } catch (err: unknown) {
+      console.warn("[auto-migrate] Project.progress sync:", getErrMsg(err))
     }
 
     // Mark as done ONLY after all migrations succeed
