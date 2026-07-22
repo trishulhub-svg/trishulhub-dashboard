@@ -324,20 +324,24 @@ export default function TrishulWorkspacePage() {
 
   useEffect(() => {
     let cancelled = false;
-    const fetchLiveOps = async () => {
+    const fetchBootstrap = async () => {
       try {
-        const res = await fetch("/api/workspace/live-ops", { cache: "no-store" });
+        const res = await fetch("/api/bootstrap/workspace", {
+          cache: "no-store",
+          credentials: "include",
+        });
         if (!res.ok) return;
         const data = await res.json();
         if (cancelled) return;
         setLiveUsers(Array.isArray(data.activeUsers) ? data.activeUsers : []);
         setLiveProjects(Array.isArray(data.liveProjects) ? data.liveProjects : []);
+        setHasActiveSession(Boolean(data.hasActiveSession));
       } catch {
         /* silent — keep last known state */
       }
     };
-    fetchLiveOps();
-    const id = setInterval(fetchLiveOps, 30000);
+    fetchBootstrap();
+    const id = setInterval(fetchBootstrap, 30000);
     return () => {
       cancelled = true;
       clearInterval(id);
@@ -346,47 +350,6 @@ export default function TrishulWorkspacePage() {
 
   /* Whether the currently-logged-in user is clocked in */
   const currentUserId = session?.user?.id;
-
-  useEffect(() => {
-    if (!currentUserId) {
-      setHasActiveSession(false);
-      return;
-    }
-    let cancelled = false;
-    const checkActive = async () => {
-      try {
-        const res = await fetch("/api/time-tracking?status=ACTIVE&limit=50", {
-          cache: "no-store",
-          credentials: "include",
-        });
-        if (!res.ok) return;
-        const data = await res.json();
-        const entries = Array.isArray(data)
-          ? data
-          : Array.isArray(data?.entries)
-            ? data.entries
-            : Array.isArray(data?.activeEntries)
-              ? data.activeEntries
-              : [];
-        if (cancelled) return;
-        setHasActiveSession(
-          entries.some(
-            (e: { userId?: string; user?: { id?: string }; status?: string }) =>
-              (e.userId === currentUserId || e.user?.id === currentUserId) &&
-              (!e.status || e.status === "ACTIVE")
-          )
-        );
-      } catch {
-        /* keep last known */
-      }
-    };
-    checkActive();
-    const id = setInterval(checkActive, 20000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [currentUserId]);
 
   const currentUserIsLive = Boolean(
     (currentUserId && liveUsers.some((u) => u.userId === currentUserId)) ||

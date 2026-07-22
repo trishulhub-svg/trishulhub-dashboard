@@ -282,11 +282,64 @@ function TimeTrackingPageInner() {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetchEntries(controller.signal);
-    fetchProjects(controller.signal);
-    fetchTeamUsers(controller.signal);
+    const signal = controller.signal;
+
+    const loadBootstrap = async () => {
+      try {
+        const res = await fetch("/api/bootstrap/time-tracking", {
+          credentials: "include",
+          signal,
+        });
+        if (!res.ok) {
+          // Fallback to parallel legacy fetches if bootstrap unavailable
+          await Promise.all([
+            fetchEntries(signal),
+            fetchProjects(signal),
+            fetchTeamUsers(signal),
+          ]);
+          return;
+        }
+        const data = await res.json();
+        if (signal.aborted) return;
+
+        let arr: TimeEntry[];
+        if (data && !Array.isArray(data) && Array.isArray(data.entries)) {
+          arr = safeArray<TimeEntry>(data.entries);
+          setActiveEntries(safeArray<TimeEntry>(data.activeEntries));
+        } else {
+          arr = safeArray<TimeEntry>(data);
+        }
+        setEntries(arr);
+        const myId = session?.user?.id;
+        const active = arr.find(
+          (e) => e.status === "ACTIVE" && (!myId || e.userId === myId)
+        );
+        setActiveEntry(active || null);
+
+        const projectsArr = safeArray<Project>(
+          Array.isArray(data.projects) ? data.projects : []
+        );
+        setProjects(projectsArr.filter((p) => p.status !== "COMPLETED"));
+
+        if (isAdminUser && Array.isArray(data.teamUsers)) {
+          setTeamUsers(
+            safeArray<{ id: string; name: string }>(data.teamUsers).map((u) => ({
+              id: u.id,
+              name: u.name,
+            }))
+          );
+        }
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setError("Failed to load time entries. Please try again.");
+      } finally {
+        if (!signal.aborted) setLoading(false);
+      }
+    };
+
+    void loadBootstrap();
     return () => controller.abort();
-  }, [fetchEntries, fetchProjects, fetchTeamUsers]);
+  }, [fetchEntries, fetchProjects, fetchTeamUsers, isAdminUser, session?.user?.id]);
 
   // Live timer
   useEffect(() => {
