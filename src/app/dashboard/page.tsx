@@ -312,10 +312,14 @@ export default function DashboardPage() {
 
   const fetchDashboard = useCallback(async () => {
     try {
-      const res = await fetch("/api/dashboard", { credentials: "include" });
+      const res = await fetch("/api/bootstrap/home", { credentials: "include" });
       if (res.ok) {
         const json = await res.json();
-        setData(deepSanitize<Record<string, unknown>>(json));
+        if (json.dashboard) {
+          setData(deepSanitize<Record<string, unknown>>(json.dashboard));
+        }
+        if (json.earnings) setEarnings(json.earnings);
+        if (typeof json.weekHours === "number") setWeekHours(safeNumber(json.weekHours));
       } else {
         setError(true);
       }
@@ -327,40 +331,34 @@ export default function DashboardPage() {
     }
   }, []);
 
-  // Start fetches once session is authenticated — don't gate forever on isSessionLoading.
-  // Dashboard unlocks paint ASAP; earnings may populate after.
+  // One bootstrap: dashboard + earnings + week hours (developers) — single auth check.
   useEffect(() => {
     if (!isAuthenticated) return;
 
     let cancelled = false;
 
     const load = async () => {
-      const dashPromise = fetch("/api/dashboard", { credentials: "include" })
-        .then(async (res) => {
-          if (cancelled) return;
-          if (res.ok) {
-            const json = await res.json();
-            if (!cancelled) setData(deepSanitize<Record<string, unknown>>(json));
-          } else if (!cancelled) {
-            setError(true);
+      try {
+        const res = await fetch("/api/bootstrap/home", { credentials: "include" });
+        if (cancelled) return;
+        if (res.ok) {
+          const json = await res.json();
+          if (!cancelled && json.dashboard) {
+            setData(deepSanitize<Record<string, unknown>>(json.dashboard));
           }
-        })
-        .catch((err) => {
-          console.error("Dashboard fetch error:", err);
-          if (!cancelled) setError(true);
-        })
-        .finally(() => {
-          if (!cancelled) setLoading(false);
-        });
-
-      const earningsPromise = fetch("/api/earnings", { credentials: "include" })
-        .then((r) => (r.ok ? r.json() : null))
-        .then((d) => {
-          if (!cancelled && d) setEarnings(d);
-        })
-        .catch(() => {});
-
-      await Promise.all([dashPromise, earningsPromise]);
+          if (!cancelled && json.earnings) setEarnings(json.earnings);
+          if (!cancelled && typeof json.weekHours === "number") {
+            setWeekHours(safeNumber(json.weekHours));
+          }
+        } else if (!cancelled) {
+          setError(true);
+        }
+      } catch (err) {
+        console.error("Dashboard bootstrap error:", err);
+        if (!cancelled) setError(true);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     };
 
     void load();
@@ -368,17 +366,6 @@ export default function DashboardPage() {
       cancelled = true;
     };
   }, [isAuthenticated]);
-
-  // Optional this-week hours hint for developers
-  useEffect(() => {
-    if (!isDeveloper || !isAuthenticated) return;
-    fetch("/api/time-tracking/analytics?type=employee", { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (d && typeof d.totalHours === "number") setWeekHours(safeNumber(d.totalHours));
-      })
-      .catch(() => {});
-  }, [isDeveloper, isAuthenticated]);
 
   // Only block on session while it's still resolving — once authenticated, wait on data only.
   const waitingOnSession = sessionStatus === "loading" && !isAuthenticated;

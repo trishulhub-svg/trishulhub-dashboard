@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useParams, useRouter, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -228,6 +228,55 @@ export default function ProjectDetailPage() {
   const [editMilestoneAssignees, setEditMilestoneAssignees] = useState<string[]>([]);
   const canManageMilestones = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
+  // PERF: One bootstrap seeds React Query caches (single auth), then per-resource queries
+  // stay enabled for mutations/refetch without a cold waterfall of 4–5 session checks.
+  const [bootstrapReady, setBootstrapReady] = useState(false);
+  useEffect(() => {
+    if (!projectId) {
+      setBootstrapReady(true);
+      return;
+    }
+    let cancelled = false;
+    setBootstrapReady(false);
+    (async () => {
+      try {
+        const res = await fetch(`/api/bootstrap/project/${projectId}`, {
+          credentials: "include",
+        });
+        if (cancelled) return;
+        if (res.status === 401) {
+          window.location.href = "/login";
+          return;
+        }
+        if (res.ok) {
+          const raw = deepSanitize(await res.json()) as Record<string, unknown>;
+          if (raw.project && typeof raw.project === "object") {
+            queryClient.setQueryData(["project", projectId], raw.project);
+          }
+          if (Array.isArray(raw.members)) {
+            queryClient.setQueryData(["project-members", projectId], raw.members);
+          }
+          if (raw.infrastructure && typeof raw.infrastructure === "object") {
+            queryClient.setQueryData(["project-infra", projectId], raw.infrastructure);
+          }
+          if (Array.isArray(raw.milestones)) {
+            queryClient.setQueryData(["project-milestones", projectId], raw.milestones);
+          }
+          if (Array.isArray(raw.websites)) {
+            queryClient.setQueryData(["project-websites", projectId], raw.websites);
+          }
+        }
+      } catch {
+        /* fall through to individual queries */
+      } finally {
+        if (!cancelled) setBootstrapReady(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, queryClient]);
+
   // ── React Query: Project data with aggressive caching ──
   const { data: projectData, isLoading: projectLoading } = useQuery({
     queryKey: ["project", projectId],
@@ -244,7 +293,7 @@ export default function ProjectDetailPage() {
       }
       return null;
     },
-    enabled: !!projectId,
+    enabled: !!projectId && bootstrapReady,
     staleTime: 60 * 1000,
     gcTime: 10 * 60 * 1000,
     refetchOnWindowFocus: false,
@@ -261,7 +310,7 @@ export default function ProjectDetailPage() {
       const md = deepSanitize(await res.json());
       return Array.isArray(md) ? md : (Array.isArray((md as Record<string, unknown>)?.data) ? (md as Record<string, unknown>).data as unknown[] : []);
     },
-    enabled: !!projectId,
+    enabled: !!projectId && bootstrapReady,
     staleTime: 60 * 1000,
     gcTime: 10 * 60 * 1000,
     refetchOnWindowFocus: false,
@@ -300,7 +349,7 @@ export default function ProjectDetailPage() {
       const raw = deepSanitize(await res.json());
       return Array.isArray(raw) ? raw as Record<string, unknown>[] : [];
     },
-    enabled: !isInIframe && !!projectId && canManageProject,
+    enabled: !isInIframe && !!projectId && canManageProject && bootstrapReady,
     staleTime: 60 * 1000,
     gcTime: 10 * 60 * 1000,
     refetchOnWindowFocus: false,
@@ -319,7 +368,7 @@ export default function ProjectDetailPage() {
       const infra = (raw as Record<string, unknown>)?.infrastructure as Record<string, unknown> | undefined;
       return infra || null;
     },
-    enabled: !!projectId,
+    enabled: !!projectId && bootstrapReady,
     staleTime: 60 * 1000,
     gcTime: 10 * 60 * 1000,
     refetchOnWindowFocus: false,
@@ -336,7 +385,7 @@ export default function ProjectDetailPage() {
       const raw = deepSanitize(await res.json());
       return Array.isArray(raw) ? raw as Record<string, unknown>[] : [];
     },
-    enabled: !!projectId && !isInIframe,
+    enabled: !!projectId && !isInIframe && bootstrapReady,
     staleTime: 30 * 1000,
     gcTime: 5 * 60 * 1000,
     refetchOnWindowFocus: true,
@@ -763,7 +812,7 @@ export default function ProjectDetailPage() {
   // with tasks/members populating in as they arrive. This fixes:
   // 1. "No data visible" in floating task board iframes (was blocked by slow teamUsers query)
   // 2. Slow perceived loading (page was blank until ALL 4 queries finished)
-  const isInitialLoading = sessionStatus === "loading" || projectLoading;
+  const isInitialLoading = sessionStatus === "loading" || !bootstrapReady || projectLoading;
 
   // ── Loading state — only for session/project (not tasks/members) ──
   if (isInitialLoading) {

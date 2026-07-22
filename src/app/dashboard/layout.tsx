@@ -531,6 +531,34 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const unreadFromList = useMemo(() => notifications.filter((n) => !n.isRead).length, [notifications]);
   const unreadCount = notifOpen ? unreadFromList : Math.max(unreadBadge, unreadFromList);
 
+  const applyPendingCounts = useCallback((data: Record<string, unknown>) => {
+    if (!data || typeof data !== "object" || data.error) return;
+    setNavBadgeData(data as NavBadgeMap);
+    setPendingCounts({
+      approvals: (data["/dashboard/approvals"] || 0) as number,
+      leaveRequests: (data["/dashboard/leaves"] || 0) as number,
+      total: Object.values(data).reduce((sum: number, v) => sum + (v as number), 0),
+    });
+  }, []);
+
+  /** One authenticated request for badge + avatar (avoids 3× session/Turso round-trips). */
+  const fetchShellBootstrap = useCallback(async () => {
+    if (!userId) return;
+    try {
+      const res = await fetch("/api/bootstrap/shell", { credentials: "include" });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (typeof data.unreadCount === "number") setUnreadBadge(data.unreadCount);
+      if (data.pendingCounts && typeof data.pendingCounts === "object") {
+        applyPendingCounts(data.pendingCounts as Record<string, unknown>);
+      }
+      const avatar = data.me?.avatar;
+      setUserAvatar(typeof avatar === "string" && avatar.length > 0 ? avatar : null);
+    } catch (err) {
+      console.error("Failed to fetch shell bootstrap:", err);
+    }
+  }, [userId, applyPendingCounts]);
+
   const fetchUnreadCount = useCallback(async () => {
     if (!userId) return;
     try {
@@ -568,22 +596,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       const res = await fetch("/api/approvals/pending-counts", { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
-        // API returns a flat map of nav-href → count
-        if (data && typeof data === "object" && !data.error) {
-          setNavBadgeData(data as NavBadgeMap);
-          // Backward compat: also populate old format for any other consumers
-          setPendingCounts({
-            approvals: (data["/dashboard/approvals"] || 0) as number,
-            leaveRequests: (data["/dashboard/leaves"] || 0) as number,
-
-            total: Object.values(data).reduce((sum: number, v) => sum + (v as number), 0),
-          });
-        }
+        applyPendingCounts(data as Record<string, unknown>);
       }
     } catch (err) {
       console.error("Failed to fetch pending counts:", err);
     }
-  }, []);
+  }, [applyPendingCounts]);
 
   // Fetch the current user's avatar (used in sidebar + user dropdown)
   const fetchUserAvatar = useCallback(async () => {
@@ -624,14 +642,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [pathname]);
 
-  // PERF: Badge uses light countOnly poll; full list loads when panel opens.
+  // PERF: One shell bootstrap on mount; light polls keep badge fresh. Full list loads when panel opens.
   useEffect(() => {
     if (session) {
       const timer = setTimeout(() => {
-        fetchUnreadCount();
-        fetchPendingCounts();
-        fetchUserAvatar();
-      }, 300);
+        fetchShellBootstrap();
+      }, 200);
       const interval = setInterval(() => {
         fetchUnreadCount();
         fetchPendingCounts();
@@ -641,7 +657,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         clearInterval(interval);
       };
     }
-  }, [session, fetchUnreadCount, fetchPendingCounts, fetchUserAvatar]);
+  }, [session, fetchShellBootstrap, fetchUnreadCount, fetchPendingCounts]);
 
   // Refresh avatar only after leaving settings
   const prevPathRef = React.useRef(pathname);
