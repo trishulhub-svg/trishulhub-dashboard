@@ -273,12 +273,14 @@ export const startTimeEntrySchema = z.object({
 export const updateTimeEntrySchema = z.object({
   id: z.string().min(1),
   description: z.string().max(500).optional(),
+  // Work summary — optional at clock-out; editable within 24h of clockOut
+  workNotes: z.string().max(500).optional().nullable(),
   projectId: z.string().optional(),
   status: z.enum(["ACTIVE", "COMPLETED"]).optional(),
   // Device clock integrity (required when status → COMPLETED / clock-out)
   clientNow: z.string().min(1).optional(),
   timezone: z.string().max(64).optional(),
-  // Clock-out: session tick-acks for due/overdue project milestones (not permanent done)
+  // Clock-out: ticking due/overdue milestones marks them permanently done
   acknowledgedMilestoneIds: z.array(z.string().min(1)).max(100).optional(),
 })
 
@@ -384,6 +386,7 @@ export const VALID_ATTENDANCE_STATUSES = [
   "ABSENT",
   "HALF_DAY",
   "LEAVE",
+  "TRAINING",
   "NO_SCHEDULE",
 ] as const;
 

@@ -508,7 +508,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [unreadBadge, setUnreadBadge] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
+  const notificationsFetchedAt = React.useRef(0);
   const [pendingCounts, setPendingCounts] = useState<PendingCounts>({ approvals: 0, leaveRequests: 0, total: 0 });
   const [navBadgeData, setNavBadgeData] = useState<NavBadgeMap>({});
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
@@ -526,22 +528,40 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     ? session.user.pageAccessPages
     : [];
 
-  const unreadCount = useMemo(() => notifications.filter((n) => !n.isRead).length, [notifications]);
+  const unreadFromList = useMemo(() => notifications.filter((n) => !n.isRead).length, [notifications]);
+  const unreadCount = notifOpen ? unreadFromList : Math.max(unreadBadge, unreadFromList);
 
-  // Badge count mapping: use API response directly (role-aware for all users)
-
-  const fetchNotifications = useCallback(async () => {
+  const fetchUnreadCount = useCallback(async () => {
     if (!userId) return;
     try {
-      const res = await fetch("/api/notifications", { credentials: "include" });
+      const res = await fetch("/api/notifications?countOnly=true", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setUnreadBadge(typeof data.unreadCount === "number" ? data.unreadCount : 0);
+      }
+    } catch (err) {
+      console.error("Failed to fetch unread count:", err);
+    }
+  }, [userId]);
+
+  const fetchNotifications = useCallback(async (force = false) => {
+    if (!userId) return;
+    // Skip refetch if list was loaded in the last 20s (smooth panel open)
+    if (!force && Date.now() - notificationsFetchedAt.current < 20_000 && notifications.length > 0) {
+      return;
+    }
+    try {
+      const res = await fetch("/api/notifications?limit=50", { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
         setNotifications(safeArray<NotificationItem>(data?.notifications));
+        if (typeof data.unreadCount === "number") setUnreadBadge(data.unreadCount);
+        notificationsFetchedAt.current = Date.now();
       }
     } catch (err) {
       console.error("Failed to fetch notifications:", err);
     }
-  }, [userId]);
+  }, [userId, notifications.length]);
 
   const fetchPendingCounts = useCallback(async () => {
     try {
@@ -604,24 +624,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [pathname]);
 
-  // PERF: Defer shell fetches; poll slowly; do not refetch avatar on every route (L7).
+  // PERF: Badge uses light countOnly poll; full list loads when panel opens.
   useEffect(() => {
     if (session) {
       const timer = setTimeout(() => {
-        fetchNotifications();
+        fetchUnreadCount();
         fetchPendingCounts();
         fetchUserAvatar();
-      }, 400);
+      }, 300);
       const interval = setInterval(() => {
-        fetchNotifications();
+        fetchUnreadCount();
         fetchPendingCounts();
-      }, 90_000);
+      }, 120_000);
       return () => {
         clearTimeout(timer);
         clearInterval(interval);
       };
     }
-  }, [session, fetchNotifications, fetchPendingCounts, fetchUserAvatar]);
+  }, [session, fetchUnreadCount, fetchPendingCounts, fetchUserAvatar]);
 
   // Refresh avatar only after leaving settings
   const prevPathRef = React.useRef(pathname);
@@ -634,6 +654,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [pathname, fetchUserAvatar]);
 
   const markAsRead = useCallback(async (notifId: string) => {
+    const target = notifications.find((n) => n.id === notifId);
+    const wasUnread = !!(target && !target.isRead);
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === notifId ? { ...n, isRead: true } : n))
+    );
+    if (wasUnread) setUnreadBadge((c) => Math.max(0, c - 1));
     try {
       const res = await fetch("/api/notifications", {
         method: "PATCH",
@@ -641,44 +667,66 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         credentials: "include",
         body: JSON.stringify({ id: notifId, isRead: true }),
       });
-      if (res.ok) {
+      if (!res.ok) {
         setNotifications((prev) =>
-          prev.map((n) => (n.id === notifId ? { ...n, isRead: true } : n))
+          prev.map((n) => (n.id === notifId ? { ...n, isRead: false } : n))
         );
+        if (wasUnread) setUnreadBadge((c) => c + 1);
       }
     } catch (err) {
       console.error("Failed to mark notification as read:", err);
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === notifId ? { ...n, isRead: false } : n))
+      );
+      if (wasUnread) setUnreadBadge((c) => c + 1);
     }
-  }, []);
+  }, [notifications]);
 
   const markAllAsRead = useCallback(async () => {
+    const prev = notifications;
+    const prevBadge = unreadBadge;
+    // Optimistic — Mark all read feels instant
+    setNotifications((list) => list.map((n) => ({ ...n, isRead: true })));
+    setUnreadBadge(0);
     try {
-      // PERF FIX: Single batch request instead of N parallel requests
       const res = await fetch("/api/notifications", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({ markAllRead: true }),
       });
-      if (res.ok) {
-        setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+      if (!res.ok) {
+        setNotifications(prev);
+        setUnreadBadge(prevBadge);
       }
     } catch (err) {
       console.error("Failed to mark all notifications as read:", err);
+      setNotifications(prev);
+      setUnreadBadge(prevBadge);
     }
-  }, []);
+  }, [notifications, unreadBadge]);
 
   const deleteNotification = useCallback(async (notifId: string) => {
+    const removed = notifications.find((n) => n.id === notifId);
+    setNotifications((prev) => prev.filter((n) => n.id !== notifId));
+    if (removed && !removed.isRead) setUnreadBadge((c) => Math.max(0, c - 1));
     try {
-      await fetch(`/api/notifications?id=${notifId}`, {
+      const res = await fetch(`/api/notifications?id=${notifId}`, {
         method: "DELETE",
         credentials: "include",
       });
-      setNotifications((prev) => prev.filter((n) => n.id !== notifId));
+      if (!res.ok && removed) {
+        setNotifications((prev) => [removed, ...prev]);
+        if (!removed.isRead) setUnreadBadge((c) => c + 1);
+      }
     } catch (err) {
       console.error("Failed to delete notification:", err);
+      if (removed) {
+        setNotifications((prev) => [removed, ...prev]);
+        if (!removed.isRead) setUnreadBadge((c) => c + 1);
+      }
     }
-  }, []);
+  }, [notifications]);
 
   // Clickable notifications: mark read, then navigate to the linked page/section
   const handleNotificationClick = async (notif: NotificationItem) => {
@@ -859,7 +907,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
             <Sheet open={notifOpen} onOpenChange={(open) => {
               setNotifOpen(open);
-              if (open) fetchNotifications();
+              if (open) void fetchNotifications(false);
             }}>
               <SheetTrigger asChild>
                 <Button variant="ghost" size="icon" className="relative h-8 w-8 sm:h-9 sm:w-9" aria-label="Notifications">

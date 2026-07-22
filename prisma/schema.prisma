@@ -511,6 +511,8 @@ model TimeEntry {
   userId      String
   projectId   String?
   description String?
+  // Optional at clock-out; editable by owner for 24h after clockOut, then locked
+  workNotes   String?
   status      String   @default("ACTIVE") // ACTIVE, COMPLETED
   clockIn     DateTime @default(now())
   clockOut    DateTime?

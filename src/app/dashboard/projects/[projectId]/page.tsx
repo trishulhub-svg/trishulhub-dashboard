@@ -228,9 +228,10 @@ export default function ProjectDetailPage() {
       return Array.isArray(raw) ? raw as Record<string, unknown>[] : [];
     },
     enabled: !!projectId && !isInIframe,
-    staleTime: 30 * 1000,
+    staleTime: 10 * 1000,
     gcTime: 5 * 60 * 1000,
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: true,
+    refetchInterval: 20_000,
     retry: 1,
   });
 
@@ -441,6 +442,7 @@ export default function ProjectDetailPage() {
   const refreshProgress = useCallback(() => {
     void refetchMilestones();
     queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+    queryClient.invalidateQueries({ queryKey: ["projects"] });
   }, [refetchMilestones, queryClient, projectId]);
 
   const handleAddMilestone = async () => {
@@ -539,21 +541,40 @@ export default function ProjectDetailPage() {
   };
 
   const handleToggleMilestone = async (id: string, done: boolean) => {
+    const nextDone = !done;
+    // Optimistic UI — progress bar updates instantly
+    queryClient.setQueryData(
+      ["project-milestones", projectId],
+      (old: Record<string, unknown>[] | undefined) =>
+        (old ?? []).map((m) =>
+          extractStr(m, "id", "") === id ? { ...m, done: nextDone } : m
+        )
+    );
     try {
       const res = await fetch(`/api/projects/${projectId}/milestones`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ id, done: !done }),
+        body: JSON.stringify({ id, done: nextDone }),
       });
       if (res.ok) {
-        toast.success(!done ? "Milestone marked done — progress updated" : "Milestone reopened");
+        const data = await res.json().catch(() => null);
+        if (data && typeof data.projectProgress === "number") {
+          queryClient.setQueryData(
+            ["project", projectId],
+            (old: Record<string, unknown> | undefined) =>
+              old ? { ...old, progress: data.projectProgress } : old
+          );
+        }
+        toast.success(nextDone ? "Milestone marked done — progress updated" : "Milestone reopened");
         refreshProgress();
       } else {
+        refreshProgress();
         const d = await res.json().catch(() => null);
         toast.error(d?.error || "Failed to update milestone");
       }
     } catch {
+      refreshProgress();
       toast.error("Failed to update milestone");
     }
   };

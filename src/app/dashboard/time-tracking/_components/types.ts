@@ -3,6 +3,7 @@ export interface TimeEntry {
   userId: string;
   projectId: string | null;
   description: string | null;
+  workNotes?: string | null;
   status: string;
   clockIn: string;
   clockOut: string | null;
@@ -14,6 +15,20 @@ export interface TimeEntry {
   clockOutMethod?: string | null;
   user?: { id: string; name: string; email: string; avatar?: string | null; role?: string };
   project?: { id: string; name: string } | null;
+}
+
+/** True when owner can still edit work notes (within 24h of clock-out). */
+export function canEditWorkNotes(entry: Pick<TimeEntry, "status" | "clockOut">, now = Date.now()): boolean {
+  if (entry.status !== "COMPLETED" || !entry.clockOut) return false;
+  const clockOutMs = new Date(entry.clockOut).getTime();
+  if (Number.isNaN(clockOutMs)) return false;
+  return now - clockOutMs <= 24 * 60 * 60 * 1000;
+}
+
+export function workNotesHoursLeft(entry: Pick<TimeEntry, "clockOut">, now = Date.now()): number {
+  if (!entry.clockOut) return 0;
+  const left = 24 * 60 * 60 * 1000 - (now - new Date(entry.clockOut).getTime());
+  return Math.max(0, Math.ceil(left / (60 * 60 * 1000)));
 }
 
 export interface Project {
@@ -64,6 +79,7 @@ export const ATT_STATUS_COLORS: Record<string, string> = {
   ABSENT: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
   HALF_DAY: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
   LEAVE: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+  TRAINING: "bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300",
   NO_SCHEDULE: "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300",
 };
 

@@ -8,8 +8,11 @@ import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { checkClientClockIntegrity } from "@/lib/clock-integrity"
 import {
   isDueOnOrBefore,
+  syncProjectProgressFromMilestones,
   todayDateKey,
 } from "@/lib/milestones"
+
+const WORK_NOTES_EDIT_WINDOW_MS = 24 * 60 * 60 * 1000
 
 /**
  * PATCH /api/time-tracking/[id]
@@ -127,7 +130,7 @@ export async function PATCH(
       return NextResponse.json({ error: validation.error }, { status: 400 })
     }
 
-    const { description, projectId, status, clientNow, timezone, acknowledgedMilestoneIds } =
+    const { description, projectId, status, clientNow, timezone, acknowledgedMilestoneIds, workNotes } =
       validation.data
 
     const updateData: Prisma.TimeEntryUncheckedUpdateInput = {}
@@ -135,7 +138,31 @@ export async function PATCH(
     if (description !== undefined) updateData.description = description
     if (projectId !== undefined) updateData.projectId = projectId || null
 
+    // Work notes: optional at clock-out; after clock-out, editable only within 24h
+    if (workNotes !== undefined && status !== "COMPLETED") {
+      if (existing.status !== "COMPLETED" || !existing.clockOut) {
+        return NextResponse.json(
+          { error: "Work notes can only be edited after clock-out", code: "NOTES_NOT_READY" },
+          { status: 400 }
+        )
+      }
+      const elapsed = Date.now() - new Date(existing.clockOut).getTime()
+      if (!isAdmin && elapsed > WORK_NOTES_EDIT_WINDOW_MS) {
+        return NextResponse.json(
+          {
+            error: "Work notes can only be edited within 24 hours of clock-out",
+            code: "NOTES_EDIT_LOCKED",
+          },
+          { status: 403 }
+        )
+      }
+      updateData.workNotes = workNotes?.trim() ? workNotes.trim().slice(0, 500) : null
+    }
+
     // [FIX H5: Only allow COMPLETED status on ACTIVE entries — prevent restarting stopped timers]
+    let milestonesToComplete: string[] = []
+    let projectForProgress: string | null = null
+
     if (status === "COMPLETED") {
       if (existing.status !== "ACTIVE") {
         return NextResponse.json({ error: "Cannot complete a timer that is not active" }, { status: 400 })
@@ -150,8 +177,8 @@ export async function PATCH(
         )
       }
 
-      // Gate: ALL open milestones due today/overdue for this project must be ticked
-      // (prompt: selected project + due day, not future — session ack, no admin skip)
+      // Gate: ALL open milestones due today/overdue for this project must be ticked.
+      // Ticking marks them permanently done and updates project progress.
       const projectForGate = projectId !== undefined ? projectId || null : existing.projectId
       if (projectForGate) {
         try {
@@ -179,6 +206,8 @@ export async function PATCH(
               { status: 409 }
             )
           }
+          milestonesToComplete = blocking.filter((m) => acked.has(m.id)).map((m) => m.id)
+          projectForProgress = projectForGate
         } catch (mileErr) {
           // If milestone tables aren't ready, don't block clock-out
           console.warn(
@@ -193,6 +222,9 @@ export async function PATCH(
       updateData.status = "COMPLETED"
       const diffMs = now.getTime() - new Date(existing.clockIn).getTime()
       updateData.totalHours = Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100
+      if (workNotes !== undefined) {
+        updateData.workNotes = workNotes?.trim() ? workNotes.trim().slice(0, 500) : null
+      }
     }
     // Prevent setting status back to ACTIVE on a completed entry
     if (status === "ACTIVE" && existing.status === "COMPLETED") {
@@ -203,6 +235,21 @@ export async function PATCH(
       const fresh = await tx.timeEntry.findUnique({ where: { id } })
       if (!fresh) throw new Error("NOT_FOUND")
       if (!isAdmin && fresh.userId !== userId) throw new Error("FORBIDDEN")
+
+      if (milestonesToComplete.length > 0) {
+        await tx.projectMilestone.updateMany({
+          where: {
+            id: { in: milestonesToComplete },
+            done: false,
+          },
+          data: {
+            done: true,
+            completedAt: new Date(),
+            completedBy: userId,
+          },
+        })
+      }
+
       return tx.timeEntry.update({
         where: { id },
         data: updateData,
@@ -212,6 +259,17 @@ export async function PATCH(
         },
       })
     })
+
+    if (projectForProgress) {
+      try {
+        await syncProjectProgressFromMilestones(projectForProgress)
+      } catch (syncErr) {
+        console.warn(
+          "[time-tracking] progress sync failed:",
+          syncErr instanceof Error ? syncErr.message : syncErr
+        )
+      }
+    }
 
     return NextResponse.json(entry)
   } catch (error: unknown) {

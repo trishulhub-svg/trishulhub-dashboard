@@ -195,10 +195,32 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // Yellow blink: projects where current user has open (not done) assigned milestones
+    const openAssignedProjectIds = new Set<string>()
+    if (projectIds.length > 0 && userId) {
+      try {
+        const placeholders = projectIds.map(() => "?").join(",")
+        const rows = await db.$queryRawUnsafe(
+          `SELECT DISTINCT m."projectId" as "projectId"
+           FROM "ProjectMilestone" m
+           INNER JOIN "ProjectMilestoneAssignee" a ON a."milestoneId" = m."id"
+           WHERE m."projectId" IN (${placeholders})
+             AND m."done" = 0
+             AND a."userId" = ?`,
+          ...projectIds,
+          userId
+        ) as Array<{ projectId: string }>
+        for (const row of rows) openAssignedProjectIds.add(row.projectId)
+      } catch {
+        // non-fatal — blink indicator optional
+      }
+    }
+
     const serialized = serializeProjects(
       projects.map((p) => ({
         ...p,
         methods: methodsByProject.get(p.id) || [],
+        hasOpenAssignedMilestones: openAssignedProjectIds.has(p.id),
       })) as any[]
     )
 

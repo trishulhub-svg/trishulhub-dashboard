@@ -405,13 +405,18 @@ export async function PATCH(
       }
     }
 
+    let projectProgress: number | undefined
     if (done !== undefined) {
-      void syncProjectProgressFromMilestones(projectId).catch((err) =>
+      try {
+        projectProgress = await syncProjectProgressFromMilestones(projectId)
+      } catch (err) {
         console.warn("[milestones] progress sync failed:", err instanceof Error ? err.message : err)
-      )
+      }
     }
 
-    return NextResponse.json(deepSanitize(milestone))
+    return NextResponse.json(
+      deepSanitize({ ...milestone, ...(projectProgress !== undefined ? { projectProgress } : {}) })
+    )
   } catch (error: unknown) {
     console.error("[milestones] PATCH error:", error instanceof Error ? error.message : error)
     return NextResponse.json({ error: "Failed to update milestone" }, { status: 500 })

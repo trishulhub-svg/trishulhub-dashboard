@@ -18,6 +18,7 @@ import type {
   TimeEntry,
   TimeTrackingTab,
 } from "./_components/types";
+import { canEditWorkNotes } from "./_components/types";
 import {
   dayBounds,
   escapeCSV,
@@ -132,6 +133,7 @@ function TimeTrackingPageInner() {
   const [editSaving, setEditSaving] = useState(false);
 
   const [viewDescriptionEntry, setViewDescriptionEntry] = useState<TimeEntry | null>(null);
+  const [savingWorkNotes, setSavingWorkNotes] = useState(false);
 
   // Attendance
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
@@ -456,13 +458,6 @@ function TimeTrackingPageInner() {
     const notes = clockOutNotesRef.current.trim();
     setStopping(true);
     try {
-      // Append clock-out notes; never wipe the original start description
-      const existing = (activeEntry.description || "").trim();
-      const description = notes
-        ? existing
-          ? `${existing}\n\nClock-out notes: ${notes}`
-          : notes
-        : undefined;
       const { buildClientClockPayload } = await import("@/lib/clock-integrity");
       const clockPayload = buildClientClockPayload();
       const res = await fetch(`/api/time-tracking/${activeEntry.id}`, {
@@ -472,14 +467,18 @@ function TimeTrackingPageInner() {
         body: JSON.stringify({
           id: activeEntry.id,
           status: "COMPLETED",
-          ...(description !== undefined ? { description } : {}),
+          workNotes: notes || null,
           acknowledgedMilestoneIds: Array.from(checkedMilestoneIds),
           ...clockPayload,
         }),
       });
       if (res.ok) {
         setActiveEntry(null);
-        toast.success("Clocked out successfully!");
+        toast.success(
+          notes
+            ? "Clocked out — milestones updated"
+            : "Clocked out — add work notes within 24 hours"
+        );
         setClockOutOpen(false);
         setClockOutNotes("");
         setDueMilestones([]);
@@ -1236,6 +1235,44 @@ function TimeTrackingPageInner() {
       <ViewDescriptionDialog
         entry={viewDescriptionEntry}
         onClose={() => setViewDescriptionEntry(null)}
+        canEditNotes={
+          !!viewDescriptionEntry &&
+          viewDescriptionEntry.userId === session?.user?.id &&
+          canEditWorkNotes(viewDescriptionEntry)
+        }
+        savingNotes={savingWorkNotes}
+        onSaveNotes={async (notes) => {
+          if (!viewDescriptionEntry) return;
+          setSavingWorkNotes(true);
+          try {
+            const res = await fetch(`/api/time-tracking/${viewDescriptionEntry.id}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ id: viewDescriptionEntry.id, workNotes: notes || null }),
+            });
+            if (res.ok) {
+              const updated = await res.json().catch(() => null);
+              toast.success("Work notes saved");
+              setViewDescriptionEntry((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      workNotes: (updated?.workNotes as string | null | undefined) ?? (notes || null),
+                    }
+                  : prev
+              );
+              fetchEntries();
+            } else {
+              const err = await res.json().catch(() => null);
+              toast.error(safeText(err?.error, "Failed to save notes"));
+            }
+          } catch {
+            toast.error("Failed to save notes");
+          } finally {
+            setSavingWorkNotes(false);
+          }
+        }}
       />
 
       <EditEntryDialog

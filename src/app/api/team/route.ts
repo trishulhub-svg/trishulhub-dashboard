@@ -390,10 +390,10 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
       }
       // [FIX H8: Validate attendance status against allowed values]
-      const validAttStatuses = ["PRESENT", "ABSENT", "HALF_DAY", "LEAVE", "NO_SCHEDULE"]
+      const validAttStatuses = ["PRESENT", "ABSENT", "HALF_DAY", "LEAVE", "TRAINING", "NO_SCHEDULE"]
       const { date, userId: attUserId, status: attStatus, checkIn, checkOut, notes } = data
       if (attStatus && !validAttStatuses.includes(attStatus as string)) {
-        return NextResponse.json({ error: "Invalid attendance status. Must be PRESENT, ABSENT, HALF_DAY, LEAVE, or NO_SCHEDULE" }, { status: 400 })
+        return NextResponse.json({ error: "Invalid attendance status. Must be PRESENT, ABSENT, HALF_DAY, LEAVE, TRAINING, or NO_SCHEDULE" }, { status: 400 })
       }
       if (!date) {
         return NextResponse.json({ error: "Date is required" }, { status: 400 })

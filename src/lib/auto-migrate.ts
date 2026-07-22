@@ -42,6 +42,7 @@ const CRITICAL_COLUMNS: Array<{ table: string; column: string; sql: string }> = 
   { table: "TimeEntry", column: "agentSessionId", sql: "ALTER TABLE TimeEntry ADD COLUMN agentSessionId TEXT" },
   { table: "TimeEntry", column: "clockInMethod", sql: "ALTER TABLE TimeEntry ADD COLUMN clockInMethod TEXT" },
   { table: "TimeEntry", column: "clockOutMethod", sql: "ALTER TABLE TimeEntry ADD COLUMN clockOutMethod TEXT" },
+  { table: "TimeEntry", column: "workNotes", sql: `ALTER TABLE "TimeEntry" ADD COLUMN "workNotes" TEXT` },
   // Expense table columns (Finance page)
   { table: "Expense", column: "employeeId", sql: "ALTER TABLE Expense ADD COLUMN \"employeeId\" TEXT" },
   { table: "Expense", column: "paymentRef", sql: "ALTER TABLE Expense ADD COLUMN \"paymentRef\" TEXT" },
@@ -1187,6 +1188,22 @@ export async function ensureAllTables(): Promise<void> {
           console.warn(`[auto-migrate] Column ${colDef.column} on ${colDef.table}: ${msg}`)
         }
       }
+    }
+
+    // Notification list + mark-all indexes (Turso DBs that missed Prisma migrate)
+    try {
+      await db.$executeRawUnsafe(
+        `CREATE INDEX IF NOT EXISTS "Notification_userId_createdAt_idx" ON "Notification"("userId", "createdAt")`
+      )
+    } catch (err: unknown) {
+      console.warn("[auto-migrate] Notification_userId_createdAt_idx:", getErrMsg(err))
+    }
+    try {
+      await db.$executeRawUnsafe(
+        `CREATE INDEX IF NOT EXISTS "Notification_userId_isRead_idx" ON "Notification"("userId", "isRead")`
+      )
+    } catch (err: unknown) {
+      console.warn("[auto-migrate] Notification_userId_isRead_idx:", getErrMsg(err))
     }
 
     // Backfill Turso-safe updatedAt columns added with empty-string default

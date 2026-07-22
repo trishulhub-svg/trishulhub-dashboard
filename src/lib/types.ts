@@ -109,6 +109,6 @@ export type LeaveStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
 /** @deprecated Use LeaveType instead. Legacy short leave type labels from the UI. */
 export type LegacyLeaveType = "CASUAL" | "SICK" | "PAID";
 
-export type AttendanceStatus = "PRESENT" | "ABSENT" | "HALF_DAY" | "LEAVE" | "NO_SCHEDULE";
+export type AttendanceStatus = "PRESENT" | "ABSENT" | "HALF_DAY" | "LEAVE" | "TRAINING" | "NO_SCHEDULE";
 
 export type TimeEntryStatus = "ACTIVE" | "COMPLETED";

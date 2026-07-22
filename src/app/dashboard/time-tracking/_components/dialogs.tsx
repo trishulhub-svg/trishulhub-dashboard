@@ -1,6 +1,6 @@
 "use client";
 
-import type { Dispatch, SetStateAction } from "react";
+import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { ArrowLeft, CheckCircle2, Clock, Eye, Loader2, Pencil, Plus, StopCircle } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/select";
 import { safeText } from "@/lib/utils";
 import type { Project, TeamUser, TimeEntry } from "./types";
+import { canEditWorkNotes, workNotesHoursLeft } from "./types";
 import { formatDate, formatDuration, formatHours, formatTime } from "./utils";
 
 /* ── Clock Out ── */
@@ -115,7 +116,7 @@ export function ClockOutDialog({
           {(milestonesLoading || dueMilestones.length > 0) && (
             <div className="space-y-2 rounded-lg border border-border/60 bg-muted/30 p-3">
               <Label className="text-xs font-semibold">
-                Due today / overdue — tick every checkbox to clock out (not future)
+                Due today / overdue — tick to mark done &amp; unlock clock-out (not future)
               </Label>
               {milestonesLoading ? (
                 <p className="text-xs text-muted-foreground flex items-center gap-2">
@@ -159,10 +160,16 @@ export function ClockOutDialog({
             </div>
           )}
           <div className="space-y-2">
-            <Label htmlFor="clock-out-notes">
-              Work Summary / Notes
-              <span className="text-muted-foreground font-normal ml-1">(optional)</span>
-            </Label>
+            <div className="flex items-start justify-between gap-2">
+              <Label htmlFor="clock-out-notes">
+                Work Summary / Notes
+                <span className="text-muted-foreground font-normal ml-1">(optional now)</span>
+              </Label>
+            </div>
+            <div className="rounded-md border border-amber-300/70 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700/50 px-3 py-2 text-[11px] text-amber-800 dark:text-amber-200 leading-snug">
+              Notes are optional at clock-out, but you must add them within{" "}
+              <span className="font-semibold">24 hours</span>. After 24 hours, editing is locked.
+            </div>
             <Textarea
               id="clock-out-notes"
               value={notes}
@@ -369,14 +376,29 @@ export function EndSessionDialog({
   );
 }
 
-/* ── View Description ── */
+/* ── View Description (+ edit work notes within 24h) ── */
 export function ViewDescriptionDialog({
   entry,
   onClose,
+  canEditNotes = false,
+  onSaveNotes,
+  savingNotes = false,
 }: {
   entry: TimeEntry | null;
   onClose: () => void;
+  canEditNotes?: boolean;
+  onSaveNotes?: (notes: string) => Promise<void> | void;
+  savingNotes?: boolean;
 }) {
+  const [notesDraft, setNotesDraft] = useState("");
+
+  useEffect(() => {
+    if (entry) setNotesDraft(entry.workNotes || "");
+  }, [entry]);
+
+  const editable = !!(entry && canEditNotes);
+  const hoursLeft = entry ? workNotesHoursLeft(entry) : 0;
+
   return (
     <Dialog open={!!entry} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-[500px]">
@@ -428,12 +450,58 @@ export function ViewDescriptionDialog({
                 </div>
               </div>
             )}
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">Work Summary / Notes</p>
+              {editable ? (
+                <>
+                  <div className="rounded-md border border-amber-300/70 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700/50 px-3 py-2 text-[11px] text-amber-800 dark:text-amber-200">
+                    You have about <span className="font-semibold">{hoursLeft}h</span> left to add or edit notes. After 24 hours from clock-out, editing locks.
+                  </div>
+                  <Textarea
+                    value={notesDraft}
+                    onChange={(e) => setNotesDraft(e.target.value.slice(0, 500))}
+                    rows={4}
+                    maxLength={500}
+                    placeholder="Add your work summary…"
+                    className="resize-none"
+                  />
+                </>
+              ) : (
+                <>
+                  {entry.status === "COMPLETED" && entry.clockOut && !canEditWorkNotes(entry) && (
+                    <div className="rounded-md border border-muted px-3 py-2 text-[11px] text-muted-foreground">
+                      The 24-hour window to edit work notes has closed.
+                    </div>
+                  )}
+                  <div className="bg-muted/30 rounded-lg p-3 text-sm whitespace-pre-wrap max-h-[200px] overflow-y-auto min-h-[2.5rem]">
+                    {entry.workNotes ? safeText(entry.workNotes) : (
+                      <span className="text-muted-foreground italic">No work notes yet</span>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         )}
-        <DialogFooter>
+        <DialogFooter className="gap-2 sm:gap-0">
           <Button variant="outline" onClick={onClose}>
             Close
           </Button>
+          {editable && onSaveNotes && (
+            <Button
+              disabled={savingNotes}
+              onClick={() => onSaveNotes(notesDraft.trim())}
+            >
+              {savingNotes ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Saving…
+                </>
+              ) : (
+                "Save notes"
+              )}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -813,6 +881,7 @@ export function AddAttendanceDialog({
                   <SelectItem value="ABSENT">Absent</SelectItem>
                   <SelectItem value="HALF_DAY">Half Day</SelectItem>
                   <SelectItem value="LEAVE">On Leave</SelectItem>
+                  <SelectItem value="TRAINING">Training</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -891,6 +960,7 @@ export function EditAttendanceDialog({
                 <SelectItem value="ABSENT">Absent</SelectItem>
                 <SelectItem value="HALF_DAY">Half Day</SelectItem>
                 <SelectItem value="LEAVE">On Leave</SelectItem>
+                <SelectItem value="TRAINING">Training</SelectItem>
               </SelectContent>
             </Select>
           </div>

@@ -134,6 +134,7 @@ function KanbanProjectCard({
   const pProgress = safeNumber(project.progress);
   const pDeadline = project.deadline as string | null | undefined;
   const pWebsites = Array.isArray(project.websites) ? project.websites as Record<string, unknown>[] : [];
+  const hasOpenAssigned = project.hasOpenAssignedMilestones === true;
 
   return (
     <div
@@ -184,15 +185,21 @@ function KanbanProjectCard({
         </div>
       )}
 
-      {/* Project Title + Status Dot */}
+      {/* Project Title + Status Dot (+ yellow blink when you have open assigned milestones) */}
       <div className="flex items-start gap-2 pr-7">
         <span className={cn("h-2 w-2 rounded-full shrink-0 mt-1.5 ring-2 ring-offset-1 ring-offset-white dark:ring-offset-gray-950", statusDotColors[pStatus] || "bg-gray-400", statusDotColors[pStatus] && statusDotColors[pStatus].replace("bg-", "ring-"))} />
         <div className="flex-1 min-w-0">
           <h4
-            className="text-[13px] font-semibold leading-snug line-clamp-2"
-            title={pName}
+            className="text-[13px] font-semibold leading-snug line-clamp-2 inline-flex items-start gap-1.5"
+            title={hasOpenAssigned ? `${pName} — you have open milestones` : pName}
           >
-            {pName}
+            <span className="line-clamp-2">{pName}</span>
+            {hasOpenAssigned && (
+              <span className="relative mt-1.5 inline-flex h-2 w-2 shrink-0" title="You have open milestones on this project">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-400" />
+              </span>
+            )}
           </h4>
         </div>
       </div>
@@ -463,6 +470,7 @@ function ListViewRow({
   const pClientName = client ? safeText(client.name, "Client") : "Client";
   const pProgress = safeNumber(project.progress);
   const pDeadline = project.deadline as string | null | undefined;
+  const hasOpenAssigned = project.hasOpenAssignedMilestones === true;
 
   return (
     <div
@@ -480,7 +488,15 @@ function ListViewRow({
       <div className="flex items-center gap-2.5 min-w-0 flex-1">
         <span className={cn("h-2.5 w-2.5 rounded-full shrink-0 ring-2 ring-offset-1 ring-offset-white dark:ring-offset-gray-950", statusDotColors[pStatus] || "bg-gray-400", statusDotColors[pStatus] && statusDotColors[pStatus].replace("bg-", "ring-"))} />
         <div className="min-w-0">
-          <h4 className="text-sm font-semibold truncate" title={pName}>{pName}</h4>
+          <h4 className="text-sm font-semibold truncate inline-flex items-center gap-1.5 max-w-full" title={hasOpenAssigned ? `${pName} — you have open milestones` : pName}>
+            <span className="truncate">{pName}</span>
+            {hasOpenAssigned && (
+              <span className="relative inline-flex h-2 w-2 shrink-0" title="You have open milestones on this project">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-400" />
+              </span>
+            )}
+          </h4>
           <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
             <span className="text-[11px] text-muted-foreground">{pClientName}</span>
             {Array.isArray(project.methods) && (project.methods as Array<{name: string}>).length > 0 && (
@@ -834,9 +850,9 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
       const raw = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
       return deepSanitize(raw) as unknown[];
     },
-    staleTime: 60 * 1000,
+    staleTime: 15 * 1000,
     gcTime: 5 * 60 * 1000,
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: true,
     retry: 1,
   });
 

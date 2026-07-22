@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { db, getAppSetting } from "@/lib/db";
 import { rateLimit } from "@/lib/rate-limit";
 import { logAudit, getIpAddress, getUserAgent, buildDescription } from "@/lib/audit-log";
-import { decryptFromJson } from "@/lib/encryption";
+import { decryptCredentialFromJson, decryptFromJson } from "@/lib/encryption";
 
 export async function GET(
   req: NextRequest,
@@ -18,7 +18,6 @@ export async function GET(
 
     const { id } = await params;
 
-    // Rate limit: 20 per minute per user
     const rl = rateLimit(`cred-reveal-${session.user.id}`, 20, 60000);
     if (!rl.success) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 });
@@ -33,8 +32,6 @@ export async function GET(
       return NextResponse.json({ error: "Credential not found" }, { status: 404 });
     }
 
-    // Only admin/super_admin/project_manager or the credential owner can reveal.
-    // PROJECT_MANAGER has admin-like credential access per requirements.
     const userId = session.user.id;
     const userRole = session.user.role;
     if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN" && userRole !== "PROJECT_MANAGER" && credential.userId !== userId) {
@@ -55,8 +52,22 @@ export async function GET(
       userAgent: getUserAgent(req),
     });
 
-    // decryptFromJson handles AES JSON envelopes and legacy plaintext values
-    const password = decryptFromJson(credential.password || "");
+    let dbKey = ""
+    try {
+      dbKey = await getAppSetting("credentialEncryptionKey")
+    } catch {
+      dbKey = ""
+    }
+
+    // Prefer credential key (AppSetting); fall back to ENCRYPTION_KEY decrypt for legacy rows
+    let password = decryptCredentialFromJson(credential.password || "", dbKey || undefined);
+    if (!password) {
+      try {
+        password = decryptFromJson(credential.password || "");
+      } catch {
+        password = "";
+      }
+    }
     if (!password) {
       return NextResponse.json({ error: "Failed to decrypt password" }, { status: 500 });
     }
