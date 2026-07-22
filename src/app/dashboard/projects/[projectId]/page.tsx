@@ -140,6 +140,7 @@ export default function ProjectDetailPage() {
   const [newMilestoneDue, setNewMilestoneDue] = useState("");
   const [newMilestoneAssignees, setNewMilestoneAssignees] = useState<string[]>([]);
   const [milestoneSaving, setMilestoneSaving] = useState(false);
+  const [milestoneWeekFilter, setMilestoneWeekFilter] = useState<string>("__all__");
   const [editingMilestone, setEditingMilestone] = useState<Record<string, unknown> | null>(null);
   const [editMilestoneTitle, setEditMilestoneTitle] = useState("");
   const [editMilestoneDue, setEditMilestoneDue] = useState("");
@@ -1064,6 +1065,9 @@ export default function ProjectDetailPage() {
               <Badge variant="secondary" className="text-[10px] h-5 px-1.5">
                 {milestonesData.filter((m) => m.done === true).length}/{milestonesData.length}
               </Badge>
+              {canManageMilestones && milestonesData.length > 0 && (
+                <span className="text-[10px] text-muted-foreground hidden sm:inline">Grouped by week</span>
+              )}
             </div>
           </div>
           <div className="p-4 space-y-2">
@@ -1126,17 +1130,51 @@ export default function ProjectDetailPage() {
             {milestonesData.length === 0 ? (
               <p className="text-xs text-muted-foreground text-center py-4">No milestones yet</p>
             ) : canManageMilestones ? (
-              <div className="space-y-4">
-                {milestonesByWeek.map((week) => {
+              <div className="space-y-3">
+                {/* Week filter chips — jump to a week quickly */}
+                <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-0.5 px-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setMilestoneWeekFilter("__all__")}
+                    className={cn(
+                      "shrink-0 text-[10px] px-2.5 py-1 rounded-full border transition-colors font-medium",
+                      milestoneWeekFilter === "__all__"
+                        ? "bg-foreground text-background border-foreground"
+                        : "bg-muted/40 border-transparent text-muted-foreground hover:border-border"
+                    )}
+                  >
+                    All weeks ({milestonesData.length})
+                  </button>
+                  {milestonesByWeek.map((week) => (
+                    <button
+                      key={week.key}
+                      type="button"
+                      onClick={() => setMilestoneWeekFilter(week.key)}
+                      className={cn(
+                        "shrink-0 text-[10px] px-2.5 py-1 rounded-full border transition-colors font-medium",
+                        milestoneWeekFilter === week.key
+                          ? "bg-foreground text-background border-foreground"
+                          : "bg-muted/40 border-transparent text-muted-foreground hover:border-border"
+                      )}
+                    >
+                      {week.label} ({week.items.length})
+                    </button>
+                  ))}
+                </div>
+
+                {(milestoneWeekFilter === "__all__"
+                  ? milestonesByWeek
+                  : milestonesByWeek.filter((w) => w.key === milestoneWeekFilter)
+                ).map((week) => {
                   const weekDone = week.items.filter((m) => m.done === true).length;
                   return (
-                    <div key={week.key} className="space-y-2">
-                      <div className="flex items-center justify-between gap-2 sticky top-0 z-[1] bg-white/80 dark:bg-background/80 backdrop-blur-sm py-1">
+                    <div key={week.key} className="space-y-2 rounded-lg border border-border/50 bg-muted/10 p-2.5">
+                      <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2 min-w-0">
                           <CalendarDays className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                           <h3 className="text-xs font-semibold tracking-tight truncate">{week.label}</h3>
                           <Badge variant="secondary" className="text-[9px] h-4 px-1.5 shrink-0">
-                            {weekDone}/{week.items.length}
+                            {weekDone}/{week.items.length} done
                           </Badge>
                         </div>
                       </div>
@@ -1154,7 +1192,7 @@ export default function ProjectDetailPage() {
                           );
                           const canToggleDone = canManageMilestones || isAssignee;
                           return (
-                            <div key={mId} className="flex items-start gap-2 p-2.5 rounded-lg border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/[0.02]">
+                            <div key={mId} className="flex items-start gap-2 p-2.5 rounded-lg border border-white/20 dark:border-white/10 bg-white/60 dark:bg-white/[0.03]">
                               <button
                                 type="button"
                                 onClick={() => canToggleDone && handleToggleMilestone(mId, mDone)}
