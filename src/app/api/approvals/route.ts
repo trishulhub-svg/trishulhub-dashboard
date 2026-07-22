@@ -6,7 +6,6 @@ import { canManageApprovals } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { deepSanitize } from "@/lib/utils"
 import { notifyRoles, notifyUsers } from "@/lib/notify"
-import { ensureAllTables } from "@/lib/auto-migrate"
 import {
   APPROVAL_TYPES,
   isValidApprovalStatus,
@@ -23,8 +22,6 @@ export async function GET(req: NextRequest) {
 
     const rl = rateLimit(`approvals-get-${session.user.id}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
-
-    await ensureAllTables()
 
     const userRole = session.user.role
     const userId = session.user.id

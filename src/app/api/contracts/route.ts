@@ -42,8 +42,6 @@ export async function GET(req: NextRequest) {
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
-    await ensureAllTables()
-
     const clientId = new URL(req.url).searchParams.get("clientId")
     if (!clientId) return NextResponse.json({ error: "clientId is required" }, { status: 400 })
 

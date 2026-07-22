@@ -42,8 +42,6 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
-    await ensureAllTables()
-
     // Rate limit
     const rl = rateLimit(`subs-get-${session.user.id}`, RATE_LIMITS.crm.limit, RATE_LIMITS.crm.windowMs)
     if (!rl.success) {

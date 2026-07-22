@@ -483,7 +483,7 @@ function AvailabilityPageInner() {
       } catch { /* silent */ }
     };
     fetchLive();
-    const interval = setInterval(fetchLive, 15000); // Poll every 15s
+    const interval = setInterval(fetchLive, 30000); // Poll every 30s
     // Tick 'now' every second for live elapsed time display
     const tickInterval = setInterval(() => setNow(Date.now()), 1000);
     return () => {

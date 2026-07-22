@@ -282,8 +282,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const rl = rateLimit(`user-details-get-id-${session.user.id}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
-    await ensureAllTables()
-
     const userRole = session.user.role
     const { id } = await params
 

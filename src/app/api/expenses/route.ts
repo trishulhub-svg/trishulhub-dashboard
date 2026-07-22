@@ -26,7 +26,6 @@ async function getValidCategoryNames(): Promise<string[]> {
 // GET /api/expenses - List expenses with search, date, category, project filters
 export async function GET(req: NextRequest) {
   try {
-    await ensureAllTables()
 
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

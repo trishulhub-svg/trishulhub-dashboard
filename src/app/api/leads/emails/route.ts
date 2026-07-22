@@ -18,7 +18,6 @@ const createLeadEmailSchema = z.object({
 // GET /api/leads/emails?leadId=xxx - List emails for a lead (ADMIN/SUPER_ADMIN only)
 export async function GET(req: NextRequest) {
   try {
-    await ensureAllTables()
 
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

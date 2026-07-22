@@ -45,7 +45,6 @@ async function cleanupOldNotifications() {
 // GET /api/notifications - List notifications for user
 export async function GET(req: NextRequest) {
   try {
-    await ensureAllTables()
 
     const session = await getServerSession(authOptions)
     if (!session?.user) {

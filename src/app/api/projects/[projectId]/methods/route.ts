@@ -23,8 +23,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ proj
       return NextResponse.json({ error: "Invalid project ID format" }, { status: 400 })
     }
 
-    await ensureAllTables()
-
     const methods = await db.$queryRawUnsafe(
       `SELECT pm."id", pm."name" FROM "_ProjectMethodToProject" j JOIN "ProjectMethod" pm ON j."A" = pm."id" WHERE j."B" = ? ORDER BY pm."name"`,
       id

@@ -37,8 +37,6 @@ export async function GET(req: NextRequest) {
     const rl = rateLimit(`contacts-get-${session.user.id}`, RATE_LIMITS.crm.limit, RATE_LIMITS.crm.windowMs)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
-    await ensureAllTables()
-
     const clientId = new URL(req.url).searchParams.get("clientId")
     const where: Prisma.ContactWhereInput = clientId ? { clientId } : {}
 

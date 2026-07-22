@@ -197,7 +197,6 @@ export async function GET(req: NextRequest) {
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
     // Ensure the UserDetail table exists
-    await ensureAllTables()
 
     const userId = session.user.id
     const userRole = session.user.role

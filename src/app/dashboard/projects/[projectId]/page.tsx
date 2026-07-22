@@ -337,10 +337,10 @@ export default function ProjectDetailPage() {
       return Array.isArray(raw) ? raw as Record<string, unknown>[] : [];
     },
     enabled: !!projectId && !isInIframe,
-    staleTime: 10 * 1000,
+    staleTime: 30 * 1000,
     gcTime: 5 * 60 * 1000,
     refetchOnWindowFocus: true,
-    refetchInterval: 20_000,
+    refetchInterval: 60_000,
     retry: 1,
   });
 

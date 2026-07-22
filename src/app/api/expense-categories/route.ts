@@ -44,8 +44,6 @@ export async function GET() {
 
     const rl = rateLimit(`expense-categories-get-${session.user.id}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
-
-    await ensureAllTables()
     const categories = await listCategories()
     return NextResponse.json(categories)
   } catch (error: unknown) {

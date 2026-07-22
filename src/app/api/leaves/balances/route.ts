@@ -73,8 +73,6 @@ export async function GET(req: NextRequest) {
     const rl = rateLimit(`leave-bal-get-${session.user.id}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
-    await ensureAllTables()
-
     const year = new Date().getFullYear()
     const { searchParams } = new URL(req.url)
     let targetUserId = session.user.id

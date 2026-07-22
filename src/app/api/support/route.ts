@@ -16,7 +16,6 @@ const VALID_PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"]
 export async function GET(req: NextRequest) {
   try {
     // Issue #21: ensureAllTables()
-    await ensureAllTables()
 
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

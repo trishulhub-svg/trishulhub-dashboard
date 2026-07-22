@@ -33,8 +33,6 @@ export async function GET(req: NextRequest) {
     const rl = rateLimit(`leaves-get-${session.user.id}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
-    await ensureAllTables()
-
     const userId = session.user.id
     const userRole = session.user.role
     const { searchParams } = new URL(req.url)

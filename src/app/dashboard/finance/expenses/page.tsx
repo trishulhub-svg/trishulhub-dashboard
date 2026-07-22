@@ -40,7 +40,7 @@ import { EditExpenseDialog } from "@/components/dashboard/finance/edit-expense-d
 import type { ExpenseDetail } from "@/components/dashboard/finance/expense-detail-sheet";
 
 // Safety limit for client-side expense aggregation
-const MAX_EXPENSE_FETCH = 10000;
+const MAX_EXPENSE_FETCH = 500;
 
 type ExpenseCategoryRow = { id: string; name: string };
 
@@ -139,8 +139,8 @@ export default function ExpensesPage() {
     try {
       const [expRes, projRes, empRes] = await Promise.all([
         fetch("/api/expenses?limit=" + MAX_EXPENSE_FETCH, { credentials: "include", signal }),
-        fetch("/api/projects", { credentials: "include", signal }),
-        fetch("/api/team", { credentials: "include", signal }),
+        fetch("/api/projects?fields=minimal", { credentials: "include", signal }),
+        fetch("/api/team?type=users", { credentials: "include", signal }),
         fetchCategories(signal),
       ]);
       if (handleFetchError(expRes, router)) return;

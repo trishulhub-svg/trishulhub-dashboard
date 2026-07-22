@@ -3,7 +3,6 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureAllTables } from "@/lib/auto-migrate"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
 // GET /api/earnings - Get salary/earnings for the current user (or a target user for admin)
@@ -39,10 +38,6 @@ export async function GET(req: NextRequest) {
 
     const fetchUserId = targetUserIdRaw || userId
     const isCrossUserAccess = isAdmin && targetUserIdRaw && targetUserIdRaw !== userId
-
-    await ensureAllTables().catch((err) => {
-      console.error("[earnings] ensureAllTables failed:", err instanceof Error ? err.message : err)
-    })
 
     // Phase 7c: Use aggregate query for accurate totals (no `take: 100` limit) and a separate
     // paginated fetch for the recent entries list.

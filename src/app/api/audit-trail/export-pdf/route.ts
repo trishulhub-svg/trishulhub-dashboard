@@ -5,7 +5,6 @@ import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { canExportAuditTrail, getAccessibleDepartments } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureAllTables } from "@/lib/auto-migrate"
 import { AUDIT_DEPARTMENTS, type AuditDepartment } from "@/lib/audit-log"
 
 // GET /api/audit-trail/export-pdf — Export as PDF
@@ -18,8 +17,6 @@ export async function GET(req: NextRequest) {
     if (!canExportAuditTrail(userRole)) {
       return NextResponse.json({ error: "Forbidden — PDF export requires SUPER_ADMIN or ADMIN" }, { status: 403 })
     }
-
-    await ensureAllTables()
 
     const userId = session.user.id
     const { success: rateOk } = rateLimit(`audit-trail-pdf:${userId}`, RATE_LIMITS.financeWrite.limit, RATE_LIMITS.financeWrite.windowMs)

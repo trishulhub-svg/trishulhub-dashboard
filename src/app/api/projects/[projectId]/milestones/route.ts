@@ -103,8 +103,6 @@ export async function GET(
     const allowed = await canAccessProject(session.user.id, session.user.role, projectId)
     if (!allowed) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
-    await ensureAllTables()
-
     const scope = new URL(req.url).searchParams.get("scope") // briefing | due | all
     const milestones = await db.projectMilestone.findMany({
       where: { projectId },

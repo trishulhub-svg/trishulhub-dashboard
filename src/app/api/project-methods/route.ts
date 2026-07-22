@@ -16,8 +16,6 @@ export async function GET() {
     const rl = rateLimit(`project-methods-get-${session.user.id}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
-    await ensureAllTables()
-
     // Use raw SQL — only select id and name.
     // Avoids Prisma trying to SELECT "updatedAt" which may not exist on older deployments.
     const methods = await db.$queryRawUnsafe(

@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { ensureAllTables } from "@/lib/auto-migrate"
 import { deepSanitize } from "@/lib/utils"
 import { canAccessProject, isValidProjectId } from "@/lib/project-access"
 import { notifyAdmins } from "@/lib/notifications"
@@ -40,8 +39,6 @@ export async function GET(req: NextRequest) {
 
     const allowed = await canAccessProject(session.user.id, session.user.role, projectId)
     if (!allowed) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-
-    await ensureAllTables()
 
     const project = await db.project.findUnique({
       where: { id: projectId },

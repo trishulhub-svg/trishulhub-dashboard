@@ -337,7 +337,7 @@ export default function TrishulWorkspacePage() {
       }
     };
     fetchLiveOps();
-    const id = setInterval(fetchLiveOps, 10000);
+    const id = setInterval(fetchLiveOps, 30000);
     return () => {
       cancelled = true;
       clearInterval(id);
@@ -381,7 +381,7 @@ export default function TrishulWorkspacePage() {
       }
     };
     checkActive();
-    const id = setInterval(checkActive, 8000);
+    const id = setInterval(checkActive, 20000);
     return () => {
       cancelled = true;
       clearInterval(id);

@@ -3,7 +3,6 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { isAdmin, canManageApprovals } from "@/lib/rbac"
 import { db } from "@/lib/db"
-import { ensureAllTables } from "@/lib/auto-migrate"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
 // GET /api/approvals/pending-counts
@@ -29,8 +28,6 @@ export async function GET(req: NextRequest) {
     if (!rateResult.success) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 })
     }
-
-    await ensureAllTables()
 
     const badges: Record<string, number> = {}
 

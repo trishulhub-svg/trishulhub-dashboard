@@ -5,7 +5,6 @@ import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { canExportAuditTrail, getAccessibleDepartments } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureAllTables } from "@/lib/auto-migrate"
 
 // TODO: Add PDF generation using a serverless-compatible library
 
@@ -19,8 +18,6 @@ export async function GET(req: NextRequest) {
     if (!canExportAuditTrail(userRole)) {
       return NextResponse.json({ error: "Forbidden — export requires SUPER_ADMIN or ADMIN" }, { status: 403 })
     }
-
-    await ensureAllTables()
 
     const userId = session.user.id
     const { success: rateOk } = rateLimit(`audit-trail-export:${userId}`, RATE_LIMITS.financeWrite.limit, RATE_LIMITS.financeWrite.windowMs)

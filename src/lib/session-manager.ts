@@ -13,7 +13,7 @@ const MAX_SESSIONS = 2
 
 // In-memory cache for session validation (best-effort on Vercel serverless)
 const sessionCache = new Map<string, { tokens: string[]; checkedAt: number }>()
-const CACHE_TTL = 15 * 1000 // 15 seconds
+const CACHE_TTL = 90 * 1000 // 90s — amortize ActiveSession checks across parallel API calls
 
 function evictExpiredCacheEntries() {
   if (sessionCache.size > 500) {

@@ -5,7 +5,6 @@ import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { canViewAuditTrail, getAccessibleDepartments } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureAllTables } from "@/lib/auto-migrate"
 
 // GET /api/audit-trail/stats — Get summary statistics
 export async function GET(req: NextRequest) {
@@ -17,8 +16,6 @@ export async function GET(req: NextRequest) {
     if (!canViewAuditTrail(userRole)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
-
-    await ensureAllTables()
 
     const userId = session.user.id
     const { success: rateOk } = rateLimit(`audit-trail-stats:${userId}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
