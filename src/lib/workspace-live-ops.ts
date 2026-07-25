@@ -72,11 +72,13 @@ async function buildLiveProjects(
         })
       : []
 
-  const byId = new Map(activeRows.map((p) => [p.id, p]))
-  const activeLive = uniqueActiveIds
-    .map((id) => byId.get(id))
-    .filter((p): p is ProjectRow => Boolean(p))
-    .map((p) => toLiveProject(p, activeUserCountByProject.get(p.id) ?? 0, true))
+  const byId = new Map(activeRows.map((p) => [p.id, p as ProjectRow]))
+  const activeLive: LiveOpsProject[] = []
+  for (const id of uniqueActiveIds) {
+    const p = byId.get(id)
+    if (!p) continue
+    activeLive.push(toLiveProject(p, activeUserCountByProject.get(p.id) ?? 0, true))
+  }
 
   // 3+ distinct active projects → show all of them (may exceed 3)
   if (activeLive.length >= 3) return activeLive
