@@ -671,7 +671,7 @@ export default function TrishulWorkspacePage() {
                     </span>
                   </div>
                 ) : (
-                  liveProjects.slice(0, 3).map((p) => (
+                  liveProjects.map((p) => (
                     <div className="ws-horizon-task" key={p.projectId}>
                       <div className="ws-horizon-task-top">
                         <span className={`ws-horizon-task-name ws-horizon-task-name--${mode}`}>
