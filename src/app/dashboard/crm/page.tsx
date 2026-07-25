@@ -42,15 +42,7 @@ import { LEAD_COLUMNS } from "@/lib/types";
 import type { LeadStatus } from "@/lib/types";
 import { cn, safeText, safeNumber } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
-
-// CRM-028: 401 handling helper
-function handleFetchError(res: Response, router: ReturnType<typeof useRouter>): boolean {
-  if (res.status === 401) {
-    router.push("/login");
-    return true;
-  }
-  return false;
-}
+import { handleFetchError } from "@/lib/fetch-utils";
 
 interface Lead {
   id: string;

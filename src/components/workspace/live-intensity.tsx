@@ -45,21 +45,29 @@ const INTENSITY = [
   { label: "MAX OPS", pulseMs: 650, min: 400, max: 1100, maxVisible: 14, pool: ["success", "info", "info", "warn", "success", "info", "success"] as LineType[] },
 ];
 
+const PREFIX_CLASS: Record<LineType, string> = {
+  success: "ws-feed-prefix--success",
+  warn: "ws-feed-prefix--warn",
+  idle: "ws-feed-prefix--idle",
+  info: "ws-feed-prefix--info",
+};
+
 const AUTO_MODE_AFTER_SEC = 5 * 60;
+const TIME_FMT: Intl.DateTimeFormatOptions = {
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+};
 
 function pickLine(pool: LineType[]) {
   const filtered = AI_LINES.filter((l) => pool.includes(l.type));
   return filtered[Math.floor(Math.random() * filtered.length)] ?? AI_LINES[0];
 }
 
-function formatClockInTime(iso: string) {
+function formatTime(isoOrNow?: string) {
   try {
-    return new Date(iso).toLocaleTimeString("en-US", {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: false,
-    });
+    return new Date(isoOrNow ?? Date.now()).toLocaleTimeString("en-US", TIME_FMT);
   } catch {
     return "--:--:--";
   }
@@ -91,16 +99,14 @@ export function LiveIntensity({
   onActivityLine?: (prefix: string, type: LineType) => void;
 }) {
   const count = liveUsers.length;
-  const level = Math.min(4, count) as 0 | 1 | 2 | 3 | 4;
-  const cfg = INTENSITY[level];
+  const cfg = INTENSITY[Math.min(4, count)];
   const [aiLogs, setAiLogs] = useState<AiLine[]>([]);
   const [tick, setTick] = useState(0);
-  const feedRef = useRef<HTMLDivElement>(null);
+  const logsRef = useRef<HTMLDivElement>(null);
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const onLineRef = useRef(onActivityLine);
   onLineRef.current = onActivityLine;
 
-  // Tick every 30s so Auto mode appears after 5 min without waiting for poll
   useEffect(() => {
     if (liveUsers.length === 0) return;
     const id = setInterval(() => setTick((t) => t + 1), 30_000);
@@ -112,7 +118,6 @@ export function LiveIntensity({
     [liveUsers, tick]
   );
 
-  // AI / Cursor feed only while someone is clocked in
   useEffect(() => {
     if (!entered || liveUsers.length === 0) {
       setAiLogs([]);
@@ -120,20 +125,19 @@ export function LiveIntensity({
       timersRef.current = [];
       return;
     }
-    const cfg = INTENSITY[Math.min(4, liveUsers.length) as 0 | 1 | 2 | 3 | 4];
+    const intensity = INTENSITY[Math.min(4, liveUsers.length)];
     timersRef.current.forEach(clearTimeout);
     timersRef.current = [];
 
-    const start = Math.min(2, cfg.maxVisible);
-    setAiLogs(Array.from({ length: start }, () => pickLine(cfg.pool)));
+    setAiLogs(Array.from({ length: Math.min(2, intensity.maxVisible) }, () => pickLine(intensity.pool)));
 
     const schedule = () => {
-      const delay = cfg.min + Math.random() * (cfg.max - cfg.min);
+      const delay = intensity.min + Math.random() * (intensity.max - intensity.min);
       const tid = setTimeout(() => {
-        const line = pickLine(cfg.pool);
+        const line = pickLine(intensity.pool);
         setAiLogs((prev) => {
           const next = [...prev, line];
-          return next.length > cfg.maxVisible ? next.slice(-cfg.maxVisible) : next;
+          return next.length > intensity.maxVisible ? next.slice(-intensity.maxVisible) : next;
         });
         onLineRef.current?.(line.prefix, line.type);
         schedule();
@@ -141,26 +145,19 @@ export function LiveIntensity({
       timersRef.current.push(tid);
     };
 
-    const first = setTimeout(schedule, 900);
-    timersRef.current.push(first);
+    timersRef.current.push(setTimeout(schedule, 900));
     return () => {
       timersRef.current.forEach(clearTimeout);
       timersRef.current = [];
     };
   }, [entered, liveUsers.length]);
 
+  // Only the AI log pane scrolls — user + CURSOR agent rows stay pinned at top.
   useEffect(() => {
-    feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight, behavior: "smooth" });
-  }, [aiLogs, liveUsers, autoModeUsers.length]);
-
-  const prefixClass = (type: LineType) =>
-    type === "success"
-      ? "ws-feed-prefix--success"
-      : type === "warn"
-        ? "ws-feed-prefix--warn"
-        : type === "idle"
-          ? "ws-feed-prefix--idle"
-          : "ws-feed-prefix--info";
+    const el = logsRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }, [aiLogs]);
 
   return (
     <div className={`ws-card ws-feed-card ${entered ? "ws-in" : ""}`} style={{ transitionDelay: "0.35s" }}>
@@ -174,7 +171,7 @@ export function LiveIntensity({
           <span>{cfg.label}</span>
         </div>
       </div>
-      <div ref={feedRef} className="ws-feed-scroll">
+      <div className="ws-feed-body">
         {liveUsers.length === 0 ? (
           <div className="ws-feed-line ws-feed-line--empty">
             <span className={`ws-feed-msg ws-feed-msg--${mode} ws-feed-msg--idle`}>
@@ -183,53 +180,40 @@ export function LiveIntensity({
           </div>
         ) : (
           <>
-            {liveUsers.map((u, i) => {
-              const elapsed = elapsedFor(u);
-              return (
+            <div className="ws-feed-pinned">
+              {liveUsers.map((u, i) => (
                 <div key={`${u.userId}-${i}`} className="ws-feed-line ws-feed-line--enter">
-                  <span className={`ws-feed-time ws-feed-time--${mode}`}>{formatClockInTime(u.clockInAt)}</span>
+                  <span className={`ws-feed-time ws-feed-time--${mode}`}>{formatTime(u.clockInAt)}</span>
                   <span className="ws-feed-prefix ws-feed-prefix--info">{u.name}</span>
                   <span className="ws-live-user-dot" aria-hidden title="Clocked in" />
                   <span className={`ws-feed-msg ws-feed-msg--${mode}`}>
-                    working on {u.projectName ?? "no project"} ({formatElapsedHm(elapsed)})
+                    working on {u.projectName ?? "no project"} ({formatElapsedHm(elapsedFor(u))})
                   </span>
                 </div>
-              );
-            })}
-            {autoModeUsers.map((u) => (
-              <div key={`auto-${u.userId}`} className="ws-feed-line ws-feed-line--enter">
-                <span className={`ws-feed-time ws-feed-time--${mode}`}>
-                  {new Date().toLocaleTimeString("en-US", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                    second: "2-digit",
-                    hour12: false,
-                  })}
-                </span>
-                <span className="ws-feed-prefix ws-feed-prefix--success">CURSOR</span>
-                <span className="ws-live-user-dot" aria-hidden />
-                <span className={`ws-feed-msg ws-feed-msg--${mode}`}>
-                  Auto mode running for {u.name} — agent loop active
-                </span>
-              </div>
-            ))}
-            {aiLogs.map((line, i) => (
-              <div key={`ai-${i}-${line.prefix}`} className="ws-feed-line ws-feed-line--enter">
-                <span className={`ws-feed-time ws-feed-time--${mode}`}>
-                  {new Date().toLocaleTimeString("en-US", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                    second: "2-digit",
-                    hour12: false,
-                  })}
-                </span>
-                <span className={`ws-feed-prefix ${prefixClass(line.type)}`}>{line.prefix}</span>
-                {line.type === "success" && <span className="ws-feed-check">✓</span>}
-                {line.type === "warn" && <span className="ws-feed-warn">⚠</span>}
-                {line.type === "idle" && <span className="ws-feed-idle">○</span>}
-                <span className={`ws-feed-msg ws-feed-msg--${mode}`}>{line.msg}</span>
-              </div>
-            ))}
+              ))}
+              {autoModeUsers.map((u) => (
+                <div key={`auto-${u.userId}`} className="ws-feed-line ws-feed-line--enter">
+                  <span className={`ws-feed-time ws-feed-time--${mode}`}>{formatTime()}</span>
+                  <span className="ws-feed-prefix ws-feed-prefix--success">CURSOR</span>
+                  <span className="ws-live-user-dot" aria-hidden />
+                  <span className={`ws-feed-msg ws-feed-msg--${mode}`}>
+                    Auto mode running for {u.name} — agent loop active
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div ref={logsRef} className="ws-feed-logs">
+              {aiLogs.map((line, i) => (
+                <div key={`ai-${i}-${line.prefix}`} className="ws-feed-line ws-feed-line--enter">
+                  <span className={`ws-feed-time ws-feed-time--${mode}`}>{formatTime()}</span>
+                  <span className={`ws-feed-prefix ${PREFIX_CLASS[line.type]}`}>{line.prefix}</span>
+                  {line.type === "success" && <span className="ws-feed-check">✓</span>}
+                  {line.type === "warn" && <span className="ws-feed-warn">⚠</span>}
+                  {line.type === "idle" && <span className="ws-feed-idle">○</span>}
+                  <span className={`ws-feed-msg ws-feed-msg--${mode}`}>{line.msg}</span>
+                </div>
+              ))}
+            </div>
           </>
         )}
       </div>

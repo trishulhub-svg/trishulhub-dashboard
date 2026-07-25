@@ -1466,18 +1466,27 @@ export default function TrishulWorkspacePage() {
           animation: ws-pulse 1.5s ease-in-out infinite;
         }
 
-        .ws-feed-scroll {
+        /* Outer shell: pinned user/agent rows stay put; only .ws-feed-logs scrolls */
+        .ws-feed-body {
           flex: 1;
-          overflow-y: auto;
+          display: flex;
+          flex-direction: column;
           padding: 0.5rem 0;
           max-height: 220px;
           min-height: 100px;
+          overflow: hidden;
+        }
+        .ws-feed-pinned { flex-shrink: 0; }
+        .ws-feed-logs {
+          flex: 1;
+          min-height: 0;
+          overflow-y: auto;
           scrollbar-width: thin;
           scrollbar-color: var(--ws-card-border) transparent;
         }
-        .ws-feed-scroll::-webkit-scrollbar { width: 4px; }
-        .ws-feed-scroll::-webkit-scrollbar-track { background: transparent; }
-        .ws-feed-scroll::-webkit-scrollbar-thumb {
+        .ws-feed-logs::-webkit-scrollbar { width: 4px; }
+        .ws-feed-logs::-webkit-scrollbar-track { background: transparent; }
+        .ws-feed-logs::-webkit-scrollbar-thumb {
           background: var(--ws-card-border); border-radius: 4px;
         }
 

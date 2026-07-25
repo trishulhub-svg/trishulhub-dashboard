@@ -27,18 +27,6 @@ export function safeDateStr(d: Date): string {
 }
 
 /**
- * Safely format a Date object to a locale string with time.
- * Falls back to ISO format if toLocaleString fails.
- */
-export function safeDateTimeStr(d: Date): string {
-  try {
-    return d.toLocaleString()
-  } catch {
-    return d.toISOString()
-  }
-}
-
-/**
  * Safely parse an unknown value into a Date object.
  * Returns current date as fallback if the value is invalid or null/undefined.
  */

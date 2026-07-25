@@ -21,14 +21,6 @@ export function isAdmin(role: string): boolean {
   return role === "SUPER_ADMIN" || role === "ADMIN"
 }
 
-/** Check if a user is a project manager.
- * @param role - The user's role string.
- * @returns true if the user has PROJECT_MANAGER role.
- */
-export function isProjectManager(role: string): boolean {
-  return role === "PROJECT_MANAGER"
-}
-
 /** Check if a user is an admin OR a project manager.
  * Use this for features that should be available to project managers as well
  * as admins — e.g. project, client, credential, and non-leave approval

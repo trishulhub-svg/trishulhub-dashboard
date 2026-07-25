@@ -236,18 +236,3 @@ export async function removeSessionToken(
     console.warn("[session] Failed to remove session token:", err instanceof Error ? err.message : String(err))
   }
 }
-
-/**
- * Remove ALL session records for a user.
- */
-export async function removeSession(userId: string): Promise<void> {
-  const tableReady = await ensureActiveSessionTable()
-  if (!tableReady) return
-
-  try {
-    await db.activeSession.deleteMany({ where: { userId } })
-    sessionCache.delete(userId)
-  } catch (err: unknown) {
-    console.warn("[session] Failed to remove session:", err instanceof Error ? err.message : String(err))
-  }
-}

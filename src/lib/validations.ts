@@ -1,13 +1,4 @@
 import { z } from "zod"
-import { APPROVAL_TYPES } from "@/lib/approval-types"
-import { VALID_LEAVE_TYPES, type LeaveType } from "@/lib/types"
-
-// ━━ Project Member Schema ━━
-export const createProjectMemberSchema = z.object({
-  userId: z.string().min(1, "User ID is required"),
-  projectId: z.string().min(1, "Project ID is required"),
-  role: z.enum(["MEMBER", "LEAD"]).default("MEMBER"),
-})
 
 // ━━ Project Credential Schema ━━
 export const createCredentialSchema = z.object({
@@ -186,32 +177,6 @@ export const updateInvoiceSchema = z.object({
   return true; // total not provided — backend will compute it
 }, { message: "total must equal subtotal + tax + gst" })
 
-export const createExpenseSchema = z.object({
-  category: z.enum(["HOSTING", "DOMAINS", "API_COSTS", "TOOLS", "MARKETING", "SALARY", "SOFTWARE", "OTHER"]),
-  description: z.string().min(1).max(2000),
-  amount: z.number().min(0).max(99_999_999).finite().describe("Amount in selected currency"),
-  currency: z.enum(["INR", "USD", "GBP", "EUR"]).optional(),
-  date: z.string().min(1), // ISO date string — validated as Date at API level
-  receiptUrl: z.string().max(500).optional().nullable(),
-  projectId: z.string().max(100).optional().nullable(),
-  employeeId: z.string().max(100).optional().nullable(),
-  paymentRef: z.string().max(200).optional().nullable(),
-  notes: z.string().max(5000).optional().nullable(),
-})
-
-export const updateExpenseSchema = z.object({
-  id: z.string().min(1),
-  category: z.enum(["HOSTING", "DOMAINS", "API_COSTS", "TOOLS", "MARKETING", "SALARY", "SOFTWARE", "OTHER"]).optional(),
-  description: z.string().max(2000).optional(),
-  amount: z.number().min(0).max(99_999_999).finite().optional(),
-  currency: z.enum(["INR", "USD", "GBP", "EUR"]).optional(),
-  date: z.string().optional(),
-  receiptUrl: z.string().url().nullable().optional(),
-  projectId: z.string().nullable().optional(),
-  employeeId: z.string().max(100).nullable().optional(),
-  paymentRef: z.string().max(200).nullable().optional(),
-})
-
 // ━━ Leads ━━
 export const createLeadSchema = z.object({
   name: z.string().min(1, "Name is required").max(200, "Name must be at most 200 characters"),
@@ -257,9 +222,6 @@ export const updateSupportTicketSchema = z.object({
   assignedTo: z.string().nullable().optional(),
   resolution: z.string().max(5000).optional(),
 }).refine(hasAtLeastOneField, { message: "At least one field must be provided" })
-
-// Backward compatibility alias
-export const supportTicketSchema = createSupportTicketSchema
 
 // ━━ Time Tracking ━━
 export const startTimeEntrySchema = z.object({
@@ -368,133 +330,3 @@ export const adminUpdateTimeEntrySchema = z.object({
   }
   return true;
 }, { message: "Clock-out must be after clock-in", path: ["clockOut"] })
-
-// === HR Validation Schemas ===
-
-// Re-export from types.ts to avoid duplication (L22)
-export { VALID_LEAVE_TYPES, type LeaveType } from "@/lib/types"
-
-export const VALID_LEAVE_STATUSES = [
-  "PENDING",
-  "APPROVED",
-  "REJECTED",
-  "CANCELLED",
-] as const;
-
-export const VALID_ATTENDANCE_STATUSES = [
-  "PRESENT",
-  "ABSENT",
-  "HALF_DAY",
-  "LEAVE",
-  "TRAINING",
-  "NO_SCHEDULE",
-] as const;
-
-export const createLeaveSchema = z.object({
-  userId: z.string().min(1).optional(),
-  leaveType: z.enum(VALID_LEAVE_TYPES),
-  startDate: z.string().min(1),
-  endDate: z.string().min(1),
-  reason: z.string().max(1000).optional(),
-}).refine(data => {
-  const start = new Date(data.startDate);
-  const end = new Date(data.endDate);
-  return end >= start;
-}, { message: "endDate must be on or after startDate" });
-
-export const updateLeaveSchema = z.object({
-  leaveType: z.enum(VALID_LEAVE_TYPES).optional(),
-  startDate: z.string().min(1).optional(),
-  endDate: z.string().min(1).optional(),
-  reason: z.string().max(1000).optional(),
-  status: z.enum(VALID_LEAVE_STATUSES).optional(),
-  feedback: z.string().max(500).optional(),
-}).refine(data => {
-  if (data.startDate && data.endDate) {
-    return new Date(data.endDate) >= new Date(data.startDate);
-  }
-  return true;
-}, { message: "endDate must be on or after startDate" });
-
-export const createAttendanceSchema = z.object({
-  userId: z.string().min(1),
-  date: z.string().min(1),
-  checkIn: z.string().min(1),
-  checkOut: z.string().optional(),
-  status: z.enum(VALID_ATTENDANCE_STATUSES),
-  notes: z.string().max(500).optional(),
-});
-
-export const updateAttendanceSchema = z.object({
-  checkIn: z.string().optional(),
-  checkOut: z.string().optional(),
-  status: z.enum(VALID_ATTENDANCE_STATUSES).optional(),
-  notes: z.string().max(500).optional(),
-});
-
-export const createAvailabilitySchema = z.object({
-  userId: z.string().min(1),
-  dayOfWeek: z.number().int().min(0).max(6),
-  startTime: z.string().regex(/^\d{2}:\d{2}$/, "Must be HH:mm format"),
-  endTime: z.string().regex(/^\d{2}:\d{2}$/, "Must be HH:mm format"),
-  isAvailable: z.boolean().default(true),
-});
-
-export const updateAvailabilitySchema = z.object({
-  dayOfWeek: z.number().int().min(0).max(6).optional(),
-  startTime: z.string().regex(/^\d{2}:\d{2}$/, "Must be HH:mm format").optional(),
-  endTime: z.string().regex(/^\d{2}:\d{2}$/, "Must be HH:mm format").optional(),
-  isAvailable: z.boolean().optional(),
-});
-
-export const createOverrideSchema = z.object({
-  userId: z.string().min(1),
-  date: z.string().min(1),
-  startTime: z.string().optional(),
-  endTime: z.string().optional(),
-  isAvailable: z.boolean(),
-  reason: z.string().max(200).optional(),
-});
-
-export const updateOverrideSchema = z.object({
-  date: z.string().min(1).optional(),
-  startTime: z.string().optional(),
-  endTime: z.string().optional(),
-  isAvailable: z.boolean().optional(),
-  reason: z.string().max(200).optional(),
-});
-
-// === Phase 8 Validation Schemas ===
-
-// Support Ticket — additional schemas (existing ones above use `subject`)
-export const createTicketMessageSchema = z.object({
-  message: z.string().min(1).max(50000),
-})
-
-// Approval
-export const validApprovalTypes = APPROVAL_TYPES
-
-export const createApprovalSchema = z.object({
-  title: z.string().min(1).max(200),
-  description: z.string().min(1).max(2000),
-  type: z.enum(validApprovalTypes),
-  requesterType: z.enum(["AI", "HUMAN"]).default("HUMAN"),
-  data: z.record(z.string(), z.unknown()).optional(),
-})
-
-export const patchApprovalSchema = z.object({
-  id: z.string().min(1),
-  status: z.enum(["APPROVED", "REJECTED", "NEEDS_IMPROVEMENT"]),
-  feedback: z.string().max(2000).optional(),
-})
-
-// Notification Preference
-const hhMmRegex = /^([01]\d|2[0-3]):([0-5]\d)$/
-
-export const updateNotificationPreferenceSchema = z.object({
-  emailNotifications: z.boolean().optional(),
-  approvalAlerts: z.boolean().optional(),
-  quietHoursEnabled: z.boolean().optional(),
-  quietHoursStart: z.string().regex(hhMmRegex).nullable().optional(),
-  quietHoursEnd: z.string().regex(hhMmRegex).nullable().optional(),
-})

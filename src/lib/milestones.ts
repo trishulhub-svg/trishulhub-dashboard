@@ -76,17 +76,3 @@ export function isDueOnOrBefore(dueDate: Date | string, todayKey: string): boole
       : new Date(dueDate).toISOString().slice(0, 10)
   return dueKey <= todayKey
 }
-
-type AssigneeLike = { userId: string }
-
-/**
- * Used for assignment UI / notifications only.
- * Clock-in briefing and clock-out gates use ALL project milestones (per product prompt).
- */
-export function isMilestoneRelevantToUser(
-  assignees: AssigneeLike[],
-  userId: string
-): boolean {
-  if (!assignees || assignees.length === 0) return true
-  return assignees.some((a) => a.userId === userId)
-}

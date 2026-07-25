@@ -119,36 +119,6 @@ export async function ensureProjectCredentialTable(): Promise<void> {
   }
 }
 
-// ── Auto-migration: Create ProjectWebsite table if it doesn't exist ──
-let _projectWebsiteEnsured = false
-
-export async function ensureProjectWebsiteTable(): Promise<void> {
-  if (_projectWebsiteEnsured) return
-  try {
-    await db.$executeRawUnsafe(`
-      CREATE TABLE IF NOT EXISTS "ProjectWebsite" (
-        "id" TEXT NOT NULL PRIMARY KEY,
-        "url" TEXT NOT NULL,
-        "label" TEXT,
-        "isPrimary" BOOLEAN NOT NULL DEFAULT 0,
-        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        "projectId" TEXT NOT NULL
-      );
-    `)
-    await db.$executeRawUnsafe(`
-      CREATE INDEX IF NOT EXISTS "idx_ProjectWebsite_projectId" ON "ProjectWebsite"("projectId");
-    `)
-    _projectWebsiteEnsured = true
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error)
-    if (msg.includes('already exists')) {
-      _projectWebsiteEnsured = true
-    } else {
-      console.error('[db] Failed to ensure ProjectWebsite table:', msg)
-    }
-  }
-}
-
 // ── AppSetting helpers (key-value store for system settings) ──
 
 let _appSettingEnsured = false
@@ -177,42 +147,6 @@ export async function getAppSetting(key: string): Promise<string> {
     return row.length > 0 ? row[0].value : ''
   } catch {
     return ''
-  }
-}
-
-/** Set a setting value in the AppSetting table (upsert).
- * Uses DELETE + INSERT as a reliable fallback for Turso/libsql compatibility.
- */
-export async function setAppSetting(key: string, value: string): Promise<void> {
-  await ensureAppSettingTable()
-
-  // Strategy 1: Try SQLite UPSERT syntax first
-  try {
-    await db.$executeRawUnsafe(
-      'INSERT INTO "AppSetting" ("key", "value", "updatedAt") VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT("key") DO UPDATE SET "value" = ?, "updatedAt" = CURRENT_TIMESTAMP',
-      key, value, value
-    )
-    return
-  } catch (upsertErr) {
-    const upsertMsg = upsertErr instanceof Error ? upsertErr.message : String(upsertErr)
-    console.warn('[db] UPSERT failed, falling back to DELETE+INSERT:', upsertMsg)
-  }
-
-  // Strategy 2: Fallback — delete then insert (safe for all SQLite-compatible drivers)
-  await db.$executeRawUnsafe('DELETE FROM "AppSetting" WHERE "key" = ?', key)
-  await db.$executeRawUnsafe(
-    'INSERT INTO "AppSetting" ("key", "value", "updatedAt") VALUES (?, ?, CURRENT_TIMESTAMP)',
-    key, value
-  )
-}
-
-/** Delete a setting from the AppSetting table. No-op if key doesn't exist. */
-export async function delAppSetting(key: string): Promise<void> {
-  await ensureAppSettingTable()
-  try {
-    await db.$executeRawUnsafe('DELETE FROM "AppSetting" WHERE "key" = ?', key)
-  } catch (err) {
-    console.error('[db] Failed to delete AppSetting:', err)
   }
 }
 
