@@ -361,8 +361,7 @@ const SidebarContent = React.memo(function SidebarContent({
       </div>
 
       {/* Favorite pages — always in the side menu */}
-      {(favLoaded || favoritePages.length > 0) && (
-        <div className={cn("px-2.5 pb-2", collapsed && "px-2")}>
+      <div className={cn("px-2.5 pb-2", collapsed && "px-2")}>
           {!collapsed && (
             <div className="flex items-center justify-between gap-2 px-2.5 py-1.5">
               <p className="th-sidebar-section-label flex items-center gap-1.5">
@@ -383,7 +382,22 @@ const SidebarContent = React.memo(function SidebarContent({
             </div>
           )}
           <div className={cn("space-y-0.5", collapsed && "flex flex-col items-center gap-1")}>
-            {favoritePages.length === 0 ? (
+            {!favLoaded && favoritePages.length === 0 ? (
+              !collapsed ? (
+                <div className="th-sidebar-link w-full opacity-60 pointer-events-none">
+                  <span className="th-sidebar-icon-wrap">
+                    <Star className="h-[17px] w-[17px] text-amber-600" />
+                  </span>
+                  <span className="flex-1 truncate text-left text-muted-foreground">Loading…</span>
+                </div>
+              ) : (
+                <div className="th-sidebar-link justify-center px-2 opacity-60" title="Loading favorites">
+                  <span className="th-sidebar-icon-wrap mx-0">
+                    <Star className="h-[17px] w-[17px] text-amber-600" />
+                  </span>
+                </div>
+              )
+            ) : favoritePages.length === 0 ? (
               !collapsed ? (
                 <button
                   type="button"
@@ -440,7 +454,6 @@ const SidebarContent = React.memo(function SidebarContent({
           </div>
           {!collapsed && <div className="mx-2.5 mt-2 border-t border-sidebar-border/25" />}
         </div>
-      )}
 
       {/* Navigation */}
       <ScrollArea className="flex-1 py-3">
