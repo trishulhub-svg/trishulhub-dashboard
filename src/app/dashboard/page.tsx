@@ -639,7 +639,7 @@ export default function DashboardPage() {
             {roleSubtitle(userRole)}
           </p>
         </div>
-        <div className="grid min-w-0 grid-cols-1 gap-2 min-[400px]:grid-cols-2 sm:flex sm:flex-wrap sm:justify-end">
+        <div className="grid min-w-0 grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
           {isAdminUser && (
             <Button size="sm" className="w-full sm:w-auto" onClick={() => router.push("/dashboard/projects")}>
               <Plus className="mr-1 h-4 w-4" /> New Project
@@ -651,7 +651,7 @@ export default function DashboardPage() {
             </Button>
           )}
           {isAdminUser && (
-            <Button size="sm" variant="outline" className="w-full sm:w-auto sm:col-span-2" onClick={() => router.push("/dashboard/finance/invoices")}>
+            <Button size="sm" variant="outline" className="col-span-2 w-full sm:col-span-1 sm:w-auto" onClick={() => router.push("/dashboard/finance/invoices")}>
               <Send className="mr-1 h-4 w-4" /> Send Invoice
             </Button>
           )}
