@@ -1,43 +1,17 @@
 /**
  * GET/PUT /api/user-favorites — up to 2 role-allowed favorite dashboard pages.
+ * Stored on the user account so the same favorites appear on every device / login.
  */
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import { db } from "@/lib/db"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureCriticalSchema } from "@/lib/auto-migrate"
 import {
-  CONTROLLABLE_PAGES,
-  isPageAccessAllowed,
-  isRoleAllowedDashboardHref,
-  normalizePageAccessMode,
-  parsePageAccessPages,
-} from "@/lib/nav-pages"
-
-function parseFavorites(raw: unknown): string[] {
-  if (typeof raw !== "string" || !raw.trim()) return []
-  try {
-    const arr = JSON.parse(raw) as unknown
-    if (!Array.isArray(arr)) return []
-    return arr.filter((x): x is string => typeof x === "string" && x.startsWith("/dashboard")).slice(0, 2)
-  } catch {
-    return []
-  }
-}
-
-function allowedFavoriteHrefs(
-  role: string,
-  mode: ReturnType<typeof normalizePageAccessMode>,
-  pages: string[]
-): string[] {
-  return CONTROLLABLE_PAGES.filter(
-    (p) =>
-      !p.locked &&
-      isRoleAllowedDashboardHref(p.href, role) &&
-      isPageAccessAllowed(p.href, role, mode, pages)
-  ).map((p) => p.href)
-}
+  FAVORITES_NO_STORE_HEADERS,
+  loadUserFavoritesPayload,
+  saveUserFavorites,
+} from "@/lib/user-favorites"
 
 export async function GET() {
   try {
@@ -46,30 +20,14 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
     await ensureCriticalSchema()
-    const user = await db.user.findUnique({
-      where: { id: session.user.id },
-      select: {
-        favoritePages: true,
-        pageAccessMode: true,
-        pageAccessPages: true,
-        role: true,
-        isActive: true,
-      },
-    })
-    if (!user?.isActive) {
-      return NextResponse.json({ error: "Account deactivated" }, { status: 403 })
+    const result = await loadUserFavoritesPayload(session.user.id)
+    if (!result.ok) {
+      return NextResponse.json(
+        { error: result.error },
+        { status: result.status, headers: FAVORITES_NO_STORE_HEADERS }
+      )
     }
-    const mode = normalizePageAccessMode(user.pageAccessMode)
-    const acl = parsePageAccessPages(user.pageAccessPages)
-    const allowed = allowedFavoriteHrefs(user.role, mode, acl)
-    const favorites = parseFavorites(user.favoritePages).filter((h) => allowed.includes(h))
-    return NextResponse.json({
-      favorites,
-      allowedPages: CONTROLLABLE_PAGES.filter((p) => allowed.includes(p.href)).map((p) => ({
-        title: p.title,
-        href: p.href,
-      })),
-    })
+    return NextResponse.json(result.payload, { headers: FAVORITES_NO_STORE_HEADERS })
   } catch (e) {
     console.error("[user-favorites] GET", e)
     return NextResponse.json({ error: "Failed" }, { status: 500 })
@@ -89,36 +47,20 @@ export async function PUT(req: NextRequest) {
     )
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
+    await ensureCriticalSchema()
     const body = await req.json().catch(() => ({}))
     const incoming = Array.isArray(body?.favorites) ? body.favorites : []
-    if (incoming.length > 2) {
-      return NextResponse.json({ error: "Maximum 2 favorite pages" }, { status: 400 })
+    const result = await saveUserFavorites(session.user.id, incoming)
+    if (!result.ok) {
+      return NextResponse.json(
+        { error: result.error },
+        { status: result.status, headers: FAVORITES_NO_STORE_HEADERS }
+      )
     }
-
-    const user = await db.user.findUnique({
-      where: { id: session.user.id },
-      select: {
-        pageAccessMode: true,
-        pageAccessPages: true,
-        role: true,
-        isActive: true,
-      },
-    })
-    if (!user?.isActive) {
-      return NextResponse.json({ error: "Account deactivated" }, { status: 403 })
-    }
-    const mode = normalizePageAccessMode(user.pageAccessMode)
-    const acl = parsePageAccessPages(user.pageAccessPages)
-    const allowed = new Set(allowedFavoriteHrefs(user.role, mode, acl))
-    const favorites = incoming
-      .filter((x: unknown): x is string => typeof x === "string" && allowed.has(x))
-      .slice(0, 2)
-
-    await db.user.update({
-      where: { id: session.user.id },
-      data: { favoritePages: JSON.stringify(favorites) },
-    })
-    return NextResponse.json({ favorites })
+    return NextResponse.json(
+      { favorites: result.favorites },
+      { headers: FAVORITES_NO_STORE_HEADERS }
+    )
   } catch (e) {
     console.error("[user-favorites] PUT", e)
     return NextResponse.json({ error: "Failed" }, { status: 500 })

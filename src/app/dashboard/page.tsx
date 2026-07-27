@@ -340,7 +340,7 @@ export default function DashboardPage() {
         return;
       }
       setFavPickerSlot(null);
-      toast.success("Favorites saved");
+      toast.success("Favorites saved — synced to your account");
     },
     [saveFavoritesRaw]
   );
@@ -439,7 +439,9 @@ export default function DashboardPage() {
             <Star className="h-3.5 w-3.5 shrink-0 fill-amber-500/80 text-amber-600" />
             <h2 className="text-xs font-semibold tracking-tight truncate">Favorite pages</h2>
           </div>
-          <p className="shrink-0 text-[10px] text-muted-foreground">Up to 2 · also in sidebar</p>
+          <p className="shrink-0 text-[10px] text-muted-foreground">
+            Up to 2 · synced to your account
+          </p>
         </div>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {[0, 1].map((slot) => {
@@ -501,7 +503,8 @@ export default function DashboardPage() {
           <DialogHeader>
             <DialogTitle className="text-base">Choose a favorite page</DialogTitle>
             <DialogDescription className="text-xs">
-              Only pages you are allowed to open are listed. Max 2 favorites — also shown in the side menu.
+              Only pages you are allowed to open are listed. Max 2 — saved to your account so they
+              stay the same on every device you sign in to, and in the side menu.
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-72 space-y-1 overflow-y-auto custom-scrollbar pr-1">
