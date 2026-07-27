@@ -9,15 +9,16 @@ export async function register() {
       const { runAutoMigrations } = await import("@/lib/auto-migrate")
       const startTime = Date.now()
 
-      // Safety timeout: don't let migrations block the server startup for more than 10s.
-      // If migrations hang (e.g., Turso connectivity issue), the timeout rejects and
-      // the error is caught below, allowing the server to start anyway.
+      // Prefer critical schema (tables/columns) completing before the timeout.
+      // Full migrate can continue; 25s allows Turso ALTERs after cold deploy.
+      const { ensureCriticalSchema } = await import("@/lib/auto-migrate")
       await Promise.race([
         (async () => {
+          await ensureCriticalSchema()
           await runAutoMigrations()
         })(),
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("Migration timeout after 10s")), 10000)
+          setTimeout(() => reject(new Error("Migration timeout after 25s")), 25000)
         ),
       ])
 

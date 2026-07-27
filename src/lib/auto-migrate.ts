@@ -20,20 +20,43 @@ function getErrMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
+// Bump when adding CRITICAL_COLUMNS / CRITICAL_TABLES so warm serverless
+// instances re-run migrations after deploy (stale syncDone otherwise skips ALTERs).
+const SCHEMA_REVISION = 20260727
+
 // Use globalThis to persist the syncDone flag across hot reloads in dev
 // and across serverless function warm invocations in production.
 // This prevents ensureAllTables() from running the full migration check
 // on every single API request.
 declare global {
   var __trishulAutoMigrateSyncDone: boolean | undefined
+  var __trishulAutoMigrateRevision: number | undefined
+  var __trishulCriticalSchemaRevision: number | undefined
 }
 
 function isSyncDone(): boolean {
-  return globalThis.__trishulAutoMigrateSyncDone === true
+  return (
+    globalThis.__trishulAutoMigrateSyncDone === true &&
+    globalThis.__trishulAutoMigrateRevision === SCHEMA_REVISION
+  )
 }
 
 function setSyncDone(value: boolean) {
   globalThis.__trishulAutoMigrateSyncDone = value
+  if (value) {
+    globalThis.__trishulAutoMigrateRevision = SCHEMA_REVISION
+    globalThis.__trishulCriticalSchemaRevision = SCHEMA_REVISION
+  }
+}
+
+function isCriticalSchemaDone(): boolean {
+  return (
+    isSyncDone() || globalThis.__trishulCriticalSchemaRevision === SCHEMA_REVISION
+  )
+}
+
+function setCriticalSchemaDone() {
+  globalThis.__trishulCriticalSchemaRevision = SCHEMA_REVISION
 }
 
 /** Columns to add if missing: uses "try ALTER, catch duplicate" approach */
@@ -523,10 +546,40 @@ async function columnExists(table: string, column: string): Promise<boolean> {
 }
 
 /**
- * Compare schema with DB and auto-fix any missing tables or columns.
- * Safe to call multiple times — skips if already synced in this process.
- * Uses globalThis flag to persist across serverless warm invocations.
+ * Fast path: apply CRITICAL_TABLES + CRITICAL_COLUMNS only.
+ * Safe to call from read APIs so "no such column" cannot blank the UI
+ * if instrumentation timed out before ALTERs finished.
  */
+export async function ensureCriticalSchema(): Promise<void> {
+  if (isCriticalSchemaDone()) return
+  try {
+    await db.$queryRawUnsafe("SELECT 1")
+  } catch (err: unknown) {
+    console.error("[auto-migrate] ensureCriticalSchema DB failed:", getErrMsg(err))
+    return
+  }
+  for (const tableDef of CRITICAL_TABLES) {
+    try {
+      await db.$executeRawUnsafe(tableDef.sql)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes("already exists")) {
+        console.warn(`[auto-migrate] Table ${tableDef.name}: ${getErrMsg(err)}`)
+      }
+    }
+  }
+  for (const colDef of CRITICAL_COLUMNS) {
+    try {
+      await db.$executeRawUnsafe(colDef.sql)
+    } catch (err: unknown) {
+      const msg = getErrMsg(err) || ""
+      if (!msg.includes("duplicate column") && !msg.includes("no such table")) {
+        console.warn(`[auto-migrate] Column ${colDef.column} on ${colDef.table}: ${msg}`)
+      }
+    }
+  }
+  setCriticalSchemaDone()
+}
+
 export async function ensureAllTables(): Promise<void> {
   if (isSyncDone()) return
 
@@ -540,7 +593,12 @@ export async function ensureAllTables(): Promise<void> {
   }
 
   try {
-    // 1. Create missing tables
+    // 0. CRITICAL first — columns/tables needed by current Prisma schema.
+    // Must run before heavier migrations so a startup timeout cannot leave
+    // the app querying dueTime/carriedForward/etc. that do not exist yet.
+    await ensureCriticalSchema()
+
+    // 1. Create missing tables (idempotent; already covered above, kept for clarity)
     for (const tableDef of CRITICAL_TABLES) {
       try {
         await db.$executeRawUnsafe(tableDef.sql)

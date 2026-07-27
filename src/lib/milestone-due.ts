@@ -110,15 +110,33 @@ export async function notifyOverdueMilestones(limit = 40): Promise<number> {
   overdueSweepInFlight = (async () => {
     lastOverdueSweepAt = Date.now()
     const now = new Date()
-    const open = await db.projectMilestone.findMany({
-      where: { done: false, dueDate: { not: null }, dueNotifiedAt: null },
-      include: {
-        assignees: { select: { userId: true } },
-        project: { select: { id: true, name: true } },
-      },
-      take: limit,
-      orderBy: { dueDate: "asc" },
-    })
+    let open: Array<{
+      id: string
+      projectId: string
+      title: string
+      dueDate: Date | null
+      dueTime: string | null
+      assignees: { userId: string }[]
+      project: { id: string; name: string }
+    }> = []
+    try {
+      open = await db.projectMilestone.findMany({
+        where: { done: false, dueDate: { not: null }, dueNotifiedAt: null },
+        include: {
+          assignees: { select: { userId: true } },
+          project: { select: { id: true, name: true } },
+        },
+        take: limit,
+        orderBy: { dueDate: "asc" },
+      })
+    } catch (err) {
+      // Schema drift (missing dueNotifiedAt/dueTime) must not break milestone GETs
+      console.warn(
+        "[milestone-due] overdue query skipped:",
+        err instanceof Error ? err.message : err
+      )
+      return 0
+    }
 
     const due = open.filter(
       (m) => m.dueDate && isMilestoneOverdue(m.dueDate, m.dueTime, now)

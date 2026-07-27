@@ -6,6 +6,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
+import { ensureCriticalSchema } from "@/lib/auto-migrate"
 import {
   CONTROLLABLE_PAGES,
   isPageAccessAllowed,
@@ -44,6 +45,7 @@ export async function GET() {
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+    await ensureCriticalSchema()
     const user = await db.user.findUnique({
       where: { id: session.user.id },
       select: {

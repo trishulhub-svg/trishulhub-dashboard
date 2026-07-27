@@ -6,6 +6,7 @@ import { deepSanitize } from "@/lib/utils"
 import { canAccessProject, isValidProjectId } from "@/lib/project-access"
 import { notifyAdmins } from "@/lib/notifications"
 import { checkDbRateLimit } from "@/lib/rate-limit"
+import { ensureCriticalSchema } from "@/lib/auto-migrate"
 import {
   formatDueDateLabel,
   isDueOnOrBefore,
@@ -45,6 +46,8 @@ export async function GET(req: NextRequest) {
       select: { id: true, name: true },
     })
     if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 })
+
+    await ensureCriticalSchema()
 
     const milestones = await db.projectMilestone.findMany({
       where: { projectId, done: false },

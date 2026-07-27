@@ -7,6 +7,7 @@ import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { encryptCredentialToJson } from "@/lib/encryption"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 import { canAccessProject, isValidProjectId } from "@/lib/project-access"
+import { ensureCriticalSchema } from "@/lib/auto-migrate"
 
 const GROUP_KEYS = ["GITHUB", "TURSO", "CLOUDFLARE", "SMTP"] as const
 type InfraGroupKey = (typeof GROUP_KEYS)[number]
@@ -110,6 +111,8 @@ export async function GET(
     if (!(await canAccessProject(userId, userRole, projectId))) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
+
+    await ensureCriticalSchema()
 
     const canManage = isAdminOrProjectManager(userRole)
     const [items, memberAccess] = await Promise.all([

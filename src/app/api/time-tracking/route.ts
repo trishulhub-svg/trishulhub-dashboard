@@ -7,6 +7,7 @@ import { startTimeEntrySchema, adminCreateTimeEntrySchema, validateRequest } fro
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { checkClientClockIntegrity } from "@/lib/clock-integrity"
 import { logAudit, getIpAddress, getUserAgent, buildDescription } from "@/lib/audit-log"
+import { ensureCriticalSchema } from "@/lib/auto-migrate"
 
 function appendAttendedLine(value: string | null | undefined, trainingTitle: string): string {
   const base = (value || "").trim()
@@ -58,6 +59,8 @@ export async function GET(req: NextRequest) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    await ensureCriticalSchema()
 
     const rl = rateLimit(`time-tracking-get-${session.user.id}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
     if (!rl.success) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
@@ -221,6 +224,8 @@ export async function POST(req: NextRequest) {
     } catch {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
     }
+
+    await ensureCriticalSchema()
 
     // ── Admin manual entry creation path ──
     if (isAdminUser && body.userId && typeof body.userId === "string" && body.clockIn) {
