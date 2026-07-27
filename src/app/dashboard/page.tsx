@@ -315,6 +315,7 @@ export default function DashboardPage() {
   const [weekHours, setWeekHours] = useState<number | null>(null);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [allowedFavPages, setAllowedFavPages] = useState<FavPage[]>([]);
+  const [favLoaded, setFavLoaded] = useState(false);
   const [favPickerSlot, setFavPickerSlot] = useState<0 | 1 | null>(null);
   const [favSaving, setFavSaving] = useState(false);
 
@@ -327,12 +328,17 @@ export default function DashboardPage() {
   const loadFavorites = useCallback(async () => {
     try {
       const res = await fetch("/api/user-favorites", { credentials: "include" });
-      if (!res.ok) return;
+      if (!res.ok) {
+        setFavLoaded(true);
+        return;
+      }
       const json = await res.json();
       setFavorites(Array.isArray(json.favorites) ? json.favorites.slice(0, 2) : []);
       setAllowedFavPages(Array.isArray(json.allowedPages) ? json.allowedPages : []);
     } catch {
       /* non-blocking */
+    } finally {
+      setFavLoaded(true);
     }
   }, []);
 
@@ -482,7 +488,10 @@ export default function DashboardPage() {
               <button
                 key={slot}
                 type="button"
-                onClick={() => setFavPickerSlot(slot as 0 | 1)}
+                onClick={() => {
+                  setFavPickerSlot(slot as 0 | 1);
+                  void loadFavorites();
+                }}
                 className="flex min-h-[3.5rem] items-center justify-center gap-2 rounded-lg border border-dashed border-amber-500/40 bg-background/50 px-3 py-2 text-foreground/80 transition-colors hover:border-amber-500/70 hover:bg-amber-500/10"
               >
                 <Plus className="h-4 w-4 text-amber-600" />
@@ -502,7 +511,9 @@ export default function DashboardPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-72 space-y-1 overflow-y-auto custom-scrollbar pr-1">
-            {allowedFavPages.length === 0 ? (
+            {!favLoaded || (allowedFavPages.length === 0 && !favLoaded) ? (
+              <p className="py-6 text-center text-xs text-muted-foreground">Loading pages…</p>
+            ) : allowedFavPages.length === 0 ? (
               <p className="py-6 text-center text-xs text-muted-foreground">
                 No pages available for your role yet. Try refreshing, or ask an admin to grant page access.
               </p>
