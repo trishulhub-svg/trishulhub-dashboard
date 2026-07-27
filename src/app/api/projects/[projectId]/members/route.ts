@@ -32,7 +32,17 @@ export async function GET(
     const members = await db.projectMember.findMany({
       where: { projectId },
       include: {
-        user: { select: { id: true, name: true, email: true, role: true, department: true, avatar: true } },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+            department: true,
+            avatar: true,
+            isActive: true,
+          },
+        },
       },
       orderBy: { createdAt: "asc" },
     })
@@ -90,10 +100,19 @@ export async function POST(
       return NextResponse.json({ error: "Project not found" }, { status: 404 })
     }
 
-    // Verify user exists
-    const user = await db.user.findUnique({ where: { id: userId } })
+    // Verify user exists and is active (deactivated users cannot be assigned)
+    const user = await db.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, email: true, role: true, isActive: true },
+    })
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
+    }
+    if (!user.isActive) {
+      return NextResponse.json(
+        { error: "Cannot assign a deactivated user. Reactivate them in Team first." },
+        { status: 400 }
+      )
     }
 
     // Create or update membership

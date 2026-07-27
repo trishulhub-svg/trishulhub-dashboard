@@ -72,6 +72,11 @@ export async function GET(req: NextRequest) {
       void cleanupOldNotifications()
     }
 
+    // Also check UK milestone due reminders on notification list polls
+    void import("@/lib/milestone-due")
+      .then((m) => m.notifyOverdueMilestones())
+      .catch(() => undefined)
+
     const where: Prisma.NotificationWhereInput = { userId }
     if (unreadOnly) where.isRead = false
 

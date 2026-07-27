@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { notifyRoles, notifyUsers } from "@/lib/notify"
 import { ensureTrainingAssignmentSchema } from "@/lib/training-assignment-migrate"
+import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 import { z } from "zod"
 import { randomBytes } from "crypto"
 
@@ -133,29 +134,19 @@ async function notifyOverdueIfNeeded() {
 }
 
 async function fetchTeam() {
-  // Prefer active staff; fall back to all non-CLIENT if isActive filter is empty/odd on Turso
+  // Active staff only — never fall back to deactivated users for assign UI
   try {
-    const active = await db.user.findMany({
+    return await db.user.findMany({
       where: {
         isActive: true,
         NOT: { role: "CLIENT" },
       },
       select: { id: true, name: true, email: true, role: true },
       orderBy: { name: "asc" },
-    })
-    if (active.length > 0) return active
-  } catch (err) {
-    console.warn("[training/assignments] team active query:", err)
-  }
-  try {
-    return await db.user.findMany({
-      where: { NOT: { role: "CLIENT" } },
-      select: { id: true, name: true, email: true, role: true },
-      orderBy: { name: "asc" },
       take: 200,
     })
   } catch (err) {
-    console.warn("[training/assignments] team fallback query:", err)
+    console.warn("[training/assignments] team active query:", err)
     return []
   }
 }
@@ -296,6 +287,18 @@ export async function POST(req: NextRequest) {
         { status: 404 }
       )
     }
+    const inactive = targets.filter((t) => !t.isActive)
+    if (inactive.length > 0) {
+      return NextResponse.json(
+        {
+          error: `Cannot assign deactivated users: ${inactive
+            .slice(0, 3)
+            .map((t) => t.name || t.email || t.id)
+            .join(", ")}${inactive.length > 3 ? "…" : ""}. Reactivate them in Team first.`,
+        },
+        { status: 400 }
+      )
+    }
 
     const title = parsed.data.title.trim()
     const notes = parsed.data.notes?.trim() || null
@@ -363,6 +366,26 @@ export async function POST(req: NextRequest) {
       },
     })
 
+    void logAudit({
+      userId: session.user.id,
+      userName: session.user.name || "unknown",
+      userRole: session.user.role || "",
+      department: "LEARNING",
+      page: "training",
+      action: "ASSIGN",
+      entityType: "TrainingAssignment",
+      entityId: created[0]?.id,
+      description: `Assigned training "${title}" to ${created.length} member${created.length === 1 ? "" : "s"} (due ${due.toLocaleDateString()})`,
+      newValue: JSON.stringify({
+        title,
+        assigneeIds: targetIds,
+        dueDate: due.toISOString(),
+        assignmentIds: created.map((a) => a.id),
+      }),
+      ipAddress: getIpAddress(req),
+      userAgent: getUserAgent(req),
+    })
+
     const userMap = await loadUserMap([
       ...created.map((a) => a.userId),
       session.user.id,
@@ -415,6 +438,24 @@ export async function PATCH(req: NextRequest) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 })
       }
       await db.trainingAssignment.delete({ where: { id } })
+      void logAudit({
+        userId: session.user.id,
+        userName: session.user.name || "unknown",
+        userRole: session.user.role || "",
+        department: "LEARNING",
+        page: "training",
+        action: "DELETE",
+        entityType: "TrainingAssignment",
+        entityId: id,
+        description: `Deleted training assignment "${existing.title}"`,
+        oldValue: JSON.stringify({
+          title: existing.title,
+          userId: existing.userId,
+          status: existing.status,
+        }),
+        ipAddress: getIpAddress(req),
+        userAgent: getUserAgent(req),
+      })
       return NextResponse.json({ ok: true, deleted: true })
     }
 
@@ -443,6 +484,22 @@ export async function PATCH(req: NextRequest) {
       type: "SUCCESS",
       link: "/dashboard/training/assign",
       metadata: { kind: "training_done", assignmentId: updated.id, userId: updated.userId },
+    })
+
+    void logAudit({
+      userId: session.user.id,
+      userName: session.user.name || "unknown",
+      userRole: session.user.role || "",
+      department: "LEARNING",
+      page: existing.userId === session.user.id ? "my-training" : "training",
+      action: "STATUS_CHANGE",
+      entityType: "TrainingAssignment",
+      entityId: updated.id,
+      description: `${who} marked training "${updated.title}" as done`,
+      oldValue: JSON.stringify({ status: existing.status }),
+      newValue: JSON.stringify({ status: "DONE", completedAt: updated.completedAt }),
+      ipAddress: getIpAddress(req),
+      userAgent: getUserAgent(req),
     })
 
     return NextResponse.json({ ok: true, assignment: serializeAssignment(updated, userMap) })

@@ -28,6 +28,7 @@ model User {
   // Page access ACL — OFF | ALLOW | RESTRICT (only one mode active; see nav-pages.ts)
   pageAccessMode  String  @default("OFF")
   pageAccessPages String  @default("[]") // JSON string[] of /dashboard/... hrefs
+  favoritePages   String  @default("[]") // JSON string[] up to 2 favorite /dashboard/... hrefs
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -247,6 +248,8 @@ model Project {
   credentials  ProjectCredential[]
   websites     ProjectWebsite[]
   infrastructure ProjectInfrastructure?
+  infraItems     ProjectInfraItem[]
+  infraMemberAccess ProjectInfraMemberAccess?
   milestones   ProjectMilestone[]
   // methods are fetched via raw SQL on _ProjectMethodToProject join table
 
@@ -282,6 +285,41 @@ model ProjectInfrastructure {
   updatedAt       DateTime @updatedAt
 
   project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+// ━━ Project Infrastructure Items (grouped secrets/config) ━━
+model ProjectInfraItem {
+  id          String   @id @default(cuid())
+  projectId   String
+  groupKey    String   // GITHUB | TURSO | CLOUDFLARE | SMTP
+  label       String
+  isSecret    Boolean  @default(true)
+  // Non-secret plain value OR encrypted envelope JSON for secrets
+  valuePlain  String?
+  valueEnc    String?
+  sortOrder   Int      @default(0)
+  createdBy   String?
+  updatedBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, groupKey])
+  @@map("ProjectInfraItem")
+}
+
+model ProjectInfraMemberAccess {
+  id           String    @id @default(cuid())
+  projectId    String    @unique
+  visibleUntil DateTime?
+  enabledBy    String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("ProjectInfraMemberAccess")
 }
 
 // ━━ Project Websites (live URLs for each project) ━━
@@ -528,6 +566,10 @@ model TimeEntry {
   clockInMethod  String?
   // How the user clocked out: END_COMMAND, MANUAL, ADMIN_OVERRIDE, AUTO_MISSED
   clockOutMethod String?
+  // PROJECT | TRAINING | HR_ADMIN | RD_SA
+  activityType   String?
+  // When activityType=TRAINING, optional TrainingAssignment id
+  trainingAssignmentId String?
 
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   project     Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
@@ -811,18 +853,23 @@ model LeaveBalance {
 }
 
 model ProjectMilestone {
-  id          String    @id @default(cuid())
-  projectId   String
-  title       String
-  description String?
-  done        Boolean   @default(false)
-  sortOrder   Int       @default(0)
-  dueDate     DateTime?
-  createdById String?
-  completedAt DateTime?
-  completedBy String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id              String    @id @default(cuid())
+  projectId       String
+  title           String
+  description     String?
+  done            Boolean   @default(false)
+  sortOrder       Int       @default(0)
+  dueDate         DateTime?
+  // Optional UK clock time HH:mm — with dueDate, overdue when both pass (Europe/London)
+  dueTime         String?
+  // Once carried forward at clock-out; blocks another carry until done
+  carriedForward  Boolean   @default(false)
+  dueNotifiedAt   DateTime?
+  createdById     String?
+  completedAt     DateTime?
+  completedBy     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   project   Project                      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   assignees ProjectMilestoneAssignee[]
@@ -830,6 +877,7 @@ model ProjectMilestone {
   @@index([projectId])
   @@index([dueDate])
   @@index([done])
+  @@index([dueNotifiedAt])
   @@map("ProjectMilestone")
 }
 

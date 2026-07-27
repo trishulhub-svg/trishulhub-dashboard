@@ -86,8 +86,9 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
       }
       // TODO: Add cursor-based pagination for large datasets
+      // Active staff only for assign/pickers (deactivated users cannot be assigned)
       const users = await db.user.findMany({
-        where: { role: { not: "CLIENT" } },
+        where: { role: { not: "CLIENT" }, isActive: true },
         select: {
           id: true,
           name: true,
@@ -340,6 +341,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
     // TODO: Add cursor-based pagination for large datasets
+    // Default team roster for Team manage UI (includes deactivated so admins can reactivate).
+    // Assignment pickers should use ?type=users (active-only) or filter isActive client-side.
     const users = await db.user.findMany({
       where: { role: { not: "CLIENT" } },
       include: {
@@ -729,6 +732,19 @@ export async function PATCH(req: NextRequest) {
         pageAccessPages: true,
       },
     })
+
+    // Deactivate → instantly revoke all device sessions (JWT multi-device tokens)
+    if (data.isActive === false) {
+      try {
+        const { invalidateSession } = await import("@/lib/session-manager")
+        await invalidateSession(effectiveId)
+      } catch (err) {
+        console.warn(
+          "[team] Failed to revoke sessions on deactivate:",
+          err instanceof Error ? err.message : err
+        )
+      }
+    }
 
     // Audit: log user profile update (fire-and-forget)
     void logAudit({

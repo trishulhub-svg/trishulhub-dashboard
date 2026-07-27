@@ -105,3 +105,40 @@ export function isNavHrefVisible(
   const path = href.split("?")[0]
   return isPageAccessAllowed(path, role, mode, pages)
 }
+
+/**
+ * Role route gates matching middleware.ts (independent of per-user page ACL).
+ * Used by favorites so users cannot bookmark pages their role cannot open.
+ */
+export function isRoleAllowedDashboardHref(href: string, role: string | undefined): boolean {
+  const path = href.split("?")[0]
+  if (!role) return false
+  if (role === "SUPER_ADMIN") return true
+
+  const superAdminOnly = ["/dashboard/email-logs"]
+  const adminOnly = [
+    "/dashboard/finance",
+    "/dashboard/crm",
+    "/dashboard/team",
+    "/dashboard/audit-trail",
+    "/dashboard/api-keys",
+    "/dashboard/training/assign",
+  ]
+  const adminOrPm = [
+    "/dashboard/clients",
+    "/dashboard/projects",
+    "/dashboard/demo",
+    "/dashboard/approvals",
+    "/dashboard/support",
+    "/dashboard/capacity",
+    "/dashboard/availability",
+  ]
+
+  const isAdminRole = role === "ADMIN" || role === "SUPER_ADMIN"
+  const isAdminOrPm = isAdminRole || role === "PROJECT_MANAGER"
+
+  if (superAdminOnly.some((r) => path === r || path.startsWith(`${r}/`))) return false
+  if (!isAdminRole && adminOnly.some((r) => path === r || path.startsWith(`${r}/`))) return false
+  if (!isAdminOrPm && adminOrPm.some((r) => path === r || path.startsWith(`${r}/`))) return false
+  return true
+}

@@ -13,6 +13,8 @@ export interface TimeEntry {
   agentSessionId?: string | null;
   clockInMethod?: string | null;
   clockOutMethod?: string | null;
+  activityType?: string | null;
+  trainingAssignmentId?: string | null;
   user?: { id: string; name: string; email: string; avatar?: string | null; role?: string };
   project?: { id: string; name: string } | null;
 }
@@ -72,6 +74,13 @@ export interface AnalyticsData {
 export interface TeamUser {
   id: string;
   name: string;
+}
+
+export interface TrainingAssignment {
+  id: string;
+  title: string;
+  dueDate?: string | null;
+  status: string;
 }
 
 export type TimeTrackingTab = "today" | "timesheet" | "insights" | "attendance";

@@ -180,10 +180,22 @@ export async function POST(req: NextRequest) {
 
     const targetUsers = await db.user.findMany({
       where: { id: { in: targetIds } },
-      select: { id: true },
+      select: { id: true, name: true, email: true, isActive: true },
     });
     if (targetUsers.length !== targetIds.length) {
       return NextResponse.json({ error: "One or more users not found" }, { status: 404 });
+    }
+    const inactive = targetUsers.filter((u) => !u.isActive);
+    if (inactive.length > 0) {
+      return NextResponse.json(
+        {
+          error: `Cannot assign credentials to deactivated users: ${inactive
+            .slice(0, 3)
+            .map((u) => u.name || u.email || u.id)
+            .join(", ")}${inactive.length > 3 ? "…" : ""}. Reactivate them in Team first.`,
+        },
+        { status: 400 }
+      );
     }
 
     let encryptedPassword: string

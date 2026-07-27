@@ -17,6 +17,7 @@ import type {
   TeamUser,
   TimeEntry,
   TimeTrackingTab,
+  TrainingAssignment,
 } from "./_components/types";
 import { canEditWorkNotes } from "./_components/types";
 import {
@@ -50,6 +51,7 @@ import {
   EndSessionDialog,
   MilestoneBriefingDialog,
   RedirectWorkspaceDialog,
+  SwitchSessionDialog,
   ViewDescriptionDialog,
   type SessionMilestone,
 } from "./_components/dialogs";
@@ -86,8 +88,16 @@ function TimeTrackingPageInner() {
 
   const [selectedProject, setSelectedProject] = useState("");
   const [timerDescription, setTimerDescription] = useState("");
+  const [selectedTrainingAssignmentId, setSelectedTrainingAssignmentId] = useState("");
+  const [trainingAssignments, setTrainingAssignments] = useState<TrainingAssignment[]>([]);
+  const [trainingAssignmentsLoading, setTrainingAssignmentsLoading] = useState(false);
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [switchOpen, setSwitchOpen] = useState(false);
+  const [switchProject, setSwitchProject] = useState("");
+  const [switchDescription, setSwitchDescription] = useState("");
+  const [switchTrainingAssignmentId, setSwitchTrainingAssignmentId] = useState("");
+  const [switchStartingMode, setSwitchStartingMode] = useState<"end" | "delete" | null>(null);
 
   // Admin running sessions
   const [activeEntries, setActiveEntries] = useState<TimeEntry[]>([]);
@@ -176,6 +186,7 @@ function TimeTrackingPageInner() {
   const [dueMilestones, setDueMilestones] = useState<SessionMilestone[]>([]);
   const [dueMilestonesLoading, setDueMilestonesLoading] = useState(false);
   const [checkedMilestoneIds, setCheckedMilestoneIds] = useState<Set<string>>(new Set());
+  const [carryForwardMilestoneIds, setCarryForwardMilestoneIds] = useState<Set<string>>(new Set());
 
   const weekDays = useMemo(() => getWeekDays(weekAnchor), [weekAnchor]);
   const thisWeekStart = useMemo(() => getWeekDays()[0], []);
@@ -257,15 +268,20 @@ function TimeTrackingPageInner() {
     async (signal?: AbortSignal) => {
       if (!isAdminUser) return;
       try {
-        const res = await fetch("/api/team", { credentials: "include", signal });
+        // Active staff only — deactivated users must not appear in assign/create pickers
+        const res = await fetch("/api/team?type=users", { credentials: "include", signal });
         if (res.ok) {
           const data = await res.json();
           const arr = safeArray<unknown>(data);
           setTeamUsers(
             arr
               .filter(
-                (u): u is { id: string; name: string } =>
-                  typeof u === "object" && u !== null && "id" in u && "name" in u
+                (u): u is { id: string; name: string; isActive?: boolean } =>
+                  typeof u === "object" &&
+                  u !== null &&
+                  "id" in u &&
+                  "name" in u &&
+                  (u as { isActive?: boolean }).isActive !== false
               )
               .map((u) => ({ id: u.id, name: u.name }))
           );
@@ -408,41 +424,154 @@ function TimeTrackingPageInner() {
     }
   }, []);
 
+  const loadTrainingAssignments = useCallback(async () => {
+    setTrainingAssignmentsLoading(true);
+    try {
+      const res = await fetch("/api/training/assignments?mine=1", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        const assignments = safeArray<TrainingAssignment>(data?.assignments).filter(
+          (assignment) => assignment.status !== "DONE"
+        );
+        setTrainingAssignments(assignments);
+      } else {
+        const err = await res.json().catch(() => null);
+        toast.error(safeText(err?.error, "Failed to load assigned trainings"));
+        setTrainingAssignments([]);
+      }
+    } catch {
+      toast.error("Failed to load assigned trainings");
+      setTrainingAssignments([]);
+    } finally {
+      setTrainingAssignmentsLoading(false);
+    }
+  }, []);
+
+  const handleTimerProjectChange = useCallback(
+    (value: string) => {
+      setSelectedProject(value);
+      if (value === "__training__") {
+        void loadTrainingAssignments();
+      } else {
+        setSelectedTrainingAssignmentId("");
+      }
+    },
+    [loadTrainingAssignments]
+  );
+
+  const handleSwitchProjectChange = useCallback(
+    (value: string) => {
+      setSwitchProject(value);
+      if (value === "__training__") {
+        void loadTrainingAssignments();
+      } else {
+        setSwitchTrainingAssignmentId("");
+      }
+    },
+    [loadTrainingAssignments]
+  );
+
+  const buildStartPayload = useCallback(
+    (
+      projectValue: string,
+      descriptionValue: string,
+      trainingAssignmentId: string
+    ): {
+      payload: Record<string, unknown>;
+      projectId?: string;
+      isTraining: boolean;
+      label: string;
+    } | null => {
+      const value = projectValue || "none";
+      const description = descriptionValue.trim();
+
+      if (value === "__training__") {
+        const assignment = trainingAssignments.find((a) => a.id === trainingAssignmentId);
+        if (!assignment) {
+          toast.error("Select an assigned training before starting");
+          return null;
+        }
+        return {
+          isTraining: true,
+          label: assignment.title,
+          payload: {
+            activityType: "TRAINING",
+            trainingAssignmentId: assignment.id,
+            description: description || `Training: ${assignment.title}`,
+          },
+        };
+      }
+
+      if (value === "__hr_admin__") {
+        return {
+          isTraining: false,
+          label: "HR & Administration",
+          payload: {
+            activityType: "HR_ADMIN",
+            description: description || "HR & Administration",
+          },
+        };
+      }
+
+      if (value === "__rd_sa__") {
+        return {
+          isTraining: false,
+          label: "R&D / SA",
+          payload: {
+            activityType: "RD_SA",
+            description: description || "R&D / SA",
+          },
+        };
+      }
+
+      const projectId = value === "none" ? undefined : value;
+      return {
+        projectId,
+        isTraining: false,
+        label: projectId ? projects.find((p) => p.id === projectId)?.name || "project" : "No Project",
+        payload: {
+          projectId,
+          activityType: projectId ? "PROJECT" : undefined,
+          description: description || undefined,
+        },
+      };
+    },
+    [projects, trainingAssignments]
+  );
+
   const handleStart = useCallback(async () => {
+    const built = buildStartPayload(
+      selectedProject,
+      timerDescription,
+      selectedTrainingAssignmentId
+    );
+    if (!built) return;
+
     setStarting(true);
     try {
       const { buildClientClockPayload } = await import("@/lib/clock-integrity");
       const clockPayload = buildClientClockPayload();
-      const isTraining = selectedProject === "__training__";
-      const projectId =
-        selectedProject === "none" || isTraining || !selectedProject
-          ? undefined
-          : selectedProject;
-      const description = isTraining
-        ? (timerDescription.trim() || "Training")
-        : (timerDescription || undefined);
       const res = await fetch("/api/time-tracking", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          projectId,
-          description,
+          ...built.payload,
           ...clockPayload,
         }),
       });
       if (res.ok) {
         const entry = await res.json();
         setActiveEntry(entry);
-        toast.success(isTraining ? "Training session started!" : "Timer started!");
+        toast.success(built.isTraining ? "Training session started!" : "Timer started!");
         fetchEntries();
         // Briefing first (all project milestones). Defer workspace redirect until briefing closes.
-        if (projectId) {
+        if (built.projectId) {
           const pname =
             entry?.project?.name ||
-            projects.find((p) => p.id === projectId)?.name ||
+            projects.find((p) => p.id === built.projectId)?.name ||
             "";
-          void loadBriefing(projectId, pname);
+          void loadBriefing(built.projectId, pname);
           if (fromWorkspace) {
             // Remember to offer redirect after briefing — handled via pendingRedirect
             setPendingWorkspaceRedirect(true);
@@ -460,13 +589,91 @@ function TimeTrackingPageInner() {
     } finally {
       setStarting(false);
     }
-  }, [selectedProject, timerDescription, fetchEntries, fromWorkspace, loadBriefing, projects]);
+  }, [
+    buildStartPayload,
+    selectedProject,
+    timerDescription,
+    selectedTrainingAssignmentId,
+    fetchEntries,
+    fromWorkspace,
+    loadBriefing,
+    projects,
+  ]);
+
+  const openSwitchDialog = useCallback(() => {
+    setSwitchProject("");
+    setSwitchDescription("");
+    setSwitchTrainingAssignmentId("");
+    setSwitchOpen(true);
+  }, []);
+
+  const handleSwitchSession = useCallback(
+    async (mode: "end" | "delete") => {
+      const built = buildStartPayload(
+        switchProject,
+        switchDescription,
+        switchTrainingAssignmentId
+      );
+      if (!built) return;
+
+      setSwitchStartingMode(mode);
+      try {
+        const { buildClientClockPayload } = await import("@/lib/clock-integrity");
+        const clockPayload = buildClientClockPayload();
+        const res = await fetch("/api/time-tracking", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            ...built.payload,
+            switchMode: mode,
+            ...clockPayload,
+          }),
+        });
+        if (res.ok) {
+          const entry = await res.json();
+          setActiveEntry(entry);
+          setSwitchOpen(false);
+          toast.success(
+            mode === "end"
+              ? "Previous session ended and new timer started"
+              : "Previous session deleted and new timer started"
+          );
+          fetchEntries();
+          if (built.projectId) {
+            const pname =
+              entry?.project?.name ||
+              projects.find((p) => p.id === built.projectId)?.name ||
+              "";
+            void loadBriefing(built.projectId, pname);
+          }
+        } else {
+          const err = await res.json().catch(() => null);
+          toast.error(safeText(err?.error, "Failed to switch session"));
+        }
+      } catch {
+        toast.error("Failed to switch session");
+      } finally {
+        setSwitchStartingMode(null);
+      }
+    },
+    [
+      buildStartPayload,
+      switchProject,
+      switchDescription,
+      switchTrainingAssignmentId,
+      fetchEntries,
+      loadBriefing,
+      projects,
+    ]
+  );
 
   const handleClockOutClick = useCallback(() => {
     if (!activeEntry) return;
     setClockOutNotes("");
     clockOutNotesRef.current = "";
     setCheckedMilestoneIds(new Set());
+    setCarryForwardMilestoneIds(new Set());
     setDueMilestones([]);
     setClockOutOpen(true);
 
@@ -510,6 +717,29 @@ function TimeTrackingPageInner() {
       else next.delete(milestoneId);
       return next;
     });
+    if (checked) {
+      setCarryForwardMilestoneIds((prev) => {
+        const next = new Set(prev);
+        next.delete(milestoneId);
+        return next;
+      });
+    }
+  }, []);
+
+  const handleCarryForwardMilestone = useCallback((milestoneId: string, carry: boolean) => {
+    setCarryForwardMilestoneIds((prev) => {
+      const next = new Set(prev);
+      if (carry) next.add(milestoneId);
+      else next.delete(milestoneId);
+      return next;
+    });
+    if (carry) {
+      setCheckedMilestoneIds((prev) => {
+        const next = new Set(prev);
+        next.delete(milestoneId);
+        return next;
+      });
+    }
   }, []);
 
   const executeClockOut = useCallback(async () => {
@@ -528,6 +758,7 @@ function TimeTrackingPageInner() {
           status: "COMPLETED",
           workNotes: notes || null,
           acknowledgedMilestoneIds: Array.from(checkedMilestoneIds),
+          carryForwardMilestoneIds: Array.from(carryForwardMilestoneIds),
           ...clockPayload,
         }),
       });
@@ -542,6 +773,7 @@ function TimeTrackingPageInner() {
         setClockOutNotes("");
         setDueMilestones([]);
         setCheckedMilestoneIds(new Set());
+        setCarryForwardMilestoneIds(new Set());
         fetchEntries();
       } else {
         const err = await res.json().catch(() => null);
@@ -557,7 +789,7 @@ function TimeTrackingPageInner() {
     } finally {
       setStopping(false);
     }
-  }, [activeEntry, fetchEntries, checkedMilestoneIds]);
+  }, [activeEntry, fetchEntries, checkedMilestoneIds, carryForwardMilestoneIds]);
 
   // ── Timesheet fetch ──
   const fetchTimesheet = useCallback(
@@ -817,14 +1049,14 @@ function TimeTrackingPageInner() {
   }, [deleteId, refreshAfterMutation]);
 
   const handleAdminEndSession = useCallback(
-    async (entryId: string) => {
+    async (entryId: string, milestoneAction: "complete" | "carry" | "leave") => {
       setEndingEntryId(entryId);
       try {
         const res = await fetch(`/api/time-tracking/${entryId}/admin-end`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({}),
+          body: JSON.stringify({ milestoneAction }),
         });
         const data = await res.json().catch(() => null);
         if (res.ok && data?.success) {
@@ -1155,8 +1387,12 @@ function TimeTrackingPageInner() {
             activeEntry={activeEntry}
             elapsed={elapsed}
             projects={projects}
+            userRole={userRole}
             selectedProject={selectedProject}
             timerDescription={timerDescription}
+            trainingAssignments={trainingAssignments}
+            selectedTrainingAssignmentId={selectedTrainingAssignmentId}
+            trainingAssignmentsLoading={trainingAssignmentsLoading}
             starting={starting}
             stopping={stopping}
             fromWorkspace={fromWorkspace}
@@ -1168,9 +1404,11 @@ function TimeTrackingPageInner() {
             activeEntries={activeEntries}
             activeElapsedMap={activeElapsedMap}
             endingEntryId={endingEntryId}
-            onProjectChange={setSelectedProject}
+            onProjectChange={handleTimerProjectChange}
             onDescriptionChange={setTimerDescription}
+            onTrainingAssignmentChange={setSelectedTrainingAssignmentId}
             onStart={handleStart}
+            onSwitchClick={openSwitchDialog}
             onClockOutClick={handleClockOutClick}
             onViewDescription={setViewDescriptionEntry}
             onEditEntry={openEditDialog}
@@ -1273,7 +1511,26 @@ function TimeTrackingPageInner() {
         dueMilestones={dueMilestones}
         milestonesLoading={dueMilestonesLoading}
         checkedMilestoneIds={checkedMilestoneIds}
+        carryForwardMilestoneIds={carryForwardMilestoneIds}
         onToggleMilestone={(id, checked) => handleToggleDueMilestone(id, checked)}
+        onCarryForwardMilestone={(id, carry) => handleCarryForwardMilestone(id, carry)}
+      />
+
+      <SwitchSessionDialog
+        open={switchOpen}
+        onOpenChange={setSwitchOpen}
+        projects={projects}
+        userRole={userRole}
+        selectedProject={switchProject}
+        description={switchDescription}
+        trainingAssignments={trainingAssignments}
+        selectedTrainingAssignmentId={switchTrainingAssignmentId}
+        trainingAssignmentsLoading={trainingAssignmentsLoading}
+        switchingMode={switchStartingMode}
+        onProjectChange={handleSwitchProjectChange}
+        onDescriptionChange={setSwitchDescription}
+        onTrainingAssignmentChange={setSwitchTrainingAssignmentId}
+        onConfirm={handleSwitchSession}
       />
 
       <MilestoneBriefingDialog
@@ -1300,7 +1557,9 @@ function TimeTrackingPageInner() {
         open={!!endSessionConfirmId}
         onOpenChange={(open) => !open && setEndSessionConfirmId(null)}
         ending={!!endingEntryId}
-        onConfirm={() => endSessionConfirmId && handleAdminEndSession(endSessionConfirmId)}
+        onConfirm={(milestoneAction) =>
+          endSessionConfirmId && handleAdminEndSession(endSessionConfirmId, milestoneAction)
+        }
       />
 
       <ViewDescriptionDialog

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
-import { ArrowLeft, CheckCircle2, Clock, Eye, Loader2, Pencil, Plus, StopCircle } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Clock, Eye, Loader2, Pencil, Plus, Repeat2, StopCircle } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,7 +33,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { safeText } from "@/lib/utils";
-import type { Project, TeamUser, TimeEntry } from "./types";
+import type { Project, TeamUser, TimeEntry, TrainingAssignment } from "./types";
 import { canEditWorkNotes, workNotesHoursLeft } from "./types";
 import { formatDate, formatDuration, formatHours, formatTime } from "./utils";
 
@@ -43,6 +43,7 @@ export type SessionMilestone = {
   title: string
   dueDate?: string | null
   done?: boolean
+  carriedForward?: boolean
 }
 
 interface ClockOutDialogProps {
@@ -57,7 +58,9 @@ interface ClockOutDialogProps {
   dueMilestones?: SessionMilestone[]
   milestonesLoading?: boolean
   checkedMilestoneIds?: Set<string>
+  carryForwardMilestoneIds?: Set<string>
   onToggleMilestone?: (id: string, checked: boolean) => void
+  onCarryForwardMilestone?: (id: string, carry: boolean) => void
 }
 
 export function ClockOutDialog({
@@ -72,10 +75,15 @@ export function ClockOutDialog({
   dueMilestones = [],
   milestonesLoading = false,
   checkedMilestoneIds = new Set(),
+  carryForwardMilestoneIds = new Set(),
   onToggleMilestone,
+  onCarryForwardMilestone,
 }: ClockOutDialogProps) {
-  const allDueDone =
-    dueMilestones.length === 0 || dueMilestones.every((m) => checkedMilestoneIds.has(m.id))
+  const allDueResolved =
+    dueMilestones.length === 0 ||
+    dueMilestones.every(
+      (m) => checkedMilestoneIds.has(m.id) || (!m.carriedForward && carryForwardMilestoneIds.has(m.id))
+    )
 
   return (
     <Dialog
@@ -116,7 +124,7 @@ export function ClockOutDialog({
           {(milestonesLoading || dueMilestones.length > 0) && (
             <div className="space-y-2 rounded-lg border border-border/60 bg-muted/30 p-3">
               <Label className="text-xs font-semibold">
-                Due today / overdue — tick to mark done &amp; unlock clock-out (not future)
+                Due / carried-forward milestones
               </Label>
               {milestonesLoading ? (
                 <p className="text-xs text-muted-foreground flex items-center gap-2">
@@ -126,16 +134,16 @@ export function ClockOutDialog({
                 <ul className="space-y-2 max-h-40 overflow-y-auto">
                   {dueMilestones.map((m) => {
                     const checked = checkedMilestoneIds.has(m.id)
+                    const carried = carryForwardMilestoneIds.has(m.id)
                     return (
-                      <li key={m.id} className="flex items-start gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          className="mt-1 h-4 w-4 accent-emerald-600"
-                          checked={checked}
-                          onChange={(e) => onToggleMilestone?.(m.id, e.target.checked)}
-                        />
-                        <span className={checked ? "line-through text-muted-foreground" : ""}>
+                      <li key={m.id} className="space-y-1 rounded-md border border-border/50 bg-background/70 p-2 text-sm">
+                        <div className={checked ? "line-through text-muted-foreground" : ""}>
                           {safeText(m.title)}
+                          {m.carriedForward && (
+                            <span className="ml-2 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
+                              carried forward
+                            </span>
+                          )}
                           {m.dueDate && (
                             <span className="block text-[10px] text-muted-foreground">
                               Due{" "}
@@ -146,15 +154,37 @@ export function ClockOutDialog({
                               })}
                             </span>
                           )}
-                        </span>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-3 text-xs">
+                          <label className="inline-flex items-center gap-1.5">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 accent-emerald-600"
+                              checked={checked}
+                              onChange={(e) => onToggleMilestone?.(m.id, e.target.checked)}
+                            />
+                            Mark done today
+                          </label>
+                          {!m.carriedForward && (
+                            <label className="inline-flex items-center gap-1.5">
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4 accent-amber-600"
+                                checked={carried}
+                                onChange={(e) => onCarryForwardMilestone?.(m.id, e.target.checked)}
+                              />
+                              Carry to next UK day
+                            </label>
+                          )}
+                        </div>
                       </li>
                     )
                   })}
                 </ul>
               )}
-              {!allDueDone && (
+              {!allDueResolved && (
                 <p className="text-[11px] text-amber-600 dark:text-amber-400">
-                  Tick every due milestone checkbox to unlock clock-out.
+                  Mark each item done, or carry eligible due milestones to the next UK day.
                 </p>
               )}
             </div>
@@ -200,7 +230,7 @@ export function ClockOutDialog({
           >
             Cancel
           </Button>
-          <Button onClick={onConfirm} disabled={stopping || !allDueDone || milestonesLoading}>
+          <Button onClick={onConfirm} disabled={stopping || !allDueResolved || milestonesLoading}>
             {stopping ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -338,8 +368,10 @@ export function EndSessionDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   ending: boolean;
-  onConfirm: () => void;
+  onConfirm: (milestoneAction: "complete" | "carry" | "leave") => void;
 }) {
+  const [milestoneAction, setMilestoneAction] = useState<"complete" | "carry" | "leave">("complete");
+
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
@@ -351,10 +383,29 @@ export function EndSessionDialog({
             terminated. This action is audit-logged.
           </AlertDialogDescription>
         </AlertDialogHeader>
+        <div className="space-y-2">
+          <Label className="text-sm">Milestones due today / overdue</Label>
+          <Select
+            value={milestoneAction}
+            onValueChange={(value) =>
+              setMilestoneAction(value as "complete" | "carry" | "leave")
+            }
+            disabled={ending}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="complete">Mark due milestones done</SelectItem>
+              <SelectItem value="carry">Carry unfinished due milestones to next UK day</SelectItem>
+              <SelectItem value="leave">Leave milestones unchanged</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={ending}>Cancel</AlertDialogCancel>
           <AlertDialogAction
-            onClick={onConfirm}
+            onClick={() => onConfirm(milestoneAction)}
             disabled={ending}
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
           >
@@ -373,6 +424,152 @@ export function EndSessionDialog({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  );
+}
+
+/* ── Switch running session ── */
+export function SwitchSessionDialog({
+  open,
+  onOpenChange,
+  projects,
+  userRole,
+  selectedProject,
+  description,
+  trainingAssignments,
+  selectedTrainingAssignmentId,
+  trainingAssignmentsLoading,
+  switchingMode,
+  onProjectChange,
+  onDescriptionChange,
+  onTrainingAssignmentChange,
+  onConfirm,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  projects: Project[];
+  userRole: string;
+  selectedProject: string;
+  description: string;
+  trainingAssignments: TrainingAssignment[];
+  selectedTrainingAssignmentId: string;
+  trainingAssignmentsLoading: boolean;
+  switchingMode: "end" | "delete" | null;
+  onProjectChange: (value: string) => void;
+  onDescriptionChange: (value: string) => void;
+  onTrainingAssignmentChange: (value: string) => void;
+  onConfirm: (mode: "end" | "delete") => void;
+}) {
+  const canUseHrAdmin = userRole === "ADMIN" || userRole === "SUPER_ADMIN";
+  const canUseRdSa = userRole === "SUPER_ADMIN" || userRole === "PROJECT_MANAGER";
+  const isTrainingSelected = selectedProject === "__training__";
+  const actionDisabled =
+    !!switchingMode || (isTrainingSelected && !selectedTrainingAssignmentId);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[520px]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Repeat2 className="h-5 w-5 text-primary" />
+            Switch running session
+          </DialogTitle>
+          <DialogDescription>
+            Choose the next activity, then decide whether to complete or delete the current timer.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label>Next project / activity</Label>
+              <Select value={selectedProject} onValueChange={onProjectChange}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Optional project..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No Project</SelectItem>
+                  <SelectItem value="__training__">Training</SelectItem>
+                  {canUseHrAdmin && (
+                    <SelectItem value="__hr_admin__">HR &amp; Administration</SelectItem>
+                  )}
+                  {canUseRdSa && <SelectItem value="__rd_sa__">R&amp;D / SA</SelectItem>}
+                  {projects.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {safeText(p.name)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {isTrainingSelected && (
+              <div className="space-y-2">
+                <Label>Assigned training</Label>
+                <Select
+                  value={selectedTrainingAssignmentId}
+                  onValueChange={onTrainingAssignmentChange}
+                  disabled={trainingAssignmentsLoading}
+                >
+                  <SelectTrigger>
+                    <SelectValue
+                      placeholder={
+                        trainingAssignmentsLoading
+                          ? "Loading trainings..."
+                          : "Select assigned training..."
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {trainingAssignments.length === 0 ? (
+                      <SelectItem value="__none__" disabled>
+                        No assigned trainings available
+                      </SelectItem>
+                    ) : (
+                      trainingAssignments.map((assignment) => (
+                        <SelectItem key={assignment.id} value={assignment.id}>
+                          {safeText(assignment.title)}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+          <div className="space-y-2">
+            <Label>Description</Label>
+            <Textarea
+              value={description}
+              onChange={(e) => onDescriptionChange(e.target.value.slice(0, 500))}
+              placeholder="What are you switching to?"
+              rows={3}
+              maxLength={500}
+              className="resize-none"
+            />
+          </div>
+          <div className="rounded-md border border-border/70 bg-muted/30 p-3 text-xs text-muted-foreground">
+            <p className="font-medium text-foreground">Switch options</p>
+            <p>End previous: completes the current session now, then starts the new one.</p>
+            <p>Delete previous: removes the current active session, then starts the new one.</p>
+          </div>
+        </div>
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={!!switchingMode}>
+            Cancel
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => onConfirm("delete")}
+            disabled={actionDisabled}
+          >
+            {switchingMode === "delete" && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            Delete previous &amp; start new
+          </Button>
+          <Button onClick={() => onConfirm("end")} disabled={actionDisabled}>
+            {switchingMode === "end" && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            End previous &amp; start new
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

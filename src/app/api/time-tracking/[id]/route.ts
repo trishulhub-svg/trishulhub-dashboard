@@ -9,11 +9,18 @@ import { checkClientClockIntegrity } from "@/lib/clock-integrity"
 import {
   isDueOnOrBefore,
   syncProjectProgressFromMilestones,
-  todayDateKey,
 } from "@/lib/milestones"
+import { nextUkDateKey, todayDateKey } from "@/lib/milestone-due"
 import { logAudit, getIpAddress, getUserAgent, buildDescription } from "@/lib/audit-log"
 
 const WORK_NOTES_EDIT_WINDOW_MS = 24 * 60 * 60 * 1000
+
+function appendAttendedLine(value: string | null | undefined, trainingTitle: string): string {
+  const line = `Attended: ${trainingTitle}`
+  const current = (value || "").trim()
+  if (current.toLowerCase().includes(line.toLowerCase())) return current
+  return current ? `${current}\n${line}` : line
+}
 
 /**
  * PATCH /api/time-tracking/[id]
@@ -131,8 +138,16 @@ export async function PATCH(
       return NextResponse.json({ error: validation.error }, { status: 400 })
     }
 
-    const { description, projectId, status, clientNow, timezone, acknowledgedMilestoneIds, workNotes } =
-      validation.data
+    const {
+      description,
+      projectId,
+      status,
+      clientNow,
+      timezone,
+      acknowledgedMilestoneIds,
+      carryForwardMilestoneIds,
+      workNotes,
+    } = validation.data
 
     const updateData: Prisma.TimeEntryUncheckedUpdateInput = {}
 
@@ -162,6 +177,8 @@ export async function PATCH(
 
     // [FIX H5: Only allow COMPLETED status on ACTIVE entries — prevent restarting stopped timers]
     let milestonesToComplete: string[] = []
+    let milestonesToCarryForward: string[] = []
+    let carryForwardDueDate: Date | null = null
     let projectForProgress: string | null = null
 
     if (status === "COMPLETED") {
@@ -178,37 +195,78 @@ export async function PATCH(
         )
       }
 
-      // Gate: ALL open milestones due today/overdue for this project must be ticked.
-      // Ticking marks them permanently done and updates project progress.
+      // Gate: assigned carried-forward milestones must be completed before clock-out.
+      // Other due/overdue assigned milestones can either be completed or carried to next UK day.
       const projectForGate = projectId !== undefined ? projectId || null : existing.projectId
       if (projectForGate) {
         try {
           const openMilestones = await db.projectMilestone.findMany({
-            where: { projectId: projectForGate, done: false },
-            select: { id: true, title: true, dueDate: true },
+            where: {
+              projectId: projectForGate,
+              done: false,
+              assignees: { some: { userId: existing.userId } },
+            },
+            select: { id: true, title: true, dueDate: true, carriedForward: true },
           })
           const today = todayDateKey(clockCheck.serverNow)
-          const blocking = openMilestones.filter(
+          const dueMilestones = openMilestones.filter(
             (m) => m.dueDate && isDueOnOrBefore(m.dueDate, today)
           )
           const acked = new Set(acknowledgedMilestoneIds || [])
-          const missing = blocking.filter((m) => !acked.has(m.id))
-          if (missing.length > 0) {
+          const carryForward = new Set(carryForwardMilestoneIds || [])
+          const carriedForwardOpen = openMilestones.filter((m) => m.carriedForward)
+          const missingCarried = carriedForwardOpen.filter((m) => !acked.has(m.id))
+
+          if (missingCarried.length > 0) {
             return NextResponse.json(
               {
-                error: `Tick ${missing.length} due milestone${missing.length === 1 ? "" : "s"} before clocking out`,
+                error: `Complete ${missingCarried.length} carried-forward milestone${missingCarried.length === 1 ? "" : "s"} before clocking out`,
                 code: "MILESTONES_INCOMPLETE",
-                milestones: blocking.map((m) => ({
-                  id: m.id,
-                  title: m.title,
-                  dueDate: m.dueDate,
-                })),
+                milestones: [...carriedForwardOpen, ...dueMilestones]
+                  .filter((m, idx, arr) => arr.findIndex((item) => item.id === m.id) === idx)
+                  .map((m) => ({
+                    id: m.id,
+                    title: m.title,
+                    dueDate: m.dueDate,
+                    carriedForward: m.carriedForward,
+                  })),
               },
               { status: 409 }
             )
           }
-          milestonesToComplete = blocking.filter((m) => acked.has(m.id)).map((m) => m.id)
-          projectForProgress = projectForGate
+
+          const carryEligible = dueMilestones.filter((m) => !m.carriedForward)
+          const carryEligibleIds = new Set(carryEligible.map((m) => m.id))
+          milestonesToCarryForward = [...carryForward].filter((id) => carryEligibleIds.has(id))
+          if (milestonesToCarryForward.length > 0) {
+            carryForwardDueDate = new Date(`${nextUkDateKey(today)}T00:00:00.000Z`)
+          }
+          const missingDue = carryEligible.filter(
+            (m) => !acked.has(m.id) && !carryForward.has(m.id)
+          )
+          if (missingDue.length > 0) {
+            return NextResponse.json(
+              {
+                error: `Mark or carry ${missingDue.length} due milestone${missingDue.length === 1 ? "" : "s"} before clocking out`,
+                code: "MILESTONES_INCOMPLETE",
+                milestones: [...carriedForwardOpen, ...dueMilestones]
+                  .filter((m, idx, arr) => arr.findIndex((item) => item.id === m.id) === idx)
+                  .map((m) => ({
+                    id: m.id,
+                    title: m.title,
+                    dueDate: m.dueDate,
+                    carriedForward: m.carriedForward,
+                  })),
+              },
+              { status: 409 }
+            )
+          }
+
+          milestonesToComplete = [
+            ...carriedForwardOpen.filter((m) => acked.has(m.id)).map((m) => m.id),
+            ...carryEligible.filter((m) => acked.has(m.id)).map((m) => m.id),
+          ].filter((id, idx, arr) => arr.indexOf(id) === idx)
+          if (milestonesToComplete.length > 0) projectForProgress = projectForGate
         } catch (mileErr) {
           // If milestone tables aren't ready, don't block clock-out
           console.warn(
@@ -225,6 +283,24 @@ export async function PATCH(
       updateData.totalHours = Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100
       if (workNotes !== undefined) {
         updateData.workNotes = workNotes?.trim() ? workNotes.trim().slice(0, 500) : null
+      }
+      if (existing.activityType === "TRAINING" && existing.trainingAssignmentId) {
+        const assignment = await db.trainingAssignment.findFirst({
+          where: { id: existing.trainingAssignmentId, userId: existing.userId },
+          select: { title: true },
+        })
+        if (assignment?.title) {
+          const notesBase =
+            workNotes !== undefined ? workNotes?.trim() || "" : existing.workNotes || ""
+          updateData.workNotes = appendAttendedLine(notesBase, assignment.title).slice(0, 500)
+
+          const descriptionBase =
+            description !== undefined ? description || "" : existing.description || ""
+          const nextDescription = appendAttendedLine(descriptionBase, assignment.title)
+          if (nextDescription !== descriptionBase.trim()) {
+            updateData.description = nextDescription.slice(0, 500)
+          }
+        }
       }
     }
     // Prevent setting status back to ACTIVE on a completed entry
@@ -247,6 +323,21 @@ export async function PATCH(
             done: true,
             completedAt: new Date(),
             completedBy: userId,
+          },
+        })
+      }
+
+      if (milestonesToCarryForward.length > 0) {
+        await tx.projectMilestone.updateMany({
+          where: {
+            id: { in: milestonesToCarryForward },
+            done: false,
+          },
+          data: {
+            dueDate:
+              carryForwardDueDate ||
+              new Date(`${nextUkDateKey(todayDateKey(new Date()))}T00:00:00.000Z`),
+            carriedForward: true,
           },
         })
       }
@@ -285,6 +376,8 @@ export async function PATCH(
         description: `Clocked out${entry.project?.name ? ` on ${entry.project.name}` : ""} (${entry.totalHours ?? 0}h)${
           milestonesToComplete.length > 0
             ? ` — marked ${milestonesToComplete.length} milestone${milestonesToComplete.length === 1 ? "" : "s"} done`
+            : milestonesToCarryForward.length > 0
+              ? ` — carried ${milestonesToCarryForward.length} milestone${milestonesToCarryForward.length === 1 ? "" : "s"} forward`
             : ""
         }`,
         oldValue: JSON.stringify({ status: "ACTIVE" }),
@@ -292,12 +385,14 @@ export async function PATCH(
           status: "COMPLETED",
           totalHours: entry.totalHours,
           milestonesCompleted: milestonesToComplete.length,
+          milestonesCarriedForward: milestonesToCarryForward.length,
         }),
         ipAddress: getIpAddress(req),
         userAgent: getUserAgent(req),
         metadata: JSON.stringify({
           projectId: entry.projectId,
           milestoneIds: milestonesToComplete,
+          carriedForwardMilestoneIds: milestonesToCarryForward,
         }),
       })
     } else if (workNotes !== undefined) {

@@ -80,7 +80,7 @@ export async function GET(req: NextRequest) {
       }),
       isAdminUser
         ? db.user.findMany({
-            where: { role: { not: "CLIENT" } },
+            where: { role: { not: "CLIENT" }, isActive: true },
             select: {
               id: true,
               name: true,

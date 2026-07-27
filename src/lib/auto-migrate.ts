@@ -84,6 +84,12 @@ const CRITICAL_COLUMNS: Array<{ table: string; column: string; sql: string }> = 
   { table: "ProjectMilestone", column: "completedBy", sql: `ALTER TABLE "ProjectMilestone" ADD COLUMN "completedBy" TEXT` },
   // Turso-safe: constant default only (CURRENT_TIMESTAMP fails on ALTER)
   { table: "ProjectMilestone", column: "updatedAt", sql: `ALTER TABLE "ProjectMilestone" ADD COLUMN "updatedAt" TEXT NOT NULL DEFAULT ''` },
+  { table: "ProjectMilestone", column: "dueTime", sql: `ALTER TABLE "ProjectMilestone" ADD COLUMN "dueTime" TEXT` },
+  { table: "ProjectMilestone", column: "carriedForward", sql: `ALTER TABLE "ProjectMilestone" ADD COLUMN "carriedForward" BOOLEAN NOT NULL DEFAULT 0` },
+  { table: "ProjectMilestone", column: "dueNotifiedAt", sql: `ALTER TABLE "ProjectMilestone" ADD COLUMN "dueNotifiedAt" DATETIME` },
+  { table: "User", column: "favoritePages", sql: `ALTER TABLE "User" ADD COLUMN "favoritePages" TEXT NOT NULL DEFAULT '[]'` },
+  { table: "TimeEntry", column: "activityType", sql: `ALTER TABLE "TimeEntry" ADD COLUMN "activityType" TEXT` },
+  { table: "TimeEntry", column: "trainingAssignmentId", sql: `ALTER TABLE "TimeEntry" ADD COLUMN "trainingAssignmentId" TEXT` },
 ]
 
 /** Tables to create if missing (simplified CREATE TABLE IF NOT EXISTS) */
@@ -282,6 +288,36 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
       "assignedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY ("milestoneId") REFERENCES "ProjectMilestone"("id") ON DELETE CASCADE,
       FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
+    )`
+  },
+  {
+    name: "ProjectInfraItem",
+    sql: `CREATE TABLE IF NOT EXISTS "ProjectInfraItem" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "projectId" TEXT NOT NULL,
+      "groupKey" TEXT NOT NULL,
+      "label" TEXT NOT NULL,
+      "isSecret" BOOLEAN NOT NULL DEFAULT 1,
+      "valuePlain" TEXT,
+      "valueEnc" TEXT,
+      "sortOrder" INTEGER NOT NULL DEFAULT 0,
+      "createdBy" TEXT,
+      "updatedBy" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE CASCADE
+    )`
+  },
+  {
+    name: "ProjectInfraMemberAccess",
+    sql: `CREATE TABLE IF NOT EXISTS "ProjectInfraMemberAccess" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "projectId" TEXT NOT NULL UNIQUE,
+      "visibleUntil" DATETIME,
+      "enabledBy" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE CASCADE
     )`
   },
   {

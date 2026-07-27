@@ -1,7 +1,7 @@
 "use client";
 
 import { forwardRef } from "react";
-import { Loader2, Play, StopCircle } from "lucide-react";
+import { Loader2, Play, Repeat2, StopCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,21 +14,27 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn, safeText } from "@/lib/utils";
-import type { Project, TimeEntry } from "./types";
+import type { Project, TimeEntry, TrainingAssignment } from "./types";
 import { formatDuration, formatDurationShort, formatTime } from "./utils";
 
 interface TimerHeroProps {
   activeEntry: TimeEntry | null;
   elapsed: number;
   projects: Project[];
+  userRole: string;
   selectedProject: string;
   timerDescription: string;
+  trainingAssignments: TrainingAssignment[];
+  selectedTrainingAssignmentId: string;
+  trainingAssignmentsLoading: boolean;
   starting: boolean;
   stopping: boolean;
   fromWorkspace: boolean;
   onProjectChange: (value: string) => void;
   onDescriptionChange: (value: string) => void;
+  onTrainingAssignmentChange: (value: string) => void;
   onStart: () => void;
+  onSwitchClick: () => void;
   onClockOutClick: () => void;
 }
 
@@ -37,19 +43,39 @@ export const TimerHero = forwardRef<HTMLDivElement, TimerHeroProps>(function Tim
     activeEntry,
     elapsed,
     projects,
+    userRole,
     selectedProject,
     timerDescription,
+    trainingAssignments,
+    selectedTrainingAssignmentId,
+    trainingAssignmentsLoading,
     starting,
     stopping,
     fromWorkspace,
     onProjectChange,
     onDescriptionChange,
+    onTrainingAssignmentChange,
     onStart,
+    onSwitchClick,
     onClockOutClick,
   },
   ref
 ) {
   const isRunning = !!activeEntry;
+  const canUseHrAdmin = userRole === "ADMIN" || userRole === "SUPER_ADMIN";
+  const canUseRdSa = userRole === "SUPER_ADMIN" || userRole === "PROJECT_MANAGER";
+  const isTrainingSelected = selectedProject === "__training__";
+  const startDisabled = starting || (isTrainingSelected && !selectedTrainingAssignmentId);
+
+  const activeLabel =
+    activeEntry?.project?.name ||
+    (activeEntry?.activityType === "TRAINING"
+      ? "Training"
+      : activeEntry?.activityType === "HR_ADMIN"
+        ? "HR & Administration"
+        : activeEntry?.activityType === "RD_SA"
+          ? "R&D / SA"
+          : "No Project");
 
   return (
     <div
@@ -100,7 +126,7 @@ export const TimerHero = forwardRef<HTMLDivElement, TimerHeroProps>(function Tim
                   variant="outline"
                   className="bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800 text-xs"
                 >
-                  {safeText(activeEntry.project?.name, "No Project")}
+                  {safeText(activeLabel, "No Project")}
                 </Badge>
               </div>
               <p className="text-4xl sm:text-5xl font-bold tabular-nums tracking-tight text-emerald-600 dark:text-emerald-400">
@@ -115,20 +141,32 @@ export const TimerHero = forwardRef<HTMLDivElement, TimerHeroProps>(function Tim
                 Started at {formatTime(activeEntry.clockIn)} · {formatDurationShort(elapsed)} elapsed
               </p>
             </div>
-            <Button
-              size="lg"
-              variant="destructive"
-              className="h-12 px-8 text-base font-semibold w-full sm:w-auto shrink-0"
-              onClick={onClockOutClick}
-              disabled={stopping}
-            >
-              {stopping ? (
-                <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-              ) : (
-                <StopCircle className="h-5 w-5 mr-2" />
-              )}
-              {stopping ? "Stopping..." : "Clock Out"}
-            </Button>
+            <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto shrink-0">
+              <Button
+                size="lg"
+                variant="outline"
+                className="h-12 px-6 text-base font-semibold w-full sm:w-auto"
+                onClick={onSwitchClick}
+                disabled={stopping}
+              >
+                <Repeat2 className="h-5 w-5 mr-2" />
+                Switch
+              </Button>
+              <Button
+                size="lg"
+                variant="destructive"
+                className="h-12 px-8 text-base font-semibold w-full sm:w-auto"
+                onClick={onClockOutClick}
+                disabled={stopping}
+              >
+                {stopping ? (
+                  <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                ) : (
+                  <StopCircle className="h-5 w-5 mr-2" />
+                )}
+                {stopping ? "Stopping..." : "Clock Out"}
+              </Button>
+            </div>
           </div>
         ) : (
           <div className="space-y-4">
@@ -142,6 +180,10 @@ export const TimerHero = forwardRef<HTMLDivElement, TimerHeroProps>(function Tim
                   <SelectContent>
                     <SelectItem value="none">No Project</SelectItem>
                     <SelectItem value="__training__">Training</SelectItem>
+                    {canUseHrAdmin && (
+                      <SelectItem value="__hr_admin__">HR &amp; Administration</SelectItem>
+                    )}
+                    {canUseRdSa && <SelectItem value="__rd_sa__">R&amp;D / SA</SelectItem>}
                     {projects.map((p) => (
                       <SelectItem key={p.id} value={p.id}>
                         <span className="inline-flex items-center gap-2">
@@ -158,6 +200,41 @@ export const TimerHero = forwardRef<HTMLDivElement, TimerHeroProps>(function Tim
                   </SelectContent>
                 </Select>
               </div>
+              {isTrainingSelected && (
+                <div>
+                  <Label className="text-xs mb-1.5 block text-muted-foreground">
+                    Assigned training
+                  </Label>
+                  <Select
+                    value={selectedTrainingAssignmentId}
+                    onValueChange={onTrainingAssignmentChange}
+                    disabled={trainingAssignmentsLoading}
+                  >
+                    <SelectTrigger className="h-10 bg-background/80">
+                      <SelectValue
+                        placeholder={
+                          trainingAssignmentsLoading
+                            ? "Loading trainings..."
+                            : "Select assigned training..."
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {trainingAssignments.length === 0 ? (
+                        <SelectItem value="__none__" disabled>
+                          No assigned trainings available
+                        </SelectItem>
+                      ) : (
+                        trainingAssignments.map((assignment) => (
+                          <SelectItem key={assignment.id} value={assignment.id}>
+                            {safeText(assignment.title)}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div>
                 <Label className="text-xs mb-1.5 block text-muted-foreground">Description</Label>
                 <Input
@@ -172,7 +249,7 @@ export const TimerHero = forwardRef<HTMLDivElement, TimerHeroProps>(function Tim
               size="lg"
               className="h-12 px-8 text-base font-semibold w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white"
               onClick={onStart}
-              disabled={starting}
+              disabled={startDisabled}
             >
               {starting ? (
                 <Loader2 className="h-5 w-5 mr-2 animate-spin" />

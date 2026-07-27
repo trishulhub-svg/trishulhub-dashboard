@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { notifyUsers } from "@/lib/notify"
+import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 import { z } from "zod"
 
 const IMAGE_DATA_URL =
@@ -204,6 +205,21 @@ export async function POST(req: NextRequest) {
       })
     }
 
+    void logAudit({
+      userId: session.user.id,
+      userName: session.user.name || "unknown",
+      userRole: session.user.role || "",
+      department: "LEARNING",
+      page: "training",
+      action: "CREATE",
+      entityType: "TrainingQr",
+      entityId: qr.id,
+      description: `Uploaded training QR (notified ${requesterIds.length} pending requester${requesterIds.length === 1 ? "" : "s"})`,
+      newValue: JSON.stringify({ mimeType: qr.mimeType, notifiedCount: requesterIds.length }),
+      ipAddress: getIpAddress(req),
+      userAgent: getUserAgent(req),
+    })
+
     return NextResponse.json({
       ok: true,
       qr: {
@@ -240,6 +256,18 @@ export async function DELETE() {
     const result = await db.trainingQr.updateMany({
       where: { isActive: true },
       data: { isActive: false },
+    })
+
+    void logAudit({
+      userId: session.user.id,
+      userName: session.user.name || "unknown",
+      userRole: session.user.role || "",
+      department: "LEARNING",
+      page: "training",
+      action: "DELETE",
+      entityType: "TrainingQr",
+      description: `Deactivated active training QR (${result.count} record${result.count === 1 ? "" : "s"})`,
+      newValue: JSON.stringify({ deactivated: result.count }),
     })
 
     return NextResponse.json({ ok: true, deactivated: result.count })

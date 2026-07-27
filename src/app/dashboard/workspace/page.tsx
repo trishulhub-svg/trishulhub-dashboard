@@ -905,18 +905,22 @@ export default function TrishulWorkspacePage() {
           --ws-accent-green: #16a34a;
         }
         .ws-root--bluelight {
-          --ws-bg: #0c0a08;
-          --ws-text: #fbbf24;
-          --ws-text-muted: rgba(251,191,36,0.45);
-          --ws-text-dim: rgba(251,191,36,0.22);
-          --ws-card-bg: rgba(251,191,36,0.03);
-          --ws-card-border: rgba(251,191,36,0.07);
-          --ws-card-hover: rgba(251,191,36,0.05);
-          --ws-card-border-hover: rgba(251,191,36,0.12);
-          --ws-accent-cyan: #f59e0b;
-          --ws-accent-purple: #d97706;
-          --ws-accent-pink: #fbbf24;
-          --ws-accent-green: #84cc16;
+          /* Align with system .bluelight: warm paper surface, same accent language as light */
+          --ws-bg: #f7f3eb;
+          --ws-text: #2a241c;
+          --ws-text-muted: rgba(42,36,28,0.48);
+          --ws-text-dim: rgba(42,36,28,0.28);
+          --ws-card-bg: rgba(255,252,246,0.82);
+          --ws-card-border: rgba(42,36,28,0.08);
+          --ws-card-hover: rgba(255,252,246,0.95);
+          --ws-card-border-hover: rgba(42,36,28,0.14);
+          --ws-accent-cyan: #0e7490;
+          --ws-accent-purple: #7c3aed;
+          --ws-accent-pink: #db2777;
+          --ws-accent-green: #15803d;
+          --ws-accent-cyan-dim: rgba(14,116,144,0.10);
+          --ws-accent-purple-dim: rgba(124,58,237,0.10);
+          --ws-accent-pink-dim: rgba(219,39,119,0.10);
         }
 
         /* ═══════════════════════════════════════
@@ -938,7 +942,7 @@ export default function TrishulWorkspacePage() {
           background: radial-gradient(600px circle at var(--glow-x,50%) var(--glow-y,50%), rgba(6,182,212,0.05), transparent 60%);
         }
         .ws-root--bluelight .ws-glow {
-          background: radial-gradient(600px circle at var(--glow-x,50%) var(--glow-y,50%), rgba(251,191,36,0.04), transparent 60%);
+          background: radial-gradient(600px circle at var(--glow-x,50%) var(--glow-y,50%), rgba(14,116,144,0.05), transparent 60%);
         }
 
         .ws-orbs {
@@ -975,9 +979,9 @@ export default function TrishulWorkspacePage() {
         .ws-root--light .ws-orb--1 { background: rgba(6,182,212,0.06); }
         .ws-root--light .ws-orb--2 { background: rgba(139,92,246,0.04); }
         .ws-root--light .ws-orb--3 { background: rgba(236,72,153,0.03); }
-        .ws-root--bluelight .ws-orb--1 { background: rgba(251,191,36,0.06); }
-        .ws-root--bluelight .ws-orb--2 { background: rgba(217,119,6,0.05); }
-        .ws-root--bluelight .ws-orb--3 { background: rgba(245,158,11,0.03); }
+        .ws-root--bluelight .ws-orb--1 { background: rgba(14,116,144,0.06); }
+        .ws-root--bluelight .ws-orb--2 { background: rgba(124,58,237,0.04); }
+        .ws-root--bluelight .ws-orb--3 { background: rgba(219,39,119,0.03); }
 
         @keyframes ws-drift-1 {
           0%, 100% { transform: translate(0, 0) scale(1); }
@@ -1004,7 +1008,7 @@ export default function TrishulWorkspacePage() {
           background-image: radial-gradient(circle, rgba(0,0,0,0.03) 1px, transparent 1px);
         }
         .ws-root--bluelight .ws-dots {
-          background-image: radial-gradient(circle, rgba(251,191,36,0.02) 1px, transparent 1px);
+          background-image: radial-gradient(circle, rgba(42,36,28,0.035) 1px, transparent 1px);
         }
 
         .ws-noise {
@@ -1087,8 +1091,8 @@ export default function TrishulWorkspacePage() {
           flex-shrink: 0;
         }
         .ws-pulse-dot--bluelight {
-          background: #fbbf24;
-          box-shadow: 0 0 8px rgba(251,191,36,0.4);
+          background: #15803d;
+          box-shadow: 0 0 8px rgba(21,128,61,0.35);
         }
         @keyframes ws-pulse {
           0%, 100% { opacity: 1; transform: scale(1); }
@@ -1175,12 +1179,12 @@ export default function TrishulWorkspacePage() {
           filter: blur(100px);
           pointer-events: none; z-index: 0;
         }
-        .ws-hero-glow--dark,
-        .ws-hero-glow--bluelight {
+        .ws-hero-glow--dark {
           background: radial-gradient(circle, rgba(6,182,212,0.08), transparent 70%);
         }
-        .ws-hero-glow--light {
-          background: radial-gradient(circle, rgba(6,182,212,0.06), transparent 70%);
+        .ws-hero-glow--light,
+        .ws-hero-glow--bluelight {
+          background: radial-gradient(circle, rgba(14,116,144,0.07), transparent 70%);
         }
 
         .ws-hero-content { position: relative; z-index: 1; }
@@ -1209,7 +1213,7 @@ export default function TrishulWorkspacePage() {
         }
         .ws-hero-title--bluelight {
           color: transparent;
-          background: linear-gradient(135deg, #fbbf24 0%, #d97706 50%, #fbbf24 100%);
+          background: linear-gradient(135deg, #2a241c 0%, #5c5346 50%, #2a241c 100%);
           -webkit-background-clip: text; background-clip: text;
         }
 
@@ -1223,7 +1227,7 @@ export default function TrishulWorkspacePage() {
         }
         .ws-tagline--dark { color: rgba(255,255,255,0.40); font-size: 0.85rem; font-style: italic; letter-spacing: 0.01em; }
         .ws-tagline--light { color: rgba(0,0,0,0.35); font-size: 0.85rem; font-style: italic; letter-spacing: 0.01em; }
-        .ws-tagline--bluelight { color: rgba(251,191,36,0.45); font-size: 0.85rem; font-style: italic; letter-spacing: 0.01em; }
+        .ws-tagline--bluelight { color: rgba(42,36,28,0.40); font-size: 0.85rem; font-style: italic; letter-spacing: 0.01em; }
 
         .ws-cursor {
           display: inline-block;
@@ -1257,13 +1261,13 @@ export default function TrishulWorkspacePage() {
           cursor: pointer;
           transition: all 0.25s ease;
         }
-        .ws-btn-clockout--dark,
-        .ws-btn-clockout--bluelight {
+        .ws-btn-clockout--dark {
           background: rgba(239, 68, 68, 0.12);
           color: #f87171;
           border: 1px solid rgba(239, 68, 68, 0.35);
         }
-        .ws-btn-clockout--light {
+        .ws-btn-clockout--light,
+        .ws-btn-clockout--bluelight {
           background: rgba(220, 38, 38, 0.08);
           color: #dc2626;
           border: 1px solid rgba(220, 38, 38, 0.28);
@@ -1276,9 +1280,9 @@ export default function TrishulWorkspacePage() {
           font-size: 0.65rem;
           margin: 0;
         }
-        .ws-clockout-hint--dark,
-        .ws-clockout-hint--bluelight { color: var(--ws-text-dim); }
-        .ws-clockout-hint--light { color: rgba(0,0,0,0.35); }
+        .ws-clockout-hint--dark { color: var(--ws-text-dim); }
+        .ws-clockout-hint--light,
+        .ws-clockout-hint--bluelight { color: rgba(42,36,28,0.40); }
 
         .ws-btn-primary {
           display: inline-flex; align-items: center; gap: 0.5rem;
@@ -1348,7 +1352,7 @@ export default function TrishulWorkspacePage() {
           color: var(--ws-accent-cyan);
           animation: ws-ring-rotate 40s linear infinite;
         }
-        .ws-hero-rings--bluelight { color: #f59e0b; }
+        .ws-hero-rings--bluelight { color: #0e7490; }
         @media (max-width: 639px) {
           .ws-hero-rings { display: none; }
         }
@@ -1610,7 +1614,7 @@ export default function TrishulWorkspacePage() {
           color: #06b6d4;
           flex-shrink: 0;
         }
-        .ws-root--bluelight .ws-horizon-task-prefix { color: #f59e0b; }
+        .ws-root--bluelight .ws-horizon-task-prefix { color: #0e7490; }
         .ws-horizon-task-name {
           font-size: 0.78rem; font-weight: 500;
           color: var(--ws-text);
@@ -1627,7 +1631,7 @@ export default function TrishulWorkspacePage() {
           color: #06b6d4;
           letter-spacing: 0.02em;
         }
-        .ws-root--bluelight .ws-horizon-timer { color: #f59e0b; }
+        .ws-root--bluelight .ws-horizon-timer { color: #0e7490; }
         .ws-root--light .ws-horizon-timer { color: #0891b2; }
         .ws-horizon-badge {
           font-size: 0.5rem; font-weight: 700;
@@ -1673,7 +1677,7 @@ export default function TrishulWorkspacePage() {
           transition: width 0.5s ease;
         }
         .ws-root--bluelight .ws-horizon-progress-fill {
-          background: linear-gradient(90deg, #f59e0b, #d97706);
+          background: linear-gradient(90deg, #0e7490, #0891b2);
         }
         .ws-root--light .ws-horizon-progress-fill {
           background: linear-gradient(90deg, #0891b2, #7c3aed);
@@ -1707,9 +1711,9 @@ export default function TrishulWorkspacePage() {
           color: #0891b2;
         }
         .ws-start-icon-box--bluelight {
-          background: rgba(251,191,36,0.06);
-          border: 1px solid rgba(251,191,36,0.10);
-          color: #f59e0b;
+          background: rgba(14,116,144,0.08);
+          border: 1px solid rgba(14,116,144,0.14);
+          color: #0e7490;
         }
         .ws-start-card:hover .ws-start-icon-box {
           transform: scale(1.05);
@@ -1722,14 +1726,14 @@ export default function TrishulWorkspacePage() {
         }
         .ws-start-heading--dark { color: rgba(255,255,255,0.85); }
         .ws-start-heading--light { color: rgba(0,0,0,0.80); }
-        .ws-start-heading--bluelight { color: rgba(251,191,36,0.85); }
+        .ws-start-heading--bluelight { color: rgba(42,36,28,0.85); }
 
         .ws-start-sub {
           font-size: 0.7rem; line-height: 1.3;
         }
         .ws-start-sub--dark { color: rgba(255,255,255,0.30); }
         .ws-start-sub--light { color: rgba(0,0,0,0.35); }
-        .ws-start-sub--bluelight { color: rgba(251,191,36,0.35); }
+        .ws-start-sub--bluelight { color: rgba(42,36,28,0.40); }
 
         .ws-start-badge {
           display: flex; align-items: center; gap: 0.25rem;
@@ -1750,9 +1754,9 @@ export default function TrishulWorkspacePage() {
           color: #0891b2;
         }
         .ws-start-badge--bluelight {
-          background: rgba(251,191,36,0.06);
-          border: 1px solid rgba(251,191,36,0.10);
-          color: #f59e0b;
+          background: rgba(14,116,144,0.08);
+          border: 1px solid rgba(14,116,144,0.15);
+          color: #0e7490;
         }
         .ws-start-card:hover .ws-start-badge {
           transform: translate(2px, -2px);
@@ -1794,9 +1798,9 @@ export default function TrishulWorkspacePage() {
           color: #7c3aed;
         }
         .ws-cred-icon-box--bluelight {
-          background: rgba(251,191,36,0.06);
-          border: 1px solid rgba(251,191,36,0.10);
-          color: #f59e0b;
+          background: rgba(124,58,237,0.08);
+          border: 1px solid rgba(124,58,237,0.14);
+          color: #7c3aed;
         }
         .ws-cred-card:hover .ws-cred-icon-box { transform: scale(1.05); }
 
@@ -1806,12 +1810,12 @@ export default function TrishulWorkspacePage() {
         }
         .ws-cred-heading--dark { color: rgba(255,255,255,0.85); }
         .ws-cred-heading--light { color: rgba(0,0,0,0.80); }
-        .ws-cred-heading--bluelight { color: rgba(251,191,36,0.85); }
+        .ws-cred-heading--bluelight { color: rgba(42,36,28,0.85); }
 
         .ws-cred-sub { font-size: 0.7rem; line-height: 1.3; }
         .ws-cred-sub--dark { color: rgba(255,255,255,0.30); }
         .ws-cred-sub--light { color: rgba(0,0,0,0.35); }
-        .ws-cred-sub--bluelight { color: rgba(251,191,36,0.35); }
+        .ws-cred-sub--bluelight { color: rgba(42,36,28,0.40); }
 
         .ws-cred-arrow-wrap {
           width: 30px; height: 30px;
@@ -1826,7 +1830,7 @@ export default function TrishulWorkspacePage() {
           background: rgba(0,0,0,0.04); color: rgba(0,0,0,0.30);
         }
         .ws-cred-arrow-wrap--bluelight {
-          background: rgba(251,191,36,0.04); color: rgba(251,191,36,0.30);
+          background: rgba(42,36,28,0.04); color: rgba(42,36,28,0.35);
         }
         .ws-cred-card:hover .ws-cred-arrow-wrap {
           background: var(--ws-card-hover);
@@ -1888,8 +1892,8 @@ export default function TrishulWorkspacePage() {
           flex-shrink: 0;
         }
         .ws-status-dot--bluelight {
-          background: #fbbf24;
-          box-shadow: 0 0 8px rgba(251,191,36,0.3);
+          background: #15803d;
+          box-shadow: 0 0 8px rgba(21,128,61,0.3);
         }
         .ws-status-text {
           font-size: 0.75rem; font-weight: 500;
@@ -1936,9 +1940,9 @@ export default function TrishulWorkspacePage() {
         .ws-bar-pct--cyan { color: rgba(6,182,212,0.65); }
         .ws-bar-pct--purple { color: rgba(139,92,246,0.65); }
         .ws-bar-pct--pink { color: rgba(236,72,153,0.65); }
-        .ws-root--bluelight .ws-bar-pct--cyan { color: rgba(245,158,11,0.65); }
-        .ws-root--bluelight .ws-bar-pct--purple { color: rgba(217,119,6,0.65); }
-        .ws-root--bluelight .ws-bar-pct--pink { color: rgba(251,191,36,0.65); }
+        .ws-root--bluelight .ws-bar-pct--cyan { color: rgba(14,116,144,0.70); }
+        .ws-root--bluelight .ws-bar-pct--purple { color: rgba(124,58,237,0.70); }
+        .ws-root--bluelight .ws-bar-pct--pink { color: rgba(219,39,119,0.70); }
 
         /* ═══════════════════════════════════════
            FOOTER

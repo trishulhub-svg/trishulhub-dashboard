@@ -8,7 +8,7 @@ import {
   ArrowLeft, Plus, Bot, User, Clock, Trash2, Users, UserPlus, X, CalendarDays, Tag,
   CheckCircle2, ShieldCheck, Activity, Gauge, CircleDot, FolderKanban,
   ChevronRight, ExternalLink, Settings, Globe, Star, Pencil, Trash2 as Trash2Icon, Loader2,
-  Github, Database, Server, Eye, EyeOff, Copy, Save, Key, Link2, FlaskConical,
+  Github, Database, Server, Eye, EyeOff, Copy, Save, Key, FlaskConical,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator, } from "@/components/ui/dropdown-menu";
 import { Card, CardContent } from "@/components/ui/card";
@@ -43,6 +43,49 @@ const projectStatusColors: Record<string, string> = {
 };
 
 const VALID_STATUSES = ["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"];
+
+const INFRA_GROUPS = [
+  { key: "GITHUB", label: "GitHub", description: "Repos, GitHub URLs, account API/auth" },
+  { key: "TURSO", label: "Turso", description: "Database URL, database token, account token" },
+  { key: "CLOUDFLARE", label: "Cloudflare", description: "Cloudflare API and account access" },
+  { key: "SMTP", label: "SMTP", description: "SMTP hosts, users, passwords, ports" },
+] as const;
+
+type InfraGroupKey = (typeof INFRA_GROUPS)[number]["key"];
+
+type InfraItem = {
+  id: string;
+  projectId: string;
+  groupKey: InfraGroupKey;
+  label: string;
+  isSecret: boolean;
+  value: string | null;
+  hasValue: boolean;
+  sortOrder: number;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+type InfraItemsResponse = {
+  groups: Record<InfraGroupKey, InfraItem[]>;
+  memberAccess: { visibleUntil: string | null; isActive: boolean };
+  canManage: boolean;
+  canView: boolean;
+};
+
+type InfraItemForm = {
+  groupKey: InfraGroupKey;
+  label: string;
+  value: string;
+  isSecret: boolean;
+};
+
+const emptyInfraGroups = (): Record<InfraGroupKey, InfraItem[]> => ({
+  GITHUB: [],
+  TURSO: [],
+  CLOUDFLARE: [],
+  SMTP: [],
+});
 
 /** Monday (UTC) of the week containing dateKey YYYY-MM-DD, as YYYY-MM-DD. */
 function weekStartKey(dueIso: string): string {
@@ -202,29 +245,32 @@ export default function ProjectDetailPage() {
   const [editingWebsiteUrl, setEditingWebsiteUrl] = useState("");
   const [editingWebsiteLabel, setEditingWebsiteLabel] = useState("");
 
-  // ── Infrastructure section state ──
-  const [infraEditing, setInfraEditing] = useState(false);
-  const [infraSaving, setInfraSaving] = useState(false);
-  const [infraForm, setInfraForm] = useState({
-    githubRepoUrl: "",
-    githubBranch: "",
-    tursoUrl: "",
-    vercelProjectId: "",
-    deployUrl: "",
+  // ── Grouped infrastructure section state ──
+  const [infraItemDialogOpen, setInfraItemDialogOpen] = useState(false);
+  const [editingInfraItem, setEditingInfraItem] = useState<InfraItem | null>(null);
+  const [infraItemForm, setInfraItemForm] = useState<InfraItemForm>({
+    groupKey: "GITHUB",
+    label: "",
+    value: "",
+    isSecret: true,
   });
-  const [tokenEditOpen, setTokenEditOpen] = useState(false);
-  const [tokenForm, setTokenForm] = useState({ githubToken: "", tursoToken: "" });
-  const [tokenSaving, setTokenSaving] = useState(false);
-  const [revealedTokens, setRevealedTokens] = useState<Record<string, string>>({});
+  const [infraSaving, setInfraSaving] = useState(false);
+  const [infraDeletingId, setInfraDeletingId] = useState<string | null>(null);
+  const [revealedInfraItems, setRevealedInfraItems] = useState<Record<string, { value: string; expiresAt: number }>>({});
+  const [revealTick, setRevealTick] = useState(0);
   const [revealing, setRevealing] = useState<string | null>(null);
+  const [visibilityPreset, setVisibilityPreset] = useState("30");
+  const [visibilitySaving, setVisibilitySaving] = useState(false);
   const [newMilestoneTitle, setNewMilestoneTitle] = useState("");
   const [newMilestoneDue, setNewMilestoneDue] = useState("");
+  const [newMilestoneDueTime, setNewMilestoneDueTime] = useState("");
   const [newMilestoneAssignees, setNewMilestoneAssignees] = useState<string[]>([]);
   const [milestoneSaving, setMilestoneSaving] = useState(false);
   const [milestoneWeekFilter, setMilestoneWeekFilter] = useState<string>("__all__");
   const [editingMilestone, setEditingMilestone] = useState<Record<string, unknown> | null>(null);
   const [editMilestoneTitle, setEditMilestoneTitle] = useState("");
   const [editMilestoneDue, setEditMilestoneDue] = useState("");
+  const [editMilestoneDueTime, setEditMilestoneDueTime] = useState("");
   const [editMilestoneAssignees, setEditMilestoneAssignees] = useState<string[]>([]);
   const canManageMilestones = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
@@ -276,6 +322,19 @@ export default function ProjectDetailPage() {
       cancelled = true;
     };
   }, [projectId, queryClient]);
+
+  useEffect(() => {
+    if (Object.keys(revealedInfraItems).length === 0) return;
+    const timer = window.setInterval(() => {
+      const now = Date.now();
+      setRevealTick(now);
+      setRevealedInfraItems((prev) => {
+        const next = Object.fromEntries(Object.entries(prev).filter(([, entry]) => entry.expiresAt > now));
+        return next as Record<string, { value: string; expiresAt: number }>;
+      });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [revealedInfraItems]);
 
   // ── React Query: Project data with aggressive caching ──
   const { data: projectData, isLoading: projectLoading } = useQuery({
@@ -356,17 +415,16 @@ export default function ProjectDetailPage() {
     retry: 1,
   });
 
-  // ── React Query: Infrastructure ──
+  // ── React Query: Grouped infrastructure ──
   const { data: infraData, isLoading: infraLoading } = useQuery({
-    queryKey: ["project-infra", projectId],
+    queryKey: ["project-infra-items", projectId],
     queryFn: async () => {
       if (!projectId) return null;
-      const res = await fetch(`/api/projects/${projectId}/infra`, { credentials: "include" });
+      const res = await fetch(`/api/projects/${projectId}/infra-items`, { credentials: "include" });
       if (res.status === 401) { window.location.href = "/login"; throw new Error("Unauthorized"); }
       if (!res.ok) return null;
       const raw = deepSanitize(await res.json());
-      const infra = (raw as Record<string, unknown>)?.infrastructure as Record<string, unknown> | undefined;
-      return infra || null;
+      return raw as InfraItemsResponse;
     },
     enabled: !!projectId && bootstrapReady,
     staleTime: 60 * 1000,
@@ -395,107 +453,190 @@ export default function ProjectDetailPage() {
 
   const project = projectData;
   const members = membersData;
+  const activeMembers = useMemo(
+    () =>
+      members.filter((m) => {
+        const active = (m as { user?: { isActive?: boolean } }).user?.isActive;
+        return active !== false;
+      }),
+    [members]
+  );
   const teamUsers = teamUsersData;
   const websites = websitesData;
   const infrastructure = infraData;
+  const infraGroups = infrastructure?.groups || emptyInfraGroups();
+  const infraMemberAccess = infrastructure?.memberAccess || { visibleUntil: null, isActive: false };
+  const infraCanView = infrastructure?.canView ?? canManageProject;
+  const infraItemCount = INFRA_GROUPS.reduce((count, group) => count + (infraGroups[group.key]?.length || 0), 0);
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ["project", projectId] });
     queryClient.invalidateQueries({ queryKey: ["project-members", projectId] });
     queryClient.invalidateQueries({ queryKey: ["project-websites", projectId] });
-    queryClient.invalidateQueries({ queryKey: ["project-infra", projectId] });
+    queryClient.invalidateQueries({ queryKey: ["project-infra-items", projectId] });
   };
 
-  // ── Infrastructure handlers ──
-  const handleInfraEdit = useCallback(() => {
-    setInfraForm({
-      githubRepoUrl: extractStr(infrastructure, "githubRepoUrl", ""),
-      githubBranch: extractStr(infrastructure, "githubBranch", ""),
-      tursoUrl: extractStr(infrastructure, "tursoUrl", ""),
-      vercelProjectId: extractStr(infrastructure, "vercelProjectId", ""),
-      deployUrl: extractStr(infrastructure, "deployUrl", ""),
-    });
-    setInfraEditing(true);
-  }, [infrastructure]);
+  // ── Grouped infrastructure handlers ──
+  const resetInfraItemDialog = useCallback(() => {
+    setInfraItemDialogOpen(false);
+    setEditingInfraItem(null);
+    setInfraItemForm({ groupKey: "GITHUB", label: "", value: "", isSecret: true });
+  }, []);
 
-  const handleInfraSave = useCallback(async () => {
+  const openAddInfraItem = useCallback((groupKey: InfraGroupKey) => {
+    setEditingInfraItem(null);
+    setInfraItemForm({ groupKey, label: "", value: "", isSecret: true });
+    setInfraItemDialogOpen(true);
+  }, []);
+
+  const openEditInfraItem = useCallback((item: InfraItem) => {
+    setEditingInfraItem(item);
+    setInfraItemForm({
+      groupKey: item.groupKey,
+      label: item.label,
+      value: item.isSecret ? "" : item.value || "",
+      isSecret: item.isSecret,
+    });
+    setInfraItemDialogOpen(true);
+  }, []);
+
+  const handleSaveInfraItem = useCallback(async () => {
+    if (!infraItemForm.label.trim()) {
+      toast.error("Label is required");
+      return;
+    }
+    if (!editingInfraItem && !infraItemForm.value.trim()) {
+      toast.error("Value is required");
+      return;
+    }
     setInfraSaving(true);
     try {
-      const res = await fetch(`/api/projects/${projectId}/infra`, {
-        method: "PUT",
+      const endpoint = editingInfraItem
+        ? `/api/projects/${projectId}/infra-items/${editingInfraItem.id}`
+        : `/api/projects/${projectId}/infra-items`;
+      const body: Record<string, unknown> = {
+        groupKey: infraItemForm.groupKey,
+        label: infraItemForm.label.trim(),
+        isSecret: infraItemForm.isSecret,
+      };
+      if (!editingInfraItem || infraItemForm.value.trim()) {
+        body.value = infraItemForm.value;
+      } else if (!infraItemForm.isSecret) {
+        body.value = "";
+      }
+      const res = await fetch(endpoint, {
+        method: editingInfraItem ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify(infraForm),
+        body: JSON.stringify(body),
       });
       if (res.status === 401) { window.location.href = "/login"; return; }
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        toast.error(err.error || "Failed to save infrastructure");
+        toast.error(err.error || "Failed to save infrastructure item");
         return;
       }
-      toast.success("Infrastructure updated");
-      setInfraEditing(false);
-      queryClient.invalidateQueries({ queryKey: ["project-infra", projectId] });
+      toast.success(editingInfraItem ? "Infrastructure item updated" : "Infrastructure item added");
+      resetInfraItemDialog();
+      setRevealedInfraItems((prev) => {
+        if (!editingInfraItem) return prev;
+        const next = { ...prev };
+        delete next[editingInfraItem.id];
+        return next;
+      });
+      queryClient.invalidateQueries({ queryKey: ["project-infra-items", projectId] });
     } catch {
-      toast.error("Failed to save infrastructure");
+      toast.error("Failed to save infrastructure item");
     } finally {
       setInfraSaving(false);
     }
-  }, [projectId, infraForm, queryClient]);
+  }, [editingInfraItem, infraItemForm, projectId, queryClient, resetInfraItemDialog]);
 
-  const handleTokenSave = useCallback(async () => {
-    setTokenSaving(true);
+  const handleDeleteInfraItem = useCallback(async (itemId: string) => {
+    setInfraDeletingId(itemId);
     try {
-      const res = await fetch(`/api/projects/${projectId}/infra`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      const res = await fetch(`/api/projects/${projectId}/infra-items/${itemId}`, {
+        method: "DELETE",
         credentials: "include",
-        body: JSON.stringify({
-          githubToken: tokenForm.githubToken || null,
-          tursoToken: tokenForm.tursoToken || null,
-        }),
       });
       if (res.status === 401) { window.location.href = "/login"; return; }
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        toast.error(err.error || "Failed to save tokens");
+        toast.error(err.error || "Failed to delete infrastructure item");
         return;
       }
-      toast.success("Tokens updated");
-      setTokenEditOpen(false);
-      setTokenForm({ githubToken: "", tursoToken: "" });
-      queryClient.invalidateQueries({ queryKey: ["project-infra", projectId] });
-      setRevealedTokens({});
+      toast.success("Infrastructure item deleted");
+      setRevealedInfraItems((prev) => {
+        const next = { ...prev };
+        delete next[itemId];
+        return next;
+      });
+      queryClient.invalidateQueries({ queryKey: ["project-infra-items", projectId] });
     } catch {
-      toast.error("Failed to save tokens");
+      toast.error("Failed to delete infrastructure item");
     } finally {
-      setTokenSaving(false);
+      setInfraDeletingId(null);
     }
-  }, [projectId, tokenForm, queryClient]);
+  }, [projectId, queryClient]);
 
-  const handleRevealToken = useCallback(async (kind: "github" | "turso") => {
-    setRevealing(kind);
+  const handleUpdateInfraMemberAccess = useCallback(async (visibleUntil: string | null) => {
+    setVisibilitySaving(true);
     try {
-      const res = await fetch(`/api/projects/${projectId}/infra/tokens/reveal`, {
-        method: "POST",
+      const res = await fetch(`/api/projects/${projectId}/infra-items`, {
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ kind }),
+        body: JSON.stringify({ visibleUntil }),
       });
       if (res.status === 401) { window.location.href = "/login"; return; }
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        toast.error(err.error || `No ${kind} token set`);
+        toast.error(err.error || "Failed to update member visibility");
+        return;
+      }
+      toast.success(visibleUntil ? "Infrastructure visible to members" : "Infrastructure hidden from members");
+      queryClient.invalidateQueries({ queryKey: ["project-infra-items", projectId] });
+    } catch {
+      toast.error("Failed to update member visibility");
+    } finally {
+      setVisibilitySaving(false);
+    }
+  }, [projectId, queryClient]);
+
+  const handleRevealInfraItem = useCallback(async (item: InfraItem) => {
+    setRevealing(item.id);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/infra-items/${item.id}`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (res.status === 401) { window.location.href = "/login"; return; }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.error || "Failed to reveal value");
         return;
       }
       const data = await res.json();
-      setRevealedTokens(prev => ({ ...prev, [kind]: data.token }));
+      setRevealedInfraItems((prev) => ({
+        ...prev,
+        [item.id]: {
+          value: String(data.value || ""),
+          expiresAt: Date.now() + 30_000,
+        },
+      }));
+      setRevealTick(Date.now());
     } catch {
-      toast.error("Failed to reveal token");
+      toast.error("Failed to reveal value");
     } finally {
       setRevealing(null);
     }
   }, [projectId]);
+
+  const enableInfraVisibility = useCallback(() => {
+    const minutes = Number.parseInt(visibilityPreset, 10);
+    const visibleUntil = new Date(Date.now() + Math.max(1, minutes) * 60_000).toISOString();
+    handleUpdateInfraMemberAccess(visibleUntil);
+  }, [handleUpdateInfraMemberAccess, visibilityPreset]);
 
   const copyToClipboard = useCallback((text: string, label: string) => {
     if (!text) return;
@@ -625,13 +766,15 @@ export default function ProjectDetailPage() {
         body: JSON.stringify({
           title: newMilestoneTitle.trim(),
           dueDate: newMilestoneDue,
+          dueTime: newMilestoneDueTime || null,
           assigneeIds: newMilestoneAssignees,
         }),
       });
       if (res.ok) {
-        toast.success("Milestone added — assignees notified");
+        toast.success("Milestone added");
         setNewMilestoneTitle("");
         setNewMilestoneDue("");
+        setNewMilestoneDueTime("");
         setNewMilestoneAssignees([]);
         refreshProgress();
       } else {
@@ -651,6 +794,7 @@ export default function ProjectDetailPage() {
     setEditMilestoneTitle(extractStr(m, "title", ""));
     const due = extractStr(m, "dueDate", "");
     setEditMilestoneDue(due ? due.slice(0, 10) : "");
+    setEditMilestoneDueTime(extractStr(m, "dueTime", ""));
     const assignees = Array.isArray(m.assignees)
       ? (m.assignees as Record<string, unknown>[]).map((a) =>
           extractStr(a, "userId", "") || extractNestedStr(a, ["user", "id"], "")
@@ -680,6 +824,7 @@ export default function ProjectDetailPage() {
           id,
           title: editMilestoneTitle.trim(),
           dueDate: editMilestoneDue,
+          dueTime: editMilestoneDueTime || null,
           assigneeIds: editMilestoneAssignees,
         }),
       });
@@ -804,7 +949,13 @@ export default function ProjectDetailPage() {
   const memberUserIds = useMemo(() => members.map((m) => extractStr(m, "userId", "")), [members]);
   const availableUsers = useMemo(() => {
     const ids = memberUserIds;
-    return teamUsers.filter((u) => !ids.includes(extractStr(u, "id", "")));
+    return teamUsers.filter((u) => {
+      const id = extractStr(u, "id", "");
+      if (!id || ids.includes(id)) return false;
+      // Team API already filters inactive; keep a defensive client check
+      const active = (u as { isActive?: boolean }).isActive;
+      return active !== false;
+    });
   }, [teamUsers, memberUserIds]);
 
   // CRITICAL FIX: Only gate on session + project loading.
@@ -1211,7 +1362,7 @@ export default function ProjectDetailPage() {
                 />
                 <div className="flex flex-wrap gap-2 items-center">
                   <div className="space-y-0.5">
-                    <Label className="text-[10px] text-muted-foreground">Due date *</Label>
+                    <Label className="text-[10px] text-muted-foreground">Due date * (UK)</Label>
                     <Input
                       type="date"
                       value={newMilestoneDue}
@@ -1219,16 +1370,25 @@ export default function ProjectDetailPage() {
                       className="h-8 text-xs w-[150px]"
                     />
                   </div>
+                  <div className="space-y-0.5">
+                    <Label className="text-[10px] text-muted-foreground">Due time (optional, UK)</Label>
+                    <Input
+                      type="time"
+                      value={newMilestoneDueTime}
+                      onChange={(e) => setNewMilestoneDueTime(e.target.value)}
+                      className="h-8 text-xs w-[120px]"
+                    />
+                  </div>
                   <Button size="sm" className="h-8 text-xs shrink-0 ml-auto mt-3" onClick={handleAddMilestone} disabled={milestoneSaving}>
                     {milestoneSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3 mr-1" />}
                     Add
                   </Button>
                 </div>
-                {members.length > 0 ? (
+                {activeMembers.length > 0 ? (
                   <div className="space-y-1">
-                    <Label className="text-[10px] text-muted-foreground">Assign to * (project members — single or multiple)</Label>
+                    <Label className="text-[10px] text-muted-foreground">Assign to * (active project members — single or multiple)</Label>
                     <div className="flex flex-wrap gap-1.5">
-                      {members.map((member) => {
+                      {activeMembers.map((member) => {
                         const mUserId = extractStr(member, "userId", "");
                         const mUserName = extractNestedStr(member, ["user", "name"], "Unknown");
                         const selected = newMilestoneAssignees.includes(mUserId);
@@ -1252,7 +1412,7 @@ export default function ProjectDetailPage() {
                   </div>
                 ) : (
                   <p className="text-[10px] text-amber-600 dark:text-amber-400">
-                    Add team members to this project first, then assign the milestone.
+                    Add active team members to this project first, then assign the milestone.
                   </p>
                 )}
               </div>
@@ -1354,14 +1514,20 @@ export default function ProjectDetailPage() {
               <Label className="text-xs">Title</Label>
               <Input value={editMilestoneTitle} onChange={(e) => setEditMilestoneTitle(e.target.value)} className="h-9 text-sm" />
             </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Due date</Label>
-              <Input type="date" value={editMilestoneDue} onChange={(e) => setEditMilestoneDue(e.target.value)} className="h-9 text-sm" />
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Due date (UK)</Label>
+                <Input type="date" value={editMilestoneDue} onChange={(e) => setEditMilestoneDue(e.target.value)} className="h-9 text-sm" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Due time (optional, UK)</Label>
+                <Input type="time" value={editMilestoneDueTime} onChange={(e) => setEditMilestoneDueTime(e.target.value)} className="h-9 text-sm" />
+              </div>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Assignees * (single or multiple)</Label>
+              <Label className="text-xs">Assignees * (active members)</Label>
               <div className="flex flex-wrap gap-1.5">
-                {members.map((member) => {
+                {activeMembers.map((member) => {
                   const mUserId = extractStr(member, "userId", "");
                   const mUserName = extractNestedStr(member, ["user", "name"], "Unknown");
                   const selected = editMilestoneAssignees.includes(mUserId);
@@ -1396,260 +1562,244 @@ export default function ProjectDetailPage() {
 
       {/* ═══════ Infrastructure Section ═══════ */}
       <div className="rounded-xl border border-white/20 dark:border-white/10 bg-white/60 dark:bg-white/[0.02] backdrop-blur-xl overflow-hidden" style={{ animation: "card-enter 0.4s ease-out both", animationDelay: "180ms" }}>
-        <div className="flex items-center justify-between px-4 py-3 border-b border-black/[0.04] dark:border-white/[0.06] bg-black/[0.01] dark:bg-white/[0.01]">
+        <div className="flex flex-col gap-3 px-4 py-3 border-b border-black/[0.04] dark:border-white/[0.06] bg-black/[0.01] dark:bg-white/[0.01] sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
             <Server className="h-4 w-4 text-muted-foreground" />
             <h2 className="text-sm font-bold tracking-tight">Infrastructure</h2>
-            {infrastructure && (extractStr(infrastructure, "githubRepoUrl", "") || extractStr(infrastructure, "tursoUrl", "")) && (
-              <Badge variant="secondary" className="text-[10px] font-semibold h-5 px-1.5">Configured</Badge>
+            {infraItemCount > 0 && (
+              <Badge variant="secondary" className="text-[10px] font-semibold h-5 px-1.5">{infraItemCount} items</Badge>
+            )}
+            {!canManageProject && infraMemberAccess.isActive && (
+              <Badge className="text-[10px] h-5 px-1.5 bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">Visible now</Badge>
             )}
           </div>
-          {canManageProject && !infraEditing && (
-            <div className="flex items-center gap-1.5">
-              <Button size="sm" variant="outline" className="h-7 text-xs px-2.5 gap-1" onClick={handleInfraEdit}>
-                <Pencil className="h-3 w-3" /> Edit
-              </Button>
-              {canManageProject && (
-                <Button size="sm" variant="outline" className="h-7 text-xs px-2.5 gap-1" onClick={() => setTokenEditOpen(true)}>
-                  <Key className="h-3 w-3" /> Tokens
+          {canManageProject && (
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1.5 rounded-full border border-border/60 bg-background/70 px-2 py-1">
+                <span className="text-[10px] text-muted-foreground">Members</span>
+                <select
+                  value={visibilityPreset}
+                  onChange={(e) => setVisibilityPreset(e.target.value)}
+                  className="h-6 rounded-md border border-border/60 bg-background px-1.5 text-[10px]"
+                  disabled={visibilitySaving}
+                >
+                  <option value="15">15 min</option>
+                  <option value="30">30 min</option>
+                  <option value="60">1 hour</option>
+                  <option value="240">4 hours</option>
+                </select>
+                <Button size="sm" variant="outline" className="h-6 px-2 text-[10px]" onClick={enableInfraVisibility} disabled={visibilitySaving}>
+                  {visibilitySaving ? <Loader2 className="h-3 w-3 animate-spin" /> : "Show"}
                 </Button>
+                <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" onClick={() => handleUpdateInfraMemberAccess(null)} disabled={visibilitySaving || !infraMemberAccess.visibleUntil}>
+                  Hide
+                </Button>
+              </div>
+              {infraMemberAccess.visibleUntil && (
+                <span className="text-[10px] text-muted-foreground">
+                  Visible until {new Date(infraMemberAccess.visibleUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </span>
               )}
             </div>
           )}
         </div>
 
-        <div className="p-4 space-y-3">
+        <div className="p-4">
           {infraLoading ? (
-            <div className="space-y-2">
-              <Skeleton className="h-8 w-full" />
-              <Skeleton className="h-8 w-full" />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-36 rounded-lg" />)}
             </div>
-          ) : infraEditing ? (
-            <div className="space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-medium flex items-center gap-1.5"><Github className="h-3 w-3" /> GitHub Repo URL</Label>
-                  <Input
-                    value={infraForm.githubRepoUrl}
-                    onChange={(e) => setInfraForm(p => ({ ...p, githubRepoUrl: e.target.value }))}
-                    placeholder="trishulhub-svg/trishulhub-dashboard.git"
-                    className="h-9 text-xs"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-medium">Default Branch</Label>
-                  <Input
-                    value={infraForm.githubBranch}
-                    onChange={(e) => setInfraForm(p => ({ ...p, githubBranch: e.target.value }))}
-                    placeholder="main"
-                    className="h-9 text-xs"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-medium flex items-center gap-1.5"><Database className="h-3 w-3" /> Turso DB URL</Label>
-                  <Input
-                    value={infraForm.tursoUrl}
-                    onChange={(e) => setInfraForm(p => ({ ...p, tursoUrl: e.target.value }))}
-                    placeholder="libsql://xxx.turso.io"
-                    className="h-9 text-xs"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-medium">Vercel Project ID</Label>
-                  <Input
-                    value={infraForm.vercelProjectId}
-                    onChange={(e) => setInfraForm(p => ({ ...p, vercelProjectId: e.target.value }))}
-                    placeholder="prj_xxxxx"
-                    className="h-9 text-xs"
-                  />
-                </div>
-                <div className="space-y-1.5 sm:col-span-2">
-                  <Label className="text-xs font-medium flex items-center gap-1.5"><Link2 className="h-3 w-3" /> Deploy URL</Label>
-                  <Input
-                    value={infraForm.deployUrl}
-                    onChange={(e) => setInfraForm(p => ({ ...p, deployUrl: e.target.value }))}
-                    placeholder="https://xxx.vercel.app"
-                    className="h-9 text-xs"
-                  />
-                </div>
-              </div>
-              <div className="flex items-center gap-2 pt-1">
-                <Button size="sm" className="h-8 text-xs gap-1" onClick={handleInfraSave} disabled={infraSaving}>
-                  {infraSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-                  Save
-                </Button>
-                <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => setInfraEditing(false)} disabled={infraSaving}>
-                  Cancel
-                </Button>
-              </div>
+          ) : !infraCanView ? (
+            <div className="rounded-lg border border-dashed border-border/70 bg-muted/20 p-5 text-center">
+              <ShieldCheck className="h-8 w-8 text-muted-foreground/40 mx-auto mb-2" />
+              <p className="text-sm font-medium">Infrastructure is hidden</p>
+              <p className="text-xs text-muted-foreground mt-1">Ask an admin or project manager to grant temporary visibility.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {/* GitHub Repo */}
-              <div className="flex items-start gap-2 p-2.5 rounded-lg bg-white/40 dark:bg-white/[0.02] border border-black/[0.03] dark:border-white/[0.04]">
-                <Github className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">GitHub Repo</p>
-                  {extractStr(infrastructure, "githubRepoUrl", "") ? (
-                    <div className="flex items-center gap-1 mt-0.5">
-                      <code className="text-[11px] font-mono truncate flex-1">{extractStr(infrastructure, "githubRepoUrl", "")}</code>
-                      <button onClick={() => copyToClipboard(extractStr(infrastructure, "githubRepoUrl", ""), "Repo URL")} className="text-muted-foreground/40 hover:text-foreground/80 shrink-0" aria-label="Copy">
-                        <Copy className="h-3 w-3" />
-                      </button>
-                    </div>
-                  ) : (
-                    <p className="text-[11px] text-muted-foreground/50 italic mt-0.5">Not configured</p>
-                  )}
-                  {extractStr(infrastructure, "githubBranch", "") && (
-                    <p className="text-[10px] text-muted-foreground/60 mt-0.5">Branch: {extractStr(infrastructure, "githubBranch", "")}</p>
-                  )}
-                </div>
-              </div>
-
-              {/* GitHub Token — only visible to project managers */}
-              {canManageProject && (
-              <div className="flex items-start gap-2 p-2.5 rounded-lg bg-white/40 dark:bg-white/[0.02] border border-black/[0.03] dark:border-white/[0.04]">
-                <Key className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">GitHub Token</p>
-                  {infrastructure && infrastructure.hasGithubToken ? (
-                    <div className="flex items-center gap-1 mt-0.5">
-                      {revealedTokens.github ? (
-                        <>
-                          <code className="text-[11px] font-mono truncate flex-1">{revealedTokens.github}</code>
-                          <button onClick={() => copyToClipboard(revealedTokens.github, "GitHub token")} className="text-muted-foreground/40 hover:text-foreground/80 shrink-0" aria-label="Copy">
-                            <Copy className="h-3 w-3" />
-                          </button>
-                          <button onClick={() => setRevealedTokens(p => { const n = { ...p }; delete n.github; return n; })} className="text-muted-foreground/40 hover:text-foreground/80 shrink-0" aria-label="Hide">
-                            <EyeOff className="h-3 w-3" />
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <span className="text-[11px] font-mono text-muted-foreground flex-1">••••••••••••</span>
-                          <button onClick={() => handleRevealToken("github")} disabled={revealing === "github"} className="text-muted-foreground/40 hover:text-foreground/80 shrink-0 disabled:opacity-50" aria-label="Reveal">
-                            {revealing === "github" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Eye className="h-3 w-3" />}
-                          </button>
-                        </>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              {INFRA_GROUPS.map((group) => {
+                const items = infraGroups[group.key] || [];
+                return (
+                  <div key={group.key} className="rounded-lg border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/[0.02] overflow-hidden">
+                    <div className="flex items-start justify-between gap-2 px-3 py-2.5 border-b border-black/[0.04] dark:border-white/[0.06]">
+                      <div className="flex items-start gap-2 min-w-0">
+                        {group.key === "GITHUB" ? (
+                          <Github className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                        ) : group.key === "TURSO" ? (
+                          <Database className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                        ) : group.key === "CLOUDFLARE" ? (
+                          <Globe className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                        ) : (
+                          <Server className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                        )}
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold tracking-tight">{group.label}</p>
+                          <p className="text-[10px] text-muted-foreground truncate">{group.description}</p>
+                        </div>
+                      </div>
+                      {canManageProject && (
+                        <Button size="sm" variant="outline" className="h-7 text-[10px] px-2 gap-1 shrink-0" onClick={() => openAddInfraItem(group.key)}>
+                          <Plus className="h-3 w-3" /> Add
+                        </Button>
                       )}
                     </div>
-                  ) : (
-                    <p className="text-[11px] text-muted-foreground/50 italic mt-0.5">No token set</p>
-                  )}
-                </div>
-              </div>
-              )}
-
-              {/* Turso URL */}
-              <div className="flex items-start gap-2 p-2.5 rounded-lg bg-white/40 dark:bg-white/[0.02] border border-black/[0.03] dark:border-white/[0.04]">
-                <Database className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Turso DB URL</p>
-                  {extractStr(infrastructure, "tursoUrl", "") ? (
-                    <div className="flex items-center gap-1 mt-0.5">
-                      <code className="text-[11px] font-mono truncate flex-1">{extractStr(infrastructure, "tursoUrl", "")}</code>
-                      <button onClick={() => copyToClipboard(extractStr(infrastructure, "tursoUrl", ""), "Turso URL")} className="text-muted-foreground/40 hover:text-foreground/80 shrink-0" aria-label="Copy">
-                        <Copy className="h-3 w-3" />
-                      </button>
-                    </div>
-                  ) : (
-                    <p className="text-[11px] text-muted-foreground/50 italic mt-0.5">Not configured</p>
-                  )}
-                </div>
-              </div>
-
-              {/* Turso Token — only visible to project managers */}
-              {canManageProject && (
-              <div className="flex items-start gap-2 p-2.5 rounded-lg bg-white/40 dark:bg-white/[0.02] border border-black/[0.03] dark:border-white/[0.04]">
-                <Key className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Turso Token</p>
-                  {infrastructure && infrastructure.hasTursoToken ? (
-                    <div className="flex items-center gap-1 mt-0.5">
-                      {revealedTokens.turso ? (
-                        <>
-                          <code className="text-[11px] font-mono truncate flex-1">{revealedTokens.turso}</code>
-                          <button onClick={() => copyToClipboard(revealedTokens.turso, "Turso token")} className="text-muted-foreground/40 hover:text-foreground/80 shrink-0" aria-label="Copy">
-                            <Copy className="h-3 w-3" />
-                          </button>
-                          <button onClick={() => setRevealedTokens(p => { const n = { ...p }; delete n.turso; return n; })} className="text-muted-foreground/40 hover:text-foreground/80 shrink-0" aria-label="Hide">
-                            <EyeOff className="h-3 w-3" />
-                          </button>
-                        </>
+                    <div className="p-2.5 space-y-2">
+                      {items.length === 0 ? (
+                        <p className="text-[11px] text-muted-foreground/60 italic py-2 text-center">No {group.label} items yet</p>
                       ) : (
-                        <>
-                          <span className="text-[11px] font-mono text-muted-foreground flex-1">••••••••••••</span>
-                          <button onClick={() => handleRevealToken("turso")} disabled={revealing === "turso"} className="text-muted-foreground/40 hover:text-foreground/80 shrink-0 disabled:opacity-50" aria-label="Reveal">
-                            {revealing === "turso" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Eye className="h-3 w-3" />}
-                          </button>
-                        </>
+                        items.map((item) => {
+                          const revealed = revealedInfraItems[item.id];
+                          const now = revealTick || Date.now();
+                          const remaining = revealed ? Math.max(0, Math.ceil((revealed.expiresAt - now) / 1000)) : 0;
+                          return (
+                            <div key={item.id} className="rounded-md border border-black/[0.04] dark:border-white/[0.05] bg-background/60 p-2.5">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    <p className="text-xs font-semibold truncate">{item.label}</p>
+                                    <Badge variant="outline" className="h-4 px-1 text-[9px] shrink-0">
+                                      {item.isSecret ? "Secret" : "Plain"}
+                                    </Badge>
+                                    {item.isSecret && revealed && (
+                                      <Badge className="h-4 px-1 text-[9px] shrink-0 bg-amber-500/10 text-amber-600 border border-amber-500/20">
+                                        {remaining}s
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-1.5 mt-1 min-w-0">
+                                    {item.isSecret ? (
+                                      revealed ? (
+                                        <code className="text-[11px] font-mono truncate flex-1">{revealed.value}</code>
+                                      ) : (
+                                        <code className="text-[11px] font-mono text-muted-foreground flex-1">{item.hasValue ? "••••••••••••" : "No value set"}</code>
+                                      )
+                                    ) : item.value ? (
+                                      <code className="text-[11px] font-mono truncate flex-1">{item.value}</code>
+                                    ) : (
+                                      <span className="text-[11px] text-muted-foreground/60 italic">No value set</span>
+                                    )}
+                                    {item.isSecret ? (
+                                      revealed ? (
+                                        <>
+                                          <button onClick={() => copyToClipboard(revealed.value, item.label)} className="text-muted-foreground/40 hover:text-foreground/80 shrink-0" aria-label="Copy revealed value">
+                                            <Copy className="h-3 w-3" />
+                                          </button>
+                                          <button
+                                            onClick={() => setRevealedInfraItems((prev) => { const next = { ...prev }; delete next[item.id]; return next; })}
+                                            className="text-muted-foreground/40 hover:text-foreground/80 shrink-0"
+                                            aria-label="Hide value"
+                                          >
+                                            <EyeOff className="h-3 w-3" />
+                                          </button>
+                                        </>
+                                      ) : (
+                                        <button
+                                          onClick={() => handleRevealInfraItem(item)}
+                                          disabled={!item.hasValue || revealing === item.id}
+                                          className="text-muted-foreground/40 hover:text-foreground/80 shrink-0 disabled:opacity-50"
+                                          aria-label="Reveal value"
+                                        >
+                                          {revealing === item.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Eye className="h-3 w-3" />}
+                                        </button>
+                                      )
+                                    ) : item.value ? (
+                                      <button onClick={() => copyToClipboard(item.value || "", item.label)} className="text-muted-foreground/40 hover:text-foreground/80 shrink-0" aria-label="Copy value">
+                                        <Copy className="h-3 w-3" />
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                </div>
+                                {canManageProject && (
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <button type="button" onClick={() => openEditInfraItem(item)} className="text-muted-foreground hover:text-foreground transition-colors p-1" title="Edit">
+                                      <Pencil className="h-3.5 w-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteInfraItem(item.id)}
+                                      disabled={infraDeletingId === item.id}
+                                      className="text-muted-foreground hover:text-red-500 transition-colors p-1 disabled:opacity-50"
+                                      title="Delete"
+                                    >
+                                      {infraDeletingId === item.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })
                       )}
                     </div>
-                  ) : (
-                    <p className="text-[11px] text-muted-foreground/50 italic mt-0.5">No token set</p>
-                  )}
-                </div>
-              </div>
-              )}
-
-              {/* Deploy URL */}
-              {extractStr(infrastructure, "deployUrl", "") && (
-                <div className="flex items-start gap-2 p-2.5 rounded-lg bg-white/40 dark:bg-white/[0.02] border border-black/[0.03] dark:border-white/[0.04] sm:col-span-2">
-                  <Link2 className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Deploy URL</p>
-                    <a href={extractStr(infrastructure, "deployUrl", "")} target="_blank" rel="noopener noreferrer" className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 mt-0.5">
-                      {extractStr(infrastructure, "deployUrl", "")}
-                      <ExternalLink className="h-3 w-3" />
-                    </a>
                   </div>
-                </div>
-              )}
+                );
+              })}
             </div>
           )}
         </div>
       </div>
 
-      {/* ── Token Edit Dialog (ADMIN + PROJECT_MANAGER) ── */}
       {canManageProject && (
-        <Dialog open={tokenEditOpen} onOpenChange={setTokenEditOpen}>
+        <Dialog open={infraItemDialogOpen} onOpenChange={(open) => { if (!open) resetInfraItemDialog(); else setInfraItemDialogOpen(true); }}>
           <DialogContent className="sm:max-w-md bg-white/80 dark:bg-gray-950/80 backdrop-blur-xl border-white/20 dark:border-white/10">
             <DialogHeader>
               <DialogTitle className="text-base font-bold flex items-center gap-2">
-                <Key className="h-4 w-4" /> Manage Tokens
+                <Key className="h-4 w-4" /> {editingInfraItem ? "Edit Infrastructure Item" : "Add Infrastructure Item"}
               </DialogTitle>
               <DialogDescription className="text-xs">
-                Set GitHub and Turso access tokens. Tokens are encrypted at rest. Leave blank to clear.
+                Secrets are encrypted at rest and are only revealed for 30 seconds.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-3">
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium flex items-center gap-1.5"><Github className="h-3 w-3" /> GitHub Token (PAT)</Label>
+                <Label className="text-xs font-medium">Group</Label>
+                <select
+                  value={infraItemForm.groupKey}
+                  onChange={(e) => setInfraItemForm((p) => ({ ...p, groupKey: e.target.value as InfraGroupKey }))}
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-xs"
+                >
+                  {INFRA_GROUPS.map((group) => (
+                    <option key={group.key} value={group.key}>{group.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Label</Label>
                 <Input
-                  type="password"
-                  value={tokenForm.githubToken}
-                  onChange={(e) => setTokenForm(p => ({ ...p, githubToken: e.target.value }))}
-                  placeholder="ghp_xxxxxxxxxxxx (leave blank to keep current)"
-                  className="h-9 text-xs font-mono"
+                  value={infraItemForm.label}
+                  onChange={(e) => setInfraItemForm((p) => ({ ...p, label: e.target.value }))}
+                  placeholder="Github Repo, database token, SMTP password..."
+                  className="h-9 text-xs"
+                />
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-border/60 p-2">
+                <div>
+                  <p className="text-xs font-medium">Secret value</p>
+                  <p className="text-[10px] text-muted-foreground">Secret values are masked in lists.</p>
+                </div>
+                <Switch
+                  checked={infraItemForm.isSecret}
+                  onCheckedChange={(checked) => setInfraItemForm((p) => ({ ...p, isSecret: checked }))}
                 />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium flex items-center gap-1.5"><Database className="h-3 w-3" /> Turso Token</Label>
-                <Input
-                  type="password"
-                  value={tokenForm.tursoToken}
-                  onChange={(e) => setTokenForm(p => ({ ...p, tursoToken: e.target.value }))}
-                  placeholder="eyJxxxxxxxxxxxxx (leave blank to keep current)"
-                  className="h-9 text-xs font-mono"
+                <Label className="text-xs font-medium">
+                  Value {editingInfraItem && infraItemForm.isSecret ? <span className="text-muted-foreground">(leave blank to keep current)</span> : null}
+                </Label>
+                <Textarea
+                  value={infraItemForm.value}
+                  onChange={(e) => setInfraItemForm((p) => ({ ...p, value: e.target.value }))}
+                  placeholder={infraItemForm.isSecret ? "Encrypted after save" : "Visible to users who can view infrastructure"}
+                  className="min-h-24 text-xs font-mono"
                 />
               </div>
             </div>
             <div className="flex items-center gap-2 pt-2">
-              <Button size="sm" className="h-8 text-xs gap-1" onClick={handleTokenSave} disabled={tokenSaving}>
-                {tokenSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-                Save Tokens
+              <Button size="sm" className="h-8 text-xs gap-1" onClick={handleSaveInfraItem} disabled={infraSaving}>
+                {infraSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                Save
               </Button>
-              <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => { setTokenEditOpen(false); setTokenForm({ githubToken: "", tursoToken: "" }); }} disabled={tokenSaving}>
+              <Button size="sm" variant="outline" className="h-8 text-xs" onClick={resetInfraItemDialog} disabled={infraSaving}>
                 Cancel
               </Button>
             </div>

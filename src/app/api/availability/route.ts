@@ -127,8 +127,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Start time must be before end time" }, { status: 400 })
     }
 
-    // Validate userId exists
-    const userExists = await db.user.findUnique({ where: { id: userId }, select: { id: true } })
+    // Validate userId exists and is active
+    const userExists = await db.user.findUnique({
+      where: { id: userId },
+      select: { id: true, isActive: true },
+    })
+    if (userExists && !userExists.isActive) {
+      return NextResponse.json(
+        { error: "Cannot set availability for a deactivated user. Reactivate them in Team first." },
+        { status: 400 }
+      )
+    }
     if (!userExists) {
       return NextResponse.json({ error: "User not found" }, { status: 400 })
     }

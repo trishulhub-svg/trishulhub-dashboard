@@ -38,6 +38,14 @@ function sourceMeta(entry: TimeEntry): { label: string; className: string } {
   };
 }
 
+function activityLabel(entry: TimeEntry): string {
+  if (entry.project?.name) return entry.project.name;
+  if (entry.activityType === "TRAINING") return "Training";
+  if (entry.activityType === "HR_ADMIN") return "HR & Administration";
+  if (entry.activityType === "RD_SA") return "R&D / SA";
+  return "No project";
+}
+
 export function RunningSessions({
   entries,
   elapsedMap,
@@ -91,7 +99,7 @@ export function RunningSessions({
                     </Badge>
                   </div>
                   <p className="text-xs text-muted-foreground truncate">
-                    {safeText(entry.project?.name, "No project")} · Since {formatTime(entry.clockIn)}
+                    {safeText(activityLabel(entry), "No project")} · Since {formatTime(entry.clockIn)}
                   </p>
                 </div>
               </div>

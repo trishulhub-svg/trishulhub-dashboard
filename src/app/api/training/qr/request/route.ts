@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { notifyRoles } from "@/lib/notify"
+import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
 /**
  * POST /api/training/qr/request
@@ -57,6 +58,21 @@ export async function POST(req: NextRequest) {
         requestId: request.id,
         requesterId: userId,
       },
+    })
+
+    void logAudit({
+      userId: session.user.id,
+      userName: session.user.name || "unknown",
+      userRole: session.user.role || "",
+      department: "LEARNING",
+      page: "my-training",
+      action: "CREATE",
+      entityType: "TrainingQrRequest",
+      entityId: request.id,
+      description: `${userName} requested a new training QR`,
+      newValue: JSON.stringify({ note: note || null }),
+      ipAddress: getIpAddress(req),
+      userAgent: getUserAgent(req),
     })
 
     return NextResponse.json({

@@ -18,8 +18,8 @@ import {
  *
  * briefing (clock-in): ALL open milestones for the selected project
  *   (so the team sees what is coming — e.g. due tomorrow still appears today).
- * due (clock-out): ALL open milestones for the project with dueDate <= today
- *   (due day + overdue; never future). Checkboxes required before clock-out.
+ * due (clock-out): assigned open milestones that are due/overdue, plus any
+ *   carried-forward assigned milestones that must be completed before clock-out.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -60,10 +60,14 @@ export async function GET(req: NextRequest) {
 
     const today = todayDateKey()
 
-    // Prompt: clock-in → all project milestones; clock-out → due day, not future
+    // Prompt: clock-in → all project milestones; clock-out → user's due/carried items
     const filtered =
       mode === "due"
-        ? milestones.filter((m) => m.dueDate && isDueOnOrBefore(m.dueDate, today))
+        ? milestones.filter(
+            (m) =>
+              m.assignees.some((a) => a.userId === session.user.id) &&
+              (m.carriedForward || (m.dueDate && isDueOnOrBefore(m.dueDate, today)))
+          )
         : milestones
 
     // Due reminder to Admin/SuperAdmin once per project/day (briefing or due checklist)

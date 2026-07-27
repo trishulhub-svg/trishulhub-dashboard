@@ -275,15 +275,20 @@ export const authOptions: NextAuthOptions = {
         }
       }
 
-      // Refresh page-access ACL from DB (throttled) so admin changes apply without re-login
+      // Refresh page-access ACL + active flag from DB (throttled) so admin changes apply without re-login
       const lastAccessAt = typeof token.pageAccessAt === "number" ? token.pageAccessAt : 0
       if (userId && trigger !== "update" && Date.now() - lastAccessAt > 60_000) {
         try {
           const access = await db.user.findUnique({
             where: { id: userId },
-            select: { pageAccessMode: true, pageAccessPages: true },
+            select: { pageAccessMode: true, pageAccessPages: true, isActive: true },
           })
           if (access) {
+            if (!access.isActive) {
+              log("[auth] User deactivated:", userId, "— ending session")
+              token.error = "SessionKicked"
+              return token
+            }
             token.pageAccessMode = normalizePageAccessMode(access.pageAccessMode)
             token.pageAccessPages = parsePageAccessPages(access.pageAccessPages)
             token.pageAccessAt = Date.now()

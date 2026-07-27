@@ -224,9 +224,14 @@ export const updateSupportTicketSchema = z.object({
 }).refine(hasAtLeastOneField, { message: "At least one field must be provided" })
 
 // ━━ Time Tracking ━━
+export const timeActivityTypes = ["PROJECT", "TRAINING", "HR_ADMIN", "RD_SA"] as const
+
 export const startTimeEntrySchema = z.object({
   projectId: z.string().optional(),
   description: z.string().max(500).optional(),
+  activityType: z.enum(timeActivityTypes).optional(),
+  trainingAssignmentId: z.string().min(1).optional(),
+  switchMode: z.enum(["end", "delete"]).optional(),
   // Device clock integrity (required for self-serve clock-in)
   clientNow: z.string().min(1).optional(),
   timezone: z.string().max(64).optional(),
@@ -244,6 +249,8 @@ export const updateTimeEntrySchema = z.object({
   timezone: z.string().max(64).optional(),
   // Clock-out: ticking due/overdue milestones marks them permanently done
   acknowledgedMilestoneIds: z.array(z.string().min(1)).max(100).optional(),
+  // Clock-out: due milestones not yet done may be carried to the next UK day
+  carryForwardMilestoneIds: z.array(z.string().min(1)).max(100).optional(),
 })
 
 // ━━ Subscriptions ━━

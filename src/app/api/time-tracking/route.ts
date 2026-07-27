@@ -8,12 +8,28 @@ import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { checkClientClockIntegrity } from "@/lib/clock-integrity"
 import { logAudit, getIpAddress, getUserAgent, buildDescription } from "@/lib/audit-log"
 
+function appendAttendedLine(value: string | null | undefined, trainingTitle: string): string {
+  const base = (value || "").trim()
+  const line = `Attended: ${trainingTitle}`
+  if (!base) return line
+  if (base.toLowerCase().includes(line.toLowerCase())) return base
+  return `${base}\n${line}`
+}
+
 type TimeEntryWithUser = {
   id: string; userId: string; status: string; clockIn: Date; clockOut: Date | null;
   totalHours: number | null; projectId: string | null;
   project?: { id: string; name: string } | null;
   user?: { id: string; name: string; email: string } | null;
   [key: string]: unknown;
+}
+
+type ActivityType = "PROJECT" | "TRAINING" | "HR_ADMIN" | "RD_SA"
+
+function canUseActivityType(role: string, activityType: ActivityType): boolean {
+  if (activityType === "HR_ADMIN") return role === "ADMIN" || role === "SUPER_ADMIN"
+  if (activityType === "RD_SA") return role === "SUPER_ADMIN" || role === "PROJECT_MANAGER"
+  return true
 }
 
 /** Shared helper to fetch all active time entries for admin dashboards */
@@ -215,13 +231,19 @@ export async function POST(req: NextRequest) {
 
       const { userId: targetUserId, projectId, description, clockIn, clockOut } = validation.data
 
-      // Validate the target user exists
+      // Validate the target user exists and is active
       const targetUser = await db.user.findUnique({
         where: { id: targetUserId },
-        select: { id: true, name: true, role: true },
+        select: { id: true, name: true, role: true, isActive: true },
       })
       if (!targetUser) {
         return NextResponse.json({ error: "Target user not found" }, { status: 404 })
+      }
+      if (!targetUser.isActive) {
+        return NextResponse.json(
+          { error: "Cannot create time entries for a deactivated user. Reactivate them in Team first." },
+          { status: 400 }
+        )
       }
 
       // Validate project exists if provided
@@ -293,7 +315,31 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: validation.error }, { status: 400 })
     }
 
-    const { projectId, description, clientNow, timezone } = validation.data
+    const {
+      projectId,
+      description,
+      activityType,
+      trainingAssignmentId,
+      switchMode,
+      clientNow,
+      timezone,
+    } = validation.data
+
+    const requestedActivity =
+      (activityType as ActivityType | undefined) || (projectId ? "PROJECT" : undefined)
+    if (requestedActivity && !canUseActivityType(userRole, requestedActivity)) {
+      return NextResponse.json({ error: "You are not allowed to use that activity type" }, { status: 403 })
+    }
+    if (requestedActivity === "TRAINING" && !trainingAssignmentId) {
+      return NextResponse.json({ error: "Select an assigned training before starting" }, { status: 400 })
+    }
+    if (trainingAssignmentId && requestedActivity !== "TRAINING") {
+      return NextResponse.json({ error: "trainingAssignmentId requires activityType=TRAINING" }, { status: 400 })
+    }
+
+    const finalProjectId = requestedActivity === "PROJECT" ? projectId || null : null
+    const finalActivityType = requestedActivity || null
+    let trainingTitle: string | null = null
 
     // Block clock-in when the device clock was manually changed (India/UK OK if accurate)
     const clockCheck = checkClientClockIntegrity({ clientNow, timezone })
@@ -315,18 +361,90 @@ export async function POST(req: NextRequest) {
           where: { userId, status: "ACTIVE" },
         })
         if (activeEntry) {
-          throw new Error("ACTIVE_TIMER_EXISTS")
+          if (switchMode !== "end" && switchMode !== "delete") {
+            throw new Error("ACTIVE_TIMER_EXISTS")
+          }
+          // Do not let Switch escape unfinished carried-forward milestones
+          const openCarried = await tx.projectMilestone.count({
+            where: {
+              done: false,
+              carriedForward: true,
+              assignees: { some: { userId } },
+            },
+          })
+          if (openCarried > 0) {
+            throw new Error("CARRIED_MILESTONES_BLOCK_SWITCH")
+          }
+
+          if (switchMode === "end") {
+            const diffMs = now.getTime() - new Date(activeEntry.clockIn).getTime()
+            const endData: {
+              clockOut: Date
+              status: string
+              clockOutMethod: string
+              totalHours: number
+              description?: string
+              workNotes?: string | null
+            } = {
+              clockOut: now,
+              status: "COMPLETED",
+              clockOutMethod: "MANUAL",
+              totalHours: Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100,
+            }
+            // Training sessions: auto-append Attended line (same as normal clock-out)
+            if (activeEntry.activityType === "TRAINING" && activeEntry.trainingAssignmentId) {
+              const assignment = await tx.trainingAssignment.findFirst({
+                where: { id: activeEntry.trainingAssignmentId, userId },
+                select: { title: true },
+              })
+              if (assignment?.title) {
+                endData.description = appendAttendedLine(
+                  activeEntry.description,
+                  assignment.title
+                ).slice(0, 500)
+                endData.workNotes = appendAttendedLine(
+                  activeEntry.workNotes,
+                  assignment.title
+                ).slice(0, 500)
+              }
+            }
+            await tx.timeEntry.update({
+              where: { id: activeEntry.id },
+              data: endData,
+            })
+          } else {
+            await tx.timeEntry.delete({ where: { id: activeEntry.id } })
+          }
         }
         // Project validation inside transaction too
-        if (projectId) {
-          const project = await tx.project.findUnique({ where: { id: projectId }, select: { id: true } })
+        if (finalProjectId) {
+          const project = await tx.project.findUnique({ where: { id: finalProjectId }, select: { id: true } })
           if (!project) throw new Error("PROJECT_NOT_FOUND")
         }
+
+        if (trainingAssignmentId) {
+          const assignment = await tx.trainingAssignment.findUnique({
+            where: { id: trainingAssignmentId },
+            select: { id: true, userId: true, title: true, status: true },
+          })
+          if (!assignment) throw new Error("TRAINING_ASSIGNMENT_NOT_FOUND")
+          if (assignment.userId !== userId) throw new Error("TRAINING_ASSIGNMENT_FORBIDDEN")
+          if (assignment.status === "DONE") throw new Error("TRAINING_ASSIGNMENT_DONE")
+          trainingTitle = assignment.title
+        }
+
+        const finalDescription =
+          finalActivityType === "TRAINING" && trainingTitle
+            ? description || `Training: ${trainingTitle}`
+            : description || null
+
         return tx.timeEntry.create({
           data: {
             userId,
-            projectId: projectId || null,
-            description: description || null,
+            projectId: finalProjectId,
+            description: finalDescription,
+            activityType: finalActivityType,
+            trainingAssignmentId: trainingAssignmentId || null,
             status: "ACTIVE",
             clockIn: now,
             date: now,
@@ -344,8 +462,27 @@ export async function POST(req: NextRequest) {
           { status: 409 }
         )
       }
+      if (txError instanceof Error && txError.message === "CARRIED_MILESTONES_BLOCK_SWITCH") {
+        return NextResponse.json(
+          {
+            error:
+              "Finish your carried-forward milestone(s) before switching sessions. Complete them on clock-out — they cannot be carried again.",
+            code: "CARRIED_MILESTONES_BLOCK_SWITCH",
+          },
+          { status: 409 }
+        )
+      }
       if (txError instanceof Error && txError.message === "PROJECT_NOT_FOUND") {
         return NextResponse.json({ error: "Project not found" }, { status: 404 })
+      }
+      if (txError instanceof Error && txError.message === "TRAINING_ASSIGNMENT_NOT_FOUND") {
+        return NextResponse.json({ error: "Training assignment not found" }, { status: 404 })
+      }
+      if (txError instanceof Error && txError.message === "TRAINING_ASSIGNMENT_FORBIDDEN") {
+        return NextResponse.json({ error: "Training assignment is not assigned to you" }, { status: 403 })
+      }
+      if (txError instanceof Error && txError.message === "TRAINING_ASSIGNMENT_DONE") {
+        return NextResponse.json({ error: "Training assignment is already completed" }, { status: 400 })
       }
       throw txError
     }
@@ -359,10 +496,15 @@ export async function POST(req: NextRequest) {
       action: "CREATE",
       entityType: "TimeEntry",
       entityId: entry.id,
-      description: `Clocked in${entry.project?.name ? ` on ${entry.project.name}` : ""}${description ? `: ${String(description).slice(0, 80)}` : ""}`,
+      description: `Clocked in${entry.project?.name ? ` on ${entry.project.name}` : finalActivityType ? ` for ${finalActivityType}` : ""}${description ? `: ${String(description).slice(0, 80)}` : ""}`,
       ipAddress: getIpAddress(req),
       userAgent: getUserAgent(req),
-      metadata: JSON.stringify({ projectId: projectId || null }),
+      metadata: JSON.stringify({
+        projectId: finalProjectId,
+        activityType: finalActivityType,
+        trainingAssignmentId: trainingAssignmentId || null,
+        switchMode: switchMode || null,
+      }),
     })
 
     return NextResponse.json(entry, { status: 201 })

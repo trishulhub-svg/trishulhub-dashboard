@@ -6,7 +6,6 @@ import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { deepSanitize } from "@/lib/utils"
 import { canAccessProject, isValidProjectId } from "@/lib/project-access"
-import { notifyAdmins, notifyUsers } from "@/lib/notifications"
 import {
   formatDueDateLabel,
   isDueOnOrBefore,
@@ -15,6 +14,7 @@ import {
   todayDateKey,
   toDateKey,
 } from "@/lib/milestones"
+import { notifyOverdueMilestones, parseOptionalDueTime } from "@/lib/milestone-due"
 import { logAudit, getIpAddress, getUserAgent, buildDescription } from "@/lib/audit-log"
 import { z } from "zod"
 
@@ -26,6 +26,12 @@ const createSchema = z.object({
   title: z.string().trim().min(1).max(200),
   description: z.string().trim().max(2000).optional().nullable(),
   dueDate: z.string().min(1, "Due date is required"),
+  /** Optional UK local time HH:mm — overdue fires after this instant */
+  dueTime: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Due time must be HH:mm (UK)")
+    .optional()
+    .nullable(),
   // Prompt: ask who to assign — at least one project member (single or multi)
   assigneeIds: z.array(z.string().min(1)).min(1, "Select at least one project member").max(50),
 })
@@ -37,6 +43,11 @@ const patchSchema = z.object({
   done: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
   dueDate: z.string().optional().nullable(),
+  dueTime: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Due time must be HH:mm (UK)")
+    .optional()
+    .nullable(),
   assigneeIds: z.array(z.string().min(1)).min(1).max(50).optional(),
 })
 
@@ -52,7 +63,7 @@ async function assertAssigneesOnProject(projectId: string, assigneeIds: string[]
   if (assigneeIds.length === 0) return { ok: true as const }
   const members = await db.projectMember.findMany({
     where: { projectId, userId: { in: assigneeIds } },
-    select: { userId: true },
+    select: { userId: true, user: { select: { isActive: true } } },
   })
   const memberSet = new Set(members.map((m) => m.userId))
   const invalid = assigneeIds.filter((id) => !memberSet.has(id))
@@ -60,6 +71,13 @@ async function assertAssigneesOnProject(projectId: string, assigneeIds: string[]
     return {
       ok: false as const,
       error: "Assignees must already be members of this project",
+    }
+  }
+  const inactive = members.filter((m) => !m.user?.isActive).map((m) => m.userId)
+  if (inactive.some((id) => assigneeIds.includes(id))) {
+    return {
+      ok: false as const,
+      error: "Cannot assign deactivated users. Reactivate them in Team first.",
     }
   }
   return { ok: true as const }
@@ -102,6 +120,9 @@ export async function GET(
 
     const allowed = await canAccessProject(session.user.id, session.user.role, projectId)
     if (!allowed) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+
+    // Hot path: send overdue UK due reminders (idempotent via dueNotifiedAt)
+    void notifyOverdueMilestones().catch(() => undefined)
 
     const scope = new URL(req.url).searchParams.get("scope") // briefing | due | all
     const milestones = await db.projectMilestone.findMany({
@@ -183,6 +204,10 @@ export async function POST(
     if (!due) {
       return NextResponse.json({ error: "Invalid due date (use YYYY-MM-DD)" }, { status: 400 })
     }
+    const dueTime = parseOptionalDueTime(parsed.data.dueTime ?? null)
+    if (dueTime === undefined) {
+      return NextResponse.json({ error: "Invalid due time (use HH:mm UK)" }, { status: 400 })
+    }
 
     const assigneeCheck = await assertAssigneesOnProject(projectId, parsed.data.assigneeIds)
     if (!assigneeCheck.ok) {
@@ -203,6 +228,7 @@ export async function POST(
         title: parsed.data.title,
         description: parsed.data.description || null,
         dueDate: due,
+        dueTime,
         sortOrder: (maxOrder._max.sortOrder ?? -1) + 1,
         createdById: session.user.id,
         updatedAt: now,
@@ -242,27 +268,7 @@ export async function POST(
     )
 
     const dueLabel = formatDueDateLabel(due)
-    const link = `/dashboard/projects/${projectId}`
-
-    // Assigned members → notify the team assignees
-    void notifyUsers(parsed.data.assigneeIds, {
-      title: "Milestone assigned",
-      message: `You were assigned "${milestone?.title || parsed.data.title}" on ${project.name} — due ${dueLabel}`,
-      type: "TASK",
-      link,
-      metadata: { projectId, milestoneId: created.id, dueDate: toDateKey(due) },
-    })
-
-    // Due today/overdue → notify Admin + SuperAdmin
-    if (isDueOnOrBefore(due, todayDateKey())) {
-      void notifyAdmins({
-        title: "Milestone due",
-        message: `"${parsed.data.title}" on ${project.name} is due ${dueLabel}`,
-        type: "WARNING",
-        link,
-        metadata: { projectId, milestoneId: created.id, dueDate: toDateKey(due) },
-      })
-    }
+    // No create/assign notifications — overdue UK due reminders only (milestone-due).
 
     void logAudit({
       userId: session.user.id,
@@ -273,10 +279,11 @@ export async function POST(
       action: "CREATE",
       entityType: "ProjectMilestone",
       entityId: created.id,
-      description: `Created milestone "${parsed.data.title}" on ${project.name} (due ${dueLabel}, ${parsed.data.assigneeIds.length} assignee${parsed.data.assigneeIds.length === 1 ? "" : "s"})`,
+      description: `Created milestone "${parsed.data.title}" on ${project.name} (due ${dueLabel}${dueTime ? ` ${dueTime} UK` : ""}, ${parsed.data.assigneeIds.length} assignee${parsed.data.assigneeIds.length === 1 ? "" : "s"})`,
       newValue: JSON.stringify({
         title: parsed.data.title,
         dueDate: toDateKey(due),
+        dueTime,
         assigneeIds: parsed.data.assigneeIds,
         projectId,
       }),
@@ -332,8 +339,16 @@ export async function PATCH(
       )
     }
 
-    const { id: milestoneId, title, description, done, sortOrder, dueDate, assigneeIds } =
-      parsed.data
+    const {
+      id: milestoneId,
+      title,
+      description,
+      done,
+      sortOrder,
+      dueDate,
+      dueTime,
+      assigneeIds,
+    } = parsed.data
 
     const existing = await db.projectMilestone.findFirst({
       where: { id: milestoneId, projectId },
@@ -349,6 +364,7 @@ export async function PATCH(
       description === undefined &&
       sortOrder === undefined &&
       dueDate === undefined &&
+      dueTime === undefined &&
       assigneeIds === undefined
 
     if (!isAdmin) {
@@ -381,9 +397,23 @@ export async function PATCH(
       }
     }
 
+    let nextDueTime: string | null | undefined = undefined
+    if (dueTime !== undefined) {
+      const parsedTime = parseOptionalDueTime(dueTime)
+      if (parsedTime === undefined) {
+        return NextResponse.json({ error: "Invalid due time (use HH:mm UK)" }, { status: 400 })
+      }
+      nextDueTime = parsedTime
+    }
+
     if (assigneeIds !== undefined) {
       await syncAssignees(milestoneId, assigneeIds)
     }
+
+    const dueChanged =
+      nextDue !== undefined ||
+      nextDueTime !== undefined ||
+      (nextDue === null && existing.dueDate != null)
 
     const milestone = await db.projectMilestone.update({
       where: { id: milestoneId },
@@ -392,6 +422,9 @@ export async function PATCH(
         ...(description !== undefined ? { description } : {}),
         ...(sortOrder !== undefined ? { sortOrder } : {}),
         ...(nextDue !== undefined ? { dueDate: nextDue } : {}),
+        ...(nextDueTime !== undefined ? { dueTime: nextDueTime } : {}),
+        // Reset overdue notify flag when due date/time changes so a new deadline can fire once
+        ...(dueChanged && (nextDue !== null || existing.dueDate) ? { dueNotifiedAt: null } : {}),
         ...(done !== undefined
           ? {
               done,
@@ -402,28 +435,7 @@ export async function PATCH(
       },
       include: milestoneInclude,
     })
-
-    // Notify newly added assignees
-    if (assigneeIds !== undefined) {
-      const prev = new Set(existing.assignees.map((a) => a.userId))
-      const added = assigneeIds.filter((uid) => !prev.has(uid))
-      if (added.length > 0) {
-        const project = await db.project.findUnique({
-          where: { id: projectId },
-          select: { name: true },
-        })
-        const dueLabel = milestone.dueDate
-          ? formatDueDateLabel(milestone.dueDate)
-          : "soon"
-        void notifyUsers(added, {
-          title: "Milestone assigned",
-          message: `"${milestone.title}" on ${project?.name || "project"} is due ${dueLabel}`,
-          type: "TASK",
-          link: `/dashboard/projects/${projectId}`,
-          metadata: { projectId, milestoneId: milestone.id },
-        })
-      }
-    }
+    // No assignee-change notifications — overdue UK reminders only.
 
     let projectProgress: number | undefined
     if (done !== undefined) {
@@ -442,6 +454,7 @@ export async function PATCH(
             description === undefined &&
             sortOrder === undefined &&
             dueDate === undefined &&
+            dueTime === undefined &&
             done === undefined
           ? "ASSIGN"
           : "UPDATE"

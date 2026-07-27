@@ -133,6 +133,22 @@ export async function POST(req: NextRequest) {
     // Non-admin users can only create leaves for themselves
     const targetUserId = !isAdmin(userRole) ? sessionUserId : (userId || sessionUserId)
 
+    if (targetUserId !== sessionUserId) {
+      const target = await db.user.findUnique({
+        where: { id: targetUserId },
+        select: { id: true, isActive: true, name: true },
+      })
+      if (!target) {
+        return NextResponse.json({ error: "User not found" }, { status: 404 })
+      }
+      if (!target.isActive) {
+        return NextResponse.json(
+          { error: "Cannot create leave for a deactivated user. Reactivate them in Team first." },
+          { status: 400 }
+        )
+      }
+    }
+
     const leave = await db.leave.create({
       data: {
         userId: targetUserId,

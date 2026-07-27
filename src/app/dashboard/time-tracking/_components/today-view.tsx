@@ -13,7 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { safeNumber, safeText } from "@/lib/utils";
-import type { Project, TimeEntry } from "./types";
+import type { Project, TimeEntry, TrainingAssignment } from "./types";
 import { DAY_NAMES } from "./types";
 import { formatHours, formatTime } from "./utils";
 import { TimerHero } from "./timer-hero";
@@ -31,8 +31,12 @@ interface TodayViewProps {
   activeEntry: TimeEntry | null;
   elapsed: number;
   projects: Project[];
+  userRole: string;
   selectedProject: string;
   timerDescription: string;
+  trainingAssignments: TrainingAssignment[];
+  selectedTrainingAssignmentId: string;
+  trainingAssignmentsLoading: boolean;
   starting: boolean;
   stopping: boolean;
   fromWorkspace: boolean;
@@ -46,7 +50,9 @@ interface TodayViewProps {
   endingEntryId: string | null;
   onProjectChange: (v: string) => void;
   onDescriptionChange: (v: string) => void;
+  onTrainingAssignmentChange: (v: string) => void;
   onStart: () => void;
+  onSwitchClick: () => void;
   onClockOutClick: () => void;
   onViewDescription: (entry: TimeEntry) => void;
   onEditEntry: (entry: TimeEntry) => void;
@@ -59,8 +65,12 @@ export function TodayView({
   activeEntry,
   elapsed,
   projects,
+  userRole,
   selectedProject,
   timerDescription,
+  trainingAssignments,
+  selectedTrainingAssignmentId,
+  trainingAssignmentsLoading,
   starting,
   stopping,
   fromWorkspace,
@@ -74,7 +84,9 @@ export function TodayView({
   endingEntryId,
   onProjectChange,
   onDescriptionChange,
+  onTrainingAssignmentChange,
   onStart,
+  onSwitchClick,
   onClockOutClick,
   onViewDescription,
   onEditEntry,
@@ -99,14 +111,20 @@ export function TodayView({
         activeEntry={activeEntry}
         elapsed={elapsed}
         projects={projects}
+        userRole={userRole}
         selectedProject={selectedProject}
         timerDescription={timerDescription}
+        trainingAssignments={trainingAssignments}
+        selectedTrainingAssignmentId={selectedTrainingAssignmentId}
+        trainingAssignmentsLoading={trainingAssignmentsLoading}
         starting={starting}
         stopping={stopping}
         fromWorkspace={fromWorkspace}
         onProjectChange={onProjectChange}
         onDescriptionChange={onDescriptionChange}
+        onTrainingAssignmentChange={onTrainingAssignmentChange}
         onStart={onStart}
+        onSwitchClick={onSwitchClick}
         onClockOutClick={onClockOutClick}
       />
 
