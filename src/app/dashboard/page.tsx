@@ -511,7 +511,7 @@ export default function DashboardPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-72 space-y-1 overflow-y-auto custom-scrollbar pr-1">
-            {!favLoaded || (allowedFavPages.length === 0 && !favLoaded) ? (
+            {!favLoaded ? (
               <p className="py-6 text-center text-xs text-muted-foreground">Loading pages…</p>
             ) : allowedFavPages.length === 0 ? (
               <p className="py-6 text-center text-xs text-muted-foreground">
