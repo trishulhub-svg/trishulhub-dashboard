@@ -13,7 +13,7 @@ import { loadLiveOpsPayload } from "@/lib/workspace-live-ops"
  * Returns:
  *   - activeUsers:  every user currently clocked in
  *   - liveProjects: Long Horizon — all active clocked-in projects, filled
- *                   with recent incomplete projects up to 3 when needed
+ *                   with recently worked incomplete projects up to 3 when needed
  */
 export async function GET() {
   try {

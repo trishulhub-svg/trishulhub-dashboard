@@ -47,10 +47,95 @@ function toLiveProject(
 /**
  * Long Horizon list rules:
  * - Always include every distinct project with a clocked-in user (no cap).
- * - If fewer than 3 active projects, fill with recent incomplete projects
- *   (excluding already-listed active ones) up to 3 total.
- * - If nobody is clocked in, show up to 3 recent incomplete projects.
+ * - If fewer than 3 active projects, fill with recently *worked* incomplete
+ *   projects (by TimeEntry activity, excluding already-listed active ones)
+ *   up to 3 total.
+ * - If nobody is clocked in, show up to 3 recently worked incomplete projects.
  */
+async function findRecentlyWorkedProjects(
+  excludeIds: string[],
+  need: number
+): Promise<ProjectRow[]> {
+  if (need <= 0) return []
+
+  // Pull recent clock-ins and keep first-seen project ids (most recent work first).
+  const recentEntries = await db.timeEntry.findMany({
+    where: {
+      projectId: {
+        not: null,
+        ...(excludeIds.length > 0 ? { notIn: excludeIds } : {}),
+      },
+    },
+    orderBy: { clockIn: "desc" },
+    take: 120,
+    select: { projectId: true },
+  })
+
+  const orderedIds: string[] = []
+  const seen = new Set<string>()
+  for (const e of recentEntries) {
+    const id = e.projectId
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    orderedIds.push(id)
+    // Gather extras in case some are completed / 100% progress
+    if (orderedIds.length >= need * 4) break
+  }
+
+  if (orderedIds.length === 0) {
+    // Fallback: previous behavior (project.updatedAt) if no time history yet
+    return db.project.findMany({
+      where: {
+        AND: [
+          { progress: { lt: 100 } },
+          { status: { not: "COMPLETED" } },
+          ...(excludeIds.length > 0 ? [{ id: { notIn: excludeIds } }] : []),
+        ],
+      },
+      orderBy: { updatedAt: "desc" },
+      take: need,
+      select: { id: true, name: true, progress: true, status: true },
+    })
+  }
+
+  const rows = await db.project.findMany({
+    where: {
+      id: { in: orderedIds },
+      progress: { lt: 100 },
+      status: { not: "COMPLETED" },
+    },
+    select: { id: true, name: true, progress: true, status: true },
+  })
+  const byId = new Map(rows.map((p) => [p.id, p as ProjectRow]))
+  const out: ProjectRow[] = []
+  for (const id of orderedIds) {
+    const p = byId.get(id)
+    if (!p) continue
+    out.push(p)
+    if (out.length >= need) break
+  }
+
+  // If still short (few worked projects), top up via updatedAt — same filters
+  if (out.length < need) {
+    const already = new Set([...excludeIds, ...out.map((p) => p.id)])
+    const topUp = await db.project.findMany({
+      where: {
+        AND: [
+          { progress: { lt: 100 } },
+          { status: { not: "COMPLETED" } },
+          ...(already.size > 0 ? [{ id: { notIn: [...already] } }] : []),
+        ],
+      },
+      orderBy: { updatedAt: "desc" },
+      take: need - out.length,
+      select: { id: true, name: true, progress: true, status: true },
+    })
+    out.push(...(topUp as ProjectRow[]))
+  }
+
+  return out
+}
+
 async function buildLiveProjects(
   activeProjectIdsOrdered: string[],
   activeUserCountByProject: Map<string, number>
@@ -84,18 +169,7 @@ async function buildLiveProjects(
   if (activeLive.length >= 3) return activeLive
 
   const need = 3 - activeLive.length
-  const recent = await db.project.findMany({
-    where: {
-      AND: [
-        { progress: { lt: 100 } },
-        { status: { not: "COMPLETED" } },
-        ...(uniqueActiveIds.length > 0 ? [{ id: { notIn: uniqueActiveIds } }] : []),
-      ],
-    },
-    orderBy: { updatedAt: "desc" },
-    take: need,
-    select: { id: true, name: true, progress: true, status: true },
-  })
+  const recent = await findRecentlyWorkedProjects(uniqueActiveIds, need)
 
   return [
     ...activeLive,
