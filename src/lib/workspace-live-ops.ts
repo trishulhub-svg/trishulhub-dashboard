@@ -101,7 +101,8 @@ async function findRecentlyWorkedProjects(
   const rows = await db.project.findMany({
     where: {
       id: { in: orderedIds },
-      progress: { lt: 100 },
+      // Recently worked projects count even if progress hit 100 but status
+      // is not completed yet (common while closing out delivery).
       status: { not: "COMPLETED" },
     },
     select: { id: true, name: true, progress: true, status: true },
