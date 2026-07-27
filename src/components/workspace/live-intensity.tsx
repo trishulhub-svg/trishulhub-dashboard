@@ -11,9 +11,24 @@ export type LiveUser = {
   name: string;
   projectId: string | null;
   projectName: string | null;
+  activityType?: string | null;
+  /** Project name, training title, or activity bucket label */
+  activityLabel?: string | null;
   clockInAt: string;
   elapsedSec: number;
 };
+
+function workLabel(u: LiveUser): string {
+  if (u.activityLabel?.trim()) return u.activityLabel.trim();
+  if (u.activityType === "TRAINING") return "Training";
+  if (u.activityType === "HR_ADMIN") return "HR & Administration";
+  if (u.activityType === "RD_SA") return "R&D / SA";
+  return u.projectName?.trim() || "no project";
+}
+
+function isTrainingUser(u: LiveUser): boolean {
+  return u.activityType === "TRAINING";
+}
 
 type AiLine = { prefix: string; msg: string; type: LineType };
 
@@ -187,20 +202,33 @@ export function LiveIntensity({
                   <span className="ws-feed-prefix ws-feed-prefix--info">{u.name}</span>
                   <span className="ws-live-user-dot" aria-hidden title="Clocked in" />
                   <span className={`ws-feed-msg ws-feed-msg--${mode}`}>
-                    working on {u.projectName ?? "no project"} ({formatElapsedHm(elapsedFor(u))})
+                    {isTrainingUser(u)
+                      ? `in training — ${workLabel(u)} (${formatElapsedHm(elapsedFor(u))})`
+                      : `working on ${workLabel(u)} (${formatElapsedHm(elapsedFor(u))})`}
                   </span>
                 </div>
               ))}
-              {autoModeUsers.map((u) => (
-                <div key={`auto-${u.userId}`} className="ws-feed-line ws-feed-line--enter">
-                  <span className={`ws-feed-time ws-feed-time--${mode}`}>{formatTime()}</span>
-                  <span className="ws-feed-prefix ws-feed-prefix--success">CURSOR</span>
-                  <span className="ws-live-user-dot" aria-hidden />
-                  <span className={`ws-feed-msg ws-feed-msg--${mode}`}>
-                    Auto mode running for {u.name} — agent loop active
-                  </span>
-                </div>
-              ))}
+              {autoModeUsers.map((u) =>
+                isTrainingUser(u) ? (
+                  <div key={`train-${u.userId}`} className="ws-feed-line ws-feed-line--enter">
+                    <span className={`ws-feed-time ws-feed-time--${mode}`}>{formatTime()}</span>
+                    <span className="ws-feed-prefix ws-feed-prefix--success">TRAINING</span>
+                    <span className="ws-live-user-dot" aria-hidden />
+                    <span className={`ws-feed-msg ws-feed-msg--${mode}`}>
+                      {workLabel(u)} — session active for {u.name}
+                    </span>
+                  </div>
+                ) : (
+                  <div key={`auto-${u.userId}`} className="ws-feed-line ws-feed-line--enter">
+                    <span className={`ws-feed-time ws-feed-time--${mode}`}>{formatTime()}</span>
+                    <span className="ws-feed-prefix ws-feed-prefix--success">CURSOR</span>
+                    <span className="ws-live-user-dot" aria-hidden />
+                    <span className={`ws-feed-msg ws-feed-msg--${mode}`}>
+                      Auto mode running for {u.name} — agent loop active
+                    </span>
+                  </div>
+                )
+              )}
             </div>
             <div ref={logsRef} className="ws-feed-logs">
               {aiLogs.map((line, i) => (

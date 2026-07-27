@@ -9,8 +9,35 @@ export type LiveOpsActiveUser = {
   name: string | null
   projectId: string | null
   projectName: string | null
+  /** PROJECT | TRAINING | HR_ADMIN | RD_SA | null */
+  activityType: string | null
+  /** Human label for feed: project name, training title, or activity bucket */
+  activityLabel: string | null
   clockInAt: string
   elapsedSec: number
+}
+
+function labelForActivity(opts: {
+  activityType: string | null | undefined
+  projectName: string | null | undefined
+  trainingTitle: string | null | undefined
+  description: string | null | undefined
+}): string | null {
+  const type = opts.activityType || null
+  if (type === "TRAINING") {
+    if (opts.trainingTitle?.trim()) return opts.trainingTitle.trim()
+    // Fallback: "Training: Title" stored on the time entry description
+    const desc = opts.description?.trim() || ""
+    if (desc.toLowerCase().startsWith("training:")) {
+      const rest = desc.slice("training:".length).trim()
+      if (rest) return rest
+    }
+    return "Training"
+  }
+  if (type === "HR_ADMIN") return "HR & Administration"
+  if (type === "RD_SA") return "R&D / SA"
+  if (opts.projectName?.trim()) return opts.projectName.trim()
+  return null
 }
 
 export type LiveOpsProject = {
@@ -200,29 +227,59 @@ export async function loadLiveOpsPayload(currentUserId?: string): Promise<{
       : Promise.resolve(0),
   ])
 
+  const trainingIds = [
+    ...new Set(
+      activeEntries
+        .map((e) => e.trainingAssignmentId)
+        .filter((id): id is string => typeof id === "string" && id.length > 0)
+    ),
+  ]
+  const trainingRows =
+    trainingIds.length > 0
+      ? await db.trainingAssignment.findMany({
+          where: { id: { in: trainingIds } },
+          select: { id: true, title: true },
+        })
+      : []
+  const trainingTitleById = new Map(trainingRows.map((t) => [t.id, t.title]))
+
   const now = Date.now()
   const activeUsers: LiveOpsActiveUser[] = activeEntries
     .filter((e) => e.user)
-    .map((e) => ({
-      userId: e.user!.id,
-      name: e.user!.name,
-      projectId: e.project?.id ?? null,
-      projectName: e.project?.name ?? null,
-      clockInAt:
-        e.clockIn instanceof Date
-          ? e.clockIn.toISOString()
-          : new Date(e.clockIn).toISOString(),
-      elapsedSec: Math.max(
-        0,
-        Math.floor(
-          (now -
-            (e.clockIn instanceof Date
-              ? e.clockIn.getTime()
-              : new Date(e.clockIn).getTime())) /
-            1000
-        )
-      ),
-    }))
+    .map((e) => {
+      const activityType = e.activityType ?? null
+      const projectName = e.project?.name ?? null
+      const trainingTitle = e.trainingAssignmentId
+        ? trainingTitleById.get(e.trainingAssignmentId) ?? null
+        : null
+      return {
+        userId: e.user!.id,
+        name: e.user!.name,
+        projectId: e.project?.id ?? null,
+        projectName,
+        activityType,
+        activityLabel: labelForActivity({
+          activityType,
+          projectName,
+          trainingTitle,
+          description: e.description,
+        }),
+        clockInAt:
+          e.clockIn instanceof Date
+            ? e.clockIn.toISOString()
+            : new Date(e.clockIn).toISOString(),
+        elapsedSec: Math.max(
+          0,
+          Math.floor(
+            (now -
+              (e.clockIn instanceof Date
+                ? e.clockIn.getTime()
+                : new Date(e.clockIn).getTime())) /
+              1000
+          )
+        ),
+      }
+    })
 
   const activeUserCountByProject = new Map<string, number>()
   const activeProjectIdsOrdered: string[] = []
