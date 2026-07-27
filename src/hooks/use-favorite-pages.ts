@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 
 export type FavoritePage = { title: string; href: string };
 
@@ -15,14 +16,20 @@ export function notifyFavoritesUpdated(favorites?: string[]) {
 
 /** Shared favorites loader for Home + sidebar. Max 2 role-allowed pages. */
 export function useFavoritePages(enabled = true) {
+  const { status: sessionStatus } = useSession();
   const [favorites, setFavorites] = useState<string[]>([]);
   const [allowedPages, setAllowedPages] = useState<FavoritePage[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const reload = useCallback(async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12000);
     try {
-      const res = await fetch("/api/user-favorites", { credentials: "include" });
+      const res = await fetch("/api/user-favorites", {
+        credentials: "include",
+        signal: controller.signal,
+      });
       if (!res.ok) {
         setLoaded(true);
         return;
@@ -31,8 +38,9 @@ export function useFavoritePages(enabled = true) {
       setFavorites(Array.isArray(json.favorites) ? json.favorites.slice(0, 2) : []);
       setAllowedPages(Array.isArray(json.allowedPages) ? json.allowedPages : []);
     } catch {
-      /* non-blocking */
+      /* timeout / network — still unblock UI */
     } finally {
+      clearTimeout(timer);
       setLoaded(true);
     }
   }, []);
@@ -64,8 +72,14 @@ export function useFavoritePages(enabled = true) {
 
   useEffect(() => {
     if (!enabled) return;
+    if (sessionStatus === "loading") return;
+    if (sessionStatus !== "authenticated") {
+      setLoaded(true);
+      return;
+    }
+    setLoaded(false);
     void reload();
-  }, [enabled, reload]);
+  }, [enabled, reload, sessionStatus]);
 
   useEffect(() => {
     if (!enabled || typeof window === "undefined") return;
