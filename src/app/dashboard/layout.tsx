@@ -43,6 +43,8 @@ import {
   IdCard,
   LifeBuoy,
   BarChart3,
+  Star,
+  Plus,
 } from "lucide-react";
 import Image from "next/image";
 import LoadingScreen from "@/components/ui/loading-screen";
@@ -82,6 +84,7 @@ import {
   normalizePageAccessMode,
   type PageAccessMode,
 } from "@/lib/nav-pages";
+import { useFavoritePages } from "@/hooks/use-favorite-pages";
 
 interface NavItem {
   title: string;
@@ -302,6 +305,21 @@ const SidebarContent = React.memo(function SidebarContent({
     return initial;
   });
 
+  const { resolved: favoritePages, loaded: favLoaded } = useFavoritePages(true);
+
+  const iconForHref = useCallback((href: string) => {
+    for (const group of navGroups) {
+      for (const item of group.items) {
+        if (item.href === href) return item.icon;
+        if (item.children) {
+          const child = item.children.find((c) => c.href === href || c.href.startsWith(href));
+          if (child) return child.icon;
+        }
+      }
+    }
+    return Star;
+  }, []);
+
   const toggleGroup = (label: string) => {
     setExpandedGroups((prev) => ({ ...prev, [label]: !prev[label] }));
   };
@@ -341,6 +359,88 @@ const SidebarContent = React.memo(function SidebarContent({
           </div>
         )}
       </div>
+
+      {/* Favorite pages — always in the side menu */}
+      {(favLoaded || favoritePages.length > 0) && (
+        <div className={cn("px-2.5 pb-2", collapsed && "px-2")}>
+          {!collapsed && (
+            <div className="flex items-center justify-between gap-2 px-2.5 py-1.5">
+              <p className="th-sidebar-section-label flex items-center gap-1.5">
+                <Star className="h-3 w-3 fill-amber-500/70 text-amber-600" />
+                Favorites
+              </p>
+              {favoritePages.length < 2 && (
+                <button
+                  type="button"
+                  onClick={() => onNavigate("/dashboard#favorite-pages")}
+                  className="inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                  title="Add favorite on Home"
+                >
+                  <Plus className="h-3 w-3" />
+                  Add
+                </button>
+              )}
+            </div>
+          )}
+          <div className={cn("space-y-0.5", collapsed && "flex flex-col items-center gap-1")}>
+            {favoritePages.length === 0 ? (
+              !collapsed ? (
+                <button
+                  type="button"
+                  onClick={() => onNavigate("/dashboard#favorite-pages")}
+                  className="th-sidebar-link w-full border border-dashed border-amber-500/35 text-muted-foreground hover:border-amber-500/60"
+                >
+                  <span className="th-sidebar-icon-wrap">
+                    <Plus className="h-[17px] w-[17px] text-amber-600" />
+                  </span>
+                  <span className="flex-1 truncate text-left">Add favorite page</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onNavigate("/dashboard#favorite-pages")}
+                  className="th-sidebar-link justify-center px-2"
+                  title="Add favorite page"
+                  aria-label="Add favorite page"
+                >
+                  <span className="th-sidebar-icon-wrap mx-0">
+                    <Star className="h-[17px] w-[17px] text-amber-600" />
+                  </span>
+                </button>
+              )
+            ) : (
+              favoritePages.map((fav) => {
+                const Icon = iconForHref(fav.href);
+                const isActive =
+                  pathname === fav.href ||
+                  (fav.href !== "/dashboard" && pathname.startsWith(fav.href + "/"));
+                return (
+                  <button
+                    key={fav.href}
+                    type="button"
+                    onClick={() => onNavigate(fav.href)}
+                    role="link"
+                    aria-label={fav.title}
+                    aria-current={isActive ? "page" : undefined}
+                    title={collapsed ? fav.title : undefined}
+                    className={cn(
+                      "th-sidebar-link",
+                      isActive && "th-sidebar-link-active th-rail-active",
+                      collapsed && "justify-center px-2"
+                    )}
+                  >
+                    <span className={cn("th-sidebar-icon-wrap", collapsed && "mx-0")}>
+                      <Icon className="h-[17px] w-[17px]" />
+                    </span>
+                    {!collapsed && <span className="flex-1 truncate text-left">{fav.title}</span>}
+                  </button>
+                );
+              })
+            )}
+          </div>
+          {!collapsed && <div className="mx-2.5 mt-2 border-t border-sidebar-border/25" />}
+        </div>
+      )}
 
       {/* Navigation */}
       <ScrollArea className="flex-1 py-3">
@@ -771,7 +871,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   };
 
   const handleNavigate = (href: string) => {
-    router.push(href);
+    const hashIdx = href.indexOf("#");
+    if (hashIdx >= 0) {
+      const path = href.slice(0, hashIdx) || "/dashboard";
+      const hash = href.slice(hashIdx + 1);
+      if (pathname === path || pathname === `${path}/`) {
+        if (typeof window !== "undefined") {
+          window.location.hash = hash;
+          window.dispatchEvent(new HashChangeEvent("hashchange"));
+        }
+      } else {
+        router.push(href);
+      }
+    } else {
+      router.push(href);
+    }
     setMobileOpen(false);
   };
 

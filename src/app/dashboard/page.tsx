@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, type ComponentType, type ReactNode } from "react";
+import { useEffect, useState, useCallback, useRef, type ComponentType, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn, safeArray, safeText, deepSanitize, safeNumber, safeDate } from "@/lib/utils";
 import { toast } from "sonner";
+import { useFavoritePages } from "@/hooks/use-favorite-pages";
 
 type UserRole = "SUPER_ADMIN" | "ADMIN" | "PROJECT_MANAGER" | "DEVELOPER" | string;
 
@@ -74,11 +75,13 @@ function formatCurrency(n: number) {
   return `₹${n.toLocaleString("en-IN")}`;
 }
 
-/** Shorter for tight mobile tiles (ponytail: avoid layout overlap). */
-function formatCompactInr(n: number) {
-  if (Math.abs(n) >= 1e7) return `₹${(n / 1e7).toFixed(n % 1e7 === 0 ? 0 : 1)}Cr`;
-  if (Math.abs(n) >= 1e5) return `₹${(n / 1e5).toFixed(n % 1e5 === 0 ? 0 : 1)}L`;
-  return formatCurrency(n);
+/** Scale tabular value text so full amounts fit without compact "1.3L" shorthand. */
+function valueTextClass(text: string) {
+  const len = text.replace(/\s/g, "").length;
+  if (len >= 14) return "text-sm sm:text-base md:text-lg leading-tight";
+  if (len >= 11) return "text-base sm:text-lg md:text-xl leading-tight";
+  if (len >= 8) return "text-lg sm:text-xl md:text-2xl leading-tight";
+  return "text-xl sm:text-2xl leading-tight";
 }
 
 function isProjectAtRisk(project: ProjectRow): boolean {
@@ -126,6 +129,7 @@ function StatTile({
   accent?: boolean;
 }) {
   const Comp = onClick ? "button" : "div";
+  const display = String(value);
   return (
     <Comp
       type={onClick ? "button" : undefined}
@@ -136,14 +140,17 @@ function StatTile({
         accent && "border-destructive/40 bg-destructive/[0.04]"
       )}
     >
-      <div className="flex items-start justify-between gap-2 sm:gap-3">
-        <div className="min-w-0 flex-1">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1 pr-1">
           <p className="truncate text-[11px] text-muted-foreground sm:text-xs">{label}</p>
           <p
-            className="mt-1 truncate text-xl font-semibold tracking-tight tabular-nums sm:text-2xl"
-            title={String(value)}
+            className={cn(
+              "mt-1 font-semibold tracking-tight tabular-nums break-all [overflow-wrap:anywhere]",
+              valueTextClass(display)
+            )}
+            title={display}
           >
-            {value}
+            {display}
           </p>
           {hint ? (
             <div className="mt-1.5 break-words text-[11px] leading-snug text-muted-foreground">{hint}</div>
@@ -313,62 +320,36 @@ export default function DashboardPage() {
   const [earnings, setEarnings] = useState<EarningsData | null>(null);
   const [showEarningsDetail, setShowEarningsDetail] = useState(false);
   const [weekHours, setWeekHours] = useState<number | null>(null);
-  const [favorites, setFavorites] = useState<string[]>([]);
-  const [allowedFavPages, setAllowedFavPages] = useState<FavPage[]>([]);
-  const [favLoaded, setFavLoaded] = useState(false);
   const [favPickerSlot, setFavPickerSlot] = useState<0 | 1 | null>(null);
-  const [favSaving, setFavSaving] = useState(false);
+  const favSectionRef = useRef<HTMLElement | null>(null);
+
+  const {
+    favorites,
+    allowedPages: allowedFavPages,
+    loaded: favLoaded,
+    saving: favSaving,
+    reload: loadFavorites,
+    save: saveFavoritesRaw,
+  } = useFavoritePages(true);
+
+  const saveFavorites = useCallback(
+    async (next: string[]) => {
+      const result = await saveFavoritesRaw(next);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      setFavPickerSlot(null);
+      toast.success("Favorites saved");
+    },
+    [saveFavoritesRaw]
+  );
 
   const userRole: UserRole = session?.user?.role || "DEVELOPER";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
   const isPm = userRole === "PROJECT_MANAGER";
   const isDeveloper = userRole === "DEVELOPER";
   const isAuthenticated = sessionStatus === "authenticated";
-
-  const loadFavorites = useCallback(async () => {
-    try {
-      const res = await fetch("/api/user-favorites", { credentials: "include" });
-      if (!res.ok) {
-        setFavLoaded(true);
-        return;
-      }
-      const json = await res.json();
-      setFavorites(Array.isArray(json.favorites) ? json.favorites.slice(0, 2) : []);
-      setAllowedFavPages(Array.isArray(json.allowedPages) ? json.allowedPages : []);
-    } catch {
-      /* non-blocking */
-    } finally {
-      setFavLoaded(true);
-    }
-  }, []);
-
-  const saveFavorites = useCallback(
-    async (next: string[]) => {
-      setFavSaving(true);
-      try {
-        const res = await fetch("/api/user-favorites", {
-          method: "PUT",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ favorites: next.slice(0, 2) }),
-        });
-        if (!res.ok) {
-          const d = await res.json().catch(() => null);
-          toast.error(d?.error || "Could not save favorites");
-          return;
-        }
-        const json = await res.json();
-        setFavorites(Array.isArray(json.favorites) ? json.favorites.slice(0, 2) : next.slice(0, 2));
-        setFavPickerSlot(null);
-        toast.success("Favorites saved");
-      } catch {
-        toast.error("Could not save favorites");
-      } finally {
-        setFavSaving(false);
-      }
-    },
-    []
-  );
 
   const fetchDashboard = useCallback(async () => {
     try {
@@ -422,11 +403,23 @@ export default function DashboardPage() {
     };
 
     void load();
-    void loadFavorites();
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, loadFavorites]);
+  }, [isAuthenticated]);
+
+  // Deep-link from sidebar "Add favorite" / #favorite-pages
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const scrollToFav = () => {
+      if (window.location.hash !== "#favorite-pages") return;
+      favSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      if (favorites.length < 2) setFavPickerSlot(favorites.length as 0 | 1);
+    };
+    scrollToFav();
+    window.addEventListener("hashchange", scrollToFav);
+    return () => window.removeEventListener("hashchange", scrollToFav);
+  }, [favorites.length, loading]);
 
   // Only block on session while it's still resolving — once authenticated, wait on data only.
   const waitingOnSession = sessionStatus === "loading" && !isAuthenticated;
@@ -438,16 +431,17 @@ export default function DashboardPage() {
       {/* Favorite pages — always visible on Home once signed in */}
       <section
         id="favorite-pages"
+        ref={favSectionRef}
         className="rounded-xl border border-amber-500/25 bg-gradient-to-br from-amber-500/[0.07] via-card/40 to-card/20 px-3 py-3 sm:px-4"
       >
         <div className="mb-2 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5">
-            <Star className="h-3.5 w-3.5 fill-amber-500/80 text-amber-600" />
-            <h2 className="text-xs font-semibold tracking-tight">Favorite pages</h2>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <Star className="h-3.5 w-3.5 shrink-0 fill-amber-500/80 text-amber-600" />
+            <h2 className="text-xs font-semibold tracking-tight truncate">Favorite pages</h2>
           </div>
-          <p className="text-[10px] text-muted-foreground">Up to 2 · synced to your account</p>
+          <p className="shrink-0 text-[10px] text-muted-foreground">Up to 2 · also in sidebar</p>
         </div>
-        <div className="grid grid-cols-1 gap-2 min-[380px]:grid-cols-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {[0, 1].map((slot) => {
             const href = favorites[slot];
             const page = href
@@ -460,7 +454,7 @@ export default function DashboardPage() {
               return (
                 <div
                   key={slot}
-                  className="group relative flex min-h-[3.5rem] items-center gap-2 rounded-lg border border-border/70 bg-background/70 px-3 py-2"
+                  className="group relative flex min-h-[3.25rem] items-center gap-2 rounded-lg border border-border/70 bg-background/70 px-3 py-2"
                 >
                   <button
                     type="button"
@@ -492,7 +486,7 @@ export default function DashboardPage() {
                   setFavPickerSlot(slot as 0 | 1);
                   void loadFavorites();
                 }}
-                className="flex min-h-[3.5rem] items-center justify-center gap-2 rounded-lg border border-dashed border-amber-500/40 bg-background/50 px-3 py-2 text-foreground/80 transition-colors hover:border-amber-500/70 hover:bg-amber-500/10"
+                className="flex min-h-[3.25rem] items-center justify-center gap-2 rounded-lg border border-dashed border-amber-500/40 bg-background/50 px-3 py-2 text-foreground/80 transition-colors hover:border-amber-500/70 hover:bg-amber-500/10"
               >
                 <Plus className="h-4 w-4 text-amber-600" />
                 <span className="text-xs font-semibold">Add favorite page</span>
@@ -507,7 +501,7 @@ export default function DashboardPage() {
           <DialogHeader>
             <DialogTitle className="text-base">Choose a favorite page</DialogTitle>
             <DialogDescription className="text-xs">
-              Only pages you are allowed to open are listed. Max 2 favorites.
+              Only pages you are allowed to open are listed. Max 2 favorites — also shown in the side menu.
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-72 space-y-1 overflow-y-auto custom-scrollbar pr-1">
@@ -518,7 +512,7 @@ export default function DashboardPage() {
                 No pages available for your role yet. Try refreshing, or ask an admin to grant page access.
               </p>
             ) : (
-              allowedFavPages.map((p) => {
+              allowedFavPages.map((p: FavPage) => {
                 const already = favorites.includes(p.href);
                 return (
                   <button
@@ -566,7 +560,7 @@ export default function DashboardPage() {
   if (loading || (!data && !error)) {
     return (
       <div
-        className="w-full max-w-full space-y-5 overflow-x-hidden sm:space-y-6"
+        className="mx-auto w-full max-w-6xl space-y-4 overflow-x-hidden sm:space-y-5"
         style={{ animation: "fade-in 0.2s ease-out both" }}
       >
         {favoritesSection}
@@ -584,7 +578,7 @@ export default function DashboardPage() {
 
   if (error) {
     return (
-      <div className="mx-auto w-full max-w-lg space-y-4" style={{ animation: "fade-in 0.2s ease-out both" }}>
+      <div className="mx-auto w-full max-w-6xl space-y-4" style={{ animation: "fade-in 0.2s ease-out both" }}>
         {favoritesSection}
         <div className="rounded-xl border border-destructive/40 bg-destructive/[0.04] p-6 text-center">
           <AlertCircle className="mx-auto mb-2 h-7 w-7 text-destructive" />
@@ -632,11 +626,11 @@ export default function DashboardPage() {
 
   return (
     <div
-      className="w-full max-w-full space-y-5 overflow-x-hidden sm:space-y-6"
+      className="mx-auto w-full max-w-6xl space-y-4 overflow-x-hidden px-0 sm:space-y-5 lg:space-y-6"
       style={{ animation: "fade-in 0.2s ease-out both" }}
     >
       {/* Welcome band */}
-      <header className="flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
+      <header className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0 border-l-[2.5px] border-primary pl-3">
           <h1 className="break-words text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
             {greeting}, {firstName}
@@ -645,19 +639,19 @@ export default function DashboardPage() {
             {roleSubtitle(userRole)}
           </p>
         </div>
-        <div className="flex min-w-0 flex-wrap gap-2">
+        <div className="grid min-w-0 grid-cols-1 gap-2 min-[400px]:grid-cols-2 sm:flex sm:flex-wrap sm:justify-end">
           {isAdminUser && (
-            <Button size="sm" onClick={() => router.push("/dashboard/projects")}>
+            <Button size="sm" className="w-full sm:w-auto" onClick={() => router.push("/dashboard/projects")}>
               <Plus className="mr-1 h-4 w-4" /> New Project
             </Button>
           )}
           {(isAdminUser || isPm || isDeveloper) && (
-            <Button size="sm" variant="outline" onClick={() => router.push("/dashboard/workspace")}>
+            <Button size="sm" variant="outline" className="w-full sm:w-auto" onClick={() => router.push("/dashboard/workspace")}>
               <Rocket className="mr-1 h-4 w-4" /> Open Workspace
             </Button>
           )}
           {isAdminUser && (
-            <Button size="sm" variant="outline" onClick={() => router.push("/dashboard/finance/invoices")}>
+            <Button size="sm" variant="outline" className="w-full sm:w-auto sm:col-span-2" onClick={() => router.push("/dashboard/finance/invoices")}>
               <Send className="mr-1 h-4 w-4" /> Send Invoice
             </Button>
           )}
@@ -669,7 +663,7 @@ export default function DashboardPage() {
       {/* ── ADMIN / SUPER_ADMIN ── */}
       {isAdminUser && (
         <>
-          <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
             <StatTile
               label="Active Projects"
               value={stats.activeProjects}
@@ -692,13 +686,13 @@ export default function DashboardPage() {
             />
             <StatTile
               label="Revenue"
-              value={formatCompactInr(stats.totalRevenue)}
+              value={formatCurrency(stats.totalRevenue)}
               hint={
                 <span className="flex flex-col gap-0.5">
-                  <span className="truncate">Pending {formatCompactInr(stats.pendingAmount)}</span>
+                  <span className="break-all">Pending {formatCurrency(stats.pendingAmount)}</span>
                   {stats.overdueAmount > 0 && (
-                    <span className="truncate text-destructive">
-                      Overdue {formatCompactInr(stats.overdueAmount)}
+                    <span className="break-all text-destructive">
+                      Overdue {formatCurrency(stats.overdueAmount)}
                     </span>
                   )}
                 </span>
@@ -715,7 +709,7 @@ export default function DashboardPage() {
             />
           </div>
 
-          <div className="grid min-w-0 gap-4 lg:grid-cols-2">
+          <div className="grid min-w-0 gap-3 sm:gap-4 lg:grid-cols-2">
             <SectionShell
               title="Active & at-risk projects"
               action={
@@ -762,7 +756,7 @@ export default function DashboardPage() {
                       key={inv.id}
                       type="button"
                       onClick={() => router.push("/dashboard/finance/invoices")}
-                      className="flex w-full min-w-0 items-center justify-between gap-2 rounded-lg p-2.5 text-left transition-colors hover:bg-muted/50 sm:gap-3"
+                      className="flex w-full min-w-0 items-center justify-between gap-2 rounded-lg p-2.5 text-left transition-colors hover:bg-muted/50"
                     >
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium">{safeText(inv.invoiceNumber, "")}</p>
@@ -771,8 +765,11 @@ export default function DashboardPage() {
                           {inv.dueDate ? ` · due ${safeDate(inv.dueDate)}` : ""}
                         </p>
                       </div>
-                      <div className="flex min-w-0 shrink-0 flex-col items-end gap-1 sm:flex-row sm:items-center sm:gap-2">
-                        <span className="max-w-[7.5rem] truncate text-sm font-medium tabular-nums sm:max-w-none" title={formatCurrency(safeNumber(inv.total))}>
+                      <div className="flex min-w-0 shrink-0 flex-col items-end gap-1">
+                        <span
+                          className="max-w-[9.5rem] text-right text-xs font-medium tabular-nums break-all sm:max-w-none sm:text-sm"
+                          title={formatCurrency(safeNumber(inv.total))}
+                        >
                           {formatCurrency(safeNumber(inv.total))}
                         </span>
                         <Badge className={cn("max-w-full truncate text-[10px]", invoiceStatusColors[inv.status] || "")}>
@@ -799,7 +796,7 @@ export default function DashboardPage() {
       {/* ── PROJECT MANAGER ── */}
       {isPm && (
         <>
-          <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-3">
             <StatTile
               label="Active Projects"
               value={stats.activeProjects}
@@ -881,18 +878,18 @@ export default function DashboardPage() {
                     : "Log time on your assignments and open the AI workspace when you need focus."}
                 </p>
               </div>
-              <div className="flex flex-wrap gap-2 shrink-0">
-                <Button size="sm" onClick={() => router.push("/dashboard/time-tracking?action=start")}>
+              <div className="grid grid-cols-1 gap-2 min-[400px]:grid-cols-2 sm:flex sm:flex-wrap shrink-0">
+                <Button size="sm" className="w-full sm:w-auto" onClick={() => router.push("/dashboard/time-tracking?action=start")}>
                   <Clock className="mr-1 h-4 w-4" /> Start timer
                 </Button>
-                <Button size="sm" variant="outline" onClick={() => router.push("/dashboard/workspace")}>
+                <Button size="sm" variant="outline" className="w-full sm:w-auto" onClick={() => router.push("/dashboard/workspace")}>
                   <Rocket className="mr-1 h-4 w-4" /> Open Workspace
                 </Button>
               </div>
             </div>
           </section>
 
-          <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
+          <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
             <StatTile
               label="My projects"
               value={stats.activeProjects}
