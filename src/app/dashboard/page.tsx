@@ -424,7 +424,122 @@ export default function DashboardPage() {
 
   // Only block on session while it's still resolving — once authenticated, wait on data only.
   const waitingOnSession = sessionStatus === "loading" && !isAuthenticated;
-  if (waitingOnSession || loading || (!data && !error)) {
+  const firstName = safeText(session?.user?.name, "there").split(/\s+/)[0] || "there";
+  const greeting = greetingForHour(new Date().getHours());
+
+  const favoritesSection = (
+    <>
+      {/* Favorite pages — always visible on Home once signed in */}
+      <section
+        id="favorite-pages"
+        className="rounded-xl border border-amber-500/25 bg-gradient-to-br from-amber-500/[0.07] via-card/40 to-card/20 px-3 py-3 sm:px-4"
+      >
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <Star className="h-3.5 w-3.5 fill-amber-500/80 text-amber-600" />
+            <h2 className="text-xs font-semibold tracking-tight">Favorite pages</h2>
+          </div>
+          <p className="text-[10px] text-muted-foreground">Up to 2 · synced to your account</p>
+        </div>
+        <div className="grid grid-cols-1 gap-2 min-[380px]:grid-cols-2">
+          {[0, 1].map((slot) => {
+            const href = favorites[slot];
+            const page = href
+              ? allowedFavPages.find((p) => p.href === href) || {
+                  title: href.replace("/dashboard/", ""),
+                  href,
+                }
+              : null;
+            if (page) {
+              return (
+                <div
+                  key={slot}
+                  className="group relative flex min-h-[3.5rem] items-center gap-2 rounded-lg border border-border/70 bg-background/70 px-3 py-2"
+                >
+                  <button
+                    type="button"
+                    onClick={() => router.push(page.href)}
+                    className="min-w-0 flex-1 text-left"
+                  >
+                    <p className="truncate text-sm font-medium">{page.title}</p>
+                    <p className="truncate text-[10px] text-muted-foreground">{page.href}</p>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Remove favorite"
+                    className="shrink-0 rounded-md p-1 text-muted-foreground opacity-70 hover:bg-muted hover:opacity-100"
+                    onClick={() => {
+                      const next = favorites.filter((_, i) => i !== slot);
+                      void saveFavorites(next);
+                    }}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              );
+            }
+            return (
+              <button
+                key={slot}
+                type="button"
+                onClick={() => setFavPickerSlot(slot as 0 | 1)}
+                className="flex min-h-[3.5rem] items-center justify-center gap-2 rounded-lg border border-dashed border-amber-500/40 bg-background/50 px-3 py-2 text-foreground/80 transition-colors hover:border-amber-500/70 hover:bg-amber-500/10"
+              >
+                <Plus className="h-4 w-4 text-amber-600" />
+                <span className="text-xs font-semibold">Add favorite page</span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      <Dialog open={favPickerSlot !== null} onOpenChange={(o) => !o && setFavPickerSlot(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-base">Choose a favorite page</DialogTitle>
+            <DialogDescription className="text-xs">
+              Only pages you are allowed to open are listed. Max 2 favorites.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-72 space-y-1 overflow-y-auto custom-scrollbar pr-1">
+            {allowedFavPages.length === 0 ? (
+              <p className="py-6 text-center text-xs text-muted-foreground">
+                No pages available for your role yet. Try refreshing, or ask an admin to grant page access.
+              </p>
+            ) : (
+              allowedFavPages.map((p) => {
+                const already = favorites.includes(p.href);
+                return (
+                  <button
+                    key={p.href}
+                    type="button"
+                    disabled={already || favSaving}
+                    onClick={() => {
+                      if (favPickerSlot === null) return;
+                      const next = [...favorites];
+                      next[favPickerSlot] = p.href;
+                      void saveFavorites(next.filter(Boolean).slice(0, 2));
+                    }}
+                    className={cn(
+                      "flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm transition-colors",
+                      already ? "cursor-not-allowed opacity-40" : "hover:bg-muted/60"
+                    )}
+                  >
+                    <span className="font-medium">{p.title}</span>
+                    <span className="text-[10px] text-muted-foreground">
+                      {already ? "Already added" : p.href}
+                    </span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+
+  if (waitingOnSession) {
     return (
       <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3">
         <div
@@ -437,9 +552,29 @@ export default function DashboardPage() {
     );
   }
 
+  if (loading || (!data && !error)) {
+    return (
+      <div
+        className="w-full max-w-full space-y-5 overflow-x-hidden sm:space-y-6"
+        style={{ animation: "fade-in 0.2s ease-out both" }}
+      >
+        {favoritesSection}
+        <div className="flex min-h-[30vh] flex-col items-center justify-center gap-3">
+          <div
+            className="h-7 w-7 animate-spin rounded-full border-2 border-muted border-t-primary"
+            style={{ animationDuration: "0.6s" }}
+            aria-hidden
+          />
+          <p className="text-sm text-muted-foreground">Loading dashboard…</p>
+        </div>
+      </div>
+    );
+  }
+
   if (error) {
     return (
-      <div className="mx-auto max-w-lg space-y-4" style={{ animation: "fade-in 0.2s ease-out both" }}>
+      <div className="mx-auto w-full max-w-lg space-y-4" style={{ animation: "fade-in 0.2s ease-out both" }}>
+        {favoritesSection}
         <div className="rounded-xl border border-destructive/40 bg-destructive/[0.04] p-6 text-center">
           <AlertCircle className="mx-auto mb-2 h-7 w-7 text-destructive" />
           <p className="text-sm text-muted-foreground">Failed to load dashboard data</p>
@@ -480,9 +615,6 @@ export default function DashboardPage() {
   const invoices = safeArray<InvoiceRow>(data.invoices);
   const activeProjectRows = projects.filter((p) => !CLOSED_STATUSES.has(safeText(p.status, "")));
 
-  const firstName = safeText(session?.user?.name, "there").split(/\s+/)[0] || "there";
-  const greeting = greetingForHour(new Date().getHours());
-
   const openProject = (id: string) => {
     if (id) router.push(`/dashboard/projects/${id}`);
   };
@@ -521,105 +653,7 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      {/* Favorite pages — up to 2 role-allowed shortcuts */}
-      <section className="rounded-xl border border-border/70 bg-card/30 px-3 py-3 sm:px-4">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5">
-            <Star className="h-3.5 w-3.5 text-muted-foreground" />
-            <h2 className="text-xs font-semibold tracking-tight">Favorite pages</h2>
-          </div>
-          <p className="text-[10px] text-muted-foreground">Up to 2 · synced to your account</p>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          {[0, 1].map((slot) => {
-            const href = favorites[slot];
-            const page = href
-              ? allowedFavPages.find((p) => p.href === href) || { title: href.replace("/dashboard/", ""), href }
-              : null;
-            if (page) {
-              return (
-                <div
-                  key={slot}
-                  className="group relative flex min-h-[3.25rem] items-center gap-2 rounded-lg border border-border/70 bg-background/50 px-3 py-2"
-                >
-                  <button
-                    type="button"
-                    onClick={() => router.push(page.href)}
-                    className="min-w-0 flex-1 text-left"
-                  >
-                    <p className="truncate text-sm font-medium">{page.title}</p>
-                    <p className="truncate text-[10px] text-muted-foreground">{page.href}</p>
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Remove favorite"
-                    className="shrink-0 rounded-md p-1 text-muted-foreground opacity-70 hover:bg-muted hover:opacity-100"
-                    onClick={() => {
-                      const next = favorites.filter((_, i) => i !== slot);
-                      void saveFavorites(next);
-                    }}
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              );
-            }
-            return (
-              <button
-                key={slot}
-                type="button"
-                onClick={() => setFavPickerSlot(slot as 0 | 1)}
-                className="flex min-h-[3.25rem] items-center justify-center gap-2 rounded-lg border border-dashed border-border/80 bg-muted/20 px-3 py-2 text-muted-foreground transition-colors hover:border-border hover:bg-muted/40 hover:text-foreground"
-              >
-                <Plus className="h-4 w-4" />
-                <span className="text-xs font-medium">Add page</span>
-              </button>
-            );
-          })}
-        </div>
-      </section>
-
-      <Dialog open={favPickerSlot !== null} onOpenChange={(o) => !o && setFavPickerSlot(null)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-base">Choose a favorite page</DialogTitle>
-            <DialogDescription className="text-xs">
-              Only pages you are allowed to open are listed. Max 2 favorites.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="max-h-72 space-y-1 overflow-y-auto custom-scrollbar pr-1">
-            {allowedFavPages.length === 0 ? (
-              <p className="py-6 text-center text-xs text-muted-foreground">No pages available for your role.</p>
-            ) : (
-              allowedFavPages.map((p) => {
-                const already = favorites.includes(p.href);
-                return (
-                  <button
-                    key={p.href}
-                    type="button"
-                    disabled={already || favSaving}
-                    onClick={() => {
-                      if (favPickerSlot === null) return;
-                      const next = [...favorites];
-                      next[favPickerSlot] = p.href;
-                      void saveFavorites(next.filter(Boolean).slice(0, 2));
-                    }}
-                    className={cn(
-                      "flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm transition-colors",
-                      already
-                        ? "cursor-not-allowed opacity-40"
-                        : "hover:bg-muted/60"
-                    )}
-                  >
-                    <span className="font-medium">{p.title}</span>
-                    <span className="text-[10px] text-muted-foreground">{already ? "Already added" : p.href}</span>
-                  </button>
-                );
-              })
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+      {favoritesSection}
 
       {/* ── ADMIN / SUPER_ADMIN ── */}
       {isAdminUser && (

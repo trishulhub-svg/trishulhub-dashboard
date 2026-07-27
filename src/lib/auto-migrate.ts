@@ -22,7 +22,7 @@ function getErrMsg(err: unknown): string {
 
 // Bump when adding CRITICAL_COLUMNS / CRITICAL_TABLES so warm serverless
 // instances re-run migrations after deploy (stale syncDone otherwise skips ALTERs).
-const SCHEMA_REVISION = 20260727
+const SCHEMA_REVISION = 202607272
 
 // Use globalThis to persist the syncDone flag across hot reloads in dev
 // and across serverless function warm invocations in production.
@@ -113,6 +113,7 @@ const CRITICAL_COLUMNS: Array<{ table: string; column: string; sql: string }> = 
   { table: "User", column: "favoritePages", sql: `ALTER TABLE "User" ADD COLUMN "favoritePages" TEXT NOT NULL DEFAULT '[]'` },
   { table: "TimeEntry", column: "activityType", sql: `ALTER TABLE "TimeEntry" ADD COLUMN "activityType" TEXT` },
   { table: "TimeEntry", column: "trainingAssignmentId", sql: `ALTER TABLE "TimeEntry" ADD COLUMN "trainingAssignmentId" TEXT` },
+  { table: "ProjectInfraItem", column: "groupLabel", sql: `ALTER TABLE "ProjectInfraItem" ADD COLUMN "groupLabel" TEXT` },
 ]
 
 /** Tables to create if missing (simplified CREATE TABLE IF NOT EXISTS) */
@@ -319,6 +320,7 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
       "id" TEXT NOT NULL PRIMARY KEY,
       "projectId" TEXT NOT NULL,
       "groupKey" TEXT NOT NULL,
+      "groupLabel" TEXT,
       "label" TEXT NOT NULL,
       "isSecret" BOOLEAN NOT NULL DEFAULT 1,
       "valuePlain" TEXT,

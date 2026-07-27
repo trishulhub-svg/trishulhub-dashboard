@@ -26,6 +26,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { toast } from "sonner";
 import { Switch } from "@/components/ui/switch";
 import { safeText, safeNumber, safeDate, deepSanitize, cn, extractStr, extractNum, extractNestedStr } from "@/lib/utils";
+import { BUILTIN_INFRA_GROUPS, toCustomInfraGroupKey } from "@/lib/infra-groups";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // BULLETPROOF v9: Redesigned layout — compact stats row, glassmorphism,
@@ -44,19 +45,18 @@ const projectStatusColors: Record<string, string> = {
 
 const VALID_STATUSES = ["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"];
 
-const INFRA_GROUPS = [
-  { key: "GITHUB", label: "GitHub", description: "Repos, GitHub URLs, account API/auth" },
-  { key: "TURSO", label: "Turso", description: "Database URL, database token, account token" },
-  { key: "CLOUDFLARE", label: "Cloudflare", description: "Cloudflare API and account access" },
-  { key: "SMTP", label: "SMTP", description: "SMTP hosts, users, passwords, ports" },
-] as const;
-
-type InfraGroupKey = (typeof INFRA_GROUPS)[number]["key"];
+type InfraGroupDef = {
+  key: string;
+  label: string;
+  description: string;
+  builtin: boolean;
+};
 
 type InfraItem = {
   id: string;
   projectId: string;
-  groupKey: InfraGroupKey;
+  groupKey: string;
+  groupLabel?: string;
   label: string;
   isSecret: boolean;
   value: string | null;
@@ -67,25 +67,30 @@ type InfraItem = {
 };
 
 type InfraItemsResponse = {
-  groups: Record<InfraGroupKey, InfraItem[]>;
+  groups: Record<string, InfraItem[]>;
+  groupDefs?: InfraGroupDef[];
   memberAccess: { visibleUntil: string | null; isActive: boolean };
   canManage: boolean;
   canView: boolean;
 };
 
 type InfraItemForm = {
-  groupKey: InfraGroupKey;
+  groupKey: string;
+  groupLabel?: string;
   label: string;
   value: string;
   isSecret: boolean;
 };
 
-const emptyInfraGroups = (): Record<InfraGroupKey, InfraItem[]> => ({
-  GITHUB: [],
-  TURSO: [],
-  CLOUDFLARE: [],
-  SMTP: [],
-});
+const DEFAULT_INFRA_GROUP_DEFS: InfraGroupDef[] = BUILTIN_INFRA_GROUPS.map((g) => ({
+  key: g.key,
+  label: g.label,
+  description: g.description,
+  builtin: true,
+}));
+
+const emptyInfraGroups = (): Record<string, InfraItem[]> =>
+  Object.fromEntries(DEFAULT_INFRA_GROUP_DEFS.map((g) => [g.key, []] as const));
 
 /** Monday (UTC) of the week containing dateKey YYYY-MM-DD, as YYYY-MM-DD. */
 function weekStartKey(dueIso: string): string {
@@ -254,6 +259,9 @@ export default function ProjectDetailPage() {
     value: "",
     isSecret: true,
   });
+  const [customGroupDialogOpen, setCustomGroupDialogOpen] = useState(false);
+  const [customGroupName, setCustomGroupName] = useState("");
+  const [localCustomGroups, setLocalCustomGroups] = useState<InfraGroupDef[]>([]);
   const [infraSaving, setInfraSaving] = useState(false);
   const [infraDeletingId, setInfraDeletingId] = useState<string | null>(null);
   const [revealedInfraItems, setRevealedInfraItems] = useState<Record<string, { value: string; expiresAt: number }>>({});
@@ -465,9 +473,39 @@ export default function ProjectDetailPage() {
   const websites = websitesData;
   const infrastructure = infraData;
   const infraGroups = infrastructure?.groups || emptyInfraGroups();
+  const infraGroupDefs = useMemo(() => {
+    const fromApi = infrastructure?.groupDefs?.length
+      ? infrastructure.groupDefs
+      : DEFAULT_INFRA_GROUP_DEFS;
+    const seen = new Set(fromApi.map((g) => g.key));
+    const merged = [...fromApi];
+    for (const g of localCustomGroups) {
+      if (!seen.has(g.key)) {
+        merged.push(g);
+        seen.add(g.key);
+      }
+    }
+    // Ensure every group that has items appears (even if defs lag)
+    for (const key of Object.keys(infraGroups)) {
+      if (!seen.has(key) && (infraGroups[key]?.length || 0) > 0) {
+        const sample = infraGroups[key][0];
+        merged.push({
+          key,
+          label: sample?.groupLabel || key.replace(/^CUSTOM_/, "").replace(/_/g, " "),
+          description: "Custom infrastructure group",
+          builtin: false,
+        });
+        seen.add(key);
+      }
+    }
+    return merged;
+  }, [infrastructure?.groupDefs, infraGroups, localCustomGroups]);
   const infraMemberAccess = infrastructure?.memberAccess || { visibleUntil: null, isActive: false };
   const infraCanView = infrastructure?.canView ?? canManageProject;
-  const infraItemCount = INFRA_GROUPS.reduce((count, group) => count + (infraGroups[group.key]?.length || 0), 0);
+  const infraItemCount = infraGroupDefs.reduce(
+    (count, group) => count + (infraGroups[group.key]?.length || 0),
+    0
+  );
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ["project", projectId] });
@@ -483,9 +521,15 @@ export default function ProjectDetailPage() {
     setInfraItemForm({ groupKey: "GITHUB", label: "", value: "", isSecret: true });
   }, []);
 
-  const openAddInfraItem = useCallback((groupKey: InfraGroupKey) => {
+  const openAddInfraItem = useCallback((groupKey: string, groupLabel?: string) => {
     setEditingInfraItem(null);
-    setInfraItemForm({ groupKey, label: "", value: "", isSecret: true });
+    setInfraItemForm({
+      groupKey,
+      groupLabel,
+      label: "",
+      value: "",
+      isSecret: true,
+    });
     setInfraItemDialogOpen(true);
   }, []);
 
@@ -493,12 +537,34 @@ export default function ProjectDetailPage() {
     setEditingInfraItem(item);
     setInfraItemForm({
       groupKey: item.groupKey,
+      groupLabel: item.groupLabel,
       label: item.label,
       value: item.isSecret ? "" : item.value || "",
       isSecret: item.isSecret,
     });
     setInfraItemDialogOpen(true);
   }, []);
+
+  const handleCreateCustomGroup = useCallback(() => {
+    const name = customGroupName.trim().replace(/\s+/g, " ").slice(0, 60);
+    const key = toCustomInfraGroupKey(name);
+    if (!name || !key) {
+      toast.error("Enter a valid group name (letters/numbers)");
+      return;
+    }
+    if (infraGroupDefs.some((g) => g.key === key)) {
+      toast.error("That group already exists");
+      return;
+    }
+    setLocalCustomGroups((prev) => [
+      ...prev,
+      { key, label: name, description: "Custom infrastructure group", builtin: false },
+    ]);
+    setCustomGroupName("");
+    setCustomGroupDialogOpen(false);
+    openAddInfraItem(key, name);
+    toast.success(`Custom group "${name}" ready — add the first item`);
+  }, [customGroupName, infraGroupDefs, openAddInfraItem]);
 
   const handleSaveInfraItem = useCallback(async () => {
     if (!infraItemForm.label.trim()) {
@@ -519,6 +585,12 @@ export default function ProjectDetailPage() {
         label: infraItemForm.label.trim(),
         isSecret: infraItemForm.isSecret,
       };
+      if (infraItemForm.groupKey.startsWith("CUSTOM_")) {
+        body.groupLabel =
+          infraItemForm.groupLabel ||
+          infraGroupDefs.find((g) => g.key === infraItemForm.groupKey)?.label ||
+          infraItemForm.groupKey.replace(/^CUSTOM_/, "").replace(/_/g, " ");
+      }
       if (!editingInfraItem || infraItemForm.value.trim()) {
         body.value = infraItemForm.value;
       } else if (!infraItemForm.isSecret) {
@@ -550,7 +622,7 @@ export default function ProjectDetailPage() {
     } finally {
       setInfraSaving(false);
     }
-  }, [editingInfraItem, infraItemForm, projectId, queryClient, resetInfraItemDialog]);
+  }, [editingInfraItem, infraGroupDefs, infraItemForm, projectId, queryClient, resetInfraItemDialog]);
 
   const handleDeleteInfraItem = useCallback(async (itemId: string) => {
     setInfraDeletingId(itemId);
@@ -1575,6 +1647,14 @@ export default function ProjectDetailPage() {
           </div>
           {canManageProject && (
             <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 px-2.5 text-[10px] gap-1"
+                onClick={() => setCustomGroupDialogOpen(true)}
+              >
+                <Plus className="h-3 w-3" /> Custom group
+              </Button>
               <div className="flex items-center gap-1.5 rounded-full border border-border/60 bg-background/70 px-2 py-1">
                 <span className="text-[10px] text-muted-foreground">Members</span>
                 <select
@@ -1617,7 +1697,7 @@ export default function ProjectDetailPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-              {INFRA_GROUPS.map((group) => {
+              {infraGroupDefs.map((group) => {
                 const items = infraGroups[group.key] || [];
                 return (
                   <div key={group.key} className="rounded-lg border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/[0.02] overflow-hidden">
@@ -1633,12 +1713,22 @@ export default function ProjectDetailPage() {
                           <Server className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
                         )}
                         <div className="min-w-0">
-                          <p className="text-xs font-bold tracking-tight">{group.label}</p>
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <p className="text-xs font-bold tracking-tight truncate">{group.label}</p>
+                            {!group.builtin && (
+                              <Badge variant="outline" className="h-4 px-1 text-[9px] shrink-0">Custom</Badge>
+                            )}
+                          </div>
                           <p className="text-[10px] text-muted-foreground truncate">{group.description}</p>
                         </div>
                       </div>
                       {canManageProject && (
-                        <Button size="sm" variant="outline" className="h-7 text-[10px] px-2 gap-1 shrink-0" onClick={() => openAddInfraItem(group.key)}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-[10px] px-2 gap-1 shrink-0"
+                          onClick={() => openAddInfraItem(group.key, group.label)}
+                        >
                           <Plus className="h-3 w-3" /> Add
                         </Button>
                       )}
@@ -1755,11 +1845,21 @@ export default function ProjectDetailPage() {
                 <Label className="text-xs font-medium">Group</Label>
                 <select
                   value={infraItemForm.groupKey}
-                  onChange={(e) => setInfraItemForm((p) => ({ ...p, groupKey: e.target.value as InfraGroupKey }))}
+                  onChange={(e) => {
+                    const key = e.target.value;
+                    const def = infraGroupDefs.find((g) => g.key === key);
+                    setInfraItemForm((p) => ({
+                      ...p,
+                      groupKey: key,
+                      groupLabel: def?.label,
+                    }));
+                  }}
                   className="h-9 w-full rounded-md border border-input bg-background px-3 text-xs"
                 >
-                  {INFRA_GROUPS.map((group) => (
-                    <option key={group.key} value={group.key}>{group.label}</option>
+                  {infraGroupDefs.map((group) => (
+                    <option key={group.key} value={group.key}>
+                      {group.label}{group.builtin ? "" : " (custom)"}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -1800,6 +1900,57 @@ export default function ProjectDetailPage() {
                 Save
               </Button>
               <Button size="sm" variant="outline" className="h-8 text-xs" onClick={resetInfraItemDialog} disabled={infraSaving}>
+                Cancel
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {canManageProject && (
+        <Dialog
+          open={customGroupDialogOpen}
+          onOpenChange={(open) => {
+            setCustomGroupDialogOpen(open);
+            if (!open) setCustomGroupName("");
+          }}
+        >
+          <DialogContent className="sm:max-w-md bg-white/80 dark:bg-gray-950/80 backdrop-blur-xl border-white/20 dark:border-white/10">
+            <DialogHeader>
+              <DialogTitle className="text-base font-bold">Add custom infrastructure group</DialogTitle>
+              <DialogDescription className="text-xs">
+                Create a named group beyond GitHub, Turso, Cloudflare, and SMTP. Then add items to it.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Group name</Label>
+              <Input
+                value={customGroupName}
+                onChange={(e) => setCustomGroupName(e.target.value)}
+                placeholder="e.g. Vercel, AWS, Stripe"
+                className="h-9 text-xs"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleCreateCustomGroup();
+                  }
+                }}
+              />
+            </div>
+            <div className="flex items-center gap-2 pt-2">
+              <Button size="sm" className="h-8 text-xs gap-1" onClick={handleCreateCustomGroup}>
+                <Plus className="h-3 w-3" /> Create group
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 text-xs"
+                onClick={() => {
+                  setCustomGroupDialogOpen(false);
+                  setCustomGroupName("");
+                }}
+              >
                 Cancel
               </Button>
             </div>

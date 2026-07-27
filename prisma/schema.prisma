@@ -291,7 +291,9 @@ model ProjectInfrastructure {
 model ProjectInfraItem {
   id          String   @id @default(cuid())
   projectId   String
-  groupKey    String   // GITHUB | TURSO | CLOUDFLARE | SMTP
+  groupKey    String   // GITHUB | TURSO | CLOUDFLARE | SMTP | CUSTOM_*
+  // Display name for custom groups (null for built-ins)
+  groupLabel  String?
   label       String
   isSecret    Boolean  @default(true)
   // Non-secret plain value OR encrypted envelope JSON for secrets

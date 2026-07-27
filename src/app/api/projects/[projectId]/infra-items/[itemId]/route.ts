@@ -8,13 +8,18 @@ import { encryptCredentialToJson, decryptCredentialFromJson } from "@/lib/encryp
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 import { canAccessProject, isValidProjectId } from "@/lib/project-access"
 
-const GROUP_KEYS = ["GITHUB", "TURSO", "CLOUDFLARE", "SMTP"] as const
-type InfraGroupKey = (typeof GROUP_KEYS)[number]
+import {
+  builtinLabelForKey,
+  isCustomInfraGroupKey,
+  isValidInfraGroupKey,
+  sanitizeInfraGroupLabel,
+} from "@/lib/infra-groups"
 
 type InfraItem = {
   id: string
   projectId: string
   groupKey: string
+  groupLabel?: string | null
   label: string
   isSecret: boolean
   valuePlain: string | null
@@ -24,10 +29,6 @@ type InfraItem = {
   updatedBy: string | null
   createdAt: Date
   updatedAt: Date
-}
-
-function isGroupKey(value: unknown): value is InfraGroupKey {
-  return typeof value === "string" && GROUP_KEYS.includes(value as InfraGroupKey)
 }
 
 function sanitizeText(value: unknown, maxLen: number): string {
@@ -53,6 +54,12 @@ function serializeItem(item: InfraItem) {
     id: item.id,
     projectId: item.projectId,
     groupKey: item.groupKey,
+    groupLabel:
+      item.groupLabel ||
+      builtinLabelForKey(item.groupKey) ||
+      (isCustomInfraGroupKey(item.groupKey)
+        ? item.groupKey.replace(/^CUSTOM_/, "").replace(/_/g, " ")
+        : item.groupKey),
     label: item.label,
     isSecret: item.isSecret,
     value: item.isSecret ? null : item.valuePlain || "",
@@ -102,6 +109,7 @@ export async function PATCH(
 
     let body: {
       groupKey?: unknown
+      groupLabel?: unknown
       label?: unknown
       isSecret?: unknown
       value?: unknown
@@ -115,6 +123,7 @@ export async function PATCH(
 
     const data: {
       groupKey?: string
+      groupLabel?: string | null
       label?: string
       isSecret?: boolean
       valuePlain?: string | null
@@ -124,10 +133,26 @@ export async function PATCH(
     } = { updatedBy: session.user.id }
 
     if ("groupKey" in body) {
-      if (!isGroupKey(body.groupKey)) {
-        return NextResponse.json({ error: `Invalid groupKey. Must be one of: ${GROUP_KEYS.join(", ")}` }, { status: 400 })
+      const nextKey = typeof body.groupKey === "string" ? body.groupKey.trim().toUpperCase() : ""
+      if (!isValidInfraGroupKey(nextKey)) {
+        return NextResponse.json(
+          { error: "Invalid groupKey. Use GITHUB/TURSO/CLOUDFLARE/SMTP or CUSTOM_*" },
+          { status: 400 }
+        )
       }
-      data.groupKey = body.groupKey
+      data.groupKey = nextKey
+      if (isCustomInfraGroupKey(nextKey)) {
+        data.groupLabel =
+          sanitizeInfraGroupLabel(body.groupLabel) ||
+          existing.groupLabel ||
+          nextKey.replace(/^CUSTOM_/, "").replace(/_/g, " ")
+      } else {
+        data.groupLabel = null
+      }
+    } else if ("groupLabel" in body && isCustomInfraGroupKey(existing.groupKey)) {
+      const gl = sanitizeInfraGroupLabel(body.groupLabel)
+      if (!gl) return NextResponse.json({ error: "groupLabel is required" }, { status: 400 })
+      data.groupLabel = gl
     }
 
     if ("label" in body) {

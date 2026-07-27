@@ -8,14 +8,21 @@ import { encryptCredentialToJson } from "@/lib/encryption"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 import { canAccessProject, isValidProjectId } from "@/lib/project-access"
 import { ensureCriticalSchema } from "@/lib/auto-migrate"
-
-const GROUP_KEYS = ["GITHUB", "TURSO", "CLOUDFLARE", "SMTP"] as const
-type InfraGroupKey = (typeof GROUP_KEYS)[number]
+import {
+  BUILTIN_INFRA_GROUPS,
+  builtinLabelForKey,
+  isBuiltinInfraGroupKey,
+  isCustomInfraGroupKey,
+  isValidInfraGroupKey,
+  sanitizeInfraGroupLabel,
+  toCustomInfraGroupKey,
+} from "@/lib/infra-groups"
 
 type InfraItem = {
   id: string
   projectId: string
   groupKey: string
+  groupLabel?: string | null
   label: string
   isSecret: boolean
   valuePlain: string | null
@@ -25,10 +32,6 @@ type InfraItem = {
   updatedBy: string | null
   createdAt: Date
   updatedAt: Date
-}
-
-function isGroupKey(value: unknown): value is InfraGroupKey {
-  return typeof value === "string" && GROUP_KEYS.includes(value as InfraGroupKey)
 }
 
 function sanitizeText(value: unknown, maxLen: number): string {
@@ -48,19 +51,18 @@ function isMemberAccessActive(access: { visibleUntil: Date | null } | null, now 
   return !!access?.visibleUntil && access.visibleUntil.getTime() > now.getTime()
 }
 
-function emptyGroups() {
-  return GROUP_KEYS.reduce<Record<InfraGroupKey, Array<ReturnType<typeof serializeItem>>>>((acc, key) => {
-    acc[key] = []
-    return acc
-  }, {} as Record<InfraGroupKey, Array<ReturnType<typeof serializeItem>>>)
-}
-
 function serializeItem(item: InfraItem) {
   const hasValue = item.isSecret ? !!item.valueEnc : !!item.valuePlain
   return {
     id: item.id,
     projectId: item.projectId,
     groupKey: item.groupKey,
+    groupLabel:
+      item.groupLabel ||
+      builtinLabelForKey(item.groupKey) ||
+      (isCustomInfraGroupKey(item.groupKey)
+        ? item.groupKey.replace(/^CUSTOM_/, "").replace(/_/g, " ")
+        : item.groupKey),
     label: item.label,
     isSecret: item.isSecret,
     value: item.isSecret ? null : item.valuePlain || "",
@@ -73,14 +75,37 @@ function serializeItem(item: InfraItem) {
   }
 }
 
-function groupItems(items: InfraItem[]) {
-  const groups = emptyGroups()
+function buildGroupedResponse(items: InfraItem[]) {
+  const groups: Record<string, Array<ReturnType<typeof serializeItem>>> = {}
+  for (const g of BUILTIN_INFRA_GROUPS) groups[g.key] = []
+
+  const customMeta = new Map<string, string>()
   for (const item of items) {
-    if (isGroupKey(item.groupKey)) {
-      groups[item.groupKey].push(serializeItem(item))
+    if (!isValidInfraGroupKey(item.groupKey)) continue
+    if (!groups[item.groupKey]) groups[item.groupKey] = []
+    const serialized = serializeItem(item)
+    groups[item.groupKey].push(serialized)
+    if (isCustomInfraGroupKey(item.groupKey)) {
+      customMeta.set(item.groupKey, serialized.groupLabel)
     }
   }
-  return groups
+
+  const groupDefs = [
+    ...BUILTIN_INFRA_GROUPS.map((g) => ({
+      key: g.key,
+      label: g.label,
+      description: g.description,
+      builtin: true as const,
+    })),
+    ...[...customMeta.entries()].map(([key, label]) => ({
+      key,
+      label,
+      description: "Custom infrastructure group",
+      builtin: false as const,
+    })),
+  ]
+
+  return { groups, groupDefs }
 }
 
 async function ensureProjectExists(projectId: string): Promise<boolean> {
@@ -115,31 +140,24 @@ export async function GET(
     await ensureCriticalSchema()
 
     const canManage = isAdminOrProjectManager(userRole)
-    const [items, memberAccess] = await Promise.all([
-      canManage
-        ? db.projectInfraItem.findMany({
-            where: { projectId },
-            orderBy: [{ groupKey: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
-          })
-        : Promise.resolve([]),
-      db.projectInfraMemberAccess.findUnique({ where: { projectId } }),
-    ])
-
+    const memberAccess = await db.projectInfraMemberAccess.findUnique({ where: { projectId } })
     const memberCanView = isMemberAccessActive(memberAccess)
     const canView = canManage || memberCanView
+
     const visibleItems = canView
-      ? canManage
-        ? items
-        : await db.projectInfraItem.findMany({
-            where: { projectId },
-            orderBy: [{ groupKey: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
-          })
+      ? ((await db.projectInfraItem.findMany({
+          where: { projectId },
+          orderBy: [{ groupKey: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
+        })) as InfraItem[])
       : []
+
+    const { groups, groupDefs } = buildGroupedResponse(visibleItems)
 
     return NextResponse.json({
       success: true,
-      groups: groupItems(visibleItems as InfraItem[]),
-      groupKeys: GROUP_KEYS,
+      groups,
+      groupDefs,
+      groupKeys: groupDefs.map((g) => g.key),
       memberAccess: {
         visibleUntil: memberAccess?.visibleUntil?.toISOString() ?? null,
         isActive: memberCanView,
@@ -180,15 +198,55 @@ export async function POST(
       return NextResponse.json({ error: "Project not found" }, { status: 404 })
     }
 
-    let body: { groupKey?: unknown; label?: unknown; isSecret?: unknown; value?: unknown; sortOrder?: unknown }
+    await ensureCriticalSchema()
+
+    let body: {
+      groupKey?: unknown
+      groupLabel?: unknown
+      customGroupName?: unknown
+      label?: unknown
+      isSecret?: unknown
+      value?: unknown
+      sortOrder?: unknown
+    }
     try {
       body = await req.json()
     } catch {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
     }
 
-    if (!isGroupKey(body.groupKey)) {
-      return NextResponse.json({ error: `Invalid groupKey. Must be one of: ${GROUP_KEYS.join(", ")}` }, { status: 400 })
+    let groupKey =
+      typeof body.groupKey === "string" ? body.groupKey.trim().toUpperCase() : ""
+    let groupLabel: string | null = null
+
+    // Allow creating a custom group in one shot via customGroupName
+    if (!groupKey && typeof body.customGroupName === "string") {
+      const name = sanitizeInfraGroupLabel(body.customGroupName)
+      const customKey = toCustomInfraGroupKey(name)
+      if (!name || !customKey) {
+        return NextResponse.json({ error: "Invalid custom group name" }, { status: 400 })
+      }
+      groupKey = customKey
+      groupLabel = name
+    }
+
+    if (!isValidInfraGroupKey(groupKey)) {
+      return NextResponse.json(
+        { error: "Invalid groupKey. Use GITHUB/TURSO/CLOUDFLARE/SMTP or CUSTOM_*" },
+        { status: 400 }
+      )
+    }
+
+    if (isCustomInfraGroupKey(groupKey)) {
+      groupLabel =
+        sanitizeInfraGroupLabel(body.groupLabel) ||
+        sanitizeInfraGroupLabel(body.customGroupName) ||
+        groupKey.replace(/^CUSTOM_/, "").replace(/_/g, " ")
+      if (!groupLabel) {
+        return NextResponse.json({ error: "groupLabel is required for custom groups" }, { status: 400 })
+      }
+    } else if (isBuiltinInfraGroupKey(groupKey)) {
+      groupLabel = null
     }
 
     const label = sanitizeText(body.label, 160)
@@ -199,14 +257,16 @@ export async function POST(
     const isSecret = body.isSecret !== false
     const value = typeof body.value === "string" ? body.value.trim().slice(0, 4000) : ""
     const dbKey = isSecret && value ? await loadCredDbKey() : ""
-    const sortOrder = typeof body.sortOrder === "number" && Number.isFinite(body.sortOrder)
-      ? Math.trunc(body.sortOrder)
-      : 0
+    const sortOrder =
+      typeof body.sortOrder === "number" && Number.isFinite(body.sortOrder)
+        ? Math.trunc(body.sortOrder)
+        : 0
 
     const item = await db.projectInfraItem.create({
       data: {
         projectId,
-        groupKey: body.groupKey,
+        groupKey,
+        groupLabel,
         label,
         isSecret,
         valuePlain: isSecret ? null : value,
@@ -226,7 +286,7 @@ export async function POST(
       action: "CREATE",
       entityType: "ProjectInfraItem",
       entityId: item.id,
-      description: `Created ${body.groupKey} infrastructure item "${label}" for project ${projectId}`,
+      description: `Created ${groupKey} infrastructure item "${label}" for project ${projectId}`,
       ipAddress: getIpAddress(req),
       userAgent: getUserAgent(req),
     })
