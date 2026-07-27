@@ -935,6 +935,8 @@ export function EditEntryDialog(props: EditEntryDialogProps) {
                 <SelectContent>
                   <SelectItem value="none">No Project</SelectItem>
                   <SelectItem value="__training__">Training</SelectItem>
+                  <SelectItem value="__hr_admin__">HR &amp; Administration</SelectItem>
+                  <SelectItem value="__rd_sa__">R&amp;D / SA</SelectItem>
                   {projects.map((p) => (
                     <SelectItem key={p.id} value={p.id}>
                       <span className="inline-flex items-center gap-2">

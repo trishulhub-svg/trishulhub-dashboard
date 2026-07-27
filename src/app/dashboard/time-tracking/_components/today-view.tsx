@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/table";
 import { safeNumber, safeText } from "@/lib/utils";
 import type { Project, TimeEntry, TrainingAssignment } from "./types";
+import { entryActivityLabel } from "./types";
 import { DAY_NAMES } from "./types";
 import { formatHours, formatTime } from "./utils";
 import { TimerHero } from "./timer-hero";
@@ -182,7 +183,7 @@ export function TodayView({
                     <TableRow key={entry.id}>
                       <TableCell>
                         <Badge variant="outline" className="text-xs">
-                          {safeText(entry.project?.name, "No Project")}
+                          {safeText(entryActivityLabel(entry), "No Project")}
                         </Badge>
                       </TableCell>
                       <TableCell

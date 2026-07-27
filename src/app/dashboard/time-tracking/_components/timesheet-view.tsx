@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/table";
 import { safeNumber, safeText } from "@/lib/utils";
 import type { Project, TeamUser, TimeEntry } from "./types";
+import { entryActivityLabel } from "./types";
 import { dayBounds, formatDate, formatHours, formatTime, formatWeekLabel, getDateStr, isSameDay } from "./utils";
 
 interface TimesheetViewProps {
@@ -219,7 +220,7 @@ export function TimesheetView({
                             )}
                             <TableCell>
                               <Badge variant="outline" className="text-xs">
-                                {safeText(entry.project?.name, "No Project")}
+                                {safeText(entryActivityLabel(entry), "No Project")}
                               </Badge>
                             </TableCell>
                             <TableCell

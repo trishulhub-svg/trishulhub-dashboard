@@ -27,6 +27,15 @@ export function canEditWorkNotes(entry: Pick<TimeEntry, "status" | "clockOut">, 
   return now - clockOutMs <= 24 * 60 * 60 * 1000;
 }
 
+/** Display label for project / non-project activity buckets. */
+export function entryActivityLabel(entry: Pick<TimeEntry, "project" | "activityType">): string {
+  if (entry.project?.name) return entry.project.name;
+  if (entry.activityType === "TRAINING") return "Training";
+  if (entry.activityType === "HR_ADMIN") return "HR & Administration";
+  if (entry.activityType === "RD_SA") return "R&D / SA";
+  return "No Project";
+}
+
 export function workNotesHoursLeft(entry: Pick<TimeEntry, "clockOut">, now = Date.now()): number {
   if (!entry.clockOut) return 0;
   const left = 24 * 60 * 60 * 1000 - (now - new Date(entry.clockOut).getTime());

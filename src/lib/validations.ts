@@ -242,7 +242,7 @@ export const updateTimeEntrySchema = z.object({
   description: z.string().max(500).optional(),
   // Work summary — optional at clock-out; editable within 24h of clockOut
   workNotes: z.string().max(500).optional().nullable(),
-  projectId: z.string().optional(),
+  projectId: z.string().min(1).optional().nullable(),
   status: z.enum(["ACTIVE", "COMPLETED"]).optional(),
   // Device clock integrity (required when status → COMPLETED / clock-out)
   clientNow: z.string().min(1).optional(),
@@ -325,9 +325,12 @@ export const adminCreateTimeEntrySchema = z.object({
 // Admin update entry (can edit clockIn, clockOut, description, projectId)
 export const adminUpdateTimeEntrySchema = z.object({
   id: z.string().min(1),
-  description: z.string().max(1000).optional(),
-  projectId: z.string().nullable().optional(),
-  clockIn: z.string().optional(), // ISO date string
+  description: z.string().max(1000).optional().nullable(),
+  projectId: z.string().min(1).nullable().optional(),
+  // PROJECT | TRAINING | HR_ADMIN | RD_SA | null (clear / no project)
+  activityType: z.enum(["PROJECT", "TRAINING", "HR_ADMIN", "RD_SA"]).nullable().optional(),
+  trainingAssignmentId: z.string().min(1).nullable().optional(),
+  clockIn: z.string().min(1).optional(), // ISO date string
   clockOut: z.string().nullable().optional(), // ISO date string (null to clear)
 }).refine(data => {
   if (data.clockIn && data.clockOut) {

@@ -64,72 +64,149 @@ export async function PATCH(
       return NextResponse.json({ error: "You can only update your own entries" }, { status: 403 })
     }
 
-    // ── Admin edit path (can modify clockIn, clockOut, description, projectId) ──
-    if (isAdmin && (body.clockIn !== undefined || body.clockOut !== undefined || (body.projectId !== undefined && body.status === undefined))) {
-      // Check if this is an admin edit request (has clockIn or clockOut fields)
-      const isAdminEdit = body.clockIn !== undefined || body.clockOut !== undefined
-      if (isAdminEdit) {
-        const validation = validateRequest(adminUpdateTimeEntrySchema, { ...body, id })
-        if (!validation.success) {
-          return NextResponse.json({ error: validation.error }, { status: 400 })
-        }
+    // ── Admin edit path (can modify clockIn, clockOut, description, projectId, activityType) ──
+    // Any admin correction of entry fields (including project-only) goes through here.
+    const adminWantsEdit =
+      isAdmin &&
+      body.status === undefined &&
+      (body.clockIn !== undefined ||
+        body.clockOut !== undefined ||
+        body.projectId !== undefined ||
+        body.activityType !== undefined ||
+        body.description !== undefined ||
+        body.trainingAssignmentId !== undefined)
 
-        const { description, projectId, clockIn, clockOut } = validation.data
-        const updateData: Prisma.TimeEntryUncheckedUpdateInput = {}
+    if (adminWantsEdit) {
+      const validation = validateRequest(adminUpdateTimeEntrySchema, { ...body, id })
+      if (!validation.success) {
+        return NextResponse.json({ error: validation.error }, { status: 400 })
+      }
 
-        if (description !== undefined) updateData.description = description
-        if (projectId !== undefined) updateData.projectId = projectId || null
+      const { description, projectId, clockIn, clockOut, activityType, trainingAssignmentId } =
+        validation.data
+      const updateData: Prisma.TimeEntryUncheckedUpdateInput = {}
 
-        if (clockIn) {
-          updateData.clockIn = new Date(clockIn)
-          updateData.date = new Date(clockIn)
-        }
+      if (description !== undefined) {
+        updateData.description = description?.trim() ? description.trim().slice(0, 1000) : null
+      }
 
-        if (clockOut !== undefined) {
-          if (clockOut === null) {
-            // Admin clearing clockOut: set back to ACTIVE
-            updateData.clockOut = null
-            updateData.status = "ACTIVE"
-            updateData.totalHours = null
-          } else {
-            // Admin setting clockOut: calculate totalHours, set COMPLETED
-            updateData.clockOut = new Date(clockOut)
-            updateData.status = "COMPLETED"
-            const effectiveClockIn = clockIn ? new Date(clockIn) : new Date(existing.clockIn)
-            const diffMs = new Date(clockOut).getTime() - effectiveClockIn.getTime()
-            if (diffMs < 0) {
-              return NextResponse.json({ error: "clockOut cannot be before clockIn" }, { status: 400 })
-            }
-            updateData.totalHours = Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100
+      // Project correction — always honor explicit projectId (including null = clear)
+      if (projectId !== undefined) {
+        const nextProjectId = projectId || null
+        if (nextProjectId) {
+          const project = await db.project.findUnique({
+            where: { id: nextProjectId },
+            select: { id: true },
+          })
+          if (!project) {
+            return NextResponse.json({ error: "Project not found" }, { status: 404 })
           }
-        } else if (clockIn && existing.clockOut) {
-          // clockIn changed but clockOut unchanged: recalculate totalHours
-          const diffMs = new Date(existing.clockOut).getTime() - new Date(clockIn).getTime()
+        }
+        updateData.projectId = nextProjectId
+      }
+
+      // Keep activityType consistent with the selected project / non-project bucket
+      if (activityType !== undefined) {
+        updateData.activityType = activityType
+        if (activityType !== "TRAINING") {
+          updateData.trainingAssignmentId = null
+        }
+        if (activityType && activityType !== "PROJECT" && projectId === undefined) {
+          updateData.projectId = null
+        }
+      } else if (projectId !== undefined) {
+        if (projectId) {
+          updateData.activityType = "PROJECT"
+          updateData.trainingAssignmentId = null
+        } else if (existing.activityType === "PROJECT" || !existing.activityType) {
+          updateData.activityType = null
+          updateData.trainingAssignmentId = null
+        }
+      }
+
+      if (trainingAssignmentId !== undefined) {
+        updateData.trainingAssignmentId = trainingAssignmentId || null
+        if (trainingAssignmentId) {
+          updateData.activityType = "TRAINING"
+          updateData.projectId = null
+        }
+      }
+
+      if (clockIn) {
+        const clockInDate = new Date(clockIn)
+        if (Number.isNaN(clockInDate.getTime())) {
+          return NextResponse.json({ error: "Invalid clockIn" }, { status: 400 })
+        }
+        updateData.clockIn = clockInDate
+        updateData.date = clockInDate
+      }
+
+      if (clockOut !== undefined) {
+        if (clockOut === null) {
+          // Admin clearing clockOut: set back to ACTIVE
+          updateData.clockOut = null
+          updateData.status = "ACTIVE"
+          updateData.totalHours = null
+        } else {
+          // Admin setting clockOut: calculate totalHours, set COMPLETED
+          const clockOutDate = new Date(clockOut)
+          if (Number.isNaN(clockOutDate.getTime())) {
+            return NextResponse.json({ error: "Invalid clockOut" }, { status: 400 })
+          }
+          updateData.clockOut = clockOutDate
+          updateData.status = "COMPLETED"
+          const effectiveClockIn = clockIn ? new Date(clockIn) : new Date(existing.clockIn)
+          const diffMs = clockOutDate.getTime() - effectiveClockIn.getTime()
           if (diffMs < 0) {
             return NextResponse.json({ error: "clockOut cannot be before clockIn" }, { status: 400 })
           }
           updateData.totalHours = Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100
         }
-
-        const entry = await db.$transaction(async (tx) => {
-          const existingInTx = await tx.timeEntry.findUnique({ where: { id } })
-          if (!existingInTx) return null
-          return await tx.timeEntry.update({
-            where: { id },
-            data: updateData,
-            include: {
-              user: { select: { id: true, name: true, email: true, avatar: true, role: true } },
-              project: { select: { id: true, name: true } },
-            },
-          })
-        })
-
-        if (!entry) {
-          return NextResponse.json({ error: "Time entry not found" }, { status: 404 })
+      } else if (clockIn && existing.clockOut) {
+        // clockIn changed but clockOut unchanged: recalculate totalHours
+        const diffMs = new Date(existing.clockOut).getTime() - new Date(clockIn).getTime()
+        if (diffMs < 0) {
+          return NextResponse.json({ error: "clockOut cannot be before clockIn" }, { status: 400 })
         }
-
-        return NextResponse.json(entry)
+        updateData.totalHours = Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100
       }
+
+      if (Object.keys(updateData).length === 0) {
+        return NextResponse.json({ error: "No fields to update" }, { status: 400 })
+      }
+
+      const entry = await db.$transaction(async (tx) => {
+        const existingInTx = await tx.timeEntry.findUnique({ where: { id } })
+        if (!existingInTx) return null
+        return await tx.timeEntry.update({
+          where: { id },
+          data: updateData,
+          include: {
+            user: { select: { id: true, name: true, email: true, avatar: true, role: true } },
+            project: { select: { id: true, name: true } },
+          },
+        })
+      })
+
+      if (!entry) {
+        return NextResponse.json({ error: "Time entry not found" }, { status: 404 })
+      }
+
+      void logAudit({
+        userId: session.user.id,
+        userName: session.user.name || "unknown",
+        userRole: session.user.role || "",
+        department: "TEAM_WORK",
+        page: "time-tracking",
+        action: "UPDATE",
+        entityType: "TimeEntry",
+        entityId: entry.id,
+        description: buildDescription("UPDATE", "TimeEntry", entry.id),
+        ipAddress: getIpAddress(req),
+        userAgent: getUserAgent(req),
+      }).catch(() => undefined)
+
+      return NextResponse.json(entry)
     }
 
     // ── Normal update path (wrapped in transaction for atomicity) ──

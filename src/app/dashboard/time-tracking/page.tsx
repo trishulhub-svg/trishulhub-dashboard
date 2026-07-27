@@ -983,28 +983,60 @@ function TimeTrackingPageInner() {
   const openEditDialog = useCallback((entry: TimeEntry) => {
     setEditEntry(entry);
     setEditDescription(entry.description || "");
-    setEditProjectId(entry.projectId || "none");
+    const pid = entry.projectId || entry.project?.id || "";
+    if (pid) {
+      setEditProjectId(pid);
+    } else if (entry.activityType === "TRAINING") {
+      setEditProjectId("__training__");
+    } else if (entry.activityType === "HR_ADMIN") {
+      setEditProjectId("__hr_admin__");
+    } else if (entry.activityType === "RD_SA") {
+      setEditProjectId("__rd_sa__");
+    } else {
+      setEditProjectId("none");
+    }
     setEditClockIn(toDatetimeLocal(entry.clockIn));
     setEditClockOut(entry.clockOut ? toDatetimeLocal(entry.clockOut) : "");
   }, []);
 
   const handleAdminEditEntry = useCallback(async () => {
     if (!editEntry) return;
+    if (!editClockIn) {
+      toast.error("Clock-in time is required");
+      return;
+    }
     setEditSaving(true);
     try {
+      const isTraining = editProjectId === "__training__";
+      const isHr = editProjectId === "__hr_admin__";
+      const isRd = editProjectId === "__rd_sa__";
+      const isNone = editProjectId === "none" || !editProjectId;
+      const nextProjectId = isTraining || isHr || isRd || isNone ? null : editProjectId;
+
       const payload: Record<string, unknown> = {
         id: editEntry.id,
         description:
-          editProjectId === "__training__" && !editDescription.trim()
+          isTraining && !editDescription.trim()
             ? "Training"
-            : editDescription || undefined,
-        projectId:
-          editProjectId === "none" || editProjectId === "__training__"
-            ? null
-            : editProjectId || undefined,
+            : isHr && !editDescription.trim()
+              ? "HR & Administration"
+              : isRd && !editDescription.trim()
+                ? "R&D / SA"
+                : editDescription.trim() || null,
+        projectId: nextProjectId,
+        activityType: isTraining
+          ? "TRAINING"
+          : isHr
+            ? "HR_ADMIN"
+            : isRd
+              ? "RD_SA"
+              : nextProjectId
+                ? "PROJECT"
+                : null,
+        trainingAssignmentId: isTraining ? editEntry.trainingAssignmentId || null : null,
         clockIn: fromDatetimeLocal(editClockIn),
+        clockOut: editClockOut ? fromDatetimeLocal(editClockOut) : null,
       };
-      payload.clockOut = editClockOut ? fromDatetimeLocal(editClockOut) : null;
 
       const res = await fetch(`/api/time-tracking/${editEntry.id}`, {
         method: "PATCH",
@@ -1013,8 +1045,19 @@ function TimeTrackingPageInner() {
         body: JSON.stringify(payload),
       });
       if (res.ok) {
+        const updated = (await res.json().catch(() => null)) as TimeEntry | null;
         toast.success("Entry updated successfully");
         setEditEntry(null);
+        if (updated?.id) {
+          setEntries((prev) => prev.map((e) => (e.id === updated.id ? { ...e, ...updated } : e)));
+          setActiveEntries((prev) =>
+            prev.map((e) => (e.id === updated.id ? { ...e, ...updated } : e))
+          );
+          setActiveEntry((prev) => (prev?.id === updated.id ? { ...prev, ...updated } : prev));
+          setTimesheetEntries((prev) =>
+            prev.map((e) => (e.id === updated.id ? { ...e, ...updated } : e))
+          );
+        }
         refreshAfterMutation();
       } else {
         const err = await res.json().catch(() => null);
@@ -1608,7 +1651,18 @@ function TimeTrackingPageInner() {
       <EditEntryDialog
         entry={editEntry}
         onClose={() => setEditEntry(null)}
-        projects={projects}
+        projects={(() => {
+          if (!editEntry?.project?.id) return projects;
+          if (projects.some((p) => p.id === editEntry.project!.id)) return projects;
+          return [
+            {
+              id: editEntry.project.id,
+              name: editEntry.project.name,
+              status: "IN_PROGRESS",
+            },
+            ...projects,
+          ];
+        })()}
         description={editDescription}
         projectId={editProjectId}
         clockIn={editClockIn}
