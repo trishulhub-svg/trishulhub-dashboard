@@ -480,14 +480,15 @@ export function SwitchSessionDialog({
         <div className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-2">
-              <Label>Next project / activity</Label>
+              <Label>Next activity</Label>
               <Select value={selectedProject} onValueChange={onProjectChange}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Optional project..." />
+                  <SelectValue placeholder="Optional activity..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">No Project</SelectItem>
+                  <SelectItem value="none">No activity</SelectItem>
                   <SelectItem value="__training__">Training</SelectItem>
+                  <SelectItem value="__supervision__">Supervision</SelectItem>
                   {canUseHrAdmin && (
                     <SelectItem value="__hr_admin__">HR &amp; Administration</SelectItem>
                   )}
@@ -774,14 +775,17 @@ export function AddEntryDialog(props: AddEntryDialogProps) {
             </Select>
           </div>
           <div className="space-y-2">
-            <Label>Project</Label>
+            <Label>Activity</Label>
             <Select value={projectId} onValueChange={onProjectId}>
               <SelectTrigger>
-                <SelectValue placeholder="Select project..." />
+                <SelectValue placeholder="Select activity..." />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">No Project</SelectItem>
+                <SelectItem value="none">No activity</SelectItem>
                 <SelectItem value="__training__">Training</SelectItem>
+                <SelectItem value="__supervision__">Supervision</SelectItem>
+                <SelectItem value="__hr_admin__">HR &amp; Administration</SelectItem>
+                <SelectItem value="__rd_sa__">R&amp;D / SA</SelectItem>
                 {projects.map((p) => (
                   <SelectItem key={p.id} value={p.id}>
                     <span className="inline-flex items-center gap-2">
@@ -927,14 +931,15 @@ export function EditEntryDialog(props: EditEntryDialogProps) {
               </div>
             </div>
             <div className="space-y-2">
-              <Label>Project</Label>
+              <Label>Activity</Label>
               <Select value={projectId} onValueChange={onProjectId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select project..." />
+                  <SelectValue placeholder="Select activity..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">No Project</SelectItem>
+                  <SelectItem value="none">No activity</SelectItem>
                   <SelectItem value="__training__">Training</SelectItem>
+                  <SelectItem value="__supervision__">Supervision</SelectItem>
                   <SelectItem value="__hr_admin__">HR &amp; Administration</SelectItem>
                   <SelectItem value="__rd_sa__">R&amp;D / SA</SelectItem>
                   {projects.map((p) => (

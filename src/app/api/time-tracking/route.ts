@@ -25,11 +25,12 @@ type TimeEntryWithUser = {
   [key: string]: unknown;
 }
 
-type ActivityType = "PROJECT" | "TRAINING" | "HR_ADMIN" | "RD_SA"
+type ActivityType = "PROJECT" | "TRAINING" | "SUPERVISION" | "HR_ADMIN" | "RD_SA"
 
 function canUseActivityType(role: string, activityType: ActivityType): boolean {
   if (activityType === "HR_ADMIN") return role === "ADMIN" || role === "SUPER_ADMIN"
   if (activityType === "RD_SA") return role === "SUPER_ADMIN" || role === "PROJECT_MANAGER"
+  // Training + Supervision available to all clock-in roles
   return true
 }
 

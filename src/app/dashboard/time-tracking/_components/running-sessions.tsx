@@ -41,6 +41,7 @@ function sourceMeta(entry: TimeEntry): { label: string; className: string } {
 function activityLabel(entry: TimeEntry): string {
   if (entry.project?.name) return entry.project.name;
   if (entry.activityType === "TRAINING") return "Training";
+  if (entry.activityType === "SUPERVISION") return "Supervision";
   if (entry.activityType === "HR_ADMIN") return "HR & Administration";
   if (entry.activityType === "RD_SA") return "R&D / SA";
   return "No project";

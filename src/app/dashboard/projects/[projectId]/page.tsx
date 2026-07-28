@@ -7,9 +7,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Plus, Bot, User, Clock, Trash2, Users, UserPlus, X, CalendarDays, Tag,
   CheckCircle2, ShieldCheck, Activity, Gauge, CircleDot, FolderKanban,
-  ChevronRight, ExternalLink, Settings, Globe, Star, Pencil, Trash2 as Trash2Icon, Loader2,
+  ChevronRight, ChevronDown, ExternalLink, Settings, Globe, Star, Pencil, Trash2 as Trash2Icon, Loader2,
   Github, Database, Server, Eye, EyeOff, Copy, Save, Key, FlaskConical,
 } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator, } from "@/components/ui/dropdown-menu";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -117,6 +118,67 @@ function formatWeekLabel(mondayKey: string, todayKey: string): string {
   const range = `${mon.toLocaleDateString(undefined, opts)} – ${sun.toLocaleDateString(undefined, opts)}`;
   if (mondayKey < thisMonday) return `Earlier · ${range}`;
   return `Week of ${range}`;
+}
+
+/** Open milestones first; done ones sit in a collapsed section (expand to review). */
+function MilestoneListWithDoneCollapsed({
+  items,
+  userId,
+  canManage,
+  onToggle,
+  onEdit,
+  onDelete,
+}: {
+  items: Record<string, unknown>[];
+  userId: string;
+  canManage: boolean;
+  onToggle: (id: string, done: boolean) => void;
+  onEdit?: (m: Record<string, unknown>) => void;
+  onDelete?: (id: string) => void;
+}) {
+  const open = items.filter((m) => m.done !== true);
+  const done = items.filter((m) => m.done === true);
+  return (
+    <div className="space-y-2">
+      {open.length === 0 && done.length > 0 && (
+        <p className="text-[10px] text-muted-foreground px-0.5">All open items done — expand completed below</p>
+      )}
+      {open.map((m) => (
+        <MilestoneRow
+          key={extractStr(m, "id", "")}
+          m={m}
+          userId={userId}
+          canManage={canManage}
+          onToggle={onToggle}
+          onEdit={onEdit}
+          onDelete={onDelete}
+        />
+      ))}
+      {done.length > 0 && (
+        <Collapsible defaultOpen={false} className="rounded-lg border border-border/40 bg-muted/20">
+          <CollapsibleTrigger className="flex w-full items-center justify-between gap-2 px-2.5 py-2 text-left hover:bg-muted/40 rounded-lg [&[data-state=open]>svg]:rotate-180">
+            <span className="text-[10px] font-medium text-muted-foreground">
+              {done.length} completed — expand to review
+            </span>
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform" />
+          </CollapsibleTrigger>
+          <CollapsibleContent className="space-y-2 px-1.5 pb-2">
+            {done.map((m) => (
+              <MilestoneRow
+                key={extractStr(m, "id", "")}
+                m={m}
+                userId={userId}
+                canManage={canManage}
+                onToggle={onToggle}
+                onEdit={onEdit}
+                onDelete={onDelete}
+              />
+            ))}
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+    </div>
+  );
 }
 
 function MilestoneRow({
@@ -830,25 +892,43 @@ export default function ProjectDetailPage() {
       return;
     }
     setMilestoneSaving(true);
+    const title = newMilestoneTitle.trim();
+    const dueDate = newMilestoneDue;
+    const dueTime = newMilestoneDueTime || null;
+    const assigneeIds = [...newMilestoneAssignees];
     try {
       const res = await fetch(`/api/projects/${projectId}/milestones`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          title: newMilestoneTitle.trim(),
-          dueDate: newMilestoneDue,
-          dueTime: newMilestoneDueTime || null,
-          assigneeIds: newMilestoneAssignees,
+          title,
+          dueDate,
+          dueTime,
+          assigneeIds,
         }),
       });
       if (res.ok) {
+        const created = (await res.json().catch(() => null)) as Record<string, unknown> | null;
         toast.success("Milestone added");
         setNewMilestoneTitle("");
         setNewMilestoneDue("");
         setNewMilestoneDueTime("");
         setNewMilestoneAssignees([]);
-        refreshProgress();
+        // Optimistic append — feels instant; soft-refresh progress in background
+        if (created && extractStr(created, "id", "")) {
+          queryClient.setQueryData(
+            ["project-milestones", projectId],
+            (prev: unknown) => {
+              const list = Array.isArray(prev) ? (prev as Record<string, unknown>[]) : [];
+              if (list.some((m) => extractStr(m, "id", "") === extractStr(created, "id", ""))) {
+                return list;
+              }
+              return [...list, created];
+            }
+          );
+        }
+        void refreshProgress();
       } else {
         if (handle401(res)) return;
         const d = await res.json().catch(() => null);
@@ -991,6 +1071,7 @@ export default function ProjectDetailPage() {
   // Admin/SuperAdmin: group milestones by due-date week for easier planning
   const milestonesByWeek = useMemo(() => {
     const todayKey = new Date().toISOString().slice(0, 10);
+    const thisMonday = weekStartKey(todayKey);
     const buckets = new Map<string, Record<string, unknown>[]>();
     for (const m of milestonesData) {
       const due = extractStr(m, "dueDate", "");
@@ -999,15 +1080,22 @@ export default function ProjectDetailPage() {
       list.push(m);
       buckets.set(key, list);
     }
+    // Current + upcoming weeks first; Earlier last so open work is easier to find
     const keys = [...buckets.keys()].sort((a, b) => {
       if (a === "none") return 1;
       if (b === "none") return -1;
+      const aPast = a < thisMonday;
+      const bPast = b < thisMonday;
+      if (aPast !== bPast) return aPast ? 1 : -1;
       return a.localeCompare(b);
     });
     return keys.map((key) => ({
       key,
       label: formatWeekLabel(key, todayKey),
       items: (buckets.get(key) || []).slice().sort((a, b) => {
+        // Open first, then by due date (done stay in collapsed section)
+        const doneDiff = Number(a.done === true) - Number(b.done === true);
+        if (doneDiff !== 0) return doneDiff;
         const da = extractStr(a, "dueDate", "");
         const db = extractStr(b, "dueDate", "");
         if (!da && !db) return 0;
@@ -1540,35 +1628,27 @@ export default function ProjectDetailPage() {
                           </Badge>
                         </div>
                       </div>
-                      <div className="space-y-2">
-                        {week.items.map((m) => (
-                          <MilestoneRow
-                            key={extractStr(m, "id", "")}
-                            m={m}
-                            userId={userId}
-                            canManage={canManageMilestones}
-                            onToggle={handleToggleMilestone}
-                            onEdit={openEditMilestone}
-                            onDelete={handleDeleteMilestone}
-                          />
-                        ))}
-                      </div>
+                      <MilestoneListWithDoneCollapsed
+                        items={week.items}
+                        userId={userId}
+                        canManage={canManageMilestones}
+                        onToggle={handleToggleMilestone}
+                        onEdit={openEditMilestone}
+                        onDelete={handleDeleteMilestone}
+                      />
                     </div>
                   );
                 })}
               </div>
             ) : (
-              <div className="space-y-2">
-                {milestonesData.map((m) => (
-                  <MilestoneRow
-                    key={extractStr(m, "id", "")}
-                    m={m}
-                    userId={userId}
-                    canManage={false}
-                    onToggle={handleToggleMilestone}
-                  />
-                ))}
-              </div>
+              <MilestoneListWithDoneCollapsed
+                items={[...milestonesData].sort(
+                  (a, b) => Number(a.done === true) - Number(b.done === true)
+                )}
+                userId={userId}
+                canManage={false}
+                onToggle={handleToggleMilestone}
+              />
             )}
           </div>
         </div>

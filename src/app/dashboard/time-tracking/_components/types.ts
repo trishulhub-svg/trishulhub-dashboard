@@ -31,9 +31,10 @@ export function canEditWorkNotes(entry: Pick<TimeEntry, "status" | "clockOut">, 
 export function entryActivityLabel(entry: Pick<TimeEntry, "project" | "activityType">): string {
   if (entry.project?.name) return entry.project.name;
   if (entry.activityType === "TRAINING") return "Training";
+  if (entry.activityType === "SUPERVISION") return "Supervision";
   if (entry.activityType === "HR_ADMIN") return "HR & Administration";
   if (entry.activityType === "RD_SA") return "R&D / SA";
-  return "No Project";
+  return "No activity";
 }
 
 export function workNotesHoursLeft(entry: Pick<TimeEntry, "clockOut">, now = Date.now()): number {

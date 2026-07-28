@@ -21,6 +21,7 @@ export type LiveUser = {
 function workLabel(u: LiveUser): string {
   if (u.activityLabel?.trim()) return u.activityLabel.trim();
   if (u.activityType === "TRAINING") return "Training";
+  if (u.activityType === "SUPERVISION") return "Supervision";
   if (u.activityType === "HR_ADMIN") return "HR & Administration";
   if (u.activityType === "RD_SA") return "R&D / SA";
   return u.projectName?.trim() || "no project";

@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureAllTables, ensureCriticalSchema } from "@/lib/auto-migrate"
+import { ensureCriticalSchema } from "@/lib/auto-migrate"
 import { deepSanitize } from "@/lib/utils"
 import { canAccessProject, isValidProjectId } from "@/lib/project-access"
 import {
@@ -180,18 +180,19 @@ export async function POST(
       return NextResponse.json({ error: "Invalid project ID" }, { status: 400 })
     }
 
-    await ensureAllTables()
-
-    const project = await db.project.findUnique({
-      where: { id: projectId },
-      select: { id: true, name: true },
-    })
-    if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 })
-
+    // Critical schema only — full ensureAllTables is too slow on create hot path
     let body: unknown
-    try {
-      body = await req.json()
-    } catch {
+    const [, project, bodyRaw] = await Promise.all([
+      ensureCriticalSchema(),
+      db.project.findUnique({
+        where: { id: projectId },
+        select: { id: true, name: true },
+      }),
+      req.json().catch(() => null),
+    ])
+    body = bodyRaw
+    if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 })
+    if (body == null) {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
     }
 
@@ -212,15 +213,20 @@ export async function POST(
       return NextResponse.json({ error: "Invalid due time (use HH:mm UK)" }, { status: 400 })
     }
 
-    const assigneeCheck = await assertAssigneesOnProject(projectId, parsed.data.assigneeIds)
+    const [assigneeCheck, maxOrder, assigneeUsers] = await Promise.all([
+      assertAssigneesOnProject(projectId, parsed.data.assigneeIds),
+      db.projectMilestone.aggregate({
+        where: { projectId },
+        _max: { sortOrder: true },
+      }),
+      db.user.findMany({
+        where: { id: { in: parsed.data.assigneeIds } },
+        select: { id: true, name: true, email: true, role: true },
+      }),
+    ])
     if (!assigneeCheck.ok) {
       return NextResponse.json({ error: assigneeCheck.error }, { status: 400 })
     }
-
-    const maxOrder = await db.projectMilestone.aggregate({
-      where: { projectId },
-      _max: { sortOrder: true },
-    })
 
     // Two-step create (Turso/libSQL nested creates can fail intermittently).
     // Explicit updatedAt avoids null/empty after Turso-safe column backfills.
@@ -261,10 +267,16 @@ export async function POST(
       )
     }
 
-    const milestone = await db.projectMilestone.findUnique({
-      where: { id: created.id },
-      include: milestoneInclude,
-    })
+    // Build response without a third findUnique round-trip
+    const userById = new Map(assigneeUsers.map((u) => [u.id, u]))
+    const milestone = {
+      ...created,
+      assignees: parsed.data.assigneeIds.map((userId) => ({
+        milestoneId: created.id,
+        userId,
+        user: userById.get(userId) || { id: userId, name: null, email: null, role: null },
+      })),
+    }
 
     void syncProjectProgressFromMilestones(projectId).catch((err) =>
       console.warn("[milestones] progress sync failed:", err instanceof Error ? err.message : err)

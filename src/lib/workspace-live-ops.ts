@@ -9,7 +9,7 @@ export type LiveOpsActiveUser = {
   name: string | null
   projectId: string | null
   projectName: string | null
-  /** PROJECT | TRAINING | HR_ADMIN | RD_SA | null */
+  /** PROJECT | TRAINING | SUPERVISION | HR_ADMIN | RD_SA | null */
   activityType: string | null
   /** Human label for feed: project name, training title, or activity bucket */
   activityLabel: string | null
@@ -34,6 +34,7 @@ function labelForActivity(opts: {
     }
     return "Training"
   }
+  if (type === "SUPERVISION") return "Supervision"
   if (type === "HR_ADMIN") return "HR & Administration"
   if (type === "RD_SA") return "R&D / SA"
   if (opts.projectName?.trim()) return opts.projectName.trim()

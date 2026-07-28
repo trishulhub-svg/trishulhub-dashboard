@@ -71,11 +71,13 @@ export const TimerHero = forwardRef<HTMLDivElement, TimerHeroProps>(function Tim
     activeEntry?.project?.name ||
     (activeEntry?.activityType === "TRAINING"
       ? "Training"
-      : activeEntry?.activityType === "HR_ADMIN"
-        ? "HR & Administration"
-        : activeEntry?.activityType === "RD_SA"
-          ? "R&D / SA"
-          : "No Project");
+      : activeEntry?.activityType === "SUPERVISION"
+        ? "Supervision"
+        : activeEntry?.activityType === "HR_ADMIN"
+          ? "HR & Administration"
+          : activeEntry?.activityType === "RD_SA"
+            ? "R&D / SA"
+            : "No activity");
 
   return (
     <div
@@ -126,7 +128,7 @@ export const TimerHero = forwardRef<HTMLDivElement, TimerHeroProps>(function Tim
                   variant="outline"
                   className="bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800 text-xs"
                 >
-                  {safeText(activeLabel, "No Project")}
+                  {safeText(activeLabel, "No activity")}
                 </Badge>
               </div>
               <p className="text-4xl sm:text-5xl font-bold tabular-nums tracking-tight text-emerald-600 dark:text-emerald-400">
@@ -172,14 +174,15 @@ export const TimerHero = forwardRef<HTMLDivElement, TimerHeroProps>(function Tim
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
               <div>
-                <Label className="text-xs mb-1.5 block text-muted-foreground">Project</Label>
+                <Label className="text-xs mb-1.5 block text-muted-foreground">Activity</Label>
                 <Select value={selectedProject} onValueChange={onProjectChange}>
                   <SelectTrigger className="h-10 bg-background/80">
-                    <SelectValue placeholder="Optional project..." />
+                    <SelectValue placeholder="Optional activity..." />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">No Project</SelectItem>
+                    <SelectItem value="none">No activity</SelectItem>
                     <SelectItem value="__training__">Training</SelectItem>
+                    <SelectItem value="__supervision__">Supervision</SelectItem>
                     {canUseHrAdmin && (
                       <SelectItem value="__hr_admin__">HR &amp; Administration</SelectItem>
                     )}

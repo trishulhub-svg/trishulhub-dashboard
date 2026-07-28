@@ -224,7 +224,13 @@ export const updateSupportTicketSchema = z.object({
 }).refine(hasAtLeastOneField, { message: "At least one field must be provided" })
 
 // ━━ Time Tracking ━━
-export const timeActivityTypes = ["PROJECT", "TRAINING", "HR_ADMIN", "RD_SA"] as const
+export const timeActivityTypes = [
+  "PROJECT",
+  "TRAINING",
+  "SUPERVISION",
+  "HR_ADMIN",
+  "RD_SA",
+] as const
 
 export const startTimeEntrySchema = z.object({
   projectId: z.string().optional(),
@@ -327,8 +333,11 @@ export const adminUpdateTimeEntrySchema = z.object({
   id: z.string().min(1),
   description: z.string().max(1000).optional().nullable(),
   projectId: z.string().min(1).nullable().optional(),
-  // PROJECT | TRAINING | HR_ADMIN | RD_SA | null (clear / no project)
-  activityType: z.enum(["PROJECT", "TRAINING", "HR_ADMIN", "RD_SA"]).nullable().optional(),
+  // PROJECT | TRAINING | SUPERVISION | HR_ADMIN | RD_SA | null (clear / no project)
+  activityType: z
+    .enum(["PROJECT", "TRAINING", "SUPERVISION", "HR_ADMIN", "RD_SA"])
+    .nullable()
+    .optional(),
   trainingAssignmentId: z.string().min(1).nullable().optional(),
   clockIn: z.string().min(1).optional(), // ISO date string
   clockOut: z.string().nullable().optional(), // ISO date string (null to clear)

@@ -502,6 +502,17 @@ function TimeTrackingPageInner() {
         };
       }
 
+      if (value === "__supervision__") {
+        return {
+          isTraining: false,
+          label: "Supervision",
+          payload: {
+            activityType: "SUPERVISION",
+            description: description || "Supervision",
+          },
+        };
+      }
+
       if (value === "__hr_admin__") {
         return {
           isTraining: false,
@@ -528,7 +539,7 @@ function TimeTrackingPageInner() {
       return {
         projectId,
         isTraining: false,
-        label: projectId ? projects.find((p) => p.id === projectId)?.name || "project" : "No Project",
+        label: projectId ? projects.find((p) => p.id === projectId)?.name || "project" : "No activity",
         payload: {
           projectId,
           activityType: projectId ? "PROJECT" : undefined,
@@ -988,6 +999,8 @@ function TimeTrackingPageInner() {
       setEditProjectId(pid);
     } else if (entry.activityType === "TRAINING") {
       setEditProjectId("__training__");
+    } else if (entry.activityType === "SUPERVISION") {
+      setEditProjectId("__supervision__");
     } else if (entry.activityType === "HR_ADMIN") {
       setEditProjectId("__hr_admin__");
     } else if (entry.activityType === "RD_SA") {
@@ -1008,31 +1021,37 @@ function TimeTrackingPageInner() {
     setEditSaving(true);
     try {
       const isTraining = editProjectId === "__training__";
+      const isSupervision = editProjectId === "__supervision__";
       const isHr = editProjectId === "__hr_admin__";
       const isRd = editProjectId === "__rd_sa__";
       const isNone = editProjectId === "none" || !editProjectId;
-      const nextProjectId = isTraining || isHr || isRd || isNone ? null : editProjectId;
+      const nextProjectId =
+        isTraining || isSupervision || isHr || isRd || isNone ? null : editProjectId;
 
       const payload: Record<string, unknown> = {
         id: editEntry.id,
         description:
           isTraining && !editDescription.trim()
             ? "Training"
-            : isHr && !editDescription.trim()
-              ? "HR & Administration"
-              : isRd && !editDescription.trim()
-                ? "R&D / SA"
-                : editDescription.trim() || null,
+            : isSupervision && !editDescription.trim()
+              ? "Supervision"
+              : isHr && !editDescription.trim()
+                ? "HR & Administration"
+                : isRd && !editDescription.trim()
+                  ? "R&D / SA"
+                  : editDescription.trim() || null,
         projectId: nextProjectId,
         activityType: isTraining
           ? "TRAINING"
-          : isHr
-            ? "HR_ADMIN"
-            : isRd
-              ? "RD_SA"
-              : nextProjectId
-                ? "PROJECT"
-                : null,
+          : isSupervision
+            ? "SUPERVISION"
+            : isHr
+              ? "HR_ADMIN"
+              : isRd
+                ? "RD_SA"
+                : nextProjectId
+                  ? "PROJECT"
+                  : null,
         trainingAssignmentId: isTraining ? editEntry.trainingAssignmentId || null : null,
         clockIn: fromDatetimeLocal(editClockIn),
         clockOut: editClockOut ? fromDatetimeLocal(editClockOut) : null,
