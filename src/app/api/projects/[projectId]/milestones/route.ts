@@ -180,10 +180,10 @@ export async function POST(
       return NextResponse.json({ error: "Invalid project ID" }, { status: 400 })
     }
 
-    // Critical schema only — full ensureAllTables is too slow on create hot path
+    // Skip schema migrate on create — project page GET already ran ensureCriticalSchema.
+    // Awaiting migrate here re-runs dozens of ALTER attempts on cold serverless (~10–20s).
     let body: unknown
-    const [, project, bodyRaw] = await Promise.all([
-      ensureCriticalSchema(),
+    const [project, bodyRaw] = await Promise.all([
       db.project.findUnique({
         where: { id: projectId },
         select: { id: true, name: true },
