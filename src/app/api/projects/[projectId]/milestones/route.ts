@@ -383,14 +383,30 @@ export async function PATCH(
           { status: 404 }
         )
       }
-      await db.$transaction(
-        items.map((item) =>
-          db.projectMilestone.update({
-            where: { id: item.id },
-            data: { sortOrder: item.sortOrder },
-          })
+      try {
+        await db.$transaction(
+          items.map((item) =>
+            db.projectMilestone.update({
+              where: { id: item.id },
+              data: { sortOrder: item.sortOrder },
+            })
+          )
         )
-      )
+      } catch (txErr) {
+        console.error(
+          "[milestones] reorder failed:",
+          txErr instanceof Error ? txErr.message : txErr
+        )
+        return NextResponse.json(
+          {
+            error:
+              txErr instanceof Error && /overflow|out of range|integer/i.test(txErr.message)
+                ? "Invalid sort order value"
+                : "Failed to reorder milestones",
+          },
+          { status: 500 }
+        )
+      }
       void logAudit({
         userId: session.user.id,
         userName: session.user.name || "unknown",
