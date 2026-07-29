@@ -51,6 +51,19 @@ const patchSchema = z.object({
   assigneeIds: z.array(z.string().min(1)).min(1).max(50).optional(),
 })
 
+/** Bulk reorder — admin sets first→last order within a week (or any set). */
+const reorderSchema = z.object({
+  reorder: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        sortOrder: z.number().int(),
+      })
+    )
+    .min(1)
+    .max(100),
+})
+
 const milestoneInclude = {
   assignees: {
     include: {
@@ -341,6 +354,59 @@ export async function PATCH(
       if (json && typeof json === "object") body = json as Record<string, unknown>
     } catch {
       /* empty */
+    }
+
+    // Bulk reorder (admin) — drag-to-order within a week
+    if (Array.isArray(body.reorder)) {
+      if (!canManageMilestones(session.user.role)) {
+        return NextResponse.json(
+          { error: "Forbidden: Only Admin or Super Admin can reorder milestones" },
+          { status: 403 }
+        )
+      }
+      const parsedReorder = reorderSchema.safeParse({ reorder: body.reorder })
+      if (!parsedReorder.success) {
+        return NextResponse.json(
+          { error: parsedReorder.error.issues[0]?.message || "Invalid reorder" },
+          { status: 400 }
+        )
+      }
+      const items = parsedReorder.data.reorder
+      const ids = items.map((i) => i.id)
+      const existing = await db.projectMilestone.findMany({
+        where: { projectId, id: { in: ids } },
+        select: { id: true },
+      })
+      if (existing.length !== ids.length) {
+        return NextResponse.json(
+          { error: "One or more milestones were not found on this project" },
+          { status: 404 }
+        )
+      }
+      await db.$transaction(
+        items.map((item) =>
+          db.projectMilestone.update({
+            where: { id: item.id },
+            data: { sortOrder: item.sortOrder },
+          })
+        )
+      )
+      void logAudit({
+        userId: session.user.id,
+        userName: session.user.name || "unknown",
+        userRole: session.user.role,
+        department: "TEAM_WORK",
+        page: "milestones",
+        action: "UPDATE",
+        entityType: "ProjectMilestone",
+        entityId: projectId,
+        description: `Reordered ${items.length} milestone${items.length === 1 ? "" : "s"}`,
+        newValue: JSON.stringify({ reorder: items }),
+        ipAddress: getIpAddress(req),
+        userAgent: getUserAgent(req),
+        metadata: JSON.stringify({ projectId }),
+      })
+      return NextResponse.json({ success: true, count: items.length })
     }
 
     const id = (body.id as string) || idFromQuery

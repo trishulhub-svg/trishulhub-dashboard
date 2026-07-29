@@ -5,10 +5,26 @@ import { useParams, useRouter, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
   ArrowLeft, Plus, Bot, User, Clock, Trash2, Users, UserPlus, X, CalendarDays, Tag,
   CheckCircle2, ShieldCheck, Activity, Gauge, CircleDot, FolderKanban,
-  ChevronRight, ChevronDown, ExternalLink, Settings, Globe, Star, Pencil, Trash2 as Trash2Icon, Loader2,
-  Github, Database, Server, Eye, EyeOff, Copy, Save, Key, FlaskConical,
+  ChevronRight, ChevronDown, ChevronUp, ExternalLink, Settings, Globe, Star, Pencil, Trash2 as Trash2Icon, Loader2,
+  Github, Database, Server, Eye, EyeOff, Copy, Save, Key, FlaskConical, GripVertical,
 } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator, } from "@/components/ui/dropdown-menu";
@@ -120,6 +136,24 @@ function formatWeekLabel(mondayKey: string, todayKey: string): string {
   return `Week of ${range}`;
 }
 
+function sortMilestonesForDisplay(items: Record<string, unknown>[]): Record<string, unknown>[] {
+  return items.slice().sort((a, b) => {
+    // Open first; done stay in collapsed section
+    const doneDiff = Number(a.done === true) - Number(b.done === true);
+    if (doneDiff !== 0) return doneDiff;
+    // Admin-arranged order (first → last)
+    const sa = extractNum(a, "sortOrder", 0);
+    const sb = extractNum(b, "sortOrder", 0);
+    if (sa !== sb) return sa - sb;
+    const da = extractStr(a, "dueDate", "");
+    const db = extractStr(b, "dueDate", "");
+    if (!da && !db) return 0;
+    if (!da) return 1;
+    if (!db) return -1;
+    return da.localeCompare(db);
+  });
+}
+
 /** Open milestones first; done ones sit in a collapsed section (expand to review). */
 function MilestoneListWithDoneCollapsed({
   items,
@@ -128,6 +162,7 @@ function MilestoneListWithDoneCollapsed({
   onToggle,
   onEdit,
   onDelete,
+  onReorder,
 }: {
   items: Record<string, unknown>[];
   userId: string;
@@ -135,25 +170,83 @@ function MilestoneListWithDoneCollapsed({
   onToggle: (id: string, done: boolean) => void;
   onEdit?: (m: Record<string, unknown>) => void;
   onDelete?: (id: string) => void;
+  /** Persist new first→last order for open milestones in this week */
+  onReorder?: (orderedIds: string[]) => void;
 }) {
-  const open = items.filter((m) => m.done !== true);
-  const done = items.filter((m) => m.done === true);
+  const sorted = sortMilestonesForDisplay(items);
+  const open = sorted.filter((m) => m.done !== true);
+  const done = sorted.filter((m) => m.done === true);
+  const openIds = open.map((m) => extractStr(m, "id", "")).filter(Boolean);
+  const canReorder = Boolean(canManage && onReorder && openIds.length > 1);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 8 } })
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    if (!onReorder) return;
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = openIds.indexOf(String(active.id));
+    const newIndex = openIds.indexOf(String(over.id));
+    if (oldIndex < 0 || newIndex < 0) return;
+    onReorder(arrayMove(openIds, oldIndex, newIndex));
+  };
+
+  const moveOpen = (id: string, dir: -1 | 1) => {
+    if (!onReorder) return;
+    const idx = openIds.indexOf(id);
+    const next = idx + dir;
+    if (idx < 0 || next < 0 || next >= openIds.length) return;
+    onReorder(arrayMove(openIds, idx, next));
+  };
+
   return (
     <div className="space-y-2">
+      {canReorder && (
+        <p className="text-[10px] text-muted-foreground px-0.5">
+          Drag or use arrows to set first → last order for this week
+        </p>
+      )}
       {open.length === 0 && done.length > 0 && (
         <p className="text-[10px] text-muted-foreground px-0.5">All open items done — expand completed below</p>
       )}
-      {open.map((m) => (
-        <MilestoneRow
-          key={extractStr(m, "id", "")}
-          m={m}
-          userId={userId}
-          canManage={canManage}
-          onToggle={onToggle}
-          onEdit={onEdit}
-          onDelete={onDelete}
-        />
-      ))}
+      {canReorder ? (
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={openIds} strategy={verticalListSortingStrategy}>
+            <div className="space-y-2">
+              {open.map((m, index) => (
+                <SortableMilestoneRow
+                  key={extractStr(m, "id", "")}
+                  m={m}
+                  userId={userId}
+                  canManage={canManage}
+                  onToggle={onToggle}
+                  onEdit={onEdit}
+                  onDelete={onDelete}
+                  orderIndex={index}
+                  orderTotal={open.length}
+                  onMoveUp={() => moveOpen(extractStr(m, "id", ""), -1)}
+                  onMoveDown={() => moveOpen(extractStr(m, "id", ""), 1)}
+                />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
+      ) : (
+        open.map((m) => (
+          <MilestoneRow
+            key={extractStr(m, "id", "")}
+            m={m}
+            userId={userId}
+            canManage={canManage}
+            onToggle={onToggle}
+            onEdit={onEdit}
+            onDelete={onDelete}
+          />
+        ))
+      )}
       {done.length > 0 && (
         <Collapsible defaultOpen={false} className="rounded-lg border border-border/40 bg-muted/20">
           <CollapsibleTrigger className="flex w-full items-center justify-between gap-2 px-2.5 py-2 text-left hover:bg-muted/40 rounded-lg [&[data-state=open]>svg]:rotate-180">
@@ -181,13 +274,17 @@ function MilestoneListWithDoneCollapsed({
   );
 }
 
-function MilestoneRow({
+function SortableMilestoneRow({
   m,
   userId,
   canManage,
   onToggle,
   onEdit,
   onDelete,
+  orderIndex,
+  orderTotal,
+  onMoveUp,
+  onMoveDown,
 }: {
   m: Record<string, unknown>;
   userId: string;
@@ -195,6 +292,67 @@ function MilestoneRow({
   onToggle: (id: string, done: boolean) => void;
   onEdit?: (m: Record<string, unknown>) => void;
   onDelete?: (id: string) => void;
+  orderIndex: number;
+  orderTotal: number;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+}) {
+  const mId = extractStr(m, "id", "");
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: mId,
+  });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.85 : 1,
+    zIndex: isDragging ? 2 : undefined,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} className={cn(isDragging && "shadow-md rounded-lg")}>
+      <MilestoneRow
+        m={m}
+        userId={userId}
+        canManage={canManage}
+        onToggle={onToggle}
+        onEdit={onEdit}
+        onDelete={onDelete}
+        dragHandleProps={{ attributes, listeners }}
+        orderBadge={orderIndex + 1}
+        onMoveUp={orderIndex > 0 ? onMoveUp : undefined}
+        onMoveDown={orderIndex < orderTotal - 1 ? onMoveDown : undefined}
+      />
+    </div>
+  );
+}
+
+function MilestoneRow({
+  m,
+  userId,
+  canManage,
+  onToggle,
+  onEdit,
+  onDelete,
+  dragHandleProps,
+  orderBadge,
+  onMoveUp,
+  onMoveDown,
+}: {
+  m: Record<string, unknown>;
+  userId: string;
+  canManage: boolean;
+  onToggle: (id: string, done: boolean) => void;
+  onEdit?: (m: Record<string, unknown>) => void;
+  onDelete?: (id: string) => void;
+  dragHandleProps?: {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    attributes: any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    listeners: any;
+  };
+  orderBadge?: number;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
 }) {
   const mId = extractStr(m, "id", "");
   const mTitle = extractStr(m, "title", "");
@@ -210,6 +368,26 @@ function MilestoneRow({
 
   return (
     <div className="flex items-start gap-2 p-2.5 rounded-lg border border-white/20 dark:border-white/10 bg-white/60 dark:bg-white/[0.03]">
+      {dragHandleProps && (
+        <button
+          type="button"
+          className="shrink-0 mt-0.5 touch-none cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground p-0.5"
+          title="Drag to reorder"
+          aria-label="Drag to reorder"
+          {...dragHandleProps.attributes}
+          {...dragHandleProps.listeners}
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
+      )}
+      {typeof orderBadge === "number" && (
+        <span
+          className="shrink-0 mt-0.5 h-5 min-w-5 px-1 rounded-md bg-muted text-[10px] font-semibold tabular-nums flex items-center justify-center text-muted-foreground"
+          title={`Order ${orderBadge}`}
+        >
+          {orderBadge}
+        </span>
+      )}
       <button
         type="button"
         onClick={() => canToggleDone && onToggle(mId, mDone)}
@@ -248,6 +426,30 @@ function MilestoneRow({
           )}
         </div>
       </div>
+      {(onMoveUp || onMoveDown) && (
+        <div className="flex flex-col gap-0.5 shrink-0">
+          <button
+            type="button"
+            onClick={onMoveUp}
+            disabled={!onMoveUp}
+            className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30"
+            title="Move earlier"
+            aria-label="Move earlier"
+          >
+            <ChevronUp className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={onMoveDown}
+            disabled={!onMoveDown}
+            className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30"
+            title="Move later"
+            aria-label="Move later"
+          >
+            <ChevronDown className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
       {canManage && onEdit && onDelete && (
         <div className="flex items-center gap-1 shrink-0">
           <button type="button" onClick={() => onEdit(m)} className="text-muted-foreground hover:text-foreground transition-colors p-1" title="Edit">
@@ -1034,6 +1236,50 @@ export default function ProjectDetailPage() {
     }
   };
 
+  const handleReorderMilestones = useCallback(
+    async (orderedIds: string[]) => {
+      if (!projectId || orderedIds.length === 0) return;
+      const base = Date.now();
+      const reorder = orderedIds.map((id, index) => ({
+        id,
+        sortOrder: base + index,
+      }));
+      const orderMap = new Map(reorder.map((r) => [r.id, r.sortOrder]));
+
+      // Optimistic — UI shows new first→last immediately
+      queryClient.setQueryData(
+        ["project-milestones", projectId],
+        (old: Record<string, unknown>[] | undefined) =>
+          (old ?? []).map((m) => {
+            const id = extractStr(m, "id", "");
+            const next = orderMap.get(id);
+            return next === undefined ? m : { ...m, sortOrder: next };
+          })
+      );
+
+      try {
+        const res = await fetch(`/api/projects/${projectId}/milestones`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ reorder }),
+        });
+        if (!res.ok) {
+          if (handle401(res)) return;
+          const d = await res.json().catch(() => null);
+          toast.error(d?.error || "Failed to save order");
+          void refetchMilestones();
+          return;
+        }
+        toast.success("Milestone order saved");
+      } catch {
+        toast.error("Failed to save order");
+        void refetchMilestones();
+      }
+    },
+    [projectId, queryClient, refetchMilestones, handle401]
+  );
+
   const handleDeleteMilestone = async (id: string) => {
     try {
       const res = await fetch(`/api/projects/${projectId}/milestones?id=${id}`, {
@@ -1092,17 +1338,7 @@ export default function ProjectDetailPage() {
     return keys.map((key) => ({
       key,
       label: formatWeekLabel(key, todayKey),
-      items: (buckets.get(key) || []).slice().sort((a, b) => {
-        // Open first, then by due date (done stay in collapsed section)
-        const doneDiff = Number(a.done === true) - Number(b.done === true);
-        if (doneDiff !== 0) return doneDiff;
-        const da = extractStr(a, "dueDate", "");
-        const db = extractStr(b, "dueDate", "");
-        if (!da && !db) return 0;
-        if (!da) return 1;
-        if (!db) return -1;
-        return da.localeCompare(db);
-      }),
+      items: sortMilestonesForDisplay(buckets.get(key) || []),
     }));
   }, [milestonesData]);
 
@@ -1635,6 +1871,7 @@ export default function ProjectDetailPage() {
                         onToggle={handleToggleMilestone}
                         onEdit={openEditMilestone}
                         onDelete={handleDeleteMilestone}
+                        onReorder={canManageMilestones ? handleReorderMilestones : undefined}
                       />
                     </div>
                   );
@@ -1642,9 +1879,7 @@ export default function ProjectDetailPage() {
               </div>
             ) : (
               <MilestoneListWithDoneCollapsed
-                items={[...milestonesData].sort(
-                  (a, b) => Number(a.done === true) - Number(b.done === true)
-                )}
+                items={sortMilestonesForDisplay(milestonesData)}
                 userId={userId}
                 canManage={false}
                 onToggle={handleToggleMilestone}
