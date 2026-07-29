@@ -1239,7 +1239,8 @@ export default function ProjectDetailPage() {
   const handleReorderMilestones = useCallback(
     async (orderedIds: string[]) => {
       if (!projectId || orderedIds.length === 0) return;
-      const base = Date.now();
+      // Int-safe base (seconds) — Date.now() ms overflows Prisma Int
+      const base = Math.floor(Date.now() / 1000);
       const reorder = orderedIds.map((id, index) => ({
         id,
         sortOrder: base + index,
