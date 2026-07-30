@@ -88,6 +88,8 @@ export default function DocxSignManagePage() {
   const [hasAuthSig, setHasAuthSig] = useState(false)
   const [savingAuthSig, setSavingAuthSig] = useState(false)
   const [myAssignments, setMyAssignments] = useState<MyAssignment[]>([])
+  const [authSigExpanded, setAuthSigExpanded] = useState(false)
+  const [authSigLoading, setAuthSigLoading] = useState(false)
 
   useEffect(() => {
     if (status === "loading") return
@@ -98,7 +100,8 @@ export default function DocxSignManagePage() {
     if (!isAdmin) router.replace("/dashboard/docx-sign/my")
   }, [status, isAdmin, router])
 
-  const loadAuthSig = useCallback(async () => {
+  const loadFullAuthSig = useCallback(async () => {
+    setAuthSigLoading(true)
     try {
       const res = await fetch("/api/docx-sign/authorized-signature", {
         credentials: "include",
@@ -110,51 +113,94 @@ export default function DocxSignManagePage() {
       setAuthSig(typeof j.signatureData === "string" ? j.signatureData : null)
     } catch {
       /* ignore */
+    } finally {
+      setAuthSigLoading(false)
     }
   }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [dRes, tRes, mineRes] = await Promise.all([
-        fetch("/api/docx-sign/documents", { credentials: "include", cache: "no-store" }),
-        fetch("/api/team?type=users", { credentials: "include", cache: "no-store" }),
-        fetch("/api/docx-sign/assignments?mine=1", { credentials: "include", cache: "no-store" }),
-      ])
-      if (dRes.ok) {
-        const j = await dRes.json()
-        setDocs(Array.isArray(j.documents) ? j.documents : [])
+      const res = await fetch("/api/bootstrap/docx-sign", {
+        credentials: "include",
+        cache: "no-store",
+      })
+      if (!res.ok) {
+        // Fallback: parallel lean fetches if bootstrap unavailable
+        const [dRes, tRes, mineRes, sigRes] = await Promise.all([
+          fetch("/api/docx-sign/documents", { credentials: "include", cache: "no-store" }),
+          fetch("/api/team?type=users", { credentials: "include", cache: "no-store" }),
+          fetch("/api/docx-sign/assignments?mine=1", { credentials: "include", cache: "no-store" }),
+          fetch("/api/docx-sign/authorized-signature?meta=1", {
+            credentials: "include",
+            cache: "no-store",
+          }),
+        ])
+        if (dRes.ok) {
+          const j = await dRes.json()
+          setDocs(Array.isArray(j.documents) ? j.documents : [])
+        }
+        if (tRes.ok) {
+          const j = await tRes.json()
+          const users = Array.isArray(j) ? j : j.users || j.team || []
+          setTeam(
+            users
+              .filter((u: TeamUser) => u?.id && u.isActive !== false)
+              .map((u: TeamUser) => ({
+                id: u.id,
+                name: u.name,
+                email: u.email,
+                isActive: u.isActive,
+                role: u.role,
+              }))
+          )
+        }
+        if (mineRes.ok) {
+          const j = await mineRes.json()
+          setMyAssignments(Array.isArray(j.assignments) ? j.assignments : [])
+        }
+        if (sigRes.ok) {
+          const j = await sigRes.json()
+          setHasAuthSig(Boolean(j.hasSignature))
+        }
+        return
       }
-      if (tRes.ok) {
-        const j = await tRes.json()
-        const users = Array.isArray(j) ? j : j.users || j.team || []
-        setTeam(
-          users
-            .filter((u: TeamUser) => u?.id && u.isActive !== false)
-            .map((u: TeamUser) => ({
-              id: u.id,
-              name: u.name,
-              email: u.email,
-              isActive: u.isActive,
-              role: u.role,
-            }))
-        )
+
+      const j = await res.json()
+      setDocs(Array.isArray(j.documents) ? j.documents : [])
+      setMyAssignments(Array.isArray(j.myAssignments) ? j.myAssignments : [])
+      setTeam(
+        (Array.isArray(j.assignableUsers) ? j.assignableUsers : [])
+          .filter((u: TeamUser) => u?.id && u.isActive !== false)
+          .map((u: TeamUser) => ({
+            id: u.id,
+            name: u.name,
+            email: u.email,
+            isActive: u.isActive,
+            role: u.role,
+          }))
+      )
+      setHasAuthSig(Boolean(j.authorizedSignature?.hasSignature))
+      // Keep existing drawn pad if user is mid-edit; otherwise leave null until expanded
+      if (!j.authorizedSignature?.hasSignature) {
+        setAuthSig(null)
+        setAuthSigExpanded(true)
       }
-      if (mineRes.ok) {
-        const j = await mineRes.json()
-        setMyAssignments(Array.isArray(j.assignments) ? j.assignments : [])
-      }
-      await loadAuthSig()
     } catch {
       toast.error("Failed to load Docx Sign")
     } finally {
       setLoading(false)
     }
-  }, [loadAuthSig])
+  }, [])
 
   useEffect(() => {
     if (isAdmin) void load()
   }, [isAdmin, load])
+
+  const openAuthSigEditor = useCallback(() => {
+    setAuthSigExpanded(true)
+    if (hasAuthSig && !authSig) void loadFullAuthSig()
+  }, [hasAuthSig, authSig, loadFullAuthSig])
 
   /** Admins/SAs may assign to each other and staff — never to themselves. */
   const selectableTeam = useMemo(
@@ -207,6 +253,8 @@ export default function DocxSignManagePage() {
       }
       setHasAuthSig(true)
       toast.success("Authorized Person signature saved")
+      setAuthSigExpanded(false)
+      setAuthSig(null)
     } catch {
       toast.error("Could not save signature")
     } finally {
@@ -530,24 +578,57 @@ export default function DocxSignManagePage() {
       )}
 
       <section className="rounded-2xl border bg-card/60 p-4 sm:p-5 space-y-3">
-        <div>
-          <h2 className="text-sm font-semibold">Authorized Person signature</h2>
-          <p className="text-[11px] text-muted-foreground mt-0.5">
-            Draw and save your signature once. It is stamped on every contract you authorize, next to the acceptor&apos;s signature.
-            {hasAuthSig ? " Signature on file." : " Required before you can upload or assign."}
-          </p>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-semibold">Authorized Person signature</h2>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              Used on every contract you authorize, next to the acceptor&apos;s signature.
+              {hasAuthSig ? " Signature on file." : " Required before you can upload or assign."}
+            </p>
+          </div>
+          {hasAuthSig && !authSigExpanded && (
+            <Button type="button" size="sm" variant="outline" className="h-8" onClick={openAuthSigEditor}>
+              Update signature
+            </Button>
+          )}
         </div>
-        <SignaturePad value={authSig} onChange={setAuthSig} disabled={savingAuthSig} />
-        <Button
-          type="button"
-          size="sm"
-          className="h-9"
-          onClick={() => void saveAuthorizedSignature()}
-          disabled={savingAuthSig || !authSig}
-        >
-          {savingAuthSig ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
-          Save Authorized Person signature
-        </Button>
+        {(!hasAuthSig || authSigExpanded) && (
+          <>
+            {authSigLoading ? (
+              <div className="flex justify-center py-8">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <SignaturePad value={authSig} onChange={setAuthSig} disabled={savingAuthSig} />
+            )}
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                className="h-9"
+                onClick={() => void saveAuthorizedSignature()}
+                disabled={savingAuthSig || authSigLoading || !authSig}
+              >
+                {savingAuthSig ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
+                Save Authorized Person signature
+              </Button>
+              {hasAuthSig && authSigExpanded && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-9"
+                  onClick={() => {
+                    setAuthSigExpanded(false)
+                    setAuthSig(null)
+                  }}
+                >
+                  Collapse
+                </Button>
+              )}
+            </div>
+          </>
+        )}
       </section>
 
       {loading ? (

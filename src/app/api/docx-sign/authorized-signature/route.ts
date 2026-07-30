@@ -16,7 +16,7 @@ const putSchema = z.object({
   signatureData: z.string().min(32),
 })
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -25,6 +25,26 @@ export async function GET() {
     }
 
     await ensureCriticalSchema()
+    const metaOnly = new URL(req.url).searchParams.get("meta") === "1"
+    if (metaOnly) {
+      const rows = await db.$queryRaw<Array<{ name: string | null; hasSig: number | bigint }>>`
+        SELECT name as name,
+          CASE
+            WHEN "docxAuthorizedSignature" IS NOT NULL AND length("docxAuthorizedSignature") > 10 THEN 1
+            ELSE 0
+          END as hasSig
+        FROM "User"
+        WHERE id = ${session.user.id}
+        LIMIT 1
+      `
+      const row = rows[0]
+      return NextResponse.json({
+        hasSignature: Number(row?.hasSig || 0) === 1,
+        signatureData: null,
+        authorizedPersonName: row?.name || session.user.name || null,
+      })
+    }
+
     const user = await db.user.findUnique({
       where: { id: session.user.id },
       select: { docxAuthorizedSignature: true, name: true },

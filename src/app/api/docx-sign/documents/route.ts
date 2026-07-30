@@ -38,13 +38,11 @@ export async function GET() {
     const docs = await db.docxDocument.findMany({
       where: { isActive: true },
       orderBy: { createdAt: "desc" },
-      take: 100,
+      take: 50,
       select: {
         id: true,
         title: true,
         fileName: true,
-        mimeType: true,
-        uploadedById: true,
         createdAt: true,
         uploadedBy: { select: { id: true, name: true } },
         assignments: {
@@ -58,7 +56,6 @@ export async function GET() {
             authorizedPersonName: true,
             signerIp: true,
             signerCountry: true,
-            signerTimeZone: true,
             user: { select: { id: true, name: true, email: true } },
             assignedBy: { select: { id: true, name: true } },
           },
