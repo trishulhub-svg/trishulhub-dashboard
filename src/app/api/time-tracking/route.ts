@@ -358,27 +358,68 @@ export async function POST(req: NextRequest) {
 
     const now = clockCheck.serverNow
 
+    // Pre-validate project / training outside the write transaction (faster switch path)
+    if (finalProjectId) {
+      const project = await db.project.findUnique({
+        where: { id: finalProjectId },
+        select: { id: true },
+      })
+      if (!project) {
+        return NextResponse.json({ error: "Project not found" }, { status: 404 })
+      }
+    }
+
+    if (trainingAssignmentId) {
+      const assignment = await db.trainingAssignment.findUnique({
+        where: { id: trainingAssignmentId },
+        select: { id: true, userId: true, title: true, status: true },
+      })
+      if (!assignment) {
+        return NextResponse.json({ error: "Training assignment not found" }, { status: 404 })
+      }
+      if (assignment.userId !== userId) {
+        return NextResponse.json({ error: "Training assignment is not assigned to you" }, { status: 403 })
+      }
+      if (assignment.status === "DONE") {
+        return NextResponse.json({ error: "Training assignment is already completed" }, { status: 400 })
+      }
+      trainingTitle = assignment.title
+    }
+
+    const finalDescription =
+      finalActivityType === "TRAINING" && trainingTitle
+        ? description || `Training: ${trainingTitle}`
+        : description || null
+
     // Atomic check+create to prevent race condition on concurrent timer starts
     let entry
     try {
       entry = await db.$transaction(async (tx) => {
-        // Single atomic check inside transaction
         const activeEntry = await tx.timeEntry.findFirst({
           where: { userId, status: "ACTIVE" },
+          select: {
+            id: true,
+            clockIn: true,
+            activityType: true,
+            trainingAssignmentId: true,
+            description: true,
+            workNotes: true,
+          },
         })
         if (activeEntry) {
           if (switchMode !== "end" && switchMode !== "delete") {
             throw new Error("ACTIVE_TIMER_EXISTS")
           }
-          // Do not let Switch escape unfinished carried-forward milestones
-          const openCarried = await tx.projectMilestone.count({
+          // Exists check is cheaper than count for the switch gate
+          const openCarried = await tx.projectMilestone.findFirst({
             where: {
               done: false,
               carriedForward: true,
               assignees: { some: { userId } },
             },
+            select: { id: true },
           })
-          if (openCarried > 0) {
+          if (openCarried) {
             throw new Error("CARRIED_MILESTONES_BLOCK_SWITCH")
           }
 
@@ -397,20 +438,19 @@ export async function POST(req: NextRequest) {
               clockOutMethod: "MANUAL",
               totalHours: Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100,
             }
-            // Training sessions: auto-append Attended line (same as normal clock-out)
             if (activeEntry.activityType === "TRAINING" && activeEntry.trainingAssignmentId) {
-              const assignment = await tx.trainingAssignment.findFirst({
+              const prevAssignment = await tx.trainingAssignment.findFirst({
                 where: { id: activeEntry.trainingAssignmentId, userId },
                 select: { title: true },
               })
-              if (assignment?.title) {
+              if (prevAssignment?.title) {
                 endData.description = appendAttendedLine(
                   activeEntry.description,
-                  assignment.title
+                  prevAssignment.title
                 ).slice(0, 500)
                 endData.workNotes = appendAttendedLine(
                   activeEntry.workNotes,
-                  assignment.title
+                  prevAssignment.title
                 ).slice(0, 500)
               }
             }
@@ -422,27 +462,6 @@ export async function POST(req: NextRequest) {
             await tx.timeEntry.delete({ where: { id: activeEntry.id } })
           }
         }
-        // Project validation inside transaction too
-        if (finalProjectId) {
-          const project = await tx.project.findUnique({ where: { id: finalProjectId }, select: { id: true } })
-          if (!project) throw new Error("PROJECT_NOT_FOUND")
-        }
-
-        if (trainingAssignmentId) {
-          const assignment = await tx.trainingAssignment.findUnique({
-            where: { id: trainingAssignmentId },
-            select: { id: true, userId: true, title: true, status: true },
-          })
-          if (!assignment) throw new Error("TRAINING_ASSIGNMENT_NOT_FOUND")
-          if (assignment.userId !== userId) throw new Error("TRAINING_ASSIGNMENT_FORBIDDEN")
-          if (assignment.status === "DONE") throw new Error("TRAINING_ASSIGNMENT_DONE")
-          trainingTitle = assignment.title
-        }
-
-        const finalDescription =
-          finalActivityType === "TRAINING" && trainingTitle
-            ? description || `Training: ${trainingTitle}`
-            : description || null
 
         return tx.timeEntry.create({
           data: {
@@ -477,18 +496,6 @@ export async function POST(req: NextRequest) {
           },
           { status: 409 }
         )
-      }
-      if (txError instanceof Error && txError.message === "PROJECT_NOT_FOUND") {
-        return NextResponse.json({ error: "Project not found" }, { status: 404 })
-      }
-      if (txError instanceof Error && txError.message === "TRAINING_ASSIGNMENT_NOT_FOUND") {
-        return NextResponse.json({ error: "Training assignment not found" }, { status: 404 })
-      }
-      if (txError instanceof Error && txError.message === "TRAINING_ASSIGNMENT_FORBIDDEN") {
-        return NextResponse.json({ error: "Training assignment is not assigned to you" }, { status: 403 })
-      }
-      if (txError instanceof Error && txError.message === "TRAINING_ASSIGNMENT_DONE") {
-        return NextResponse.json({ error: "Training assignment is already completed" }, { status: 400 })
       }
       throw txError
     }

@@ -552,7 +552,7 @@ export function SwitchSessionDialog({
             <p>Delete previous: removes the current active session, then starts the new one.</p>
           </div>
         </div>
-        <DialogFooter className="gap-2 sm:gap-0">
+        <DialogFooter className="gap-2 sm:gap-0 flex-col-reverse sm:flex-row">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={!!switchingMode}>
             Cancel
           </Button>
@@ -560,13 +560,30 @@ export function SwitchSessionDialog({
             variant="outline"
             onClick={() => onConfirm("delete")}
             disabled={actionDisabled}
+            className="min-w-[11rem]"
           >
-            {switchingMode === "delete" && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            Delete previous &amp; start new
+            {switchingMode === "delete" ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Switching…
+              </>
+            ) : (
+              "Delete previous & start new"
+            )}
           </Button>
-          <Button onClick={() => onConfirm("end")} disabled={actionDisabled}>
-            {switchingMode === "end" && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            End previous &amp; start new
+          <Button
+            onClick={() => onConfirm("end")}
+            disabled={actionDisabled}
+            className="min-w-[11rem]"
+          >
+            {switchingMode === "end" ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Switching…
+              </>
+            ) : (
+              "End previous & start new"
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>

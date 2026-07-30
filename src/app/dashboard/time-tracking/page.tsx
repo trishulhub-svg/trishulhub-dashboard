@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/page-header";
 import { toast } from "sonner";
 import { safeArray, safeNumber, safeText } from "@/lib/utils";
 import { useUrlState } from "@/hooks/use-url-state";
+import { buildClientClockPayload } from "@/lib/clock-integrity";
 
 import type {
   AnalyticsData,
@@ -560,7 +561,6 @@ function TimeTrackingPageInner() {
 
     setStarting(true);
     try {
-      const { buildClientClockPayload } = await import("@/lib/clock-integrity");
       const clockPayload = buildClientClockPayload();
       const res = await fetch("/api/time-tracking", {
         method: "POST",
@@ -627,10 +627,13 @@ function TimeTrackingPageInner() {
       );
       if (!built) return;
 
+      const myId = session?.user?.id;
+      const clockPayload = buildClientClockPayload();
       setSwitchStartingMode(mode);
+      // Close immediately so the dialog doesn't feel stuck while the API runs
+      setSwitchOpen(false);
+
       try {
-        const { buildClientClockPayload } = await import("@/lib/clock-integrity");
-        const clockPayload = buildClientClockPayload();
         const res = await fetch("/api/time-tracking", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -642,15 +645,49 @@ function TimeTrackingPageInner() {
           }),
         });
         if (res.ok) {
-          const entry = await res.json();
+          const entry = (await res.json()) as TimeEntry;
           setActiveEntry(entry);
-          setSwitchOpen(false);
+          setEntries((prev) => {
+            const withoutMineActive = prev.filter(
+              (e) =>
+                !(
+                  e.status === "ACTIVE" &&
+                  (!myId || e.userId === myId) &&
+                  e.id !== entry.id
+                )
+            );
+            if (mode === "end") {
+              const ended = prev.find(
+                (e) => e.status === "ACTIVE" && (!myId || e.userId === myId) && e.id !== entry.id
+              );
+              if (ended) {
+                return [
+                  entry,
+                  {
+                    ...ended,
+                    status: "COMPLETED" as const,
+                    clockOut: entry.clockIn,
+                  },
+                  ...withoutMineActive.filter((e) => e.id !== ended.id),
+                ];
+              }
+            }
+            return [entry, ...withoutMineActive.filter((e) => e.id !== entry.id)];
+          });
+          setActiveEntries((prev) => {
+            const rest = prev.filter(
+              (e) => !((!myId || e.userId === myId) && e.status === "ACTIVE" && e.id !== entry.id)
+            );
+            const already = rest.some((e) => e.id === entry.id);
+            return already ? rest : [entry, ...rest];
+          });
           toast.success(
             mode === "end"
               ? "Previous session ended and new timer started"
               : "Previous session deleted and new timer started"
           );
-          fetchEntries();
+          // Reconcile in background — do not block the UI
+          void fetchEntries();
           if (built.projectId) {
             const pname =
               entry?.project?.name ||
@@ -661,9 +698,11 @@ function TimeTrackingPageInner() {
         } else {
           const err = await res.json().catch(() => null);
           toast.error(safeText(err?.error, "Failed to switch session"));
+          setSwitchOpen(true);
         }
       } catch {
         toast.error("Failed to switch session");
+        setSwitchOpen(true);
       } finally {
         setSwitchStartingMode(null);
       }
@@ -676,6 +715,7 @@ function TimeTrackingPageInner() {
       fetchEntries,
       loadBriefing,
       projects,
+      session?.user?.id,
     ]
   );
 
@@ -758,7 +798,6 @@ function TimeTrackingPageInner() {
     const notes = clockOutNotesRef.current.trim();
     setStopping(true);
     try {
-      const { buildClientClockPayload } = await import("@/lib/clock-integrity");
       const clockPayload = buildClientClockPayload();
       const res = await fetch(`/api/time-tracking/${activeEntry.id}`, {
         method: "PATCH",
