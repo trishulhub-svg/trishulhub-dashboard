@@ -22,7 +22,7 @@ function getErrMsg(err: unknown): string {
 
 // Bump when adding CRITICAL_COLUMNS / CRITICAL_TABLES so warm serverless
 // instances re-run migrations after deploy (stale syncDone otherwise skips ALTERs).
-const SCHEMA_REVISION = 202607302
+const SCHEMA_REVISION = 202607303
 
 // Use globalThis to persist the syncDone flag across hot reloads in dev
 // and across serverless function warm invocations in production.
@@ -116,6 +116,7 @@ const CRITICAL_COLUMNS: Array<{ table: string; column: string; sql: string }> = 
   { table: "ProjectInfraItem", column: "groupLabel", sql: `ALTER TABLE "ProjectInfraItem" ADD COLUMN "groupLabel" TEXT` },
   // Docx Sign — Authorized Person signature + signer geo/time stamp fields
   { table: "User", column: "docxAuthorizedSignature", sql: `ALTER TABLE "User" ADD COLUMN "docxAuthorizedSignature" TEXT` },
+  { table: "User", column: "docxAcceptorSignature", sql: `ALTER TABLE "User" ADD COLUMN "docxAcceptorSignature" TEXT` },
   { table: "DocxAssignment", column: "authorizedPersonName", sql: `ALTER TABLE "DocxAssignment" ADD COLUMN "authorizedPersonName" TEXT` },
   { table: "DocxAssignment", column: "authorizedSignatureData", sql: `ALTER TABLE "DocxAssignment" ADD COLUMN "authorizedSignatureData" TEXT` },
   { table: "DocxAssignment", column: "signerCountry", sql: `ALTER TABLE "DocxAssignment" ADD COLUMN "signerCountry" TEXT` },

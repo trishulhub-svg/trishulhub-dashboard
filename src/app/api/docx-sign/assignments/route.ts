@@ -362,7 +362,12 @@ export async function PATCH(req: NextRequest) {
         where: { id: existing.id },
         data: { signatureData: sig },
       })
-      return NextResponse.json({ id: updated.id, saved: true })
+      // Remember for reuse on future contracts
+      await db.user.update({
+        where: { id: session.user.id },
+        data: { docxAcceptorSignature: sig },
+      })
+      return NextResponse.json({ id: updated.id, saved: true, savedForReuse: true })
     }
 
     // submit — dual signature stamp
@@ -437,6 +442,12 @@ export async function PATCH(req: NextRequest) {
         authorizedPersonName: authorizedPersonLabel,
         authorizedSignatureData: authSigRaw,
       },
+    })
+
+    // Persist acceptor signature for reuse on future contracts
+    await db.user.update({
+      where: { id: session.user.id },
+      data: { docxAcceptorSignature: sigRaw },
     })
 
     const admins = await db.user.findMany({

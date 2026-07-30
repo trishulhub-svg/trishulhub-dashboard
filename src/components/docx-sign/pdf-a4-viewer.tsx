@@ -10,7 +10,24 @@ type Props = {
 }
 
 /**
- * A4-style page-by-page PDF viewer (pdfjs). Responsive for mobile + desktop.
+ * pdfjs-dist 5.4+/6.x calls Uint8Array.prototype.toHex() (Chromium ~140+).
+ * Polyfill so contracts still open on older Chrome/Edge/WebView.
+ */
+function ensureUint8ArrayToHex() {
+  const proto = Uint8Array.prototype as Uint8Array & { toHex?: () => string }
+  if (typeof proto.toHex === "function") return
+  proto.toHex = function toHex(this: Uint8Array): string {
+    const len = this.length
+    const hex = new Array<string>(len)
+    for (let i = 0; i < len; i++) {
+      hex[i] = this[i]!.toString(16).padStart(2, "0")
+    }
+    return hex.join("")
+  }
+}
+
+/**
+ * A4-style page-by-page PDF viewer (pdfjs legacy build). Responsive for mobile + desktop.
  */
 export function PdfA4Viewer({ url }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -31,25 +48,35 @@ export function PdfA4Viewer({ url }: Props) {
 
     ;(async () => {
       try {
-        const pdfjs = await import("pdfjs-dist")
+        ensureUint8ArrayToHex()
+        // Legacy build includes broader browser polyfills (avoids toHex crashes)
+        const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs")
         pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs"
         const res = await fetch(url, { credentials: "include", cache: "no-store" })
         if (!res.ok) throw new Error("Could not load PDF")
         const buf = await res.arrayBuffer()
-        const doc = await pdfjs.getDocument({ data: buf }).promise
+        const data = new Uint8Array(buf)
+        const doc = await pdfjs.getDocument({ data }).promise
         if (cancelled) return
         pdfRef.current = doc
         setTotal(doc.numPages)
         setLoading(false)
       } catch (e) {
         if (cancelled) return
-        setError(e instanceof Error ? e.message : "Failed to open PDF")
+        const msg = e instanceof Error ? e.message : "Failed to open PDF"
+        setError(msg.includes("toHex") ? "Could not open PDF in this browser — please refresh and try again" : msg)
         setLoading(false)
       }
     })()
 
     return () => {
       cancelled = true
+      try {
+        pdfRef.current?.destroy?.()
+      } catch {
+        /* ignore */
+      }
+      pdfRef.current = null
     }
   }, [url])
 
@@ -58,6 +85,8 @@ export function PdfA4Viewer({ url }: Props) {
     const canvas = canvasRef.current
     if (!doc || !canvas || total < 1) return
     let cancelled = false
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let renderTask: any = null
 
     ;(async () => {
       try {
@@ -76,14 +105,25 @@ export function PdfA4Viewer({ url }: Props) {
         const ctx = canvas.getContext("2d")
         if (!ctx) return
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-        await pdfPage.render({ canvasContext: ctx, viewport, canvas }).promise
-      } catch {
-        if (!cancelled) setError("Failed to render page")
+        renderTask = pdfPage.render({ canvasContext: ctx, viewport, canvas })
+        await renderTask.promise
+      } catch (e) {
+        if (cancelled) return
+        // Ignore cancelled render tasks when flipping pages quickly
+        if (e && typeof e === "object" && "name" in e && (e as { name: string }).name === "RenderingCancelledException") {
+          return
+        }
+        setError("Failed to render page")
       }
     })()
 
     return () => {
       cancelled = true
+      try {
+        renderTask?.cancel?.()
+      } catch {
+        /* ignore */
+      }
     }
   }, [page, total, loading])
 

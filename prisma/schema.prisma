@@ -31,6 +31,8 @@ model User {
   favoritePages   String  @default("[]") // JSON string[] up to 2 favorite /dashboard/... hrefs
   // Docx Sign — saved Authorized Person signature (Admin / Super Admin)
   docxAuthorizedSignature String?
+  // Docx Sign — saved acceptor signature (any user who signed a contract)
+  docxAcceptorSignature String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

@@ -3,12 +3,12 @@
 import { useCallback, useEffect, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { useSession } from "next-auth/react"
-import { ArrowLeft, Loader2, Save, Send } from "lucide-react"
+import { ArrowLeft, Loader2, PenLine, Save, Send, Sparkles } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { PdfA4Viewer } from "@/components/docx-sign/pdf-a4-viewer"
 import { SignaturePad } from "@/components/docx-sign/signature-pad"
-import { safeText } from "@/lib/utils"
+import { cn, safeText } from "@/lib/utils"
 
 type Assignment = {
   id: string
@@ -18,6 +18,8 @@ type Assignment = {
   document: { id: string; title: string; fileName: string }
 }
 
+type SigMode = "choose" | "saved" | "draw"
+
 export default function DocxSignSignPage() {
   const params = useParams()
   const id = typeof params?.id === "string" ? params.id : ""
@@ -26,6 +28,9 @@ export default function DocxSignSignPage() {
   const [row, setRow] = useState<Assignment | null>(null)
   const [loading, setLoading] = useState(true)
   const [signature, setSignature] = useState<string | null>(null)
+  const [savedSignature, setSavedSignature] = useState<string | null>(null)
+  const [hasSavedSignature, setHasSavedSignature] = useState(false)
+  const [sigMode, setSigMode] = useState<SigMode>("draw")
   const [saving, setSaving] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
@@ -33,12 +38,18 @@ export default function DocxSignSignPage() {
     if (!id) return
     setLoading(true)
     try {
-      const res = await fetch("/api/docx-sign/assignments?mine=1", {
-        credentials: "include",
-        cache: "no-store",
-      })
-      if (!res.ok) throw new Error("load failed")
-      const j = await res.json()
+      const [aRes, sRes] = await Promise.all([
+        fetch("/api/docx-sign/assignments?mine=1", {
+          credentials: "include",
+          cache: "no-store",
+        }),
+        fetch("/api/docx-sign/my-signature", {
+          credentials: "include",
+          cache: "no-store",
+        }),
+      ])
+      if (!aRes.ok) throw new Error("load failed")
+      const j = await aRes.json()
       const found = (Array.isArray(j.assignments) ? j.assignments : []).find(
         (a: Assignment) => a.id === id
       )
@@ -53,6 +64,22 @@ export default function DocxSignSignPage() {
         return
       }
       setRow(found)
+
+      if (sRes.ok) {
+        const sj = await sRes.json()
+        const saved =
+          typeof sj.signatureData === "string" && sj.signatureData.startsWith("data:image/png")
+            ? sj.signatureData
+            : null
+        setHasSavedSignature(Boolean(sj.hasSignature && saved))
+        setSavedSignature(saved)
+        if (saved) {
+          setSigMode("choose")
+          setSignature(null)
+        } else {
+          setSigMode("draw")
+        }
+      }
     } catch {
       toast.error("Failed to load document")
     } finally {
@@ -68,9 +95,24 @@ export default function DocxSignSignPage() {
     if (sessionStatus === "authenticated") void load()
   }, [sessionStatus, load, router])
 
+  const useSavedSignature = () => {
+    if (!savedSignature) {
+      toast.error("No saved signature found")
+      return
+    }
+    setSignature(savedSignature)
+    setSigMode("saved")
+    toast.success("Using your saved signature")
+  }
+
+  const startNewSignature = () => {
+    setSignature(null)
+    setSigMode("draw")
+  }
+
   const saveSignature = async () => {
     if (!signature) {
-      toast.error("Draw your signature first")
+      toast.error("Draw or select your signature first")
       return
     }
     setSaving(true)
@@ -86,7 +128,9 @@ export default function DocxSignSignPage() {
         toast.error(j?.error || "Could not save signature")
         return
       }
-      toast.success("Signature saved")
+      setSavedSignature(signature)
+      setHasSavedSignature(true)
+      toast.success("Signature saved for this contract and future use")
     } catch {
       toast.error("Could not save signature")
     } finally {
@@ -96,12 +140,11 @@ export default function DocxSignSignPage() {
 
   const submit = async () => {
     if (!signature) {
-      toast.error("Draw and save your signature, then submit")
+      toast.error("Choose a saved signature or draw a new one, then submit")
       return
     }
     setSubmitting(true)
     try {
-      // Persist signature then submit stamped PDF
       const saveRes = await fetch("/api/docx-sign/assignments", {
         method: "PATCH",
         credentials: "include",
@@ -182,12 +225,66 @@ export default function DocxSignSignPage() {
         <div>
           <h2 className="text-sm font-semibold">Your signature (Accepted by)</h2>
           <p className="text-[11px] text-muted-foreground">
-            Sign in the box, save, then submit. The signed PDF will show the Authorized Person signature
-            plus yours, with UK date/time (and your local date/time if you are outside the UK), and your IP on the bottom line.
+            Use a signature you saved earlier, or draw a new one. The signed PDF will show the Authorized
+            Person signature plus yours, with UK date/time (and your local time if outside the UK), and your IP on the bottom line.
           </p>
         </div>
-        <SignaturePad value={signature} onChange={setSignature} disabled={saving || submitting} />
-        <div className="flex flex-col sm:flex-row gap-2">
+
+        {hasSavedSignature && (
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Button
+              type="button"
+              variant={sigMode === "saved" ? "default" : "outline"}
+              className="h-10 flex-1"
+              onClick={useSavedSignature}
+              disabled={saving || submitting}
+            >
+              <Sparkles className="h-4 w-4 mr-1.5" />
+              Use saved signature
+            </Button>
+            <Button
+              type="button"
+              variant={sigMode === "draw" ? "default" : "outline"}
+              className="h-10 flex-1"
+              onClick={startNewSignature}
+              disabled={saving || submitting}
+            >
+              <PenLine className="h-4 w-4 mr-1.5" />
+              Draw new signature
+            </Button>
+          </div>
+        )}
+
+        {sigMode === "choose" && hasSavedSignature && (
+          <p className="text-[11px] text-muted-foreground">
+            Choose <span className="font-medium text-foreground">Use saved signature</span> or{" "}
+            <span className="font-medium text-foreground">Draw new signature</span> to continue.
+          </p>
+        )}
+
+        {sigMode === "saved" && signature && (
+          <div className="rounded-xl border bg-white p-3">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-2">
+              Saved signature preview
+            </p>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={signature}
+              alt="Saved signature"
+              className="h-28 w-full object-contain bg-white"
+            />
+          </div>
+        )}
+
+        {sigMode === "draw" && (
+          <SignaturePad
+            value={signature}
+            onChange={setSignature}
+            disabled={saving || submitting}
+          />
+        )}
+
+        <div className={cn("flex flex-col sm:flex-row gap-2", !signature && "opacity-90")}>
           <Button
             type="button"
             variant="outline"
