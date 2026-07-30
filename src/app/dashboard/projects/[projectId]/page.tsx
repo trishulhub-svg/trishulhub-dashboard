@@ -557,6 +557,8 @@ export default function ProjectDetailPage() {
   const [revealing, setRevealing] = useState<string | null>(null);
   const [visibilityPreset, setVisibilityPreset] = useState("30");
   const [visibilitySaving, setVisibilitySaving] = useState(false);
+  // Infrastructure panel: collapsed by default; remember open/closed per project
+  const [infraSectionOpen, setInfraSectionOpen] = useState(false);
   const [newMilestoneTitle, setNewMilestoneTitle] = useState("");
   const [newMilestoneDue, setNewMilestoneDue] = useState("");
   const [newMilestoneDueTime, setNewMilestoneDueTime] = useState("");
@@ -760,6 +762,30 @@ export default function ProjectDetailPage() {
   const teamUsers = teamUsersData;
   const websites = websitesData;
   const infrastructure = infraData;
+  const infraStorageKey = projectId ? `trishul:project-infra-open:${projectId}` : null;
+
+  useEffect(() => {
+    if (!infraStorageKey || typeof window === "undefined") return;
+    try {
+      setInfraSectionOpen(window.localStorage.getItem(infraStorageKey) === "1");
+    } catch {
+      setInfraSectionOpen(false);
+    }
+  }, [infraStorageKey]);
+
+  const setInfraSectionOpenPersist = useCallback(
+    (open: boolean) => {
+      setInfraSectionOpen(open);
+      if (!infraStorageKey || typeof window === "undefined") return;
+      try {
+        window.localStorage.setItem(infraStorageKey, open ? "1" : "0");
+      } catch {
+        /* private mode / quota */
+      }
+    },
+    [infraStorageKey]
+  );
+
   const infraGroups = infrastructure?.groups || emptyInfraGroups();
   const infraGroupDefs = useMemo(() => {
     const fromApi = infrastructure?.groupDefs?.length
@@ -2029,21 +2055,34 @@ export default function ProjectDetailPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ═══════ Infrastructure Section ═══════ */}
-      <div className="rounded-xl border border-white/20 dark:border-white/10 bg-white/60 dark:bg-white/[0.02] backdrop-blur-xl overflow-hidden" style={{ animation: "card-enter 0.4s ease-out both", animationDelay: "180ms" }}>
+      {/* ═══════ Infrastructure Section (collapsed by default; remembers open state) ═══════ */}
+      <Collapsible
+        open={infraSectionOpen}
+        onOpenChange={setInfraSectionOpenPersist}
+        className="rounded-xl border border-white/20 dark:border-white/10 bg-white/60 dark:bg-white/[0.02] backdrop-blur-xl overflow-hidden"
+        style={{ animation: "card-enter 0.4s ease-out both", animationDelay: "180ms" }}
+      >
         <div className="flex flex-col gap-3 px-4 py-3 border-b border-black/[0.04] dark:border-white/[0.06] bg-black/[0.01] dark:bg-white/[0.01] sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-2">
-            <Server className="h-4 w-4 text-muted-foreground" />
-            <h2 className="text-sm font-bold tracking-tight">Infrastructure</h2>
+          <CollapsibleTrigger className="flex items-center gap-2 min-w-0 text-left group flex-1 [&[data-state=open]>svg.infra-chevron]:rotate-180">
+            <Server className="h-4 w-4 text-muted-foreground shrink-0" />
+            <h2 className="text-sm font-bold tracking-tight truncate">Infrastructure</h2>
             {infraItemCount > 0 && (
-              <Badge variant="secondary" className="text-[10px] font-semibold h-5 px-1.5">{infraItemCount} items</Badge>
+              <Badge variant="secondary" className="text-[10px] font-semibold h-5 px-1.5 shrink-0">{infraItemCount} items</Badge>
             )}
             {!canManageProject && infraMemberAccess.isActive && (
-              <Badge className="text-[10px] h-5 px-1.5 bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">Visible now</Badge>
+              <Badge className="text-[10px] h-5 px-1.5 bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 shrink-0">Visible now</Badge>
             )}
-          </div>
-          {canManageProject && (
-            <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:inline">
+              {infraSectionOpen ? "Click to collapse" : "Click to expand"}
+            </span>
+            <ChevronDown className="infra-chevron h-4 w-4 text-muted-foreground shrink-0 ml-auto transition-transform" />
+          </CollapsibleTrigger>
+          {canManageProject && infraSectionOpen && (
+            <div
+              className="flex flex-wrap items-center gap-2"
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => e.stopPropagation()}
+            >
               <Button
                 size="sm"
                 variant="outline"
@@ -2081,6 +2120,7 @@ export default function ProjectDetailPage() {
           )}
         </div>
 
+        <CollapsibleContent>
         <div className="p-4">
           {infraLoading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -2224,7 +2264,8 @@ export default function ProjectDetailPage() {
             </div>
           )}
         </div>
-      </div>
+        </CollapsibleContent>
+      </Collapsible>
 
       {canManageProject && (
         <Dialog open={infraItemDialogOpen} onOpenChange={(open) => { if (!open) resetInfraItemDialog(); else setInfraItemDialogOpen(true); }}>
