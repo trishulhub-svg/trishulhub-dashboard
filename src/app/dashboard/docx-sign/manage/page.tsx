@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import {
-  FilePenLine, Loader2, Plus, Download, RefreshCw, Users, Upload, Trash2, UserMinus, UserPlus,
+  FilePenLine, Loader2, Plus, Download, RefreshCw, Users, Upload, Trash2, UserMinus, UserPlus, Save,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -16,9 +16,10 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { SignaturePad } from "@/components/docx-sign/signature-pad"
 import { cn, safeText } from "@/lib/utils"
 
-type TeamUser = { id: string; name: string; email: string; isActive?: boolean }
+type TeamUser = { id: string; name: string; email: string; isActive?: boolean; role?: string }
 type Assignment = {
   id: string
   userId: string
@@ -26,6 +27,9 @@ type Assignment = {
   signedAt: string | null
   resignNote: string | null
   createdAt: string
+  authorizedPersonName?: string | null
+  signerIp?: string | null
+  signerCountry?: string | null
   user: { id: string; name: string; email: string }
   assignedBy: { id: string; name: string }
 }
@@ -48,6 +52,7 @@ export default function DocxSignManagePage() {
   const { data: session, status } = useSession()
   const router = useRouter()
   const role = session?.user?.role
+  const myId = session?.user?.id
   const isAdmin = role === "SUPER_ADMIN" || role === "ADMIN"
 
   const [docs, setDocs] = useState<DocumentRow[]>([])
@@ -67,6 +72,9 @@ export default function DocxSignManagePage() {
   const [assignDocId, setAssignDocId] = useState<string | null>(null)
   const [assignSelected, setAssignSelected] = useState<string[]>([])
   const [assigning, setAssigning] = useState(false)
+  const [authSig, setAuthSig] = useState<string | null>(null)
+  const [hasAuthSig, setHasAuthSig] = useState(false)
+  const [savingAuthSig, setSavingAuthSig] = useState(false)
 
   useEffect(() => {
     if (status === "loading") return
@@ -76,6 +84,21 @@ export default function DocxSignManagePage() {
     }
     if (!isAdmin) router.replace("/dashboard/docx-sign/my")
   }, [status, isAdmin, router])
+
+  const loadAuthSig = useCallback(async () => {
+    try {
+      const res = await fetch("/api/docx-sign/authorized-signature", {
+        credentials: "include",
+        cache: "no-store",
+      })
+      if (!res.ok) return
+      const j = await res.json()
+      setHasAuthSig(Boolean(j.hasSignature))
+      setAuthSig(typeof j.signatureData === "string" ? j.signatureData : null)
+    } catch {
+      /* ignore */
+    }
+  }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -99,19 +122,27 @@ export default function DocxSignManagePage() {
               name: u.name,
               email: u.email,
               isActive: u.isActive,
+              role: u.role,
             }))
         )
       }
+      await loadAuthSig()
     } catch {
       toast.error("Failed to load Docx Sign")
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [loadAuthSig])
 
   useEffect(() => {
     if (isAdmin) void load()
   }, [isAdmin, load])
+
+  /** Admins/SAs may assign to each other and staff — never to themselves. */
+  const selectableTeam = useMemo(
+    () => team.filter((u) => u.id !== myId),
+    [team, myId]
+  )
 
   const onFile = (file: File | null) => {
     if (!file) return
@@ -134,12 +165,48 @@ export default function DocxSignManagePage() {
   }
 
   const toggleUser = (id: string) => {
+    if (id === myId) return
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   }
 
+  const saveAuthorizedSignature = async () => {
+    if (!authSig) {
+      toast.error("Draw your Authorized Person signature first")
+      return
+    }
+    setSavingAuthSig(true)
+    try {
+      const res = await fetch("/api/docx-sign/authorized-signature", {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ signatureData: authSig }),
+      })
+      const j = await res.json().catch(() => null)
+      if (!res.ok) {
+        toast.error(j?.error || "Could not save signature")
+        return
+      }
+      setHasAuthSig(true)
+      toast.success("Authorized Person signature saved")
+    } catch {
+      toast.error("Could not save signature")
+    } finally {
+      setSavingAuthSig(false)
+    }
+  }
+
   const submitUpload = async () => {
+    if (!hasAuthSig) {
+      toast.error("Save your Authorized Person signature first")
+      return
+    }
     if (!title.trim() || !fileData || selected.length === 0) {
       toast.error("Title, PDF, and at least one user are required")
+      return
+    }
+    if (selected.includes(myId || "")) {
+      toast.error("You cannot assign a contract to yourself")
       return
     }
     setUploading(true)
@@ -259,6 +326,10 @@ export default function DocxSignManagePage() {
   }
 
   const openAssignMore = (doc: DocumentRow) => {
+    if (!hasAuthSig) {
+      toast.error("Save your Authorized Person signature first")
+      return
+    }
     setAssignDocId(doc.id)
     setAssignSelected([])
   }
@@ -266,6 +337,10 @@ export default function DocxSignManagePage() {
   const submitAssignMore = async () => {
     if (!assignDocId || assignSelected.length === 0) {
       toast.error("Select at least one user")
+      return
+    }
+    if (assignSelected.includes(myId || "")) {
+      toast.error("You cannot assign a contract to yourself")
       return
     }
     setAssigning(true)
@@ -294,10 +369,11 @@ export default function DocxSignManagePage() {
 
   const assignDoc = docs.find((d) => d.id === assignDocId) || null
   const assignableUsers = useMemo(() => {
-    if (!assignDoc) return team
+    const pool = selectableTeam
+    if (!assignDoc) return pool
     const taken = new Set(assignDoc.assignments.map((a) => a.userId))
-    return team.filter((u) => !taken.has(u.id))
-  }, [assignDoc, team])
+    return pool.filter((u) => !taken.has(u.id))
+  }, [assignDoc, selectableTeam])
 
   const stats = useMemo(() => {
     let pending = 0
@@ -332,7 +408,7 @@ export default function DocxSignManagePage() {
             </div>
             <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Docx Sign</h1>
             <p className="text-sm text-muted-foreground mt-1 max-w-xl">
-              Upload a PDF contract, assign users separately, track signatures, and download signed copies.
+              Upload a PDF, assign as Authorized Person (not yourself), track dual signatures, and download stamped copies with UK/local time and IP.
             </p>
           </div>
           <div className="flex gap-2">
@@ -340,7 +416,17 @@ export default function DocxSignManagePage() {
               <RefreshCw className={cn("h-4 w-4 mr-1.5", loading && "animate-spin")} />
               Refresh
             </Button>
-            <Button size="sm" className="h-9" onClick={() => setOpenUpload(true)}>
+            <Button
+              size="sm"
+              className="h-9"
+              onClick={() => {
+                if (!hasAuthSig) {
+                  toast.error("Save your Authorized Person signature below first")
+                  return
+                }
+                setOpenUpload(true)
+              }}
+            >
               <Plus className="h-4 w-4 mr-1.5" />
               Upload & assign
             </Button>
@@ -360,6 +446,27 @@ export default function DocxSignManagePage() {
         </div>
       </div>
 
+      <section className="rounded-2xl border bg-card/60 p-4 sm:p-5 space-y-3">
+        <div>
+          <h2 className="text-sm font-semibold">Authorized Person signature</h2>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            Draw and save your signature once. It is stamped on every contract you authorize, next to the acceptor&apos;s signature.
+            {hasAuthSig ? " Signature on file." : " Required before you can upload or assign."}
+          </p>
+        </div>
+        <SignaturePad value={authSig} onChange={setAuthSig} disabled={savingAuthSig} />
+        <Button
+          type="button"
+          size="sm"
+          className="h-9"
+          onClick={() => void saveAuthorizedSignature()}
+          disabled={savingAuthSig || !authSig}
+        >
+          {savingAuthSig ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
+          Save Authorized Person signature
+        </Button>
+      </section>
+
       {loading ? (
         <div className="flex justify-center py-16">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -378,7 +485,7 @@ export default function DocxSignManagePage() {
                 <div className="min-w-0">
                   <h2 className="text-sm font-semibold truncate">{safeText(doc.title)}</h2>
                   <p className="text-[11px] text-muted-foreground truncate">
-                    {safeText(doc.fileName)} · by {safeText(doc.uploadedBy?.name)} ·{" "}
+                    {safeText(doc.fileName)} · uploaded by {safeText(doc.uploadedBy?.name)} ·{" "}
                     {new Date(doc.createdAt).toLocaleString()}
                   </p>
                 </div>
@@ -423,10 +530,13 @@ export default function DocxSignManagePage() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium truncate">{safeText(a.user?.name)}</p>
                       <p className="text-[11px] text-muted-foreground truncate">
-                        {safeText(a.user?.email)} · assigned by {safeText(a.assignedBy?.name)}
+                        {safeText(a.user?.email)} · Authorized Person{" "}
+                        {safeText(a.authorizedPersonName || a.assignedBy?.name)}
                         {a.signedAt
                           ? ` · signed ${new Date(a.signedAt).toLocaleString()}`
                           : ""}
+                        {a.signerIp ? ` · IP ${a.signerIp}` : ""}
+                        {a.signerCountry ? ` · ${a.signerCountry}` : ""}
                       </p>
                       {a.resignNote && (
                         <p className="text-[11px] text-rose-600 dark:text-rose-400 mt-0.5">
@@ -496,7 +606,7 @@ export default function DocxSignManagePage() {
           <DialogHeader>
             <DialogTitle>Upload & assign contract</DialogTitle>
             <DialogDescription className="text-xs">
-              PDF only. Each selected user gets their own signing assignment.
+              PDF only. You are the Authorized Person. You can assign to other Admins / Super Admins and staff — not yourself.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -518,7 +628,7 @@ export default function DocxSignManagePage() {
               <Label className="text-xs">Assign to users *</Label>
               <ScrollArea className="h-40 rounded-lg border p-2">
                 <div className="flex flex-wrap gap-1.5">
-                  {team.map((u) => {
+                  {selectableTeam.map((u) => {
                     const on = selected.includes(u.id)
                     return (
                       <button
@@ -538,7 +648,9 @@ export default function DocxSignManagePage() {
                   })}
                 </div>
               </ScrollArea>
-              <p className="text-[10px] text-muted-foreground">{selected.length} selected</p>
+              <p className="text-[10px] text-muted-foreground">
+                {selected.length} selected · you are hidden from this list
+              </p>
             </div>
           </div>
           <DialogFooter className="gap-2">
@@ -556,7 +668,7 @@ export default function DocxSignManagePage() {
           <DialogHeader>
             <DialogTitle>Request re-sign</DialogTitle>
             <DialogDescription className="text-xs">
-              Clears the previous signature and asks the user to sign again.
+              Clears the previous signature and asks the user to sign again. The new signed PDF will include your current Authorized Person stamp rules (UK/local time + IP).
             </DialogDescription>
           </DialogHeader>
           <Textarea
@@ -589,8 +701,7 @@ export default function DocxSignManagePage() {
           <DialogHeader>
             <DialogTitle>Assign more people</DialogTitle>
             <DialogDescription className="text-xs">
-              Add staff to &ldquo;{safeText(assignDoc?.title || "")}&rdquo;. Already assigned people are hidden.
-              Revoke someone first if you need to reassign them.
+              Add people to &ldquo;{safeText(assignDoc?.title || "")}&rdquo; as Authorized Person. You cannot assign yourself. Already assigned people are hidden.
             </DialogDescription>
           </DialogHeader>
           <ScrollArea className="h-48 rounded-lg border p-2">

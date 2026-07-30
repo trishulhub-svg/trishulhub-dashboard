@@ -1,6 +1,8 @@
 /**
  * GET/PATCH /api/docx-sign/assignments
- * Staff: mine=1. Admin: all / filter. PATCH: sign, resign request, save draft signature.
+ * Staff: mine=1. Admin: all / filter.
+ * PATCH: sign, resign, revoke, assign more.
+ * Signed PDF stamps Authorized Person + acceptor, UK/local times, IP footer.
  */
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
@@ -11,11 +13,17 @@ import { ensureCriticalSchema } from "@/lib/auto-migrate"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 import { notifyUsers } from "@/lib/notify"
 import {
+  countryDisplayName,
+  formatDocxDateTime,
+  getSignerCountry,
   isAdminDocxRole,
+  isUkCountry,
   parsePdfDataUrl,
   parsePngDataUrl,
+  resolveSignerTimeZone,
   stampSignatureOnPdf,
   toPdfDataUrl,
+  UK_TIME_ZONE,
 } from "@/lib/docx-sign"
 import { z } from "zod"
 
@@ -24,6 +32,7 @@ const patchSchema = z.object({
   action: z.enum(["save_signature", "submit", "request_resign", "revoke"]),
   signatureData: z.string().optional(),
   resignNote: z.string().trim().max(500).optional().nullable(),
+  signerTimeZone: z.string().trim().max(80).optional().nullable(),
 })
 
 const assignMoreSchema = z.object({
@@ -68,6 +77,7 @@ export async function GET(req: NextRequest) {
           resignNote: r.resignNote,
           hasSignature: Boolean(r.signatureData),
           hasSignedPdf: Boolean(r.signedFileData),
+          authorizedPersonName: r.authorizedPersonName || r.assignedBy.name,
           createdAt: r.createdAt,
           document: r.document,
           assignedBy: r.assignedBy,
@@ -92,6 +102,10 @@ export async function GET(req: NextRequest) {
         resignNote: r.resignNote,
         hasSignature: Boolean(r.signatureData),
         hasSignedPdf: Boolean(r.signedFileData),
+        authorizedPersonName: r.authorizedPersonName || r.assignedBy.name,
+        signerIp: r.signerIp,
+        signerCountry: r.signerCountry,
+        signerTimeZone: r.signerTimeZone,
         createdAt: r.createdAt,
         document: r.document,
         user: r.user,
@@ -131,13 +145,39 @@ export async function PATCH(req: NextRequest) {
           { status: 400 }
         )
       }
+      if (parsedAssign.data.userIds.includes(session.user.id)) {
+        return NextResponse.json(
+          {
+            error:
+              "You cannot assign a contract to yourself. Assign to another Admin, Super Admin, or staff member.",
+          },
+          { status: 400 }
+        )
+      }
+
+      const assigner = await db.user.findUnique({
+        where: { id: session.user.id },
+        select: { id: true, name: true, docxAuthorizedSignature: true },
+      })
+      if (!assigner?.docxAuthorizedSignature || !parsePngDataUrl(assigner.docxAuthorizedSignature)) {
+        return NextResponse.json(
+          {
+            error:
+              "Save your Authorized Person signature first (Manage → Authorized Person signature), then assign.",
+          },
+          { status: 400 }
+        )
+      }
+
       const doc = await db.docxDocument.findFirst({
         where: { id: parsedAssign.data.documentId, isActive: true },
         select: { id: true, title: true },
       })
       if (!doc) return NextResponse.json({ error: "Document not found" }, { status: 404 })
 
-      const uniqueUserIds = [...new Set(parsedAssign.data.userIds)]
+      const uniqueUserIds = [...new Set(parsedAssign.data.userIds)].filter(
+        (id) => id !== session.user.id
+      )
       const users = await db.user.findMany({
         where: { id: { in: uniqueUserIds }, isActive: true },
         select: { id: true },
@@ -157,18 +197,24 @@ export async function PATCH(req: NextRequest) {
       if (toAdd.length === 0) {
         return NextResponse.json({ error: "All selected users are already assigned" }, { status: 400 })
       }
+
+      const authorizedPersonName = assigner.name || session.user.name || "Authorized Person"
+      const authorizedSignatureData = assigner.docxAuthorizedSignature
+
       await db.docxAssignment.createMany({
         data: toAdd.map((userId) => ({
           documentId: doc.id,
           userId,
           assignedById: session.user.id,
           status: "PENDING",
+          authorizedPersonName,
+          authorizedSignatureData,
         })),
       })
       void notifyUsers({
         userIds: toAdd,
         title: "Document to sign",
-        message: `"${doc.title}" was shared with you for e-signature.`,
+        message: `"${doc.title}" was shared with you for e-signature by Authorized Person ${authorizedPersonName}.`,
         type: "TASK",
         link: "/dashboard/docx-sign/my",
         metadata: { kind: "docx_sign_assigned", documentId: doc.id },
@@ -182,10 +228,19 @@ export async function PATCH(req: NextRequest) {
         action: "ASSIGN",
         entityType: "DocxDocument",
         entityId: doc.id,
-        description: `Assigned "${doc.title}" to ${toAdd.length} more user${toAdd.length === 1 ? "" : "s"}`,
-        newValue: JSON.stringify({ userIds: toAdd }),
+        description: `Authorized Person ${authorizedPersonName} assigned "${doc.title}" to ${toAdd.length} more user${toAdd.length === 1 ? "" : "s"}`,
+        newValue: JSON.stringify({
+          userIds: toAdd,
+          authorizedPersonName,
+          authorizedPersonId: session.user.id,
+        }),
         ipAddress: getIpAddress(req),
         userAgent: getUserAgent(req),
+        metadata: JSON.stringify({
+          kind: "docx_sign_assign_more",
+          authorizedPersonId: session.user.id,
+          authorizedPersonName,
+        }),
       })
       return NextResponse.json({ assigned: toAdd.length, skipped: uniqueUserIds.length - toAdd.length })
     }
@@ -203,12 +258,17 @@ export async function PATCH(req: NextRequest) {
       include: {
         document: true,
         user: { select: { id: true, name: true } },
+        assignedBy: {
+          select: { id: true, name: true, docxAuthorizedSignature: true },
+        },
       },
     })
     if (!existing) return NextResponse.json({ error: "Assignment not found" }, { status: 404 })
 
     const isAdmin = isAdminDocxRole(session.user.role)
     const isOwner = existing.userId === session.user.id
+    const authorizedPersonLabel =
+      existing.authorizedPersonName || existing.assignedBy.name || "Authorized Person"
 
     // Admin revoke — remove assignment so user can be reassigned later
     if (parsed.data.action === "revoke") {
@@ -231,12 +291,13 @@ export async function PATCH(req: NextRequest) {
         action: "DELETE",
         entityType: "DocxAssignment",
         entityId: existing.id,
-        description: `Revoked assignment of "${existing.document.title}" from ${existing.user.name}`,
+        description: `Revoked assignment of "${existing.document.title}" from ${existing.user.name} (Authorized Person was ${authorizedPersonLabel})`,
         oldValue: JSON.stringify({
           status: existing.status,
           userId: existing.userId,
           documentId: existing.documentId,
           signedAt: existing.signedAt,
+          authorizedPersonName: authorizedPersonLabel,
         }),
         ipAddress: getIpAddress(req),
         userAgent: getUserAgent(req),
@@ -254,6 +315,9 @@ export async function PATCH(req: NextRequest) {
           signatureData: null,
           signedFileData: null,
           signedAt: null,
+          signerIp: null,
+          signerCountry: null,
+          signerTimeZone: null,
         },
       })
       void notifyUsers({
@@ -275,7 +339,7 @@ export async function PATCH(req: NextRequest) {
         action: "STATUS_CHANGE",
         entityType: "DocxAssignment",
         entityId: existing.id,
-        description: `Requested re-sign from ${existing.user.name} for "${existing.document.title}"`,
+        description: `Requested re-sign from ${existing.user.name} for "${existing.document.title}" (Authorized Person ${authorizedPersonLabel})`,
         oldValue: JSON.stringify({ status: existing.status }),
         newValue: JSON.stringify({ status: "RESIGN_REQUESTED", resignNote: parsed.data.resignNote }),
         ipAddress: getIpAddress(req),
@@ -301,21 +365,60 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ id: updated.id, saved: true })
     }
 
-    // submit
+    // submit — dual signature stamp
     const sigRaw = parsed.data.signatureData || existing.signatureData || ""
     const sigBytes = parsePngDataUrl(sigRaw)
     if (!sigBytes) {
       return NextResponse.json({ error: "Draw and save a signature before submit" }, { status: 400 })
     }
+
+    const authSigRaw =
+      existing.authorizedSignatureData ||
+      existing.assignedBy.docxAuthorizedSignature ||
+      ""
+    const authSigBytes = parsePngDataUrl(authSigRaw)
+    if (!authSigBytes) {
+      return NextResponse.json(
+        {
+          error:
+            "Authorized Person signature is missing. Ask the admin who assigned this contract to save their signature and re-assign.",
+        },
+        { status: 400 }
+      )
+    }
+
     const pdf = parsePdfDataUrl(existing.document.fileData)
     if (!pdf) {
       return NextResponse.json({ error: "Source PDF is invalid" }, { status: 500 })
     }
 
     const signedAt = new Date()
-    const stamped = await stampSignatureOnPdf(pdf.bytes, sigBytes, {
-      signerName: session.user.name || existing.user.name || "Signer",
-      signedAtIso: signedAt.toISOString(),
+    const signedAtIso = signedAt.toISOString()
+    const signerIp = getIpAddress(req)
+    const signerCountry = getSignerCountry(req)
+    const signerTimeZone = resolveSignerTimeZone(
+      signerCountry,
+      parsed.data.signerTimeZone || null
+    )
+
+    // Persist snapshot if assignment was created before Authorized Person upgrade
+    if (!existing.authorizedSignatureData || !existing.authorizedPersonName) {
+      await db.docxAssignment.update({
+        where: { id: existing.id },
+        data: {
+          authorizedPersonName: authorizedPersonLabel,
+          authorizedSignatureData: authSigRaw,
+        },
+      })
+    }
+
+    const stamped = await stampSignatureOnPdf(pdf.bytes, sigBytes, authSigBytes, {
+      acceptorName: session.user.name || existing.user.name || "Signer",
+      authorizedPersonName: authorizedPersonLabel,
+      signedAtIso,
+      signerIp,
+      signerCountry,
+      signerTimeZone,
     })
     const signedFileData = toPdfDataUrl(stamped)
 
@@ -327,12 +430,15 @@ export async function PATCH(req: NextRequest) {
         signedFileData,
         signedAt,
         resignNote: null,
-        signerIp: getIpAddress(req),
+        signerIp,
         signerUserAgent: getUserAgent(req)?.slice(0, 500) || null,
+        signerCountry: signerCountry || null,
+        signerTimeZone,
+        authorizedPersonName: authorizedPersonLabel,
+        authorizedSignatureData: authSigRaw,
       },
     })
 
-    // Notify admins
     const admins = await db.user.findMany({
       where: { role: { in: ["SUPER_ADMIN", "ADMIN"] }, isActive: true },
       select: { id: true },
@@ -340,11 +446,16 @@ export async function PATCH(req: NextRequest) {
     void notifyUsers({
       userIds: admins.map((a) => a.id),
       title: "Document signed",
-      message: `${session.user.name || "User"} signed "${existing.document.title}".`,
+      message: `${session.user.name || "User"} accepted "${existing.document.title}" (Authorized Person: ${authorizedPersonLabel}).`,
       type: "SUCCESS",
       link: "/dashboard/docx-sign/manage",
       metadata: { kind: "docx_sign_signed", assignmentId: existing.id },
     })
+
+    const ukTime = formatDocxDateTime(signedAtIso, UK_TIME_ZONE)
+    const localTime = isUkCountry(signerCountry)
+      ? null
+      : formatDocxDateTime(signedAtIso, signerTimeZone)
 
     void logAudit({
       userId: session.user.id,
@@ -355,19 +466,33 @@ export async function PATCH(req: NextRequest) {
       action: "STATUS_CHANGE",
       entityType: "DocxAssignment",
       entityId: existing.id,
-      description: `Signed "${existing.document.title}" (assigned by ${existing.assignedById})`,
+      description: `${session.user.name || "User"} accepted "${existing.document.title}" with Authorized Person ${authorizedPersonLabel} (IP ${signerIp}${
+        signerCountry ? `, ${countryDisplayName(signerCountry)}` : ""
+      })`,
       oldValue: JSON.stringify({ status: existing.status }),
       newValue: JSON.stringify({
         status: "SIGNED",
-        signedAt: signedAt.toISOString(),
-        assignedById: existing.assignedById,
-        userId: existing.userId,
+        signedAt: signedAtIso,
+        authorizedPersonId: existing.assignedById,
+        authorizedPersonName: authorizedPersonLabel,
+        acceptorUserId: existing.userId,
+        acceptorName: session.user.name || existing.user.name,
+        signerIp,
+        signerCountry,
+        signerTimeZone,
+        ukDateTime: ukTime,
+        localDateTime: localTime,
       }),
-      ipAddress: getIpAddress(req),
+      ipAddress: signerIp,
       userAgent: getUserAgent(req),
       metadata: JSON.stringify({
+        kind: "docx_sign_accepted",
         documentId: existing.documentId,
-        assignedById: existing.assignedById,
+        authorizedPersonId: existing.assignedById,
+        authorizedPersonName: authorizedPersonLabel,
+        signerCountry,
+        signerTimeZone,
+        dualSignatures: true,
       }),
     })
 
@@ -375,6 +500,8 @@ export async function PATCH(req: NextRequest) {
       id: updated.id,
       status: updated.status,
       signedAt: updated.signedAt,
+      signerCountry: updated.signerCountry,
+      signerTimeZone: updated.signerTimeZone,
     })
   } catch (e) {
     console.error("[docx-sign/assignments PATCH]", e)

@@ -117,7 +117,15 @@ export default function DocxSignSignPage() {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, action: "submit", signatureData: signature }),
+        body: JSON.stringify({
+          id,
+          action: "submit",
+          signatureData: signature,
+          signerTimeZone:
+            typeof Intl !== "undefined"
+              ? Intl.DateTimeFormat().resolvedOptions().timeZone
+              : null,
+        }),
       })
       const j = await res.json().catch(() => null)
       if (!res.ok) {
@@ -172,9 +180,10 @@ export default function DocxSignSignPage() {
 
       <section className="rounded-2xl border bg-card/70 p-3 sm:p-4 space-y-3">
         <div>
-          <h2 className="text-sm font-semibold">Signature</h2>
+          <h2 className="text-sm font-semibold">Your signature (Accepted by)</h2>
           <p className="text-[11px] text-muted-foreground">
-            Sign in the box, save, then submit to generate your signed PDF.
+            Sign in the box, save, then submit. The signed PDF will show the Authorized Person signature
+            plus yours, with UK date/time (and your local date/time if you are outside the UK), and your IP on the bottom line.
           </p>
         </div>
         <SignaturePad value={signature} onChange={setSignature} disabled={saving || submitting} />

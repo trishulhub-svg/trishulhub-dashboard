@@ -18,6 +18,7 @@ type Assignment = {
   createdAt: string
   document: { id: string; title: string; fileName: string }
   assignedBy: { id: string; name: string }
+  authorizedPersonName?: string | null
 }
 
 const STATUS_STYLE: Record<string, string> = {
@@ -108,7 +109,8 @@ export default function DocxSignMyPage() {
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold truncate">{safeText(a.document.title)}</p>
                 <p className="text-[11px] text-muted-foreground truncate">
-                  From {safeText(a.assignedBy?.name)} · {new Date(a.createdAt).toLocaleDateString()}
+                  Authorized Person {safeText(a.authorizedPersonName || a.assignedBy?.name)} ·{" "}
+                  {new Date(a.createdAt).toLocaleDateString()}
                   {a.signedAt ? ` · signed ${new Date(a.signedAt).toLocaleString()}` : ""}
                 </p>
                 {a.resignNote && a.status === "RESIGN_REQUESTED" && (

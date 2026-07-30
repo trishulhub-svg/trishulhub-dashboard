@@ -1,6 +1,7 @@
 /**
  * GET/POST /api/docx-sign/documents
  * Admin/SA: list documents + upload PDF and assign to users (separate assignments).
+ * Assigner becomes Authorized Person; cannot assign to self; can assign to other admins.
  */
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
@@ -14,6 +15,7 @@ import {
   isAdminDocxRole,
   MAX_PDF_DATA_URL_CHARS,
   parsePdfDataUrl,
+  parsePngDataUrl,
 } from "@/lib/docx-sign"
 import { z } from "zod"
 
@@ -53,6 +55,10 @@ export async function GET() {
             signedAt: true,
             resignNote: true,
             createdAt: true,
+            authorizedPersonName: true,
+            signerIp: true,
+            signerCountry: true,
+            signerTimeZone: true,
             user: { select: { id: true, name: true, email: true } },
             assignedBy: { select: { id: true, name: true } },
           },
@@ -102,6 +108,27 @@ export async function POST(req: NextRequest) {
     }
 
     const uniqueUserIds = [...new Set(parsed.data.userIds)]
+    if (uniqueUserIds.includes(session.user.id)) {
+      return NextResponse.json(
+        { error: "You cannot assign a contract to yourself. Assign to another Admin, Super Admin, or staff member." },
+        { status: 400 }
+      )
+    }
+
+    const assigner = await db.user.findUnique({
+      where: { id: session.user.id },
+      select: { id: true, name: true, docxAuthorizedSignature: true },
+    })
+    if (!assigner?.docxAuthorizedSignature || !parsePngDataUrl(assigner.docxAuthorizedSignature)) {
+      return NextResponse.json(
+        {
+          error:
+            "Save your Authorized Person signature first (Manage → Authorized Person signature), then upload.",
+        },
+        { status: 400 }
+      )
+    }
+
     const users = await db.user.findMany({
       where: { id: { in: uniqueUserIds }, isActive: true },
       select: { id: true, name: true },
@@ -112,6 +139,9 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       )
     }
+
+    const authorizedPersonName = assigner.name || session.user.name || "Authorized Person"
+    const authorizedSignatureData = assigner.docxAuthorizedSignature
 
     const doc = await db.docxDocument.create({
       data: {
@@ -129,13 +159,15 @@ export async function POST(req: NextRequest) {
         userId,
         assignedById: session.user.id,
         status: "PENDING",
+        authorizedPersonName,
+        authorizedSignatureData,
       })),
     })
 
     void notifyUsers({
       userIds: uniqueUserIds,
       title: "Document to sign",
-      message: `"${parsed.data.title}" was shared with you for e-signature.`,
+      message: `"${parsed.data.title}" was shared with you for e-signature by Authorized Person ${authorizedPersonName}.`,
       type: "TASK",
       link: "/dashboard/docx-sign/my",
       metadata: { kind: "docx_sign_assigned", documentId: doc.id },
@@ -150,14 +182,21 @@ export async function POST(req: NextRequest) {
       action: "UPLOAD",
       entityType: "DocxDocument",
       entityId: doc.id,
-      description: `Uploaded "${parsed.data.title}" and assigned to ${uniqueUserIds.length} user${uniqueUserIds.length === 1 ? "" : "s"}`,
+      description: `Authorized Person ${authorizedPersonName} uploaded "${parsed.data.title}" and assigned to ${uniqueUserIds.length} user${uniqueUserIds.length === 1 ? "" : "s"}`,
       newValue: JSON.stringify({
         title: parsed.data.title,
         fileName: parsed.data.fileName,
         userIds: uniqueUserIds,
+        authorizedPersonName,
+        authorizedPersonId: session.user.id,
       }),
       ipAddress: getIpAddress(req),
       userAgent: getUserAgent(req),
+      metadata: JSON.stringify({
+        kind: "docx_sign_upload_assign",
+        authorizedPersonId: session.user.id,
+        authorizedPersonName,
+      }),
     })
 
     return NextResponse.json({ id: doc.id, assigned: uniqueUserIds.length }, { status: 201 })
@@ -217,7 +256,7 @@ export async function DELETE(req: NextRequest) {
       action: "DELETE",
       entityType: "DocxDocument",
       entityId: id,
-      description: `Deleted document "${existing.title}" (${userIds.length} assignment${userIds.length === 1 ? "" : "s"} cleared)`,
+      description: `Authorized Person ${session.user.name || "admin"} deleted document "${existing.title}" (${userIds.length} assignment${userIds.length === 1 ? "" : "s"} cleared)`,
       oldValue: JSON.stringify({ title: existing.title, assigneeCount: userIds.length }),
       ipAddress: getIpAddress(req),
       userAgent: getUserAgent(req),

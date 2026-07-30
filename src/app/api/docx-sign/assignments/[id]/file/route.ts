@@ -60,7 +60,11 @@ export async function GET(
         action: "DOWNLOAD",
         entityType: "DocxAssignment",
         entityId: row.id,
-        description: `Downloaded ${kind} PDF for "${row.document.title}"`,
+        description: `Downloaded ${kind === "signed" ? "signed" : "source"} PDF for "${row.document.title}" (Docx Sign)`,
+        metadata: JSON.stringify({
+          kind: kind === "signed" ? "docx_sign_download_signed" : "docx_sign_download_source",
+          documentTitle: row.document.title,
+        }),
         ipAddress: getIpAddress(req),
         userAgent: getUserAgent(req),
       })

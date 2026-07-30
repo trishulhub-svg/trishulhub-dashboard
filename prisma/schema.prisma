@@ -29,6 +29,8 @@ model User {
   pageAccessMode  String  @default("OFF")
   pageAccessPages String  @default("[]") // JSON string[] of /dashboard/... hrefs
   favoritePages   String  @default("[]") // JSON string[] up to 2 favorite /dashboard/... hrefs
+  // Docx Sign — saved Authorized Person signature (Admin / Super Admin)
+  docxAuthorizedSignature String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -93,13 +95,18 @@ model DocxAssignment {
   // PENDING | SIGNED | RESIGN_REQUESTED
   status          String    @default("PENDING")
   assignedById    String
-  // PNG data URL of drawn signature
+  // Snapshot of Authorized Person (assigner) at assign time
+  authorizedPersonName    String?
+  authorizedSignatureData String?
+  // PNG data URL of acceptor (signer) signature
   signatureData   String?
   signedAt        DateTime?
   // Stamped PDF after sign (data:application/pdf;base64,...)
   signedFileData  String?
   signerIp        String?
   signerUserAgent String?
+  signerCountry   String?
+  signerTimeZone  String?
   resignNote      String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt

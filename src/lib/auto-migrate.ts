@@ -22,7 +22,7 @@ function getErrMsg(err: unknown): string {
 
 // Bump when adding CRITICAL_COLUMNS / CRITICAL_TABLES so warm serverless
 // instances re-run migrations after deploy (stale syncDone otherwise skips ALTERs).
-const SCHEMA_REVISION = 202607301
+const SCHEMA_REVISION = 202607302
 
 // Use globalThis to persist the syncDone flag across hot reloads in dev
 // and across serverless function warm invocations in production.
@@ -114,6 +114,12 @@ const CRITICAL_COLUMNS: Array<{ table: string; column: string; sql: string }> = 
   { table: "TimeEntry", column: "activityType", sql: `ALTER TABLE "TimeEntry" ADD COLUMN "activityType" TEXT` },
   { table: "TimeEntry", column: "trainingAssignmentId", sql: `ALTER TABLE "TimeEntry" ADD COLUMN "trainingAssignmentId" TEXT` },
   { table: "ProjectInfraItem", column: "groupLabel", sql: `ALTER TABLE "ProjectInfraItem" ADD COLUMN "groupLabel" TEXT` },
+  // Docx Sign — Authorized Person signature + signer geo/time stamp fields
+  { table: "User", column: "docxAuthorizedSignature", sql: `ALTER TABLE "User" ADD COLUMN "docxAuthorizedSignature" TEXT` },
+  { table: "DocxAssignment", column: "authorizedPersonName", sql: `ALTER TABLE "DocxAssignment" ADD COLUMN "authorizedPersonName" TEXT` },
+  { table: "DocxAssignment", column: "authorizedSignatureData", sql: `ALTER TABLE "DocxAssignment" ADD COLUMN "authorizedSignatureData" TEXT` },
+  { table: "DocxAssignment", column: "signerCountry", sql: `ALTER TABLE "DocxAssignment" ADD COLUMN "signerCountry" TEXT` },
+  { table: "DocxAssignment", column: "signerTimeZone", sql: `ALTER TABLE "DocxAssignment" ADD COLUMN "signerTimeZone" TEXT` },
 ]
 
 /** Tables to create if missing (simplified CREATE TABLE IF NOT EXISTS) */
@@ -543,11 +549,15 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
       "userId" TEXT NOT NULL,
       "status" TEXT NOT NULL DEFAULT 'PENDING',
       "assignedById" TEXT NOT NULL,
+      "authorizedPersonName" TEXT,
+      "authorizedSignatureData" TEXT,
       "signatureData" TEXT,
       "signedAt" DATETIME,
       "signedFileData" TEXT,
       "signerIp" TEXT,
       "signerUserAgent" TEXT,
+      "signerCountry" TEXT,
+      "signerTimeZone" TEXT,
       "resignNote" TEXT,
       "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
