@@ -25,6 +25,11 @@ import {
   toPdfDataUrl,
   UK_TIME_ZONE,
 } from "@/lib/docx-sign"
+import {
+  getAssignmentLeanById,
+  listDocumentAssignmentsLean,
+  listMyAssignmentsLean,
+} from "@/lib/docx-sign-lean"
 import { z } from "zod"
 
 const patchSchema = z.object({
@@ -46,70 +51,143 @@ export async function GET(req: NextRequest) {
     if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     await ensureCriticalSchema()
-    const mine = new URL(req.url).searchParams.get("mine") === "1"
+    const url = new URL(req.url)
+    const mine = url.searchParams.get("mine") === "1"
+    const assignmentId = url.searchParams.get("id")
+    const documentId = url.searchParams.get("documentId")
     const isAdmin = isAdminDocxRole(session.user.role)
 
-    if (mine || !isAdmin) {
-      const rows = await db.docxAssignment.findMany({
-        where: {
-          userId: session.user.id,
-          document: { isActive: true },
-        },
-        orderBy: { createdAt: "desc" },
-        take: 100,
-        include: {
-          document: {
-            select: {
-              id: true,
-              title: true,
-              fileName: true,
-              createdAt: true,
-            },
+    // Single assignment for sign page — metadata only, no blobs
+    if (assignmentId) {
+      const row = await getAssignmentLeanById(assignmentId, session.user.id)
+      if (!row && isAdmin) {
+        // Admin may look up any assignment metadata (still no blobs)
+        const adminRows = await db.$queryRawUnsafe<
+          Array<{
+            id: string
+            status: string
+            userId: string
+            signedAt: string | null
+            resignNote: string | null
+            hasSignature: number | bigint
+            hasSignedPdf: number | bigint
+            authorizedPersonName: string | null
+            createdAt: string
+            documentId: string
+            documentTitle: string
+            documentFileName: string
+            assignedById: string
+            assignedByName: string
+          }>
+        >(
+          `SELECT a."id" as id, a."status" as status, a."userId" as userId, a."signedAt" as signedAt,
+            a."resignNote" as resignNote,
+            CASE WHEN a."signatureData" IS NOT NULL AND length(a."signatureData") > 10 THEN 1 ELSE 0 END as hasSignature,
+            CASE WHEN a."signedFileData" IS NOT NULL AND length(a."signedFileData") > 10 THEN 1 ELSE 0 END as hasSignedPdf,
+            a."authorizedPersonName" as authorizedPersonName, a."createdAt" as createdAt,
+            d."id" as documentId, d."title" as documentTitle, d."fileName" as documentFileName,
+            ab."id" as assignedById, ab."name" as assignedByName
+           FROM "DocxAssignment" a
+           INNER JOIN "DocxDocument" d ON d."id" = a."documentId"
+           INNER JOIN "User" ab ON ab."id" = a."assignedById"
+           WHERE a."id" = ? AND d."isActive" = 1
+           LIMIT 1`,
+          assignmentId
+        )
+        const r = adminRows[0]
+        if (!r) return NextResponse.json({ error: "Not found" }, { status: 404 })
+        return NextResponse.json({
+          assignment: {
+            id: r.id,
+            status: r.status,
+            signedAt: r.signedAt,
+            resignNote: r.resignNote,
+            hasSignature: Number(r.hasSignature) === 1,
+            hasSignedPdf: Number(r.hasSignedPdf) === 1,
+            authorizedPersonName: r.authorizedPersonName || r.assignedByName,
+            createdAt: r.createdAt,
+            document: { id: r.documentId, title: r.documentTitle, fileName: r.documentFileName },
+            assignedBy: { id: r.assignedById, name: r.assignedByName },
           },
-          assignedBy: { select: { id: true, name: true } },
-        },
-      })
-      return NextResponse.json({
-        assignments: rows.map((r) => ({
-          id: r.id,
-          status: r.status,
-          signedAt: r.signedAt,
-          resignNote: r.resignNote,
-          hasSignature: Boolean(r.signatureData),
-          hasSignedPdf: Boolean(r.signedFileData),
-          authorizedPersonName: r.authorizedPersonName || r.assignedBy.name,
-          createdAt: r.createdAt,
-          document: r.document,
-          assignedBy: r.assignedBy,
-        })),
-      })
+        })
+      }
+      if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 })
+      return NextResponse.json({ assignment: row })
     }
 
-    const rows = await db.docxAssignment.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 200,
-      include: {
-        document: { select: { id: true, title: true, fileName: true } },
-        user: { select: { id: true, name: true, email: true } },
-        assignedBy: { select: { id: true, name: true } },
-      },
-    })
+    // Assignees for one document (manage expand) — metadata only
+    if (documentId) {
+      if (!isAdmin) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+      const doc = await db.docxDocument.findFirst({
+        where: { id: documentId, isActive: true },
+        select: { id: true },
+      })
+      if (!doc) return NextResponse.json({ error: "Document not found" }, { status: 404 })
+      const assignments = await listDocumentAssignmentsLean(documentId)
+      return NextResponse.json({ assignments })
+    }
+
+    if (mine || !isAdmin) {
+      const assignments = await listMyAssignmentsLean(session.user.id, { take: 100 })
+      return NextResponse.json({ assignments })
+    }
+
+    // Admin global feed — lean fields only (no blobs)
+    const rows = await db.$queryRawUnsafe<
+      Array<{
+        id: string
+        status: string
+        signedAt: string | null
+        resignNote: string | null
+        hasSignature: number | bigint
+        hasSignedPdf: number | bigint
+        authorizedPersonName: string | null
+        signerIp: string | null
+        signerCountry: string | null
+        signerTimeZone: string | null
+        createdAt: string
+        documentId: string
+        documentTitle: string
+        documentFileName: string
+        userId: string
+        userName: string
+        userEmail: string
+        assignedById: string
+        assignedByName: string
+      }>
+    >(
+      `SELECT a."id" as id, a."status" as status, a."signedAt" as signedAt, a."resignNote" as resignNote,
+        CASE WHEN a."signatureData" IS NOT NULL AND length(a."signatureData") > 10 THEN 1 ELSE 0 END as hasSignature,
+        CASE WHEN a."signedFileData" IS NOT NULL AND length(a."signedFileData") > 10 THEN 1 ELSE 0 END as hasSignedPdf,
+        a."authorizedPersonName" as authorizedPersonName, a."signerIp" as signerIp,
+        a."signerCountry" as signerCountry, a."signerTimeZone" as signerTimeZone, a."createdAt" as createdAt,
+        d."id" as documentId, d."title" as documentTitle, d."fileName" as documentFileName,
+        u."id" as userId, u."name" as userName, u."email" as userEmail,
+        ab."id" as assignedById, ab."name" as assignedByName
+       FROM "DocxAssignment" a
+       INNER JOIN "DocxDocument" d ON d."id" = a."documentId"
+       INNER JOIN "User" u ON u."id" = a."userId"
+       INNER JOIN "User" ab ON ab."id" = a."assignedById"
+       WHERE d."isActive" = 1
+       ORDER BY a."createdAt" DESC
+       LIMIT 200`
+    )
     return NextResponse.json({
       assignments: rows.map((r) => ({
         id: r.id,
         status: r.status,
         signedAt: r.signedAt,
         resignNote: r.resignNote,
-        hasSignature: Boolean(r.signatureData),
-        hasSignedPdf: Boolean(r.signedFileData),
-        authorizedPersonName: r.authorizedPersonName || r.assignedBy.name,
+        hasSignature: Number(r.hasSignature) === 1,
+        hasSignedPdf: Number(r.hasSignedPdf) === 1,
+        authorizedPersonName: r.authorizedPersonName || r.assignedByName,
         signerIp: r.signerIp,
         signerCountry: r.signerCountry,
         signerTimeZone: r.signerTimeZone,
         createdAt: r.createdAt,
-        document: r.document,
-        user: r.user,
-        assignedBy: r.assignedBy,
+        document: { id: r.documentId, title: r.documentTitle, fileName: r.documentFileName },
+        user: { id: r.userId, name: r.userName, email: r.userEmail },
+        assignedBy: { id: r.assignedById, name: r.assignedByName },
       })),
     })
   } catch (e) {
@@ -255,8 +333,25 @@ export async function PATCH(req: NextRequest) {
 
     const existing = await db.docxAssignment.findUnique({
       where: { id: parsed.data.id },
-      include: {
-        document: true,
+      select: {
+        id: true,
+        userId: true,
+        documentId: true,
+        status: true,
+        signedAt: true,
+        resignNote: true,
+        signatureData: true,
+        authorizedPersonName: true,
+        authorizedSignatureData: true,
+        assignedById: true,
+        document: {
+          select: {
+            id: true,
+            title: true,
+            // Only load source PDF bytes when submitting a signature stamp
+            fileData: parsed.data.action === "submit",
+          },
+        },
         user: { select: { id: true, name: true } },
         assignedBy: {
           select: { id: true, name: true, docxAuthorizedSignature: true },

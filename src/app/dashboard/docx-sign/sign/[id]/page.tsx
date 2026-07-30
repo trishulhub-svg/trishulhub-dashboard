@@ -39,20 +39,18 @@ export default function DocxSignSignPage() {
     setLoading(true)
     try {
       const [aRes, sRes] = await Promise.all([
-        fetch("/api/docx-sign/assignments?mine=1", {
+        fetch(`/api/docx-sign/assignments?id=${encodeURIComponent(id)}`, {
           credentials: "include",
           cache: "no-store",
         }),
-        fetch("/api/docx-sign/my-signature", {
+        fetch("/api/docx-sign/my-signature?meta=1", {
           credentials: "include",
           cache: "no-store",
         }),
       ])
       if (!aRes.ok) throw new Error("load failed")
       const j = await aRes.json()
-      const found = (Array.isArray(j.assignments) ? j.assignments : []).find(
-        (a: Assignment) => a.id === id
-      )
+      const found = (j.assignment || null) as Assignment | null
       if (!found) {
         toast.error("Assignment not found")
         router.replace("/dashboard/docx-sign/my")
@@ -67,18 +65,10 @@ export default function DocxSignSignPage() {
 
       if (sRes.ok) {
         const sj = await sRes.json()
-        const saved =
-          typeof sj.signatureData === "string" && sj.signatureData.startsWith("data:image/png")
-            ? sj.signatureData
-            : null
-        setHasSavedSignature(Boolean(sj.hasSignature && saved))
-        setSavedSignature(saved)
-        if (saved) {
-          setSigMode("choose")
-          setSignature(null)
-        } else {
-          setSigMode("draw")
-        }
+        const has = Boolean(sj.hasSignature)
+        setHasSavedSignature(has)
+        setSavedSignature(null)
+        setSigMode(has ? "choose" : "draw")
       }
     } catch {
       toast.error("Failed to load document")
@@ -95,14 +85,37 @@ export default function DocxSignSignPage() {
     if (sessionStatus === "authenticated") void load()
   }, [sessionStatus, load, router])
 
-  const useSavedSignature = () => {
-    if (!savedSignature) {
-      toast.error("No saved signature found")
-      return
+  const useSavedSignature = async () => {
+    setSaving(true)
+    try {
+      let sig = savedSignature
+      if (!sig) {
+        const res = await fetch("/api/docx-sign/my-signature", {
+          credentials: "include",
+          cache: "no-store",
+        })
+        if (!res.ok) throw new Error("sig")
+        const sj = await res.json()
+        sig =
+          typeof sj.signatureData === "string" && sj.signatureData.startsWith("data:image/png")
+            ? sj.signatureData
+            : null
+        setSavedSignature(sig)
+        setHasSavedSignature(Boolean(sj.hasSignature && sig))
+      }
+      if (!sig) {
+        toast.error("No saved signature found")
+        setSigMode("draw")
+        return
+      }
+      setSignature(sig)
+      setSigMode("saved")
+      toast.success("Using your saved signature")
+    } catch {
+      toast.error("Could not load saved signature")
+    } finally {
+      setSaving(false)
     }
-    setSignature(savedSignature)
-    setSigMode("saved")
-    toast.success("Using your saved signature")
   }
 
   const startNewSignature = () => {

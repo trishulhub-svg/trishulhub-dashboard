@@ -22,7 +22,7 @@ function getErrMsg(err: unknown): string {
 
 // Bump when adding CRITICAL_COLUMNS / CRITICAL_TABLES so warm serverless
 // instances re-run migrations after deploy (stale syncDone otherwise skips ALTERs).
-const SCHEMA_REVISION = 202607304
+const SCHEMA_REVISION = 202607305
 
 // Use globalThis to persist the syncDone flag across hot reloads in dev
 // and across serverless function warm invocations in production.
@@ -1354,6 +1354,27 @@ export async function ensureAllTables(): Promise<void> {
     } catch (err: unknown) {
       if (!getErrMsg(err)?.includes("already exists")) {
         console.warn(`[auto-migrate] DocxAssignment_documentId_status_idx: ${getErrMsg(err)}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "DocxAssignment_documentId_createdAt_idx" ON "DocxAssignment"("documentId", "createdAt")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes("already exists")) {
+        console.warn(`[auto-migrate] DocxAssignment_documentId_createdAt_idx: ${getErrMsg(err)}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "DocxAssignment_userId_createdAt_idx" ON "DocxAssignment"("userId", "createdAt")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes("already exists")) {
+        console.warn(`[auto-migrate] DocxAssignment_userId_createdAt_idx: ${getErrMsg(err)}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "DocxAssignment_userId_status_createdAt_idx" ON "DocxAssignment"("userId", "status", "createdAt")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes("already exists")) {
+        console.warn(`[auto-migrate] DocxAssignment_userId_status_createdAt_idx: ${getErrMsg(err)}`)
       }
     }
 

@@ -35,36 +35,74 @@ export async function GET() {
     }
 
     await ensureCriticalSchema()
-    const docs = await db.docxDocument.findMany({
-      where: { isActive: true },
-      orderBy: { createdAt: "desc" },
-      take: 50,
-      select: {
-        id: true,
-        title: true,
-        fileName: true,
-        createdAt: true,
-        uploadedBy: { select: { id: true, name: true } },
-        assignments: {
-          select: {
-            id: true,
-            userId: true,
-            status: true,
-            signedAt: true,
-            resignNote: true,
-            createdAt: true,
-            authorizedPersonName: true,
-            signerIp: true,
-            signerCountry: true,
-            user: { select: { id: true, name: true, email: true } },
-            assignedBy: { select: { id: true, name: true } },
-          },
-          orderBy: { createdAt: "desc" },
+    const [docs, statusCounts] = await Promise.all([
+      db.docxDocument.findMany({
+        where: { isActive: true },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+        select: {
+          id: true,
+          title: true,
+          fileName: true,
+          createdAt: true,
+          uploadedBy: { select: { name: true } },
+          _count: { select: { assignments: true } },
         },
-      },
-    })
+      }),
+      db.$queryRawUnsafe<
+        Array<{ documentId: string; status: string; cnt: number | bigint }>
+      >(
+        `SELECT a."documentId" as documentId, a."status" as status, COUNT(*) as cnt
+         FROM "DocxAssignment" a
+         INNER JOIN "DocxDocument" d ON d."id" = a."documentId"
+         WHERE d."isActive" = 1
+         GROUP BY a."documentId", a."status"`
+      ),
+    ])
 
-    return NextResponse.json({ documents: docs })
+    const countsByDoc = new Map<
+      string,
+      { pending: number; signed: number; resign: number; total: number }
+    >()
+    for (const row of statusCounts) {
+      const cur = countsByDoc.get(row.documentId) || {
+        pending: 0,
+        signed: 0,
+        resign: 0,
+        total: 0,
+      }
+      const n = Number(row.cnt) || 0
+      cur.total += n
+      if (row.status === "PENDING") cur.pending += n
+      else if (row.status === "SIGNED") cur.signed += n
+      else if (row.status === "RESIGN_REQUESTED") cur.resign += n
+      countsByDoc.set(row.documentId, cur)
+    }
+
+    return NextResponse.json({
+      documents: docs.map((d) => {
+        const c = countsByDoc.get(d.id) || {
+          pending: 0,
+          signed: 0,
+          resign: 0,
+          total: d._count.assignments,
+        }
+        return {
+          id: d.id,
+          title: d.title,
+          fileName: d.fileName,
+          createdAt: d.createdAt,
+          uploadedBy: d.uploadedBy,
+          assignmentCount: c.total || d._count.assignments,
+          statusCounts: {
+            pending: c.pending,
+            signed: c.signed,
+            resign: c.resign,
+          },
+          assignments: [],
+        }
+      }),
+    })
   } catch (e) {
     console.error("[docx-sign/documents GET]", e)
     return NextResponse.json({ error: "Failed to load documents" }, { status: 500 })

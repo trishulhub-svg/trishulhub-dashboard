@@ -1,6 +1,7 @@
 /**
  * GET /api/docx-sign/assignments/[id]/file?kind=source|signed
  * Returns PDF bytes for viewing / download (authz: owner or admin).
+ * Loads only the PDF column needed for the requested kind.
  */
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
@@ -23,12 +24,27 @@ export async function GET(
     const kind = new URL(req.url).searchParams.get("kind") || "source"
     const download = new URL(req.url).searchParams.get("download") === "1"
 
-    const row = await db.docxAssignment.findUnique({
-      where: { id },
-      include: {
-        document: { select: { title: true, fileName: true, fileData: true } },
-      },
-    })
+    // Branch selects so we never load both source + signed PDF blobs
+    const row =
+      kind === "signed"
+        ? await db.docxAssignment.findUnique({
+            where: { id },
+            select: {
+              id: true,
+              userId: true,
+              signedFileData: true,
+              document: { select: { title: true, fileName: true } },
+            },
+          })
+        : await db.docxAssignment.findUnique({
+            where: { id },
+            select: {
+              id: true,
+              userId: true,
+              document: { select: { title: true, fileName: true, fileData: true } },
+            },
+          })
+
     if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
     const isAdmin = isAdminDocxRole(session.user.role)
@@ -38,8 +54,9 @@ export async function GET(
 
     const raw =
       kind === "signed"
-        ? row.signedFileData
-        : row.document.fileData
+        ? (row as { signedFileData?: string | null }).signedFileData
+        : (row.document as { fileData?: string }).fileData
+
     if (!raw) {
       return NextResponse.json(
         { error: kind === "signed" ? "Signed PDF not available yet" : "Source PDF missing" },

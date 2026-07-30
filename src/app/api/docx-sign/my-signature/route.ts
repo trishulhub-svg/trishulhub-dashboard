@@ -16,12 +16,32 @@ const putSchema = z.object({
   signatureData: z.string().min(32),
 })
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     await ensureCriticalSchema()
+    const metaOnly = new URL(req.url).searchParams.get("meta") === "1"
+
+    if (metaOnly) {
+      const rows = await db.$queryRaw<Array<{ hasSig: number | bigint; name: string | null }>>`
+        SELECT name as name,
+          CASE
+            WHEN "docxAcceptorSignature" IS NOT NULL AND length("docxAcceptorSignature") > 10 THEN 1
+            ELSE 0
+          END as hasSig
+        FROM "User"
+        WHERE id = ${session.user.id}
+        LIMIT 1
+      `
+      return NextResponse.json({
+        hasSignature: Number(rows[0]?.hasSig || 0) === 1,
+        signatureData: null,
+        name: rows[0]?.name || session.user.name || null,
+      })
+    }
+
     const user = await db.user.findUnique({
       where: { id: session.user.id },
       select: { docxAcceptorSignature: true, name: true },

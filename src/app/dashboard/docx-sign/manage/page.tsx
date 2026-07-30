@@ -1,10 +1,10 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import {
-  FilePenLine, Loader2, Plus, Download, RefreshCw, Users, Upload, Trash2, UserMinus, UserPlus, Save, PenLine,
+  FilePenLine, Loader2, Plus, Download, RefreshCw, Users, Upload, Trash2, UserMinus, UserPlus, Save, PenLine, ChevronDown,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -26,7 +26,7 @@ type Assignment = {
   status: string
   signedAt: string | null
   resignNote: string | null
-  createdAt: string
+  createdAt?: string
   authorizedPersonName?: string | null
   signerIp?: string | null
   signerCountry?: string | null
@@ -38,8 +38,11 @@ type DocumentRow = {
   title: string
   fileName: string
   createdAt: string
-  uploadedBy: { id: string; name: string }
+  uploadedBy: { id?: string; name: string }
+  assignmentCount?: number
+  statusCounts?: { pending: number; signed: number; resign: number }
   assignments: Assignment[]
+  assignmentsLoaded?: boolean
 }
 
 type MyAssignment = {
@@ -90,6 +93,10 @@ export default function DocxSignManagePage() {
   const [myAssignments, setMyAssignments] = useState<MyAssignment[]>([])
   const [authSigExpanded, setAuthSigExpanded] = useState(false)
   const [authSigLoading, setAuthSigLoading] = useState(false)
+  const [expandedDocIds, setExpandedDocIds] = useState<Set<string>>(new Set())
+  const [loadingDocIds, setLoadingDocIds] = useState<Set<string>>(new Set())
+  const [teamLoading, setTeamLoading] = useState(false)
+  const teamLoadedRef = useRef(false)
 
   useEffect(() => {
     if (status === "loading") return
@@ -118,6 +125,86 @@ export default function DocxSignManagePage() {
     }
   }, [])
 
+  const loadTeam = useCallback(async () => {
+    if (teamLoadedRef.current || teamLoading) return
+    setTeamLoading(true)
+    try {
+      const res = await fetch("/api/team?type=users", {
+        credentials: "include",
+        cache: "no-store",
+      })
+      if (!res.ok) return
+      const j = await res.json()
+      const users = Array.isArray(j) ? j : j.users || j.team || []
+      setTeam(
+        users
+          .filter((u: TeamUser) => u?.id && u.isActive !== false)
+          .map((u: TeamUser) => ({
+            id: u.id,
+            name: u.name,
+            email: u.email,
+            isActive: u.isActive,
+            role: u.role,
+          }))
+      )
+      teamLoadedRef.current = true
+    } catch {
+      /* ignore */
+    } finally {
+      setTeamLoading(false)
+    }
+  }, [teamLoading])
+
+  const loadDocAssignments = useCallback(async (docId: string) => {
+    setLoadingDocIds((prev) => new Set(prev).add(docId))
+    try {
+      const res = await fetch(
+        `/api/docx-sign/assignments?documentId=${encodeURIComponent(docId)}`,
+        { credentials: "include", cache: "no-store" }
+      )
+      if (!res.ok) {
+        toast.error("Failed to load assignees")
+        return
+      }
+      const j = await res.json()
+      const assignments = Array.isArray(j.assignments) ? j.assignments : []
+      setDocs((prev) =>
+        prev.map((d) =>
+          d.id === docId
+            ? {
+                ...d,
+                assignments,
+                assignmentCount: assignments.length,
+                assignmentsLoaded: true,
+              }
+            : d
+        )
+      )
+    } catch {
+      toast.error("Failed to load assignees")
+    } finally {
+      setLoadingDocIds((prev) => {
+        const next = new Set(prev)
+        next.delete(docId)
+        return next
+      })
+    }
+  }, [])
+
+  const toggleDocExpand = useCallback(
+    (docId: string) => {
+      setExpandedDocIds((prev) => {
+        const next = new Set(prev)
+        if (next.has(docId)) next.delete(docId)
+        else next.add(docId)
+        return next
+      })
+      const doc = docs.find((d) => d.id === docId)
+      if (doc && !doc.assignmentsLoaded) void loadDocAssignments(docId)
+    },
+    [docs, loadDocAssignments]
+  )
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
@@ -126,10 +213,8 @@ export default function DocxSignManagePage() {
         cache: "no-store",
       })
       if (!res.ok) {
-        // Fallback: parallel lean fetches if bootstrap unavailable
-        const [dRes, tRes, mineRes, sigRes] = await Promise.all([
+        const [dRes, mineRes, sigRes] = await Promise.all([
           fetch("/api/docx-sign/documents", { credentials: "include", cache: "no-store" }),
-          fetch("/api/team?type=users", { credentials: "include", cache: "no-store" }),
           fetch("/api/docx-sign/assignments?mine=1", { credentials: "include", cache: "no-store" }),
           fetch("/api/docx-sign/authorized-signature?meta=1", {
             credentials: "include",
@@ -138,21 +223,14 @@ export default function DocxSignManagePage() {
         ])
         if (dRes.ok) {
           const j = await dRes.json()
-          setDocs(Array.isArray(j.documents) ? j.documents : [])
-        }
-        if (tRes.ok) {
-          const j = await tRes.json()
-          const users = Array.isArray(j) ? j : j.users || j.team || []
-          setTeam(
-            users
-              .filter((u: TeamUser) => u?.id && u.isActive !== false)
-              .map((u: TeamUser) => ({
-                id: u.id,
-                name: u.name,
-                email: u.email,
-                isActive: u.isActive,
-                role: u.role,
-              }))
+          const documents = Array.isArray(j.documents) ? j.documents : []
+          setDocs(
+            documents.map((d: DocumentRow) => ({
+              ...d,
+              assignmentCount: d.assignments?.length || 0,
+              assignmentsLoaded: Array.isArray(d.assignments) && d.assignments.length > 0,
+              assignments: d.assignments || [],
+            }))
           )
         }
         if (mineRes.ok) {
@@ -163,25 +241,23 @@ export default function DocxSignManagePage() {
           const j = await sigRes.json()
           setHasAuthSig(Boolean(j.hasSignature))
         }
+        void loadTeam()
         return
       }
 
       const j = await res.json()
-      setDocs(Array.isArray(j.documents) ? j.documents : [])
-      setMyAssignments(Array.isArray(j.myAssignments) ? j.myAssignments : [])
-      setTeam(
-        (Array.isArray(j.assignableUsers) ? j.assignableUsers : [])
-          .filter((u: TeamUser) => u?.id && u.isActive !== false)
-          .map((u: TeamUser) => ({
-            id: u.id,
-            name: u.name,
-            email: u.email,
-            isActive: u.isActive,
-            role: u.role,
-          }))
+      const documents = Array.isArray(j.documents) ? j.documents : []
+      setDocs(
+        documents.map((d: DocumentRow) => ({
+          ...d,
+          assignments: [],
+          assignmentsLoaded: false,
+          assignmentCount: d.assignmentCount ?? 0,
+        }))
       )
+      setMyAssignments(Array.isArray(j.myAssignments) ? j.myAssignments : [])
+      setExpandedDocIds(new Set())
       setHasAuthSig(Boolean(j.authorizedSignature?.hasSignature))
-      // Keep existing drawn pad if user is mid-edit; otherwise leave null until expanded
       if (!j.authorizedSignature?.hasSignature) {
         setAuthSig(null)
         setAuthSigExpanded(true)
@@ -191,7 +267,7 @@ export default function DocxSignManagePage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [loadTeam])
 
   useEffect(() => {
     if (isAdmin) void load()
@@ -327,9 +403,27 @@ export default function DocxSignManagePage() {
         return
       }
       toast.success("Re-sign requested")
+      const targetId = resignId
+      const note = resignNote.trim() || null
       setResignId(null)
       setResignNote("")
-      void load()
+      setDocs((prev) =>
+        prev.map((d) => ({
+          ...d,
+          assignments: d.assignments.map((a) =>
+            a.id === targetId
+              ? { ...a, status: "RESIGN_REQUESTED", resignNote: note, signedAt: null }
+              : a
+          ),
+          statusCounts: d.assignments.some((a) => a.id === targetId)
+            ? {
+                pending: d.statusCounts?.pending || 0,
+                signed: Math.max(0, (d.statusCounts?.signed || 1) - 1),
+                resign: (d.statusCounts?.resign || 0) + 1,
+              }
+            : d.statusCounts,
+        }))
+      )
     } catch {
       toast.error("Failed")
     } finally {
@@ -355,7 +449,22 @@ export default function DocxSignManagePage() {
         return
       }
       toast.success("Assignment revoked")
-      void load()
+      setDocs((prev) =>
+        prev.map((d) => {
+          const nextAssignments = d.assignments.filter((a) => a.id !== assignmentId)
+          if (nextAssignments.length === d.assignments.length && !d.assignmentsLoaded) {
+            return {
+              ...d,
+              assignmentCount: Math.max(0, (d.assignmentCount || 1) - 1),
+            }
+          }
+          return {
+            ...d,
+            assignments: nextAssignments,
+            assignmentCount: nextAssignments.length,
+          }
+        })
+      )
     } catch {
       toast.error("Failed to revoke")
     } finally {
@@ -383,7 +492,12 @@ export default function DocxSignManagePage() {
         return
       }
       toast.success("Document deleted")
-      void load()
+      setDocs((prev) => prev.filter((d) => d.id !== docId))
+      setExpandedDocIds((prev) => {
+        const next = new Set(prev)
+        next.delete(docId)
+        return next
+      })
     } catch {
       toast.error("Failed to delete")
     } finally {
@@ -398,6 +512,8 @@ export default function DocxSignManagePage() {
     }
     setAssignDocId(doc.id)
     setAssignSelected([])
+    void loadTeam()
+    if (!doc.assignmentsLoaded) void loadDocAssignments(doc.id)
   }
 
   const submitAssignMore = async () => {
@@ -423,9 +539,11 @@ export default function DocxSignManagePage() {
         return
       }
       toast.success(`Assigned to ${j?.assigned || assignSelected.length} user(s)`)
+      const docId = assignDocId
       setAssignDocId(null)
       setAssignSelected([])
-      void load()
+      setExpandedDocIds((prev) => new Set(prev).add(docId))
+      await loadDocAssignments(docId)
     } catch {
       toast.error("Failed to assign")
     } finally {
@@ -446,6 +564,12 @@ export default function DocxSignManagePage() {
     let signed = 0
     let resign = 0
     for (const d of docs) {
+      if (d.statusCounts) {
+        pending += d.statusCounts.pending || 0
+        signed += d.statusCounts.signed || 0
+        resign += d.statusCounts.resign || 0
+        continue
+      }
       for (const a of d.assignments) {
         if (a.status === "SIGNED") signed++
         else if (a.status === "RESIGN_REQUESTED") resign++
@@ -511,6 +635,7 @@ export default function DocxSignManagePage() {
                   toast.error("Save your Authorized Person signature below first")
                   return
                 }
+                void loadTeam()
                 setOpenUpload(true)
               }}
             >
@@ -649,21 +774,39 @@ export default function DocxSignManagePage() {
           <p className="text-xs text-muted-foreground mt-1">Upload a PDF and select users to start e-signing.</p>
         </div>
       ) : (
-        <div className="space-y-4">
-          {docs.map((doc) => (
+        <div className="space-y-3">
+          {docs.map((doc) => {
+            const expanded = expandedDocIds.has(doc.id)
+            const loadingAssignees = loadingDocIds.has(doc.id)
+            const count = doc.assignmentCount ?? doc.assignments.length
+            return (
             <div key={doc.id} className="rounded-xl border border-border bg-card overflow-hidden">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-4 py-3 border-b border-border/60">
-                <div className="min-w-0">
-                  <h2 className="text-sm font-semibold truncate">{safeText(doc.title)}</h2>
-                  <p className="text-[11px] text-muted-foreground truncate">
-                    {safeText(doc.fileName)} · uploaded by {safeText(doc.uploadedBy?.name)} ·{" "}
-                    {new Date(doc.createdAt).toLocaleString()}
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-4 py-3">
+                <button
+                  type="button"
+                  className="min-w-0 text-left flex-1"
+                  onClick={() => toggleDocExpand(doc.id)}
+                >
+                  <div className="flex items-center gap-2">
+                    <ChevronDown
+                      className={cn(
+                        "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+                        expanded && "rotate-180"
+                      )}
+                    />
+                    <div className="min-w-0">
+                      <h2 className="text-sm font-semibold truncate">{safeText(doc.title)}</h2>
+                      <p className="text-[11px] text-muted-foreground truncate">
+                        {safeText(doc.fileName)} · uploaded by {safeText(doc.uploadedBy?.name)} ·{" "}
+                        {new Date(doc.createdAt).toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                </button>
+                <div className="flex flex-wrap items-center gap-2 sm:pl-6">
                   <Badge variant="secondary" className="w-fit text-[10px]">
                     <Users className="h-3 w-3 mr-1" />
-                    {doc.assignments.length} assignee{doc.assignments.length === 1 ? "" : "s"}
+                    {count} assignee{count === 1 ? "" : "s"}
                   </Badge>
                   <Button
                     size="sm"
@@ -690,8 +833,13 @@ export default function DocxSignManagePage() {
                   </Button>
                 </div>
               </div>
-              <div className="divide-y divide-border/50">
-                {doc.assignments.length === 0 ? (
+              {expanded && (
+              <div className="divide-y divide-border/50 border-t border-border/60">
+                {loadingAssignees ? (
+                  <p className="px-4 py-3 text-xs text-muted-foreground flex items-center gap-2">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading assignees…
+                  </p>
+                ) : doc.assignments.length === 0 ? (
                   <p className="px-4 py-3 text-xs text-muted-foreground">
                     No assignees — use Assign more to share this document again.
                   </p>
@@ -767,8 +915,10 @@ export default function DocxSignManagePage() {
                   ))
                 )}
               </div>
+              )}
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
@@ -799,7 +949,12 @@ export default function DocxSignManagePage() {
               <Label className="text-xs">Assign to users *</Label>
               <ScrollArea className="h-40 rounded-lg border p-2">
                 <div className="flex flex-wrap gap-1.5">
-                  {selectableTeam.map((u) => {
+                  {teamLoading && selectableTeam.length === 0 ? (
+                    <p className="text-xs text-muted-foreground flex items-center gap-2 p-1">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading team…
+                    </p>
+                  ) : (
+                    selectableTeam.map((u) => {
                     const on = selected.includes(u.id)
                     return (
                       <button
@@ -809,14 +964,15 @@ export default function DocxSignManagePage() {
                         className={cn(
                           "text-[10px] px-2 py-1 rounded-full border transition-colors",
                           on
-                            ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-800 dark:text-emerald-300"
+                            ? "bg-primary/15 border-primary/40 text-primary"
                             : "bg-muted/40 border-transparent text-muted-foreground"
                         )}
                       >
                         {safeText(u.name)}
                       </button>
                     )
-                  })}
+                  })
+                  )}
                 </div>
               </ScrollArea>
               <p className="text-[10px] text-muted-foreground">

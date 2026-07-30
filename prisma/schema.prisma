@@ -121,6 +121,9 @@ model DocxAssignment {
   @@index([userId, status])
   @@index([documentId, status])
   @@index([status, createdAt])
+  @@index([documentId, createdAt])
+  @@index([userId, createdAt])
+  @@index([userId, status, createdAt])
   @@map("DocxAssignment")
 }
 

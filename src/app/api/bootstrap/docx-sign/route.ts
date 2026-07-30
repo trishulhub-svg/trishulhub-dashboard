@@ -1,13 +1,14 @@
 /**
  * GET /api/bootstrap/docx-sign
- * Manage page: documents + my assignments + assignable users + auth-sig meta.
- * One session check; lean fields (no PDF/signature blobs).
+ * Manage page: document summaries + pending mine + auth-sig meta.
+ * Assignees and full team list load on demand (expand / upload dialog).
  */
 import { NextRequest, NextResponse } from "next/server"
 import { requireBootstrapSession } from "@/lib/api-bootstrap"
 import { db } from "@/lib/db"
 import { ensureCriticalSchema } from "@/lib/auto-migrate"
 import { isAdminDocxRole } from "@/lib/docx-sign"
+import { listMyAssignmentsLean } from "@/lib/docx-sign-lean"
 
 async function hasAuthorizedSignature(userId: string): Promise<{
   hasSignature: boolean
@@ -42,7 +43,7 @@ export async function GET(req: NextRequest) {
     await ensureCriticalSchema()
     const userId = auth.session.user.id
 
-    const [documents, myAssignments, assignableUsers, sigMeta] = await Promise.all([
+    const [documents, myPending, statusCounts, sigMeta] = await Promise.all([
       db.docxDocument.findMany({
         where: { isActive: true },
         orderBy: { createdAt: "desc" },
@@ -52,68 +53,72 @@ export async function GET(req: NextRequest) {
           title: true,
           fileName: true,
           createdAt: true,
-          uploadedBy: { select: { id: true, name: true } },
-          assignments: {
-            select: {
-              id: true,
-              userId: true,
-              status: true,
-              signedAt: true,
-              resignNote: true,
-              createdAt: true,
-              authorizedPersonName: true,
-              signerIp: true,
-              signerCountry: true,
-              user: { select: { id: true, name: true, email: true } },
-              assignedBy: { select: { id: true, name: true } },
-            },
-            orderBy: { createdAt: "desc" },
-          },
+          uploadedBy: { select: { name: true } },
+          _count: { select: { assignments: true } },
         },
       }),
-      db.docxAssignment.findMany({
-        where: {
-          userId,
-          document: { isActive: true },
-        },
-        orderBy: { createdAt: "desc" },
-        take: 50,
-        select: {
-          id: true,
-          status: true,
-          signedAt: true,
-          resignNote: true,
-          createdAt: true,
-          authorizedPersonName: true,
-          document: {
-            select: { id: true, title: true, fileName: true },
-          },
-          assignedBy: { select: { id: true, name: true } },
-        },
+      listMyAssignmentsLean(userId, {
+        take: 20,
+        statuses: ["PENDING", "RESIGN_REQUESTED"],
       }),
-      db.user.findMany({
-        where: { role: { not: "CLIENT" }, isActive: true },
-        select: { id: true, name: true, email: true, role: true, isActive: true },
-        orderBy: { name: "asc" },
-        take: 100,
-      }),
+      db.$queryRawUnsafe<
+        Array<{ documentId: string; status: string; cnt: number | bigint }>
+      >(
+        `SELECT a."documentId" as documentId, a."status" as status, COUNT(*) as cnt
+         FROM "DocxAssignment" a
+         INNER JOIN "DocxDocument" d ON d."id" = a."documentId"
+         WHERE d."isActive" = 1
+         GROUP BY a."documentId", a."status"`
+      ),
       hasAuthorizedSignature(userId),
     ])
 
+    const countsByDoc = new Map<
+      string,
+      { pending: number; signed: number; resign: number; total: number }
+    >()
+    for (const row of statusCounts) {
+      const cur = countsByDoc.get(row.documentId) || {
+        pending: 0,
+        signed: 0,
+        resign: 0,
+        total: 0,
+      }
+      const n = Number(row.cnt) || 0
+      cur.total += n
+      if (row.status === "PENDING") cur.pending += n
+      else if (row.status === "SIGNED") cur.signed += n
+      else if (row.status === "RESIGN_REQUESTED") cur.resign += n
+      countsByDoc.set(row.documentId, cur)
+    }
+
     return NextResponse.json({
-      documents,
-      myAssignments: myAssignments.map((r) => ({
-        id: r.id,
-        status: r.status,
-        signedAt: r.signedAt,
-        resignNote: r.resignNote,
-        hasSignedPdf: r.status === "SIGNED",
-        authorizedPersonName: r.authorizedPersonName || r.assignedBy.name,
-        createdAt: r.createdAt,
-        document: r.document,
-        assignedBy: r.assignedBy,
-      })),
-      assignableUsers,
+      documents: documents.map((d) => {
+        const c = countsByDoc.get(d.id) || {
+          pending: 0,
+          signed: 0,
+          resign: 0,
+          total: d._count.assignments,
+        }
+        return {
+          id: d.id,
+          title: d.title,
+          fileName: d.fileName,
+          createdAt: d.createdAt,
+          uploadedBy: d.uploadedBy,
+          assignmentCount: c.total || d._count.assignments,
+          statusCounts: {
+            pending: c.pending,
+            signed: c.signed,
+            resign: c.resign,
+          },
+          // Lazy-loaded on expand — keep empty for fast first paint
+          assignments: [] as unknown[],
+        }
+      }),
+      myAssignments: myPending,
+      // Team picker loads when upload/assign dialog opens
+      assignableUsers: [] as unknown[],
       authorizedSignature: {
         hasSignature: sigMeta.hasSignature,
         authorizedPersonName: sigMeta.name || auth.session.user.name || null,
