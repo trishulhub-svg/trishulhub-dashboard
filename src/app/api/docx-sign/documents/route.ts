@@ -166,3 +166,66 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Failed to upload document" }, { status: 500 })
   }
 }
+
+/** Soft-delete document (isActive=false) and remove all assignments so it can be replaced. */
+export async function DELETE(req: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    if (!isAdminDocxRole(session.user.role)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
+
+    const id = new URL(req.url).searchParams.get("id")
+    if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 })
+
+    await ensureCriticalSchema()
+    const existing = await db.docxDocument.findFirst({
+      where: { id, isActive: true },
+      select: { id: true, title: true },
+    })
+    if (!existing) return NextResponse.json({ error: "Document not found" }, { status: 404 })
+
+    const assignees = await db.docxAssignment.findMany({
+      where: { documentId: id },
+      select: { userId: true },
+    })
+    await db.docxAssignment.deleteMany({ where: { documentId: id } })
+    await db.docxDocument.update({
+      where: { id },
+      data: { isActive: false },
+    })
+
+    const userIds = [...new Set(assignees.map((a) => a.userId))]
+    if (userIds.length > 0) {
+      void notifyUsers({
+        userIds,
+        title: "Document removed",
+        message: `"${existing.title}" was removed by an admin.`,
+        type: "WARNING",
+        link: "/dashboard/docx-sign/my",
+        metadata: { kind: "docx_sign_deleted", documentId: id },
+      })
+    }
+
+    void logAudit({
+      userId: session.user.id,
+      userName: session.user.name || "unknown",
+      userRole: session.user.role,
+      department: "HR_PEOPLE",
+      page: "docx-sign",
+      action: "DELETE",
+      entityType: "DocxDocument",
+      entityId: id,
+      description: `Deleted document "${existing.title}" (${userIds.length} assignment${userIds.length === 1 ? "" : "s"} cleared)`,
+      oldValue: JSON.stringify({ title: existing.title, assigneeCount: userIds.length }),
+      ipAddress: getIpAddress(req),
+      userAgent: getUserAgent(req),
+    })
+
+    return NextResponse.json({ success: true })
+  } catch (e) {
+    console.error("[docx-sign/documents DELETE]", e)
+    return NextResponse.json({ error: "Failed to delete document" }, { status: 500 })
+  }
+}

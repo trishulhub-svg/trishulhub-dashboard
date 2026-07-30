@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import {
-  FilePenLine, Loader2, Plus, Download, RefreshCw, Users, Upload,
+  FilePenLine, Loader2, Plus, Download, RefreshCw, Users, Upload, Trash2, UserMinus, UserPlus,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -62,6 +62,11 @@ export default function DocxSignManagePage() {
   const [resignId, setResignId] = useState<string | null>(null)
   const [resignNote, setResignNote] = useState("")
   const [resigning, setResigning] = useState(false)
+  const [revokingId, setRevokingId] = useState<string | null>(null)
+  const [deletingDocId, setDeletingDocId] = useState<string | null>(null)
+  const [assignDocId, setAssignDocId] = useState<string | null>(null)
+  const [assignSelected, setAssignSelected] = useState<string[]>([])
+  const [assigning, setAssigning] = useState(false)
 
   useEffect(() => {
     if (status === "loading") return
@@ -199,6 +204,101 @@ export default function DocxSignManagePage() {
     }
   }
 
+  const revokeAssignment = async (assignmentId: string, userName: string) => {
+    if (!window.confirm(`Revoke signing request for ${userName}? They will no longer see this document. You can assign someone else afterward.`)) {
+      return
+    }
+    setRevokingId(assignmentId)
+    try {
+      const res = await fetch("/api/docx-sign/assignments", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: assignmentId, action: "revoke" }),
+      })
+      const j = await res.json().catch(() => null)
+      if (!res.ok) {
+        toast.error(j?.error || "Failed to revoke")
+        return
+      }
+      toast.success("Assignment revoked")
+      void load()
+    } catch {
+      toast.error("Failed to revoke")
+    } finally {
+      setRevokingId(null)
+    }
+  }
+
+  const deleteDocument = async (docId: string, docTitle: string) => {
+    if (
+      !window.confirm(
+        `Delete "${docTitle}"? All assignments will be cleared. You can upload and assign again afterward.`
+      )
+    ) {
+      return
+    }
+    setDeletingDocId(docId)
+    try {
+      const res = await fetch(`/api/docx-sign/documents?id=${encodeURIComponent(docId)}`, {
+        method: "DELETE",
+        credentials: "include",
+      })
+      const j = await res.json().catch(() => null)
+      if (!res.ok) {
+        toast.error(j?.error || "Failed to delete")
+        return
+      }
+      toast.success("Document deleted")
+      void load()
+    } catch {
+      toast.error("Failed to delete")
+    } finally {
+      setDeletingDocId(null)
+    }
+  }
+
+  const openAssignMore = (doc: DocumentRow) => {
+    setAssignDocId(doc.id)
+    setAssignSelected([])
+  }
+
+  const submitAssignMore = async () => {
+    if (!assignDocId || assignSelected.length === 0) {
+      toast.error("Select at least one user")
+      return
+    }
+    setAssigning(true)
+    try {
+      const res = await fetch("/api/docx-sign/assignments", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ documentId: assignDocId, userIds: assignSelected }),
+      })
+      const j = await res.json().catch(() => null)
+      if (!res.ok) {
+        toast.error(j?.error || "Failed to assign")
+        return
+      }
+      toast.success(`Assigned to ${j?.assigned || assignSelected.length} user(s)`)
+      setAssignDocId(null)
+      setAssignSelected([])
+      void load()
+    } catch {
+      toast.error("Failed to assign")
+    } finally {
+      setAssigning(false)
+    }
+  }
+
+  const assignDoc = docs.find((d) => d.id === assignDocId) || null
+  const assignableUsers = useMemo(() => {
+    if (!assignDoc) return team
+    const taken = new Set(assignDoc.assignments.map((a) => a.userId))
+    return team.filter((u) => !taken.has(u.id))
+  }, [assignDoc, team])
+
   const stats = useMemo(() => {
     let pending = 0
     let signed = 0
@@ -282,13 +382,43 @@ export default function DocxSignManagePage() {
                     {new Date(doc.createdAt).toLocaleString()}
                   </p>
                 </div>
-                <Badge variant="secondary" className="w-fit text-[10px]">
-                  <Users className="h-3 w-3 mr-1" />
-                  {doc.assignments.length} assignee{doc.assignments.length === 1 ? "" : "s"}
-                </Badge>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="secondary" className="w-fit text-[10px]">
+                    <Users className="h-3 w-3 mr-1" />
+                    {doc.assignments.length} assignee{doc.assignments.length === 1 ? "" : "s"}
+                  </Badge>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-[10px] gap-1"
+                    onClick={() => openAssignMore(doc)}
+                  >
+                    <UserPlus className="h-3 w-3" />
+                    Assign more
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-[10px] gap-1 text-destructive hover:text-destructive"
+                    disabled={deletingDocId === doc.id}
+                    onClick={() => void deleteDocument(doc.id, doc.title)}
+                  >
+                    {deletingDocId === doc.id ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-3 w-3" />
+                    )}
+                    Delete
+                  </Button>
+                </div>
               </div>
               <div className="divide-y divide-border/50">
-                {doc.assignments.map((a) => (
+                {doc.assignments.length === 0 ? (
+                  <p className="px-4 py-3 text-xs text-muted-foreground">
+                    No assignees — use Assign more to share this document again.
+                  </p>
+                ) : (
+                  doc.assignments.map((a) => (
                   <div key={a.id} className="flex flex-col sm:flex-row sm:items-center gap-2 px-4 py-3">
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium truncate">{safeText(a.user?.name)}</p>
@@ -337,9 +467,24 @@ export default function DocxSignManagePage() {
                           </Button>
                         </>
                       )}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs gap-1 text-destructive hover:text-destructive"
+                        disabled={revokingId === a.id}
+                        onClick={() => void revokeAssignment(a.id, a.user?.name || "user")}
+                      >
+                        {revokingId === a.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <UserMinus className="h-3.5 w-3.5" />
+                        )}
+                        Revoke
+                      </Button>
                     </div>
                   </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
           ))}
@@ -426,6 +571,81 @@ export default function DocxSignManagePage() {
             <Button onClick={() => void requestResign()} disabled={resigning}>
               {resigning && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
               Request re-sign
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!assignDocId}
+        onOpenChange={(o) => {
+          if (!o) {
+            setAssignDocId(null)
+            setAssignSelected([])
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Assign more people</DialogTitle>
+            <DialogDescription className="text-xs">
+              Add staff to &ldquo;{safeText(assignDoc?.title || "")}&rdquo;. Already assigned people are hidden.
+              Revoke someone first if you need to reassign them.
+            </DialogDescription>
+          </DialogHeader>
+          <ScrollArea className="h-48 rounded-lg border p-2">
+            {assignableUsers.length === 0 ? (
+              <p className="px-1 py-2 text-xs text-muted-foreground">
+                Everyone eligible is already assigned.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {assignableUsers.map((u) => {
+                  const on = assignSelected.includes(u.id)
+                  return (
+                    <button
+                      key={u.id}
+                      type="button"
+                      onClick={() =>
+                        setAssignSelected((prev) =>
+                          prev.includes(u.id) ? prev.filter((x) => x !== u.id) : [...prev, u.id]
+                        )
+                      }
+                      className={cn(
+                        "text-[10px] px-2 py-1 rounded-full border transition-colors",
+                        on
+                          ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-800 dark:text-emerald-300"
+                          : "bg-muted/40 border-transparent text-muted-foreground"
+                      )}
+                    >
+                      {safeText(u.name)}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </ScrollArea>
+          <p className="text-[10px] text-muted-foreground">{assignSelected.length} selected</p>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setAssignDocId(null)
+                setAssignSelected([])
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void submitAssignMore()}
+              disabled={assigning || assignSelected.length === 0}
+            >
+              {assigning ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-1" />
+              ) : (
+                <UserPlus className="h-4 w-4 mr-1" />
+              )}
+              Assign
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -21,9 +21,14 @@ import { z } from "zod"
 
 const patchSchema = z.object({
   id: z.string().min(1),
-  action: z.enum(["save_signature", "submit", "request_resign"]),
+  action: z.enum(["save_signature", "submit", "request_resign", "revoke"]),
   signatureData: z.string().optional(),
   resignNote: z.string().trim().max(500).optional().nullable(),
+})
+
+const assignMoreSchema = z.object({
+  documentId: z.string().min(1),
+  userIds: z.array(z.string().min(1)).min(1).max(100),
 })
 
 export async function GET(req: NextRequest) {
@@ -37,7 +42,10 @@ export async function GET(req: NextRequest) {
 
     if (mine || !isAdmin) {
       const rows = await db.docxAssignment.findMany({
-        where: { userId: session.user.id },
+        where: {
+          userId: session.user.id,
+          document: { isActive: true },
+        },
         orderBy: { createdAt: "desc" },
         take: 100,
         include: {
@@ -110,6 +118,78 @@ export async function PATCH(req: NextRequest) {
 
     await ensureCriticalSchema()
     const body = await req.json().catch(() => null)
+
+    // Admin: assign more users to an existing document
+    if (body && typeof body === "object" && "documentId" in body && Array.isArray(body.userIds)) {
+      if (!isAdminDocxRole(session.user.role)) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+      }
+      const parsedAssign = assignMoreSchema.safeParse(body)
+      if (!parsedAssign.success) {
+        return NextResponse.json(
+          { error: parsedAssign.error.issues[0]?.message || "Invalid request" },
+          { status: 400 }
+        )
+      }
+      const doc = await db.docxDocument.findFirst({
+        where: { id: parsedAssign.data.documentId, isActive: true },
+        select: { id: true, title: true },
+      })
+      if (!doc) return NextResponse.json({ error: "Document not found" }, { status: 404 })
+
+      const uniqueUserIds = [...new Set(parsedAssign.data.userIds)]
+      const users = await db.user.findMany({
+        where: { id: { in: uniqueUserIds }, isActive: true },
+        select: { id: true },
+      })
+      if (users.length !== uniqueUserIds.length) {
+        return NextResponse.json(
+          { error: "One or more selected users are invalid or inactive" },
+          { status: 400 }
+        )
+      }
+      const existing = await db.docxAssignment.findMany({
+        where: { documentId: doc.id, userId: { in: uniqueUserIds } },
+        select: { userId: true },
+      })
+      const already = new Set(existing.map((e) => e.userId))
+      const toAdd = uniqueUserIds.filter((id) => !already.has(id))
+      if (toAdd.length === 0) {
+        return NextResponse.json({ error: "All selected users are already assigned" }, { status: 400 })
+      }
+      await db.docxAssignment.createMany({
+        data: toAdd.map((userId) => ({
+          documentId: doc.id,
+          userId,
+          assignedById: session.user.id,
+          status: "PENDING",
+        })),
+      })
+      void notifyUsers({
+        userIds: toAdd,
+        title: "Document to sign",
+        message: `"${doc.title}" was shared with you for e-signature.`,
+        type: "TASK",
+        link: "/dashboard/docx-sign/my",
+        metadata: { kind: "docx_sign_assigned", documentId: doc.id },
+      })
+      void logAudit({
+        userId: session.user.id,
+        userName: session.user.name || "unknown",
+        userRole: session.user.role,
+        department: "HR_PEOPLE",
+        page: "docx-sign",
+        action: "ASSIGN",
+        entityType: "DocxDocument",
+        entityId: doc.id,
+        description: `Assigned "${doc.title}" to ${toAdd.length} more user${toAdd.length === 1 ? "" : "s"}`,
+        newValue: JSON.stringify({ userIds: toAdd }),
+        ipAddress: getIpAddress(req),
+        userAgent: getUserAgent(req),
+      })
+      return NextResponse.json({ assigned: toAdd.length, skipped: uniqueUserIds.length - toAdd.length })
+    }
+
     const parsed = patchSchema.safeParse(body)
     if (!parsed.success) {
       return NextResponse.json(
@@ -129,6 +209,40 @@ export async function PATCH(req: NextRequest) {
 
     const isAdmin = isAdminDocxRole(session.user.role)
     const isOwner = existing.userId === session.user.id
+
+    // Admin revoke — remove assignment so user can be reassigned later
+    if (parsed.data.action === "revoke") {
+      if (!isAdmin) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+      await db.docxAssignment.delete({ where: { id: existing.id } })
+      void notifyUsers({
+        userIds: existing.userId,
+        title: "Signing request revoked",
+        message: `Your assignment for "${existing.document.title}" was revoked by an admin.`,
+        type: "WARNING",
+        link: "/dashboard/docx-sign/my",
+        metadata: { kind: "docx_sign_revoked", documentId: existing.documentId },
+      })
+      void logAudit({
+        userId: session.user.id,
+        userName: session.user.name || "unknown",
+        userRole: session.user.role,
+        department: "HR_PEOPLE",
+        page: "docx-sign",
+        action: "DELETE",
+        entityType: "DocxAssignment",
+        entityId: existing.id,
+        description: `Revoked assignment of "${existing.document.title}" from ${existing.user.name}`,
+        oldValue: JSON.stringify({
+          status: existing.status,
+          userId: existing.userId,
+          documentId: existing.documentId,
+          signedAt: existing.signedAt,
+        }),
+        ipAddress: getIpAddress(req),
+        userAgent: getUserAgent(req),
+      })
+      return NextResponse.json({ success: true, revoked: true })
+    }
 
     if (parsed.data.action === "request_resign") {
       if (!isAdmin) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
