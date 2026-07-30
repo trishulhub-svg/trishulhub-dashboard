@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import {
-  FilePenLine, Loader2, Plus, Download, RefreshCw, Users, Upload, Trash2, UserMinus, UserPlus, Save,
+  FilePenLine, Loader2, Plus, Download, RefreshCw, Users, Upload, Trash2, UserMinus, UserPlus, Save, PenLine,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -42,6 +42,18 @@ type DocumentRow = {
   assignments: Assignment[]
 }
 
+type MyAssignment = {
+  id: string
+  status: string
+  signedAt: string | null
+  resignNote: string | null
+  hasSignedPdf: boolean
+  createdAt: string
+  authorizedPersonName?: string | null
+  document: { id: string; title: string; fileName: string }
+  assignedBy: { id: string; name: string }
+}
+
 const STATUS_STYLE: Record<string, string> = {
   PENDING: "bg-amber-500/15 text-amber-800 dark:text-amber-300 border-amber-500/30",
   SIGNED: "bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border-emerald-500/30",
@@ -75,6 +87,7 @@ export default function DocxSignManagePage() {
   const [authSig, setAuthSig] = useState<string | null>(null)
   const [hasAuthSig, setHasAuthSig] = useState(false)
   const [savingAuthSig, setSavingAuthSig] = useState(false)
+  const [myAssignments, setMyAssignments] = useState<MyAssignment[]>([])
 
   useEffect(() => {
     if (status === "loading") return
@@ -103,9 +116,10 @@ export default function DocxSignManagePage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [dRes, tRes] = await Promise.all([
+      const [dRes, tRes, mineRes] = await Promise.all([
         fetch("/api/docx-sign/documents", { credentials: "include", cache: "no-store" }),
         fetch("/api/team?type=users", { credentials: "include", cache: "no-store" }),
+        fetch("/api/docx-sign/assignments?mine=1", { credentials: "include", cache: "no-store" }),
       ])
       if (dRes.ok) {
         const j = await dRes.json()
@@ -125,6 +139,10 @@ export default function DocxSignManagePage() {
               role: u.role,
             }))
         )
+      }
+      if (mineRes.ok) {
+        const j = await mineRes.json()
+        setMyAssignments(Array.isArray(j.assignments) ? j.assignments : [])
       }
       await loadAuthSig()
     } catch {
@@ -389,6 +407,11 @@ export default function DocxSignManagePage() {
     return { pending, signed, resign }
   }, [docs])
 
+  const myPending = useMemo(
+    () => myAssignments.filter((a) => a.status === "PENDING" || a.status === "RESIGN_REQUESTED"),
+    [myAssignments]
+  )
+
   if (status === "loading" || !isAdmin) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
@@ -411,7 +434,16 @@ export default function DocxSignManagePage() {
               Upload a PDF, assign as Authorized Person (not yourself), track dual signatures, and download stamped copies with UK/local time and IP.
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9"
+              onClick={() => router.push("/dashboard/docx-sign/my")}
+            >
+              <PenLine className="h-4 w-4 mr-1.5" />
+              My contracts{myPending.length > 0 ? ` (${myPending.length})` : ""}
+            </Button>
             <Button variant="outline" size="sm" className="h-9" onClick={() => void load()} disabled={loading}>
               <RefreshCw className={cn("h-4 w-4 mr-1.5", loading && "animate-spin")} />
               Refresh
@@ -445,6 +477,57 @@ export default function DocxSignManagePage() {
           ))}
         </div>
       </div>
+
+      {myPending.length > 0 && (
+        <section className="rounded-2xl border border-amber-500/35 bg-amber-500/[0.08] p-4 sm:p-5 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-semibold">Waiting for your signature</h2>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Another Admin or Super Admin assigned {myPending.length} contract
+                {myPending.length === 1 ? "" : "s"} to you. Review and sign here.
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 shrink-0"
+              onClick={() => router.push("/dashboard/docx-sign/my")}
+            >
+              View all my contracts
+            </Button>
+          </div>
+          <div className="space-y-2">
+            {myPending.map((a) => (
+              <div
+                key={a.id}
+                className="flex flex-col sm:flex-row sm:items-center gap-2 rounded-xl border bg-background/80 px-3 py-2.5"
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{safeText(a.document.title)}</p>
+                  <p className="text-[11px] text-muted-foreground truncate">
+                    Authorized Person {safeText(a.authorizedPersonName || a.assignedBy?.name)}
+                    {a.resignNote ? ` · ${a.resignNote}` : ""}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className={cn("text-[10px]", STATUS_STYLE[a.status] || "")}>
+                    {a.status.replace("_", " ")}
+                  </Badge>
+                  <Button
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={() => router.push(`/dashboard/docx-sign/sign/${a.id}`)}
+                  >
+                    <PenLine className="h-3.5 w-3.5 mr-1" />
+                    {a.status === "RESIGN_REQUESTED" ? "Sign again" : "Review & sign"}
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="rounded-2xl border bg-card/60 p-4 sm:p-5 space-y-3">
         <div>

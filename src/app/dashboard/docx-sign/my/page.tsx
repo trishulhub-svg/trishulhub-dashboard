@@ -28,10 +28,12 @@ const STATUS_STYLE: Record<string, string> = {
 }
 
 export default function DocxSignMyPage() {
-  const { status } = useSession()
+  const { data: session, status } = useSession()
   const router = useRouter()
   const [rows, setRows] = useState<Assignment[]>([])
   const [loading, setLoading] = useState(true)
+  const isAdmin =
+    session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN"
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -82,12 +84,25 @@ export default function DocxSignMyPage() {
             </div>
             <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Docx Sign</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Read each page, sign in the box, then submit. {needsAction.length} waiting for you.
+              Contracts assigned to you (including Admin ↔ Super Admin).{" "}
+              {needsAction.length} waiting for your signature.
             </p>
           </div>
-          <Button variant="outline" size="sm" className="h-9 shrink-0" onClick={() => void load()}>
-            <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-          </Button>
+          <div className="flex gap-2 shrink-0">
+            {isAdmin && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9"
+                onClick={() => router.push("/dashboard/docx-sign/manage")}
+              >
+                Manage
+              </Button>
+            )}
+            <Button variant="outline" size="sm" className="h-9" onClick={() => void load()}>
+              <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+            </Button>
+          </div>
         </div>
       </div>
 

@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { Loader2 } from "lucide-react"
 
-/** Docx Sign entry — admin → manage, staff → my. */
+/** Docx Sign entry — admin → manage (includes inbox for contracts assigned to them), staff → my. */
 export default function DocxSignGatePage() {
   const { data: session, status } = useSession()
   const router = useRouter()
@@ -18,6 +18,8 @@ export default function DocxSignGatePage() {
     }
     const role = session?.user?.role
     const admin = role === "SUPER_ADMIN" || role === "ADMIN"
+    // Manage shows "Waiting for your signature" when Admin/SA assign each other.
+    // Staff always use My contracts.
     router.replace(admin ? "/dashboard/docx-sign/manage" : "/dashboard/docx-sign/my")
   }, [status, session?.user?.role, router])
 
