@@ -13,6 +13,8 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "res.cloudinary.com" },
     ],
   },
+  // pdfjs legacy build used by Docx Sign viewer (broader browser support / toHex polyfill path)
+  transpilePackages: ["pdfjs-dist"],
   serverExternalPackages: ["@prisma/adapter-libsql", "@libsql/client"],
   experimental: {
     optimizePackageImports: ["lucide-react", "recharts", "sonner", "@dnd-kit/core", "@dnd-kit/sortable", "@dnd-kit/utilities"],
