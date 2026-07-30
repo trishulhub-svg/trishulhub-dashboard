@@ -120,6 +120,7 @@ const navGroups: NavGroup[] = [
       { title: "Demo Projects", href: "/dashboard/demo", icon: FlaskConical, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER"] },
       { title: "Time Tracking", href: "/dashboard/time-tracking", icon: Clock, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
       { title: "Support", href: "/dashboard/support", icon: LifeBuoy, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER"] },
+      { title: "Support", href: "/dashboard/support/raise", icon: LifeBuoy, roles: ["DEVELOPER"] },
     ],
   },
   {

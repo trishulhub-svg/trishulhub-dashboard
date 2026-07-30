@@ -27,13 +27,22 @@ export function canEditWorkNotes(entry: Pick<TimeEntry, "status" | "clockOut">, 
   return now - clockOutMs <= 24 * 60 * 60 * 1000;
 }
 
+const DEFAULT_ACTIVITY_LABELS: Record<string, string> = {
+  TRAINING: "Training",
+  SUPERVISION: "Supervision",
+  HR_ADMIN: "HR & Administration",
+  RD_SA: "R&D / SA",
+};
+
 /** Display label for project / non-project activity buckets. */
-export function entryActivityLabel(entry: Pick<TimeEntry, "project" | "activityType">): string {
+export function entryActivityLabel(
+  entry: Pick<TimeEntry, "project" | "activityType">,
+  catalogLabels?: Partial<Record<string, string>>
+): string {
   if (entry.project?.name) return entry.project.name;
-  if (entry.activityType === "TRAINING") return "Training";
-  if (entry.activityType === "SUPERVISION") return "Supervision";
-  if (entry.activityType === "HR_ADMIN") return "HR & Administration";
-  if (entry.activityType === "RD_SA") return "R&D / SA";
+  const key = entry.activityType || "";
+  if (key && catalogLabels?.[key]) return catalogLabels[key]!;
+  if (key && DEFAULT_ACTIVITY_LABELS[key]) return DEFAULT_ACTIVITY_LABELS[key];
   return "No activity";
 }
 
@@ -48,7 +57,18 @@ export interface Project {
   name: string;
   status: string;
   progress?: number;
+  /** From Projects section — demo projects appear with the same project name (not editable here). */
+  isDemo?: boolean;
   hasOpenAssignedMilestones?: boolean;
+}
+
+/** Non-project activity row from /api/time-tracking/activity-catalog */
+export interface TimeActivityItem {
+  key: "TRAINING" | "SUPERVISION" | "HR_ADMIN" | "RD_SA";
+  label: string;
+  enabled: boolean;
+  roles: string[];
+  selectValue: string;
 }
 
 export interface AttendanceRecord {

@@ -147,7 +147,16 @@ export async function middleware(request: NextRequest) {
     }
 
     // Check admin or PM routes
-    if (!isAdminOrPm && adminOrPmRoutes.some(route => pathname.startsWith(route))) {
+    // Support raise is available to all staff; inbox stays Admin/SA/PM only
+    if (
+      !isAdminOrPm &&
+      adminOrPmRoutes.some((route) => {
+        if (route === "/dashboard/support" && pathname.startsWith("/dashboard/support/raise")) {
+          return false
+        }
+        return pathname.startsWith(route)
+      })
+    ) {
       return addSecurityHeaders(request, NextResponse.redirect(new URL("/dashboard", request.url)))
     }
 

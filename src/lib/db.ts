@@ -150,6 +150,17 @@ export async function getAppSetting(key: string): Promise<string> {
   }
 }
 
+/** Upsert a setting value in the AppSetting table. */
+export async function setAppSetting(key: string, value: string): Promise<void> {
+  await ensureAppSettingTable()
+  await db.$executeRawUnsafe(
+    `INSERT INTO "AppSetting" ("key", "value", "updatedAt") VALUES (?, ?, CURRENT_TIMESTAMP)
+     ON CONFLICT("key") DO UPDATE SET "value" = excluded."value", "updatedAt" = CURRENT_TIMESTAMP`,
+    key,
+    value
+  )
+}
+
 // Graceful shutdown — only in long-running processes, not serverless/Vercel
 if (typeof process !== 'undefined' && process.env.NODE_ENV === 'development') {
   process.on('beforeExit', async () => {

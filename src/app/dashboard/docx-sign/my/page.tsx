@@ -75,10 +75,17 @@ export default function DocxSignMyPage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-5 px-1 sm:px-0">
-      <div className="rounded-2xl border border-border/70 bg-gradient-to-br from-card via-card to-sky-500/[0.06] p-4 sm:p-6">
-        <div className="flex items-start justify-between gap-3">
+      <div className="relative overflow-hidden rounded-xl border border-border bg-card p-4 sm:p-6">
+        <div
+          className="pointer-events-none absolute inset-0 opacity-50"
+          style={{
+            backgroundImage:
+              "radial-gradient(ellipse 70% 50% at 100% 0%, color-mix(in oklch, var(--primary) 12%, transparent), transparent 55%)",
+          }}
+        />
+        <div className="relative flex items-start justify-between gap-3">
           <div>
-            <div className="flex items-center gap-2 text-sky-700 dark:text-sky-400 mb-1">
+            <div className="flex items-center gap-2 text-primary mb-1">
               <FilePenLine className="h-4 w-4" />
               <span className="text-[11px] font-semibold uppercase tracking-[0.14em]">My contracts</span>
             </div>
@@ -88,7 +95,7 @@ export default function DocxSignMyPage() {
               {needsAction.length} waiting for your signature.
             </p>
           </div>
-          <div className="flex gap-2 shrink-0">
+          <div className="flex gap-2 shrink-0 relative">
             {isAdmin && (
               <Button
                 variant="outline"

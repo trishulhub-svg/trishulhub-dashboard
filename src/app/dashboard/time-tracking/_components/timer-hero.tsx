@@ -14,14 +14,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn, safeText } from "@/lib/utils";
-import type { Project, TimeEntry, TrainingAssignment } from "./types";
+import type { Project, TimeActivityItem, TimeEntry, TrainingAssignment } from "./types";
+import { entryActivityLabel } from "./types";
 import { formatDuration, formatDurationShort, formatTime } from "./utils";
+import { ActivitySelectItems } from "./activity-select";
 
 interface TimerHeroProps {
   activeEntry: TimeEntry | null;
   elapsed: number;
   projects: Project[];
-  userRole: string;
+  activities: TimeActivityItem[];
+  activityLabels: Partial<Record<string, string>>;
   selectedProject: string;
   timerDescription: string;
   trainingAssignments: TrainingAssignment[];
@@ -43,7 +46,8 @@ export const TimerHero = forwardRef<HTMLDivElement, TimerHeroProps>(function Tim
     activeEntry,
     elapsed,
     projects,
-    userRole,
+    activities,
+    activityLabels,
     selectedProject,
     timerDescription,
     trainingAssignments,
@@ -62,37 +66,29 @@ export const TimerHero = forwardRef<HTMLDivElement, TimerHeroProps>(function Tim
   ref
 ) {
   const isRunning = !!activeEntry;
-  const canUseHrAdmin = userRole === "ADMIN" || userRole === "SUPER_ADMIN";
-  const canUseRdSa = userRole === "SUPER_ADMIN" || userRole === "PROJECT_MANAGER";
-  const isTrainingSelected = selectedProject === "__training__";
+  const trainingSelect =
+    activities.find((a) => a.key === "TRAINING")?.selectValue || "__training__";
+  const isTrainingSelected = selectedProject === trainingSelect;
   const startDisabled = starting || (isTrainingSelected && !selectedTrainingAssignmentId);
 
-  const activeLabel =
-    activeEntry?.project?.name ||
-    (activeEntry?.activityType === "TRAINING"
-      ? "Training"
-      : activeEntry?.activityType === "SUPERVISION"
-        ? "Supervision"
-        : activeEntry?.activityType === "HR_ADMIN"
-          ? "HR & Administration"
-          : activeEntry?.activityType === "RD_SA"
-            ? "R&D / SA"
-            : "No activity");
+  const activeLabel = activeEntry
+    ? entryActivityLabel(activeEntry, activityLabels)
+    : "No activity";
 
   return (
     <div
       ref={ref}
       className={cn(
-        "relative overflow-hidden rounded-2xl border border-border transition-shadow",
-        "bg-gradient-to-br from-card via-card to-primary/[0.04]",
-        isRunning && "border-emerald-500/30 shadow-[0_0_0_1px_rgba(16,185,129,0.08)]"
+        "relative overflow-hidden rounded-xl border border-border transition-shadow",
+        "bg-card",
+        isRunning && "border-emerald-500/35 shadow-[0_0_0_1px_rgba(16,185,129,0.06)]"
       )}
     >
       <div
-        className="pointer-events-none absolute inset-0 opacity-[0.35]"
+        className="pointer-events-none absolute inset-0 opacity-[0.4]"
         style={{
           backgroundImage:
-            "radial-gradient(ellipse 80% 60% at 100% 0%, color-mix(in oklch, var(--primary) 14%, transparent), transparent 55%)",
+            "radial-gradient(ellipse 80% 55% at 100% 0%, color-mix(in oklch, var(--primary) 12%, transparent), transparent 55%)",
         }}
       />
 
@@ -180,26 +176,7 @@ export const TimerHero = forwardRef<HTMLDivElement, TimerHeroProps>(function Tim
                     <SelectValue placeholder="Optional activity..." />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">No activity</SelectItem>
-                    <SelectItem value="__training__">Training</SelectItem>
-                    <SelectItem value="__supervision__">Supervision</SelectItem>
-                    {canUseHrAdmin && (
-                      <SelectItem value="__hr_admin__">HR &amp; Administration</SelectItem>
-                    )}
-                    {canUseRdSa && <SelectItem value="__rd_sa__">R&amp;D / SA</SelectItem>}
-                    {projects.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        <span className="inline-flex items-center gap-2">
-                          {p.hasOpenAssignedMilestones && (
-                            <span className="relative inline-flex h-2 w-2 shrink-0" title="Open milestones assigned to you">
-                              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
-                              <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-400" />
-                            </span>
-                          )}
-                          <span>{safeText(p.name)}</span>
-                        </span>
-                      </SelectItem>
-                    ))}
+                    <ActivitySelectItems projects={projects} activities={activities} />
                   </SelectContent>
                 </Select>
               </div>

@@ -8,6 +8,10 @@ import { requireBootstrapSession } from "@/lib/api-bootstrap"
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { getAssignedProjectIds } from "@/lib/rbac"
+import {
+  activitiesVisibleForRole,
+  getTimeActivityCatalog,
+} from "@/lib/time-activity-catalog"
 
 export async function GET(req: NextRequest) {
   try {
@@ -35,7 +39,7 @@ export async function GET(req: NextRequest) {
     const projectWhere: Prisma.ProjectWhereInput = {}
     if (assignedProjectIds) projectWhere.id = { in: assignedProjectIds }
 
-    const [entries, activeEntries, projects, teamUsers] = await Promise.all([
+    const [entries, activeEntries, projects, teamUsers, activityCatalog] = await Promise.all([
       db.timeEntry.findMany({
         where: {
           ...entryWhere,
@@ -74,7 +78,7 @@ export async function GET(req: NextRequest) {
         : Promise.resolve([]),
       db.project.findMany({
         where: projectWhere,
-        select: { id: true, name: true, status: true, progress: true },
+        select: { id: true, name: true, status: true, progress: true, isDemo: true },
         orderBy: { createdAt: "desc" },
         take: 100,
       }),
@@ -94,6 +98,7 @@ export async function GET(req: NextRequest) {
             take: 100,
           })
         : Promise.resolve([]),
+      getTimeActivityCatalog(),
     ])
 
     // Yellow blink: open assigned milestones for current user
@@ -129,6 +134,9 @@ export async function GET(req: NextRequest) {
         hasOpenAssignedMilestones: openAssigned.has(p.id),
       })),
       teamUsers: teamUsers.map((u) => ({ id: u.id, name: u.name })),
+      activityCatalog,
+      activityVisible: activitiesVisibleForRole(activityCatalog, userRole),
+      canEditActivityCatalog: userRole === "SUPER_ADMIN",
     })
   } catch (error: unknown) {
     console.error(

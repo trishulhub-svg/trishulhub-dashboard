@@ -33,9 +33,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { safeText } from "@/lib/utils";
-import type { Project, TeamUser, TimeEntry, TrainingAssignment } from "./types";
+import type { Project, TeamUser, TimeActivityItem, TimeEntry, TrainingAssignment } from "./types";
 import { canEditWorkNotes, workNotesHoursLeft } from "./types";
 import { formatDate, formatDuration, formatHours, formatTime } from "./utils";
+import { ActivitySelectItems } from "./activity-select";
 
 /* ── Clock Out ── */
 export type SessionMilestone = {
@@ -432,7 +433,7 @@ export function SwitchSessionDialog({
   open,
   onOpenChange,
   projects,
-  userRole,
+  activities,
   selectedProject,
   description,
   trainingAssignments,
@@ -447,7 +448,7 @@ export function SwitchSessionDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   projects: Project[];
-  userRole: string;
+  activities: TimeActivityItem[];
   selectedProject: string;
   description: string;
   trainingAssignments: TrainingAssignment[];
@@ -459,9 +460,9 @@ export function SwitchSessionDialog({
   onTrainingAssignmentChange: (value: string) => void;
   onConfirm: (mode: "end" | "delete") => void;
 }) {
-  const canUseHrAdmin = userRole === "ADMIN" || userRole === "SUPER_ADMIN";
-  const canUseRdSa = userRole === "SUPER_ADMIN" || userRole === "PROJECT_MANAGER";
-  const isTrainingSelected = selectedProject === "__training__";
+  const trainingSelect =
+    activities.find((a) => a.key === "TRAINING")?.selectValue || "__training__";
+  const isTrainingSelected = selectedProject === trainingSelect;
   const actionDisabled =
     !!switchingMode || (isTrainingSelected && !selectedTrainingAssignmentId);
 
@@ -486,18 +487,7 @@ export function SwitchSessionDialog({
                   <SelectValue placeholder="Optional activity..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">No activity</SelectItem>
-                  <SelectItem value="__training__">Training</SelectItem>
-                  <SelectItem value="__supervision__">Supervision</SelectItem>
-                  {canUseHrAdmin && (
-                    <SelectItem value="__hr_admin__">HR &amp; Administration</SelectItem>
-                  )}
-                  {canUseRdSa && <SelectItem value="__rd_sa__">R&amp;D / SA</SelectItem>}
-                  {projects.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {safeText(p.name)}
-                    </SelectItem>
-                  ))}
+                  <ActivitySelectItems projects={projects} activities={activities} />
                 </SelectContent>
               </Select>
             </div>
@@ -729,6 +719,7 @@ interface AddEntryDialogProps {
   onOpenChange: (open: boolean) => void;
   teamUsers: TeamUser[];
   projects: Project[];
+  activities: TimeActivityItem[];
   userId: string;
   projectId: string;
   description: string;
@@ -749,6 +740,7 @@ export function AddEntryDialog(props: AddEntryDialogProps) {
     onOpenChange,
     teamUsers,
     projects,
+    activities,
     userId,
     projectId,
     description,
@@ -798,24 +790,7 @@ export function AddEntryDialog(props: AddEntryDialogProps) {
                 <SelectValue placeholder="Select activity..." />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">No activity</SelectItem>
-                <SelectItem value="__training__">Training</SelectItem>
-                <SelectItem value="__supervision__">Supervision</SelectItem>
-                <SelectItem value="__hr_admin__">HR &amp; Administration</SelectItem>
-                <SelectItem value="__rd_sa__">R&amp;D / SA</SelectItem>
-                {projects.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    <span className="inline-flex items-center gap-2">
-                      {p.hasOpenAssignedMilestones && (
-                        <span className="relative inline-flex h-2 w-2 shrink-0">
-                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
-                          <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-400" />
-                        </span>
-                      )}
-                      <span>{safeText(p.name)}</span>
-                    </span>
-                  </SelectItem>
-                ))}
+                <ActivitySelectItems projects={projects} activities={activities} />
               </SelectContent>
             </Select>
           </div>
@@ -892,6 +867,7 @@ interface EditEntryDialogProps {
   entry: TimeEntry | null;
   onClose: () => void;
   projects: Project[];
+  activities: TimeActivityItem[];
   description: string;
   projectId: string;
   clockIn: string;
@@ -909,6 +885,7 @@ export function EditEntryDialog(props: EditEntryDialogProps) {
     entry,
     onClose,
     projects,
+    activities,
     description,
     projectId,
     clockIn,
@@ -954,24 +931,7 @@ export function EditEntryDialog(props: EditEntryDialogProps) {
                   <SelectValue placeholder="Select activity..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">No activity</SelectItem>
-                  <SelectItem value="__training__">Training</SelectItem>
-                  <SelectItem value="__supervision__">Supervision</SelectItem>
-                  <SelectItem value="__hr_admin__">HR &amp; Administration</SelectItem>
-                  <SelectItem value="__rd_sa__">R&amp;D / SA</SelectItem>
-                  {projects.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      <span className="inline-flex items-center gap-2">
-                        {p.hasOpenAssignedMilestones && (
-                          <span className="relative inline-flex h-2 w-2 shrink-0">
-                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
-                            <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-400" />
-                          </span>
-                        )}
-                        <span>{safeText(p.name)}</span>
-                      </span>
-                    </SelectItem>
-                  ))}
+                  <ActivitySelectItems projects={projects} activities={activities} />
                 </SelectContent>
               </Select>
             </div>

@@ -470,10 +470,17 @@ export default function DocxSignManagePage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-5 px-1 sm:px-0">
-      <div className="relative overflow-hidden rounded-2xl border border-border/70 bg-gradient-to-br from-card via-card to-emerald-500/[0.06] p-4 sm:p-6">
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+      <div className="relative overflow-hidden rounded-xl border border-border bg-card p-4 sm:p-6">
+        <div
+          className="pointer-events-none absolute inset-0 opacity-50"
+          style={{
+            backgroundImage:
+              "radial-gradient(ellipse 70% 50% at 100% 0%, color-mix(in oklch, var(--primary) 12%, transparent), transparent 55%)",
+          }}
+        />
+        <div className="relative flex flex-col sm:flex-row sm:items-end justify-between gap-3">
           <div>
-            <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400 mb-1">
+            <div className="flex items-center gap-2 text-primary mb-1">
               <FilePenLine className="h-4 w-4" />
               <span className="text-[11px] font-semibold uppercase tracking-[0.14em]">Contracts</span>
             </div>
@@ -482,7 +489,7 @@ export default function DocxSignManagePage() {
               Upload a PDF, assign as Authorized Person (not yourself), track dual signatures, and download stamped copies with UK/local time and IP.
             </p>
           </div>
-          <div className="flex gap-2 flex-wrap">
+          <div className="flex gap-2 flex-wrap relative">
             <Button
               variant="outline"
               size="sm"
@@ -512,13 +519,13 @@ export default function DocxSignManagePage() {
             </Button>
           </div>
         </div>
-        <div className="mt-4 grid grid-cols-3 gap-2">
+        <div className="relative mt-4 grid grid-cols-3 gap-2">
           {[
             { label: "Pending", value: stats.pending },
             { label: "Signed", value: stats.signed },
             { label: "Re-sign", value: stats.resign },
           ].map((s) => (
-            <div key={s.label} className="rounded-xl border bg-background/70 px-3 py-2">
+            <div key={s.label} className="rounded-lg border border-border/80 bg-background/80 px-3 py-2">
               <p className="text-[10px] text-muted-foreground uppercase tracking-wide">{s.label}</p>
               <p className="text-lg font-semibold tabular-nums">{s.value}</p>
             </div>
@@ -577,7 +584,7 @@ export default function DocxSignManagePage() {
         </section>
       )}
 
-      <section className="rounded-2xl border bg-card/60 p-4 sm:p-5 space-y-3">
+      <section className="rounded-xl border border-border bg-card p-4 sm:p-5 space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
             <h2 className="text-sm font-semibold">Authorized Person signature</h2>
@@ -644,7 +651,7 @@ export default function DocxSignManagePage() {
       ) : (
         <div className="space-y-4">
           {docs.map((doc) => (
-            <div key={doc.id} className="rounded-2xl border bg-card/60 overflow-hidden">
+            <div key={doc.id} className="rounded-xl border border-border bg-card overflow-hidden">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-4 py-3 border-b border-border/60">
                 <div className="min-w-0">
                   <h2 className="text-sm font-semibold truncate">{safeText(doc.title)}</h2>

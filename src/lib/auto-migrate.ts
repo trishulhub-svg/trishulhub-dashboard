@@ -22,7 +22,7 @@ function getErrMsg(err: unknown): string {
 
 // Bump when adding CRITICAL_COLUMNS / CRITICAL_TABLES so warm serverless
 // instances re-run migrations after deploy (stale syncDone otherwise skips ALTERs).
-const SCHEMA_REVISION = 202607303
+const SCHEMA_REVISION = 202607304
 
 // Use globalThis to persist the syncDone flag across hot reloads in dev
 // and across serverless function warm invocations in production.
@@ -121,6 +121,8 @@ const CRITICAL_COLUMNS: Array<{ table: string; column: string; sql: string }> = 
   { table: "DocxAssignment", column: "authorizedSignatureData", sql: `ALTER TABLE "DocxAssignment" ADD COLUMN "authorizedSignatureData" TEXT` },
   { table: "DocxAssignment", column: "signerCountry", sql: `ALTER TABLE "DocxAssignment" ADD COLUMN "signerCountry" TEXT` },
   { table: "DocxAssignment", column: "signerTimeZone", sql: `ALTER TABLE "DocxAssignment" ADD COLUMN "signerTimeZone" TEXT` },
+  { table: "SupportTicket", column: "ticketNumber", sql: `ALTER TABLE "SupportTicket" ADD COLUMN "ticketNumber" TEXT` },
+  { table: "SupportTicket", column: "issueArea", sql: `ALTER TABLE "SupportTicket" ADD COLUMN "issueArea" TEXT` },
 ]
 
 /** Tables to create if missing (simplified CREATE TABLE IF NOT EXISTS) */
@@ -150,6 +152,36 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
   {
     name: "AppSetting",
     sql: `CREATE TABLE IF NOT EXISTS "AppSetting" ("key" TEXT NOT NULL PRIMARY KEY, "value" TEXT NOT NULL DEFAULT '', "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`
+  },
+  {
+    name: "TeamSupportTicket",
+    sql: `CREATE TABLE IF NOT EXISTS "TeamSupportTicket" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "ticketNumber" TEXT NOT NULL UNIQUE,
+      "userId" TEXT NOT NULL,
+      "issueArea" TEXT NOT NULL,
+      "subject" TEXT NOT NULL,
+      "description" TEXT NOT NULL,
+      "status" TEXT NOT NULL DEFAULT 'OPEN',
+      "priority" TEXT NOT NULL DEFAULT 'MEDIUM',
+      "resolution" TEXT,
+      "assignedTo" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
+    )`
+  },
+  {
+    name: "TeamSupportMessage",
+    sql: `CREATE TABLE IF NOT EXISTS "TeamSupportMessage" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "ticketId" TEXT NOT NULL,
+      "senderId" TEXT,
+      "senderType" TEXT NOT NULL DEFAULT 'HUMAN',
+      "message" TEXT NOT NULL,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("ticketId") REFERENCES "TeamSupportTicket"("id") ON DELETE CASCADE
+    )`
   },
   {
     name: "UserCredential",
@@ -217,7 +249,7 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
   // CRM — SupportTicket
   {
     name: "SupportTicket",
-    sql: `CREATE TABLE IF NOT EXISTS "SupportTicket" ("id" TEXT NOT NULL PRIMARY KEY, "clientId" TEXT NOT NULL, "subject" TEXT NOT NULL, "description" TEXT NOT NULL, "status" TEXT NOT NULL DEFAULT 'OPEN', "priority" TEXT NOT NULL DEFAULT 'MEDIUM', "assignedTo" TEXT, "resolution" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL, FOREIGN KEY ("clientId") REFERENCES "Client"("id"), FOREIGN KEY ("assignedTo") REFERENCES "User"("id"))`
+    sql: `CREATE TABLE IF NOT EXISTS "SupportTicket" ("id" TEXT NOT NULL PRIMARY KEY, "clientId" TEXT NOT NULL, "ticketNumber" TEXT, "issueArea" TEXT, "subject" TEXT NOT NULL, "description" TEXT NOT NULL, "status" TEXT NOT NULL DEFAULT 'OPEN', "priority" TEXT NOT NULL DEFAULT 'MEDIUM', "assignedTo" TEXT, "resolution" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL, FOREIGN KEY ("clientId") REFERENCES "Client"("id"), FOREIGN KEY ("assignedTo") REFERENCES "User"("id"))`
   },
   // CRM — TicketMessage
   {

@@ -24,6 +24,7 @@ export const CONTROLLABLE_PAGES: ControllablePage[] = [
   { title: "Demo Projects", href: "/dashboard/demo" },
   { title: "Time Tracking", href: "/dashboard/time-tracking" },
   { title: "Support", href: "/dashboard/support" },
+  { title: "Raise Support", href: "/dashboard/support/raise" },
   { title: "My Leaves", href: "/dashboard/leaves" },
   { title: "My Details", href: "/dashboard/my-details" },
   { title: "Team", href: "/dashboard/team" },
@@ -64,6 +65,13 @@ export function normalizePageAccessMode(raw: unknown): PageAccessMode {
 export function pathMatchesPage(pathname: string, pageHref: string): boolean {
   if (pathname === pageHref) return true
   if (pageHref === "/dashboard") return pathname === "/dashboard"
+  // Support inbox and raise are separate controllable pages
+  if (pageHref === "/dashboard/support") {
+    if (pathname === "/dashboard/support/raise" || pathname.startsWith("/dashboard/support/raise/")) {
+      return false
+    }
+    return pathname === "/dashboard/support" || pathname.startsWith("/dashboard/support/")
+  }
   return pathname === pageHref || pathname.startsWith(pageHref + "/")
 }
 
@@ -138,6 +146,11 @@ export function isRoleAllowedDashboardHref(href: string, role: string | undefine
 
   const isAdminRole = role === "ADMIN" || role === "SUPER_ADMIN"
   const isAdminOrPm = isAdminRole || role === "PROJECT_MANAGER"
+
+  // Raise page is available to all staff (developers included)
+  if (path === "/dashboard/support/raise" || path.startsWith("/dashboard/support/raise/")) {
+    return true
+  }
 
   if (superAdminOnly.some((r) => path === r || path.startsWith(`${r}/`))) return false
   if (!isAdminRole && adminOnly.some((r) => path === r || path.startsWith(`${r}/`))) return false

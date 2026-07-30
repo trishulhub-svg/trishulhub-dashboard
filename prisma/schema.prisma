@@ -66,6 +66,7 @@ model User {
   docxDocumentsUploaded       DocxDocument[]       @relation("DocxDocumentUploader")
   docxAssignmentsAssigned     DocxAssignment[]     @relation("DocxAssignmentAssignee")
   docxAssignmentsCreated      DocxAssignment[]     @relation("DocxAssignmentAssigner")
+  teamSupportTickets          TeamSupportTicket[]  @relation("TeamSupportTicketRaiser")
 
   @@map("User")
 }
@@ -576,6 +577,9 @@ model Contact {
 model SupportTicket {
   id          String   @id @default(cuid())
   clientId    String
+  // Human-readable ticket number e.g. TH-240730-0001 (optional for legacy rows)
+  ticketNumber String?
+  issueArea   String?  // e.g. Billing, Portal, Technical
   subject     String
   description String
   status      String   @default("OPEN") // OPEN, IN_PROGRESS, RESOLVED, CLOSED
@@ -592,6 +596,7 @@ model SupportTicket {
   @@index([assignedTo])
   @@index([priority])
   @@index([clientId, status])
+  @@index([ticketNumber])
 }
 
 model TicketMessage {
@@ -605,6 +610,45 @@ model TicketMessage {
 
   ticket    SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
 }
+
+// ━━ Team (staff) support tickets — employees raise issues; Admin/SA resolve ━━
+model TeamSupportTicket {
+  id           String   @id @default(cuid())
+  ticketNumber String   @unique
+  userId       String
+  issueArea    String
+  subject      String
+  description  String
+  status       String   @default("OPEN") // OPEN, IN_PROGRESS, RESOLVED, CLOSED
+  priority     String   @default("MEDIUM")
+  resolution   String?
+  assignedTo   String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user     User                   @relation("TeamSupportTicketRaiser", fields: [userId], references: [id], onDelete: Cascade)
+  messages TeamSupportMessage[]
+
+  @@index([userId, status])
+  @@index([status, createdAt])
+  @@index([ticketNumber])
+  @@map("TeamSupportTicket")
+}
+
+model TeamSupportMessage {
+  id         String   @id @default(cuid())
+  ticketId   String
+  senderId   String?
+  senderType String   @default("HUMAN") // HUMAN, STAFF, SYSTEM
+  message    String
+  createdAt  DateTime @default(now())
+
+  ticket TeamSupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, createdAt])
+  @@map("TeamSupportMessage")
+}
+
 // ━━ Time Tracking ━━
 model TimeEntry {
   id          String   @id @default(cuid())

@@ -13,7 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { safeNumber, safeText } from "@/lib/utils";
-import type { Project, TimeEntry, TrainingAssignment } from "./types";
+import type { Project, TimeActivityItem, TimeEntry, TrainingAssignment } from "./types";
 import { entryActivityLabel } from "./types";
 import { DAY_NAMES } from "./types";
 import { formatHours, formatTime } from "./utils";
@@ -32,7 +32,8 @@ interface TodayViewProps {
   activeEntry: TimeEntry | null;
   elapsed: number;
   projects: Project[];
-  userRole: string;
+  activities: TimeActivityItem[];
+  activityLabels: Partial<Record<string, string>>;
   selectedProject: string;
   timerDescription: string;
   trainingAssignments: TrainingAssignment[];
@@ -66,7 +67,8 @@ export function TodayView({
   activeEntry,
   elapsed,
   projects,
-  userRole,
+  activities,
+  activityLabels,
   selectedProject,
   timerDescription,
   trainingAssignments,
@@ -112,7 +114,8 @@ export function TodayView({
         activeEntry={activeEntry}
         elapsed={elapsed}
         projects={projects}
-        userRole={userRole}
+        activities={activities}
+        activityLabels={activityLabels}
         selectedProject={selectedProject}
         timerDescription={timerDescription}
         trainingAssignments={trainingAssignments}
@@ -183,7 +186,7 @@ export function TodayView({
                     <TableRow key={entry.id}>
                       <TableCell>
                         <Badge variant="outline" className="text-xs">
-                          {safeText(entryActivityLabel(entry), "No Project")}
+                          {safeText(entryActivityLabel(entry, activityLabels), "No Project")}
                         </Badge>
                       </TableCell>
                       <TableCell

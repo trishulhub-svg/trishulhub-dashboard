@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { useSession } from "next-auth/react";
-import { AlertCircle, RefreshCw } from "lucide-react";
+import { AlertCircle, RefreshCw, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/page-header";
@@ -16,6 +16,7 @@ import type {
   AttendanceRecord,
   Project,
   TeamUser,
+  TimeActivityItem,
   TimeEntry,
   TimeTrackingTab,
   TrainingAssignment,
@@ -42,6 +43,9 @@ import { TimesheetView } from "./_components/timesheet-view";
 import { InsightsView } from "./_components/insights-view";
 import { AttendanceView } from "./_components/attendance-view";
 import {
+  ActivityCatalogDialog,
+} from "./_components/activity-catalog-dialog";
+import {
   AddAttendanceDialog,
   AddEntryDialog,
   ClockOutDialog,
@@ -57,6 +61,39 @@ import {
   type SessionMilestone,
 } from "./_components/dialogs";
 
+const FALLBACK_ACTIVITIES: TimeActivityItem[] = [
+  { key: "TRAINING", label: "Training", enabled: true, roles: [], selectValue: "__training__" },
+  {
+    key: "SUPERVISION",
+    label: "Supervision",
+    enabled: true,
+    roles: [],
+    selectValue: "__supervision__",
+  },
+  {
+    key: "HR_ADMIN",
+    label: "HR & Administration",
+    enabled: true,
+    roles: ["SUPER_ADMIN", "ADMIN"],
+    selectValue: "__hr_admin__",
+  },
+  {
+    key: "RD_SA",
+    label: "R&D / SA",
+    enabled: true,
+    roles: ["SUPER_ADMIN", "PROJECT_MANAGER"],
+    selectValue: "__rd_sa__",
+  },
+];
+
+function activitiesForRole(catalog: TimeActivityItem[], role: string): TimeActivityItem[] {
+  return catalog.filter((item) => {
+    if (!item.enabled) return false;
+    if (!item.roles.length) return true;
+    return item.roles.includes(role);
+  });
+}
+
 export default function TimeTrackingPage() {
   return (
     <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading time tracking…</div>}>
@@ -69,10 +106,13 @@ function TimeTrackingPageInner() {
   const { data: session, status: sessionStatus } = useSession();
   const userRole = session?.user?.role || "DEVELOPER";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+  const canEditActivityCatalog = userRole === "SUPER_ADMIN";
 
   // ── Core data ──
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [activityCatalog, setActivityCatalog] = useState<TimeActivityItem[]>(FALLBACK_ACTIVITIES);
+  const [activityCatalogOpen, setActivityCatalogOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTabRaw] = useUrlState("tab", "today");
@@ -191,6 +231,32 @@ function TimeTrackingPageInner() {
 
   const weekDays = useMemo(() => getWeekDays(weekAnchor), [weekAnchor]);
   const thisWeekStart = useMemo(() => getWeekDays()[0], []);
+  const visibleActivities = useMemo(
+    () => activitiesForRole(activityCatalog, userRole),
+    [activityCatalog, userRole]
+  );
+  const activityLabels = useMemo(() => {
+    const map: Partial<Record<string, string>> = {};
+    for (const a of activityCatalog) map[a.key] = a.label;
+    return map;
+  }, [activityCatalog]);
+  const trainingSelectValue =
+    activityCatalog.find((a) => a.key === "TRAINING")?.selectValue || "__training__";
+
+  const fetchActivityCatalog = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const res = await fetch("/api/time-tracking/activity-catalog", {
+        credentials: "include",
+        signal,
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const catalog = safeArray<TimeActivityItem>(data?.catalog);
+      if (catalog.length > 0) setActivityCatalog(catalog);
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+    }
+  }, []);
   const canGoNextWeek = weekDays[0].getTime() < thisWeekStart.getTime();
 
   // ── Deep-link: ?action=start | ?action=clockout ──
@@ -313,6 +379,7 @@ function TimeTrackingPageInner() {
             fetchEntries(signal),
             fetchProjects(signal),
             fetchTeamUsers(signal),
+            fetchActivityCatalog(signal),
           ]);
           return;
         }
@@ -346,6 +413,13 @@ function TimeTrackingPageInner() {
             }))
           );
         }
+
+        const catalogArr = safeArray<TimeActivityItem>(data?.activityCatalog);
+        if (catalogArr.length > 0) {
+          setActivityCatalog(catalogArr);
+        } else {
+          void fetchActivityCatalog(signal);
+        }
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
         setError("Failed to load time entries. Please try again.");
@@ -356,7 +430,14 @@ function TimeTrackingPageInner() {
 
     void loadBootstrap();
     return () => controller.abort();
-  }, [fetchEntries, fetchProjects, fetchTeamUsers, isAdminUser, session?.user?.id]);
+  }, [
+    fetchEntries,
+    fetchProjects,
+    fetchTeamUsers,
+    fetchActivityCatalog,
+    isAdminUser,
+    session?.user?.id,
+  ]);
 
   // Live timer
   useEffect(() => {
@@ -451,25 +532,25 @@ function TimeTrackingPageInner() {
   const handleTimerProjectChange = useCallback(
     (value: string) => {
       setSelectedProject(value);
-      if (value === "__training__") {
+      if (value === trainingSelectValue) {
         void loadTrainingAssignments();
       } else {
         setSelectedTrainingAssignmentId("");
       }
     },
-    [loadTrainingAssignments]
+    [loadTrainingAssignments, trainingSelectValue]
   );
 
   const handleSwitchProjectChange = useCallback(
     (value: string) => {
       setSwitchProject(value);
-      if (value === "__training__") {
+      if (value === trainingSelectValue) {
         void loadTrainingAssignments();
       } else {
         setSwitchTrainingAssignmentId("");
       }
     },
-    [loadTrainingAssignments]
+    [loadTrainingAssignments, trainingSelectValue]
   );
 
   const buildStartPayload = useCallback(
@@ -485,53 +566,34 @@ function TimeTrackingPageInner() {
     } | null => {
       const value = projectValue || "none";
       const description = descriptionValue.trim();
+      const bySelect = new Map(activityCatalog.map((a) => [a.selectValue, a]));
 
-      if (value === "__training__") {
+      if (value === "__training__" || bySelect.get(value)?.key === "TRAINING") {
         const assignment = trainingAssignments.find((a) => a.id === trainingAssignmentId);
         if (!assignment) {
           toast.error("Select an assigned training before starting");
           return null;
         }
+        const label = bySelect.get(value)?.label || activityLabels.TRAINING || "Training";
         return {
           isTraining: true,
           label: assignment.title,
           payload: {
             activityType: "TRAINING",
             trainingAssignmentId: assignment.id,
-            description: description || `Training: ${assignment.title}`,
+            description: description || `${label}: ${assignment.title}`,
           },
         };
       }
 
-      if (value === "__supervision__") {
+      const nonProject = bySelect.get(value);
+      if (nonProject && nonProject.key !== "TRAINING") {
         return {
           isTraining: false,
-          label: "Supervision",
+          label: nonProject.label,
           payload: {
-            activityType: "SUPERVISION",
-            description: description || "Supervision",
-          },
-        };
-      }
-
-      if (value === "__hr_admin__") {
-        return {
-          isTraining: false,
-          label: "HR & Administration",
-          payload: {
-            activityType: "HR_ADMIN",
-            description: description || "HR & Administration",
-          },
-        };
-      }
-
-      if (value === "__rd_sa__") {
-        return {
-          isTraining: false,
-          label: "R&D / SA",
-          payload: {
-            activityType: "RD_SA",
-            description: description || "R&D / SA",
+            activityType: nonProject.key,
+            description: description || nonProject.label,
           },
         };
       }
@@ -548,7 +610,7 @@ function TimeTrackingPageInner() {
         },
       };
     },
-    [projects, trainingAssignments]
+    [projects, trainingAssignments, activityCatalog, activityLabels]
   );
 
   const handleStart = useCallback(async () => {
@@ -983,15 +1045,19 @@ function TimeTrackingPageInner() {
     }
     setAddEntrySaving(true);
     try {
+      const bySelect = new Map(activityCatalog.map((a) => [a.selectValue, a]));
+      const nonProject = bySelect.get(addEntryProjectId);
       const payload: Record<string, unknown> = {
         userId: addEntryUserId,
         clockIn: fromDatetimeLocal(addEntryClockIn),
       };
-      if (addEntryProjectId && addEntryProjectId !== "none" && addEntryProjectId !== "__training__") {
+      if (nonProject) {
+        payload.activityType = nonProject.key;
+        payload.description = addEntryDescription.trim() || nonProject.label;
+      } else if (addEntryProjectId && addEntryProjectId !== "none") {
         payload.projectId = addEntryProjectId;
-      }
-      if (addEntryProjectId === "__training__") {
-        payload.description = addEntryDescription.trim() || "Training";
+        payload.activityType = "PROJECT";
+        if (addEntryDescription) payload.description = addEntryDescription;
       } else if (addEntryDescription) {
         payload.description = addEntryDescription;
       }
@@ -1027,29 +1093,26 @@ function TimeTrackingPageInner() {
     addEntryProjectId,
     addEntryDescription,
     addEntryClockOut,
+    activityCatalog,
     refreshAfterMutation,
   ]);
 
-  const openEditDialog = useCallback((entry: TimeEntry) => {
-    setEditEntry(entry);
-    setEditDescription(entry.description || "");
-    const pid = entry.projectId || entry.project?.id || "";
-    if (pid) {
-      setEditProjectId(pid);
-    } else if (entry.activityType === "TRAINING") {
-      setEditProjectId("__training__");
-    } else if (entry.activityType === "SUPERVISION") {
-      setEditProjectId("__supervision__");
-    } else if (entry.activityType === "HR_ADMIN") {
-      setEditProjectId("__hr_admin__");
-    } else if (entry.activityType === "RD_SA") {
-      setEditProjectId("__rd_sa__");
-    } else {
-      setEditProjectId("none");
-    }
-    setEditClockIn(toDatetimeLocal(entry.clockIn));
-    setEditClockOut(entry.clockOut ? toDatetimeLocal(entry.clockOut) : "");
-  }, []);
+  const openEditDialog = useCallback(
+    (entry: TimeEntry) => {
+      setEditEntry(entry);
+      setEditDescription(entry.description || "");
+      const pid = entry.projectId || entry.project?.id || "";
+      if (pid) {
+        setEditProjectId(pid);
+      } else {
+        const match = activityCatalog.find((a) => a.key === entry.activityType);
+        setEditProjectId(match?.selectValue || "none");
+      }
+      setEditClockIn(toDatetimeLocal(entry.clockIn));
+      setEditClockOut(entry.clockOut ? toDatetimeLocal(entry.clockOut) : "");
+    },
+    [activityCatalog]
+  );
 
   const handleAdminEditEntry = useCallback(async () => {
     if (!editEntry) return;
@@ -1059,39 +1122,25 @@ function TimeTrackingPageInner() {
     }
     setEditSaving(true);
     try {
-      const isTraining = editProjectId === "__training__";
-      const isSupervision = editProjectId === "__supervision__";
-      const isHr = editProjectId === "__hr_admin__";
-      const isRd = editProjectId === "__rd_sa__";
+      const bySelect = new Map(activityCatalog.map((a) => [a.selectValue, a]));
+      const nonProject = bySelect.get(editProjectId);
       const isNone = editProjectId === "none" || !editProjectId;
-      const nextProjectId =
-        isTraining || isSupervision || isHr || isRd || isNone ? null : editProjectId;
+      const nextProjectId = nonProject || isNone ? null : editProjectId;
 
       const payload: Record<string, unknown> = {
         id: editEntry.id,
         description:
-          isTraining && !editDescription.trim()
-            ? "Training"
-            : isSupervision && !editDescription.trim()
-              ? "Supervision"
-              : isHr && !editDescription.trim()
-                ? "HR & Administration"
-                : isRd && !editDescription.trim()
-                  ? "R&D / SA"
-                  : editDescription.trim() || null,
+          nonProject && !editDescription.trim()
+            ? nonProject.label
+            : editDescription.trim() || null,
         projectId: nextProjectId,
-        activityType: isTraining
-          ? "TRAINING"
-          : isSupervision
-            ? "SUPERVISION"
-            : isHr
-              ? "HR_ADMIN"
-              : isRd
-                ? "RD_SA"
-                : nextProjectId
-                  ? "PROJECT"
-                  : null,
-        trainingAssignmentId: isTraining ? editEntry.trainingAssignmentId || null : null,
+        activityType: nonProject
+          ? nonProject.key
+          : nextProjectId
+            ? "PROJECT"
+            : null,
+        trainingAssignmentId:
+          nonProject?.key === "TRAINING" ? editEntry.trainingAssignmentId || null : null,
         clockIn: fromDatetimeLocal(editClockIn),
         clockOut: editClockOut ? fromDatetimeLocal(editClockOut) : null,
       };
@@ -1126,7 +1175,15 @@ function TimeTrackingPageInner() {
     } finally {
       setEditSaving(false);
     }
-  }, [editEntry, editDescription, editProjectId, editClockIn, editClockOut, refreshAfterMutation]);
+  }, [
+    editEntry,
+    editDescription,
+    editProjectId,
+    editClockIn,
+    editClockOut,
+    activityCatalog,
+    refreshAfterMutation,
+  ]);
 
   const handleDelete = useCallback(async () => {
     if (!deleteId) return;
@@ -1448,20 +1505,29 @@ function TimeTrackingPageInner() {
   return (
     <div className="space-y-4 sm:space-y-6 th-page-enter">
       <PageHeader title="Time Tracking" description="Clock in, review your week, and see where time goes">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            setLoading(true);
-            fetchEntries();
-            if (activeTab === "timesheet") fetchTimesheet();
-            if (activeTab === "insights") fetchAnalytics();
-            if (activeTab === "attendance") fetchAttendance();
-          }}
-        >
-          <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
-          <span className="hidden sm:inline">Refresh</span>
-        </Button>
+        <div className="flex items-center gap-2">
+          {canEditActivityCatalog && (
+            <Button variant="outline" size="sm" onClick={() => setActivityCatalogOpen(true)}>
+              <Settings2 className="h-3.5 w-3.5 mr-1.5" />
+              <span className="hidden sm:inline">Activities</span>
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setLoading(true);
+              fetchEntries();
+              void fetchActivityCatalog();
+              if (activeTab === "timesheet") fetchTimesheet();
+              if (activeTab === "insights") fetchAnalytics();
+              if (activeTab === "attendance") fetchAttendance();
+            }}
+          >
+            <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+            <span className="hidden sm:inline">Refresh</span>
+          </Button>
+        </div>
       </PageHeader>
 
       <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4 [contain:layout]">
@@ -1488,7 +1554,8 @@ function TimeTrackingPageInner() {
             activeEntry={activeEntry}
             elapsed={elapsed}
             projects={projects}
-            userRole={userRole}
+            activities={visibleActivities}
+            activityLabels={activityLabels}
             selectedProject={selectedProject}
             timerDescription={timerDescription}
             trainingAssignments={trainingAssignments}
@@ -1621,7 +1688,7 @@ function TimeTrackingPageInner() {
         open={switchOpen}
         onOpenChange={setSwitchOpen}
         projects={projects}
-        userRole={userRole}
+        activities={visibleActivities}
         selectedProject={switchProject}
         description={switchDescription}
         trainingAssignments={trainingAssignments}
@@ -1721,6 +1788,11 @@ function TimeTrackingPageInner() {
             ...projects,
           ];
         })()}
+        activities={
+          canEditActivityCatalog
+            ? activityCatalog.filter((a) => a.enabled)
+            : visibleActivities
+        }
         description={editDescription}
         projectId={editProjectId}
         clockIn={editClockIn}
@@ -1738,6 +1810,11 @@ function TimeTrackingPageInner() {
         onOpenChange={setAddEntryOpen}
         teamUsers={teamUsers}
         projects={projects}
+        activities={
+          canEditActivityCatalog
+            ? activityCatalog.filter((a) => a.enabled)
+            : visibleActivities
+        }
         userId={addEntryUserId}
         projectId={addEntryProjectId}
         description={addEntryDescription}
@@ -1750,6 +1827,13 @@ function TimeTrackingPageInner() {
         onClockIn={setAddEntryClockIn}
         onClockOut={setAddEntryClockOut}
         onSave={handleAdminAddEntry}
+      />
+
+      <ActivityCatalogDialog
+        open={activityCatalogOpen}
+        onOpenChange={setActivityCatalogOpen}
+        catalog={activityCatalog}
+        onSaved={(catalog) => setActivityCatalog(catalog)}
       />
 
       <AddAttendanceDialog

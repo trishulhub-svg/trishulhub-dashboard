@@ -1,21 +1,32 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, Suspense } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, Suspense } from "react";
 import { useSession } from "next-auth/react";
 import {
   Loader2,
-  Shield, Save,
-  Copy, Check, KeyRound,
-  Plus, Edit3, Globe, Search,
+  Shield,
+  Save,
+  Copy,
+  Check,
+  KeyRound,
+  Plus,
+  Edit3,
+  Globe,
+  Search,
   Trash2,
+  ChevronDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
@@ -38,6 +49,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 
 interface Credential {
   id: string;
@@ -57,19 +73,34 @@ interface UserOption {
   role: string;
 }
 
-const LABEL_COLORS: Record<string, string> = {
-  Workspace: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
-  Email: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
-  Portal: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
-  Hosting: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
-  API: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
-  Database: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
-  Default: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300",
+type LabelBadgeVariant =
+  | "default"
+  | "secondary"
+  | "outline"
+  | "info"
+  | "success"
+  | "warning"
+  | "pending";
+
+const LABEL_VARIANTS: Record<string, LabelBadgeVariant> = {
+  Workspace: "info",
+  Email: "default",
+  Portal: "secondary",
+  Hosting: "warning",
+  API: "success",
+  Database: "outline",
+  Default: "pending",
 };
 
 export default function AccessHubPage() {
   return (
-    <Suspense fallback={<div className="flex items-center justify-center min-h-[50vh]"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}>
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center min-h-[50vh]">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+        </div>
+      }
+    >
       <AccessHubContent />
     </Suspense>
   );
@@ -80,20 +111,26 @@ function AccessHubContent() {
   // canManageCredentials = SUPER_ADMIN, ADMIN, or PROJECT_MANAGER. Used to gate the
   // admin credentials view (full credential management UI). PROJECT_MANAGER has
   // admin-like credential access per requirements.
-  const canManageCredentials = session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN" || session?.user?.role === "PROJECT_MANAGER";
+  const canManageCredentials =
+    session?.user?.role === "SUPER_ADMIN" ||
+    session?.user?.role === "ADMIN" ||
+    session?.user?.role === "PROJECT_MANAGER";
   const initialFetchDone = useRef(false);
 
   // ── Credentials state ──
   const [credentials, setCredentials] = useState<Credential[]>([]);
-  const [credsLoading, setCredsLoading] = useState(true);
+  const [credsLoading, setCredsLoading] = useState(false);
   const [credsError, setCredsError] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [allUsers, setAllUsers] = useState<UserOption[]>([]);
-  const [selectedUserId, setSelectedUserId] = useState<string>("all");
+  // Managers start with no selection — credentials load only after explicit choice
+  const [selectedUserId, setSelectedUserId] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingCredential, setEditingCredential] = useState<Credential | null>(null);
+  // Collapsible open state for All Users grouping (userId → open)
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
 
   // ── Credential form state ──
   const [formLabel, setFormLabel] = useState("");
@@ -105,6 +142,14 @@ function AccessHubContent() {
   const [saving, setSaving] = useState(false);
 
   const fetchCredentials = useCallback(async () => {
+    // Managers must explicitly select a user or "all" before loading
+    if (canManageCredentials && !selectedUserId) {
+      setCredentials([]);
+      setCredsLoading(false);
+      setCredsError("");
+      return;
+    }
+
     setCredsLoading(true);
     setCredsError("");
     try {
@@ -122,7 +167,9 @@ function AccessHubContent() {
           const pageParams = new URLSearchParams(params);
           pageParams.set("page", String(page));
           pageParams.set("limit", "100");
-          const res = await fetch(`/api/credentials?${pageParams.toString()}`, { credentials: "include" });
+          const res = await fetch(`/api/credentials?${pageParams.toString()}`, {
+            credentials: "include",
+          });
           if (!res.ok) {
             setCredsError("Failed to load credentials");
             toast.error("Failed to load credentials");
@@ -141,7 +188,9 @@ function AccessHubContent() {
       } else {
         params.set("page", "1");
         params.set("limit", "100");
-        const res = await fetch(`/api/credentials?${params.toString()}`, { credentials: "include" });
+        const res = await fetch(`/api/credentials?${params.toString()}`, {
+          credentials: "include",
+        });
         if (res.ok) {
           const data = await res.json();
           const creds = Array.isArray(data) ? data : data.data;
@@ -177,28 +226,44 @@ function AccessHubContent() {
   useEffect(() => {
     if (status === "loading") return;
     if (!session) return;
-    fetchCredentials();
     fetchUsers();
+    // Developers auto-load their own credentials; managers wait for selection
+    if (!canManageCredentials) {
+      fetchCredentials();
+    }
     initialFetchDone.current = true;
-  }, [session, status, fetchCredentials, fetchUsers]);
+  }, [session, status, canManageCredentials, fetchCredentials, fetchUsers]);
 
   // Re-fetch when admin/PM changes user filter (skip initial mount)
   useEffect(() => {
     if (!canManageCredentials || !session || !initialFetchDone.current) return;
+    if (!selectedUserId) {
+      setCredentials([]);
+      setCredsLoading(false);
+      setCredsError("");
+      setOpenGroups(new Set());
+      return;
+    }
+    // Reset collapse state when filter changes — All Users defaults collapsed
+    setOpenGroups(new Set());
     fetchCredentials();
-  }, [selectedUserId]);
+  }, [selectedUserId, canManageCredentials, session, fetchCredentials]);
 
   const copyToClipboard = async (text: string, fieldId: string) => {
     try {
       await navigator.clipboard.writeText(text);
       setCopiedField(fieldId);
       setTimeout(() => setCopiedField(null), 2000);
-    } catch { /* fallback */ }
+    } catch {
+      /* fallback */
+    }
   };
 
   const handleCopyPassword = async (credId: string, fieldId: string) => {
     try {
-      const res = await fetch(`/api/credentials/${credId}/reveal`, { credentials: "include" });
+      const res = await fetch(`/api/credentials/${credId}/reveal`, {
+        credentials: "include",
+      });
       if (res.ok) {
         const data = await res.json();
         const realPassword = data.password;
@@ -225,7 +290,10 @@ function AccessHubContent() {
     setEditingCredential(null);
   };
 
-  const openAddCredDialog = () => { resetCredForm(); setShowAddDialog(true); };
+  const openAddCredDialog = () => {
+    resetCredForm();
+    setShowAddDialog(true);
+  };
 
   const toggleFormUser = (userId: string) => {
     setFormTargetUserIds((prev) =>
@@ -240,7 +308,9 @@ function AccessHubContent() {
     setFormPassword("");
     setFormUrl(cred.url || "");
     setFormNotes(cred.notes || "");
-    setFormTargetUserIds(cred.user?.id ? [cred.user.id] : session?.user?.id ? [session.user.id] : []);
+    setFormTargetUserIds(
+      cred.user?.id ? [cred.user.id] : session?.user?.id ? [session.user.id] : []
+    );
     setShowAddDialog(true);
   };
 
@@ -283,7 +353,9 @@ function AccessHubContent() {
           fetchCredentials();
         } else {
           const d = await res.json().catch(() => null);
-          toast.error(d?.error || d?.details?.formErrors?.[0] || "Failed to update credential");
+          toast.error(
+            d?.error || d?.details?.formErrors?.[0] || "Failed to update credential"
+          );
         }
       } else {
         const userIds = canManageCredentials
@@ -317,8 +389,12 @@ function AccessHubContent() {
           const d = await res.json().catch(() => null);
           const detail =
             d?.error ||
-            (Array.isArray(d?.details?.fieldErrors?.url) ? d.details.fieldErrors.url[0] : null) ||
-            (Array.isArray(d?.details?.fieldErrors?.userIds) ? d.details.fieldErrors.userIds[0] : null) ||
+            (Array.isArray(d?.details?.fieldErrors?.url)
+              ? d.details.fieldErrors.url[0]
+              : null) ||
+            (Array.isArray(d?.details?.fieldErrors?.userIds)
+              ? d.details.fieldErrors.userIds[0]
+              : null) ||
             "Failed to create credential";
           toast.error(detail);
         }
@@ -332,12 +408,21 @@ function AccessHubContent() {
 
   const handleDeleteCred = async (id: string) => {
     try {
-      const res = await fetch(`/api/credentials?id=${id}`, { method: "DELETE", credentials: "include" });
-      if (res.ok) { setDeleteId(null); fetchCredentials(); }
-    } catch { toast.error("Failed to delete credential"); }
+      const res = await fetch(`/api/credentials?id=${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (res.ok) {
+        setDeleteId(null);
+        fetchCredentials();
+      }
+    } catch {
+      toast.error("Failed to delete credential");
+    }
   };
 
-  const labelColor = (label: string) => LABEL_COLORS[label] || LABEL_COLORS.Default;
+  const labelVariant = (label: string): LabelBadgeVariant =>
+    LABEL_VARIANTS[label] || LABEL_VARIANTS.Default;
 
   const safeUrl = (url: string | null | undefined): string => {
     if (!url) return "#";
@@ -345,7 +430,9 @@ function AccessHubContent() {
       const parsed = new URL(url);
       if (["http:", "https:"].includes(parsed.protocol)) return url;
       return "#";
-    } catch { return "#"; }
+    } catch {
+      return "#";
+    }
   };
 
   const filteredCredentials = credentials.filter((c) => {
@@ -358,69 +445,190 @@ function AccessHubContent() {
     );
   });
 
+  const groupedByUser = useMemo(() => {
+    const groups = new Map<
+      string,
+      { userId: string; name: string; email: string; credentials: Credential[] }
+    >();
+    for (const cred of filteredCredentials) {
+      const userId = cred.user?.id || "unknown";
+      const existing = groups.get(userId);
+      if (existing) {
+        existing.credentials.push(cred);
+      } else {
+        groups.set(userId, {
+          userId,
+          name: safeText(cred.user?.name, "Unknown user"),
+          email: safeText(cred.user?.email, ""),
+          credentials: [cred],
+        });
+      }
+    }
+    return Array.from(groups.values()).sort((a, b) =>
+      a.name.localeCompare(b.name)
+    );
+  }, [filteredCredentials]);
+
+  const toggleGroup = (userId: string, open: boolean) => {
+    setOpenGroups((prev) => {
+      const next = new Set(prev);
+      if (open) next.add(userId);
+      else next.delete(userId);
+      return next;
+    });
+  };
+
   if (status === "loading") return null;
   if (!session) return null;
 
+  const awaitingUserSelection = canManageCredentials && !selectedUserId;
+  const showAllUsersGroups = canManageCredentials && selectedUserId === "all";
   const hasCredentials = filteredCredentials.length > 0;
+
+  const renderCredentialCard = (cred: Credential, showUserMeta = false) => (
+    <div
+      key={cred.id}
+      className="rounded-lg border border-border/60 bg-background p-4 space-y-3"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <Badge variant={labelVariant(cred.label)} className="text-xs">
+            {safeText(cred.label, "Credential")}
+          </Badge>
+          {cred.url && (
+            <a
+              href={safeUrl(cred.url)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-muted-foreground hover:text-primary transition-colors"
+            >
+              <Globe className="h-3.5 w-3.5" />
+            </a>
+          )}
+        </div>
+        {canManageCredentials && (
+          <div className="flex items-center gap-1 shrink-0">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => openEditCredDialog(cred)}
+              aria-label="Edit credential"
+            >
+              <Edit3 className="h-3 w-3" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-destructive hover:text-destructive"
+              onClick={() => setDeleteId(cred.id)}
+              aria-label="Delete credential"
+            >
+              <Trash2 className="h-3 w-3" />
+            </Button>
+          </div>
+        )}
+      </div>
+      {showUserMeta && cred.user && (
+        <p className="text-xs text-muted-foreground truncate">
+          For: {safeText(cred.user.name, "")} ({safeText(cred.user.email, "")})
+        </p>
+      )}
+      <div className="space-y-1">
+        <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+          ID / Username
+        </p>
+        <div className="flex items-center gap-2">
+          <code className="flex-1 text-sm bg-muted px-3 py-2 rounded-md font-mono break-all">
+            {safeText(cred.username, "")}
+          </code>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            onClick={() => copyToClipboard(cred.username, `user-${cred.id}`)}
+            aria-label="Copy username"
+          >
+            {copiedField === `user-${cred.id}` ? (
+              <Check className="h-3.5 w-3.5 text-green-500" />
+            ) : (
+              <Copy className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        </div>
+      </div>
+      <div className="space-y-1">
+        <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+          Password
+        </p>
+        <div className="flex items-center gap-2">
+          <code className="flex-1 text-sm bg-muted px-3 py-2 rounded-md font-mono break-all">
+            {safeText(cred.password, "••••••••••••")}
+          </code>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            onClick={() => handleCopyPassword(cred.id, `pass-${cred.id}`)}
+            aria-label="Copy password"
+          >
+            {copiedField === `pass-${cred.id}` ? (
+              <Check className="h-3.5 w-3.5 text-green-500" />
+            ) : (
+              <Copy className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        </div>
+      </div>
+      {cred.notes && (
+        <p className="text-xs text-muted-foreground bg-muted/50 px-3 py-2 rounded-md">
+          {safeText(cred.notes, "")}
+        </p>
+      )}
+    </div>
+  );
 
   const credentialsGrid = (
     <div className="grid gap-4 md:grid-cols-2">
-      {filteredCredentials.map((cred) => (
-        <Card key={cred.id} className="group">
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Badge className={cn("text-xs", labelColor(cred.label))}>
-                  {safeText(cred.label, "Credential")}
-                </Badge>
-                {cred.url && (
-                  <a href={safeUrl(cred.url)} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors">
-                    <Globe className="h-3.5 w-3.5" />
-                  </a>
+      {filteredCredentials.map((cred) =>
+        renderCredentialCard(cred, canManageCredentials)
+      )}
+    </div>
+  );
+
+  const collapsibleGroups = (
+    <div className="space-y-3">
+      {groupedByUser.map((group) => {
+        const isOpen = openGroups.has(group.userId);
+        return (
+          <Collapsible
+            key={group.userId}
+            open={isOpen}
+            onOpenChange={(open) => toggleGroup(group.userId, open)}
+            className="rounded-lg border border-border/60"
+          >
+            <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-muted/40 transition-colors [&[data-state=open]>svg]:rotate-180">
+              <div className="min-w-0">
+                <p className="text-sm font-medium truncate">{group.name}</p>
+                {group.email && (
+                  <p className="text-xs text-muted-foreground truncate">{group.email}</p>
                 )}
               </div>
-              {canManageCredentials && (
-                <div className="flex items-center gap-1 opacity-100 transition-opacity">
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditCredDialog(cred)} aria-label="Edit credential">
-                    <Edit3 className="h-3 w-3" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => setDeleteId(cred.id)} aria-label="Delete credential">
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
-                </div>
-              )}
-            </div>
-            {canManageCredentials && cred.user && (
-              <CardDescription className="text-xs truncate">
-                For: {safeText(cred.user.name, "")} ({safeText(cred.user.email, "")})
-              </CardDescription>
-            )}
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="space-y-1">
-              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">ID / Username</p>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 text-sm bg-muted px-3 py-2 rounded-md font-mono break-all">{safeText(cred.username, "")}</code>
-                <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => copyToClipboard(cred.username, `user-${cred.id}`)} aria-label="Copy username">
-                  {copiedField === `user-${cred.id}` ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
-                </Button>
+              <div className="flex items-center gap-2 shrink-0">
+                <Badge variant="pending" className="text-[10px]">
+                  {group.credentials.length}
+                </Badge>
+                <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform" />
               </div>
-            </div>
-            <div className="space-y-1">
-              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Password</p>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 text-sm bg-muted px-3 py-2 rounded-md font-mono break-all">{safeText(cred.password, "••••••••••••")}</code>
-                <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => handleCopyPassword(cred.id, `pass-${cred.id}`)} aria-label="Copy password">
-                  {copiedField === `pass-${cred.id}` ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
-                </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="grid gap-3 md:grid-cols-2 border-t border-border/40 p-3">
+                {group.credentials.map((cred) => renderCredentialCard(cred, false))}
               </div>
-            </div>
-            {cred.notes && (
-              <p className="text-xs text-muted-foreground bg-muted/50 px-3 py-2 rounded-md">{safeText(cred.notes, "")}</p>
-            )}
-          </CardContent>
-        </Card>
-      ))}
+            </CollapsibleContent>
+          </Collapsible>
+        );
+      })}
     </div>
   );
 
@@ -433,90 +641,110 @@ function AccessHubContent() {
 
       <div className="space-y-5">
         {!canManageCredentials && (
-          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">My Credentials</h2>
+          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+            My Credentials
+          </h2>
         )}
 
-        {canManageCredentials && allUsers.length > 0 && (
-          <Card>
-            <CardContent className="pt-4">
-              <div className="flex items-center gap-3 flex-wrap">
-                <div className="flex items-center gap-2">
-                  <Shield className="h-4 w-4 text-muted-foreground" />
-                  <Label className="text-sm font-medium whitespace-nowrap">Filter by user:</Label>
-                </div>
-                <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-                  <SelectTrigger className="w-full sm:w-[220px]">
-                    <SelectValue placeholder="All users" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Users</SelectItem>
-                    {allUsers.map((u) => (
-                      <SelectItem key={u.id} value={u.id}>
-                        {safeText(u.name, "Unknown")} ({safeText(u.email, "")})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+        {/* Toolbar: user filter + search + add */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-wrap">
+          {canManageCredentials && (
+            <div className="flex items-center gap-2 shrink-0">
+              <Shield className="h-4 w-4 text-muted-foreground hidden sm:block" />
+              <Select
+                value={selectedUserId || undefined}
+                onValueChange={setSelectedUserId}
+              >
+                <SelectTrigger className="w-full sm:w-[240px]">
+                  <SelectValue placeholder="Select a user…" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Users</SelectItem>
+                  {allUsers.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {safeText(u.name, "Unknown")} ({safeText(u.email, "")})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search by label, username, or notes..."
-            className="pl-9"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
+          <div className="relative flex-1 min-w-[180px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by label, username, or notes..."
+              className="pl-9"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              disabled={awaitingUserSelection}
+            />
+          </div>
+
+          {canManageCredentials && (
+            <Button size="sm" onClick={openAddCredDialog} className="w-full sm:w-auto shrink-0">
+              <Plus className="h-4 w-4 mr-1" /> Add Credential
+            </Button>
+          )}
         </div>
 
-        {canManageCredentials && (
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <Button size="sm" onClick={openAddCredDialog} className="w-full sm:w-auto">
-              <Plus className="h-4 w-4 mr-1" /> Add Credential
+        {credsError && (
+          <div className="rounded-lg border border-destructive/50 px-4 py-6 text-center">
+            <p className="text-sm text-destructive">{credsError}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-3"
+              onClick={() => {
+                setCredsError("");
+                fetchCredentials();
+              }}
+            >
+              Retry
             </Button>
           </div>
         )}
 
-        {credsError && (
-          <Card className="border-destructive/50">
-            <CardContent className="pt-6 pb-6">
-              <div className="text-center">
-                <p className="text-sm text-destructive">{credsError}</p>
-                <Button variant="outline" size="sm" className="mt-3" onClick={() => { setCredsError(""); fetchCredentials(); }}>Retry</Button>
-              </div>
-            </CardContent>
-          </Card>
+        {awaitingUserSelection && !credsError && (
+          <div className="rounded-lg border border-dashed border-border/70 px-4 py-10 text-center">
+            <KeyRound className="h-10 w-10 mx-auto text-muted-foreground/40 mb-3" />
+            <p className="text-sm text-muted-foreground">
+              Select a user or All Users to load credentials.
+            </p>
+          </div>
         )}
 
-        {credsLoading && (
+        {!awaitingUserSelection && credsLoading && (
           <div className="grid gap-4 md:grid-cols-2">
             {[1, 2, 3].map((i) => (
-              <Card key={i}><CardContent className="p-6"><div className="space-y-3"><div className="h-4 w-24 bg-muted rounded animate-pulse" /><div className="h-8 bg-muted rounded animate-pulse" /><div className="h-8 bg-muted rounded animate-pulse" /></div></CardContent></Card>
+              <div key={i} className="rounded-lg border border-border/60 p-6">
+                <div className="space-y-3">
+                  <div className="h-4 w-24 bg-muted rounded animate-pulse" />
+                  <div className="h-8 bg-muted rounded animate-pulse" />
+                  <div className="h-8 bg-muted rounded animate-pulse" />
+                </div>
+              </div>
             ))}
           </div>
         )}
 
-        {!credsLoading && !hasCredentials && !credsError && (
-          <Card>
-            <CardContent className="pt-8 pb-8">
-              <div className="text-center">
-                <KeyRound className="h-12 w-12 mx-auto text-muted-foreground/40 mb-3" />
-                <p className="text-sm text-muted-foreground">
-                  {searchQuery
-                    ? "No credentials match your search"
-                    : canManageCredentials
-                      ? "No credentials found. Click 'Add Credential' to create one."
-                      : "No credentials assigned to you yet. Contact your admin."}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
+        {!awaitingUserSelection && !credsLoading && !hasCredentials && !credsError && (
+          <div className="rounded-lg border border-border/60 px-4 py-8 text-center">
+            <KeyRound className="h-12 w-12 mx-auto text-muted-foreground/40 mb-3" />
+            <p className="text-sm text-muted-foreground">
+              {searchQuery
+                ? "No credentials match your search"
+                : canManageCredentials
+                  ? "No credentials found. Click 'Add Credential' to create one."
+                  : "No credentials assigned to you yet. Contact your admin."}
+            </p>
+          </div>
         )}
 
-        {!credsLoading && hasCredentials && credentialsGrid}
+        {!awaitingUserSelection &&
+          !credsLoading &&
+          hasCredentials &&
+          (showAllUsersGroups ? collapsibleGroups : credentialsGrid)}
       </div>
 
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
@@ -560,7 +788,13 @@ function AccessHubContent() {
                 <p className="text-[11px] text-muted-foreground">
                   Same credential can be given to multiple people at once.
                   {formTargetUserIds.length > 0 && (
-                    <> Selected: <span className="font-medium text-foreground">{formTargetUserIds.length}</span></>
+                    <>
+                      {" "}
+                      Selected:{" "}
+                      <span className="font-medium text-foreground">
+                        {formTargetUserIds.length}
+                      </span>
+                    </>
                   )}
                 </p>
                 <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto rounded-md border border-border/60 p-2">
@@ -574,7 +808,7 @@ function AccessHubContent() {
                         className={cn(
                           "text-[11px] px-2 py-1 rounded-full border transition-colors",
                           selected
-                            ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-700 dark:text-emerald-300"
+                            ? "bg-primary/15 border-primary/40 text-primary"
                             : "bg-muted/40 border-transparent text-muted-foreground hover:border-border"
                         )}
                       >
@@ -616,41 +850,89 @@ function AccessHubContent() {
             </div>
             <div className="space-y-2">
               <Label>ID / Username</Label>
-              <Input placeholder="e.g., john@company.com" value={formUsername} onChange={(e) => setFormUsername(e.target.value)} />
+              <Input
+                placeholder="e.g., john@company.com"
+                value={formUsername}
+                onChange={(e) => setFormUsername(e.target.value)}
+              />
             </div>
             <div className="space-y-2">
               <Label>Password</Label>
-              <Input type="password" placeholder={editingCredential ? "Leave blank to keep current password" : "Enter the password"} value={formPassword} onChange={(e) => setFormPassword(e.target.value)} />
+              <Input
+                type="password"
+                placeholder={
+                  editingCredential
+                    ? "Leave blank to keep current password"
+                    : "Enter the password"
+                }
+                value={formPassword}
+                onChange={(e) => setFormPassword(e.target.value)}
+              />
             </div>
             <div className="space-y-2">
               <Label>Login URL (optional)</Label>
-              <Input placeholder="https://example.com/login" value={formUrl} onChange={(e) => setFormUrl(e.target.value)} />
+              <Input
+                placeholder="https://example.com/login"
+                value={formUrl}
+                onChange={(e) => setFormUrl(e.target.value)}
+              />
             </div>
             <div className="space-y-2">
               <Label>Notes (optional)</Label>
-              <Textarea placeholder="Any additional instructions..." value={formNotes} onChange={(e) => setFormNotes(e.target.value)} rows={2} />
+              <Textarea
+                placeholder="Any additional instructions..."
+                value={formNotes}
+                onChange={(e) => setFormNotes(e.target.value)}
+                rows={2}
+              />
             </div>
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setShowAddDialog(false)}>Cancel</Button>
-            <Button onClick={handleSaveCred} disabled={!formLabel || !formUsername || (!formPassword && !editingCredential) || saving}>
-              {saving ? "Saving..." : (
-                <><Save className="h-4 w-4 mr-1" />{editingCredential ? "Update" : "Create"}</>
+            <Button variant="outline" onClick={() => setShowAddDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveCred}
+              disabled={
+                !formLabel ||
+                !formUsername ||
+                (!formPassword && !editingCredential) ||
+                saving
+              }
+            >
+              {saving ? (
+                "Saving..."
+              ) : (
+                <>
+                  <Save className="h-4 w-4 mr-1" />
+                  {editingCredential ? "Update" : "Create"}
+                </>
               )}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={!!deleteId} onOpenChange={(open) => { if (!open) setDeleteId(null); }}>
+      <AlertDialog
+        open={!!deleteId}
+        onOpenChange={(open) => {
+          if (!open) setDeleteId(null);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Credential</AlertDialogTitle>
-            <AlertDialogDescription>Are you sure you want to delete this credential? This action cannot be undone.</AlertDialogDescription>
+            <AlertDialogDescription>
+              Are you sure you want to delete this credential? This action cannot be
+              undone.
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => deleteId && handleDeleteCred(deleteId)}>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deleteId && handleDeleteCred(deleteId)}
+            >
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>
