@@ -22,7 +22,7 @@ function getErrMsg(err: unknown): string {
 
 // Bump when adding CRITICAL_COLUMNS / CRITICAL_TABLES so warm serverless
 // instances re-run migrations after deploy (stale syncDone otherwise skips ALTERs).
-const SCHEMA_REVISION = 202607272
+const SCHEMA_REVISION = 202607301
 
 // Use globalThis to persist the syncDone flag across hot reloads in dev
 // and across serverless function warm invocations in production.
@@ -516,6 +516,42 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
       "overdueNotifiedAt" DATETIME,
       "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE,
+      FOREIGN KEY ("assignedById") REFERENCES "User"("id") ON DELETE CASCADE
+    )`
+  },
+  {
+    name: "DocxDocument",
+    sql: `CREATE TABLE IF NOT EXISTS "DocxDocument" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "title" TEXT NOT NULL,
+      "fileName" TEXT NOT NULL,
+      "mimeType" TEXT NOT NULL DEFAULT 'application/pdf',
+      "fileData" TEXT NOT NULL,
+      "uploadedById" TEXT NOT NULL,
+      "isActive" BOOLEAN NOT NULL DEFAULT 1,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("uploadedById") REFERENCES "User"("id") ON DELETE CASCADE
+    )`
+  },
+  {
+    name: "DocxAssignment",
+    sql: `CREATE TABLE IF NOT EXISTS "DocxAssignment" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "documentId" TEXT NOT NULL,
+      "userId" TEXT NOT NULL,
+      "status" TEXT NOT NULL DEFAULT 'PENDING',
+      "assignedById" TEXT NOT NULL,
+      "signatureData" TEXT,
+      "signedAt" DATETIME,
+      "signedFileData" TEXT,
+      "signerIp" TEXT,
+      "signerUserAgent" TEXT,
+      "resignNote" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("documentId") REFERENCES "DocxDocument"("id") ON DELETE CASCADE,
       FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE,
       FOREIGN KEY ("assignedById") REFERENCES "User"("id") ON DELETE CASCADE
     )`
@@ -1254,6 +1290,27 @@ export async function ensureAllTables(): Promise<void> {
     } catch (err: unknown) {
       if (!getErrMsg(err)?.includes('already exists')) {
         console.warn(`[auto-migrate] TrainingAssignment_dueDate_status_idx: ${getErrMsg(err)}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "DocxDocument_isActive_createdAt_idx" ON "DocxDocument"("isActive", "createdAt")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes("already exists")) {
+        console.warn(`[auto-migrate] DocxDocument_isActive_createdAt_idx: ${getErrMsg(err)}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "DocxAssignment_userId_status_idx" ON "DocxAssignment"("userId", "status")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes("already exists")) {
+        console.warn(`[auto-migrate] DocxAssignment_userId_status_idx: ${getErrMsg(err)}`)
+      }
+    }
+    try {
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "DocxAssignment_documentId_status_idx" ON "DocxAssignment"("documentId", "status")`)
+    } catch (err: unknown) {
+      if (!getErrMsg(err)?.includes("already exists")) {
+        console.warn(`[auto-migrate] DocxAssignment_documentId_status_idx: ${getErrMsg(err)}`)
       }
     }
 

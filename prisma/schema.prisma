@@ -59,8 +59,59 @@ model User {
   trainingAssignmentsAssigned TrainingAssignment[] @relation("TrainingAssignmentAssignee")
   trainingAssignmentsCreated  TrainingAssignment[] @relation("TrainingAssignmentAssigner")
   leaveBalances               LeaveBalance[]
+  docxDocumentsUploaded       DocxDocument[]       @relation("DocxDocumentUploader")
+  docxAssignmentsAssigned     DocxAssignment[]     @relation("DocxAssignmentAssignee")
+  docxAssignmentsCreated      DocxAssignment[]     @relation("DocxAssignmentAssigner")
 
   @@map("User")
+}
+
+// ━━ Docx Sign — e-signature contracts (Admin / Super Admin upload + assign) ━━
+model DocxDocument {
+  id           String   @id @default(cuid())
+  title        String
+  fileName     String
+  mimeType     String   @default("application/pdf")
+  // data:application/pdf;base64,... (source unsigned PDF)
+  fileData     String
+  uploadedById String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  uploadedBy  User             @relation("DocxDocumentUploader", fields: [uploadedById], references: [id], onDelete: Cascade)
+  assignments DocxAssignment[]
+
+  @@index([isActive, createdAt])
+  @@map("DocxDocument")
+}
+
+model DocxAssignment {
+  id              String    @id @default(cuid())
+  documentId      String
+  userId          String
+  // PENDING | SIGNED | RESIGN_REQUESTED
+  status          String    @default("PENDING")
+  assignedById    String
+  // PNG data URL of drawn signature
+  signatureData   String?
+  signedAt        DateTime?
+  // Stamped PDF after sign (data:application/pdf;base64,...)
+  signedFileData  String?
+  signerIp        String?
+  signerUserAgent String?
+  resignNote      String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  document   DocxDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  user       User         @relation("DocxAssignmentAssignee", fields: [userId], references: [id], onDelete: Cascade)
+  assignedBy User         @relation("DocxAssignmentAssigner", fields: [assignedById], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([documentId, status])
+  @@index([status, createdAt])
+  @@map("DocxAssignment")
 }
 
 // ━━ Learning / Percipio training QR (SuperAdmin managed) ━━

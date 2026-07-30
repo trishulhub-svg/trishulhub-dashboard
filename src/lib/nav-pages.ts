@@ -17,6 +17,7 @@ export const CONTROLLABLE_PAGES: ControllablePage[] = [
   { title: "Dashboard", href: "/dashboard", locked: true },
   { title: "Workspace", href: "/dashboard/workspace" },
   { title: "Learning", href: "/dashboard/training" },
+  { title: "Docx Sign", href: "/dashboard/docx-sign" },
   { title: "Projects", href: "/dashboard/projects" },
   { title: "Clients", href: "/dashboard/clients" },
   { title: "CRM", href: "/dashboard/crm" },
@@ -123,6 +124,7 @@ export function isRoleAllowedDashboardHref(href: string, role: string | undefine
     "/dashboard/audit-trail",
     "/dashboard/api-keys",
     "/dashboard/training/assign",
+    "/dashboard/docx-sign/manage",
   ]
   const adminOrPm = [
     "/dashboard/clients",

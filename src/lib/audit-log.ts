@@ -11,7 +11,7 @@ import { db } from "@/lib/db"
 export const AUDIT_DEPARTMENTS = {
   BUSINESS: { label: "Business", pages: ["invoices", "clients", "leads", "contacts", "deals", "contracts", "subscriptions", "expenses", "finance"] },
   TEAM_WORK: { label: "Team & Work", pages: ["projects", "tasks", "time-tracking", "approvals", "milestones"] },
-  HR_PEOPLE: { label: "HR & People", pages: ["team", "leaves", "availability"] },
+  HR_PEOPLE: { label: "HR & People", pages: ["team", "leaves", "availability", "docx-sign"] },
   LEARNING: { label: "Learning", pages: ["training", "my-training"] },
   SYSTEM: { label: "System", pages: ["settings", "api-keys", "workspace", "access-hub", "credentials", "notifications"] },
 } as const

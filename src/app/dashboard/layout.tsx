@@ -45,6 +45,7 @@ import {
   BarChart3,
   Star,
   Plus,
+  FilePenLine,
 } from "lucide-react";
 import Image from "next/image";
 import LoadingScreen from "@/components/ui/loading-screen";
@@ -107,6 +108,7 @@ const navGroups: NavGroup[] = [
       { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
       { title: "Workspace", href: "/dashboard/workspace", icon: Rocket, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
       { title: "Learning", href: "/dashboard/training", icon: BookOpen, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
+      { title: "Docx Sign", href: "/dashboard/docx-sign", icon: FilePenLine, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
     ],
   },
   {

@@ -116,6 +116,8 @@ export async function middleware(request: NextRequest) {
       "/dashboard/api-keys",
       // Assign training is Admin / Super Admin only (staff use /dashboard/training/my)
       "/dashboard/training/assign",
+      // Docx Sign manage is Admin / Super Admin only (staff use /dashboard/docx-sign/my)
+      "/dashboard/docx-sign/manage",
     ]
 
     // Admin OR Project Manager routes — Developers/viewers are redirected away

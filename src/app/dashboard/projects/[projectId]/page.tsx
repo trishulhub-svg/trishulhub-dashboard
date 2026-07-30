@@ -24,7 +24,7 @@ import {
   ArrowLeft, Plus, Bot, User, Clock, Trash2, Users, UserPlus, X, CalendarDays, Tag,
   CheckCircle2, ShieldCheck, Activity, Gauge, CircleDot, FolderKanban,
   ChevronRight, ChevronDown, ChevronUp, ExternalLink, Settings, Globe, Star, Pencil, Trash2 as Trash2Icon, Loader2,
-  Github, Database, Server, Eye, EyeOff, Copy, Save, Key, FlaskConical, GripVertical,
+  Github, Database, Server, Eye, EyeOff, Copy, Save, Key, FlaskConical, GripVertical, CopyPlus,
 } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator, } from "@/components/ui/dropdown-menu";
@@ -162,6 +162,7 @@ function MilestoneListWithDoneCollapsed({
   onToggle,
   onEdit,
   onDelete,
+  onDuplicate,
   onReorder,
 }: {
   items: Record<string, unknown>[];
@@ -170,6 +171,7 @@ function MilestoneListWithDoneCollapsed({
   onToggle: (id: string, done: boolean) => void;
   onEdit?: (m: Record<string, unknown>) => void;
   onDelete?: (id: string) => void;
+  onDuplicate?: (m: Record<string, unknown>) => void;
   /** Persist new first→last order for open milestones in this week */
   onReorder?: (orderedIds: string[]) => void;
 }) {
@@ -225,6 +227,7 @@ function MilestoneListWithDoneCollapsed({
                   onToggle={onToggle}
                   onEdit={onEdit}
                   onDelete={onDelete}
+                  onDuplicate={onDuplicate}
                   orderIndex={index}
                   orderTotal={open.length}
                   onMoveUp={() => moveOpen(extractStr(m, "id", ""), -1)}
@@ -244,6 +247,7 @@ function MilestoneListWithDoneCollapsed({
             onToggle={onToggle}
             onEdit={onEdit}
             onDelete={onDelete}
+            onDuplicate={onDuplicate}
           />
         ))
       )}
@@ -265,6 +269,7 @@ function MilestoneListWithDoneCollapsed({
                 onToggle={onToggle}
                 onEdit={onEdit}
                 onDelete={onDelete}
+                onDuplicate={onDuplicate}
               />
             ))}
           </CollapsibleContent>
@@ -281,6 +286,7 @@ function SortableMilestoneRow({
   onToggle,
   onEdit,
   onDelete,
+  onDuplicate,
   orderIndex,
   orderTotal,
   onMoveUp,
@@ -292,6 +298,7 @@ function SortableMilestoneRow({
   onToggle: (id: string, done: boolean) => void;
   onEdit?: (m: Record<string, unknown>) => void;
   onDelete?: (id: string) => void;
+  onDuplicate?: (m: Record<string, unknown>) => void;
   orderIndex: number;
   orderTotal: number;
   onMoveUp: () => void;
@@ -317,6 +324,7 @@ function SortableMilestoneRow({
         onToggle={onToggle}
         onEdit={onEdit}
         onDelete={onDelete}
+        onDuplicate={onDuplicate}
         dragHandleProps={{ attributes, listeners }}
         orderBadge={orderIndex + 1}
         onMoveUp={orderIndex > 0 ? onMoveUp : undefined}
@@ -333,6 +341,7 @@ function MilestoneRow({
   onToggle,
   onEdit,
   onDelete,
+  onDuplicate,
   dragHandleProps,
   orderBadge,
   onMoveUp,
@@ -344,6 +353,7 @@ function MilestoneRow({
   onToggle: (id: string, done: boolean) => void;
   onEdit?: (m: Record<string, unknown>) => void;
   onDelete?: (id: string) => void;
+  onDuplicate?: (m: Record<string, unknown>) => void;
   dragHandleProps?: {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     attributes: any;
@@ -450,14 +460,28 @@ function MilestoneRow({
           </button>
         </div>
       )}
-      {canManage && onEdit && onDelete && (
+      {canManage && (onEdit || onDelete || onDuplicate) && (
         <div className="flex items-center gap-1 shrink-0">
-          <button type="button" onClick={() => onEdit(m)} className="text-muted-foreground hover:text-foreground transition-colors p-1" title="Edit">
-            <Pencil className="h-3.5 w-3.5" />
-          </button>
-          <button type="button" onClick={() => onDelete(mId)} className="text-muted-foreground hover:text-red-500 transition-colors p-1" title="Delete">
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          {onDuplicate && (
+            <button
+              type="button"
+              onClick={() => onDuplicate(m)}
+              className="text-muted-foreground hover:text-foreground transition-colors p-1"
+              title="Duplicate milestone"
+            >
+              <CopyPlus className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {onEdit && (
+            <button type="button" onClick={() => onEdit(m)} className="text-muted-foreground hover:text-foreground transition-colors p-1" title="Edit">
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {onDelete && (
+            <button type="button" onClick={() => onDelete(mId)} className="text-muted-foreground hover:text-red-500 transition-colors p-1" title="Delete">
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -1298,6 +1322,62 @@ export default function ProjectDetailPage() {
     }
   };
 
+  const handleDuplicateMilestone = async (m: Record<string, unknown>) => {
+    const titleBase = extractStr(m, "title", "Milestone").replace(/\s*\(copy\)\s*$/i, "").trim();
+    const due = extractStr(m, "dueDate", "");
+    const dueDate = due ? due.slice(0, 10) : "";
+    const dueTime = extractStr(m, "dueTime", "") || null;
+    const assignees = Array.isArray(m.assignees)
+      ? (m.assignees as Record<string, unknown>[])
+          .map((a) => extractStr(a, "userId", "") || extractNestedStr(a, ["user", "id"], ""))
+          .filter(Boolean)
+      : [];
+    if (!dueDate) {
+      toast.error("Original milestone has no due date to copy");
+      return;
+    }
+    if (assignees.length === 0) {
+      toast.error("Original milestone has no assignees to copy");
+      return;
+    }
+    setMilestoneSaving(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/milestones`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          title: `${titleBase} (copy)`.slice(0, 200),
+          dueDate,
+          dueTime,
+          assigneeIds: assignees,
+        }),
+      });
+      if (res.ok) {
+        const created = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+        toast.success("Milestone duplicated");
+        if (created && extractStr(created, "id", "")) {
+          queryClient.setQueryData(
+            ["project-milestones", projectId],
+            (prev: unknown) => {
+              const list = Array.isArray(prev) ? (prev as Record<string, unknown>[]) : [];
+              return [...list, created];
+            }
+          );
+        }
+        void refreshProgress();
+      } else {
+        if (handle401(res)) return;
+        const d = await res.json().catch(() => null);
+        toast.error(d?.error || "Failed to duplicate milestone");
+      }
+    } catch {
+      toast.error("Failed to duplicate milestone");
+    } finally {
+      setMilestoneSaving(false);
+    }
+  };
+
   const toggleAssignee = (list: string[], setList: (v: string[]) => void, userId: string) => {
     setList(list.includes(userId) ? list.filter((id) => id !== userId) : [...list, userId]);
   };
@@ -1872,6 +1952,7 @@ export default function ProjectDetailPage() {
                         onToggle={handleToggleMilestone}
                         onEdit={openEditMilestone}
                         onDelete={handleDeleteMilestone}
+                        onDuplicate={handleDuplicateMilestone}
                         onReorder={canManageMilestones ? handleReorderMilestones : undefined}
                       />
                     </div>
