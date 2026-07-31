@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { safeArray, safeNumber, safeText } from "@/lib/utils";
 import { useUrlState } from "@/hooks/use-url-state";
 import { buildClientClockPayload } from "@/lib/clock-integrity";
+import { notifyClockStatusChanged } from "@/hooks/use-clocked-in-status";
 
 import type {
   AnalyticsData,
@@ -637,6 +638,7 @@ function TimeTrackingPageInner() {
         const entry = await res.json();
         setActiveEntry(entry);
         toast.success(built.isTraining ? "Training session started!" : "Timer started!");
+        notifyClockStatusChanged();
         fetchEntries();
         // Briefing first (all project milestones). Defer workspace redirect until briefing closes.
         if (built.projectId) {
@@ -709,6 +711,7 @@ function TimeTrackingPageInner() {
         if (res.ok) {
           const entry = (await res.json()) as TimeEntry;
           setActiveEntry(entry);
+          notifyClockStatusChanged();
           setEntries((prev) => {
             const withoutMineActive = prev.filter(
               (e) =>
@@ -876,6 +879,7 @@ function TimeTrackingPageInner() {
       });
       if (res.ok) {
         setActiveEntry(null);
+        notifyClockStatusChanged();
         toast.success(
           notes
             ? "Clocked out — milestones updated"

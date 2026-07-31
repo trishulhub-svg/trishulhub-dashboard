@@ -86,6 +86,7 @@ import {
   type PageAccessMode,
 } from "@/lib/nav-pages";
 import { useFavoritePages } from "@/hooks/use-favorite-pages";
+import { ClockedInHeaderDot } from "@/components/clocked-in-header-dot";
 
 interface NavItem {
   title: string;
@@ -993,9 +994,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Main Content — only this region scrolls with the page */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
         {/* Header - taller and more prominent */}
-        <header className="h-14 sm:h-16 glass-topbar flex items-center justify-between px-3 sm:px-5 shrink-0 z-30">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" className="md:hidden" aria-label="Open menu" onClick={() => setMobileOpen(true)}>
+        <header className="h-14 sm:h-16 glass-topbar grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-3 sm:px-5 shrink-0 z-30">
+          <div className="flex items-center gap-3 min-w-0">
+            <Button variant="ghost" size="icon" className="md:hidden shrink-0" aria-label="Open menu" onClick={() => setMobileOpen(true)}>
               <Menu className="h-5 w-5" />
             </Button>
             <h2 className="text-sm sm:text-base font-semibold text-foreground truncate">
@@ -1003,7 +1004,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </h2>
           </div>
 
-          <div className="flex items-center gap-1 sm:gap-2">
+          <div className="flex items-center justify-center">
+            <ClockedInHeaderDot />
+          </div>
+
+          <div className="flex items-center justify-end gap-1 sm:gap-2">
             {/* Theme Selector Dropdown */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
