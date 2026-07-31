@@ -459,6 +459,163 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ ok: true, deleted: true })
     }
 
+    // Admin edit: title / notes / dueDate / assignee / status
+    if (body?.action === "UPDATE") {
+      if (!admin) {
+        return NextResponse.json({ error: "Only Admin or Super Admin can edit assignments" }, { status: 403 })
+      }
+
+      const data: {
+        title?: string
+        notes?: string | null
+        dueDate?: Date
+        userId?: string
+        status?: string
+        completedAt?: Date | null
+        overdueNotifiedAt?: Date | null
+        updatedAt: Date
+      } = { updatedAt: new Date() }
+
+      if (typeof body.title === "string") {
+        const title = body.title.trim()
+        if (!title || title.length > 200) {
+          return NextResponse.json({ error: "Title is required (max 200 chars)" }, { status: 400 })
+        }
+        data.title = title
+      }
+
+      if (body.notes !== undefined) {
+        if (body.notes === null || body.notes === "") {
+          data.notes = null
+        } else if (typeof body.notes === "string") {
+          const notes = body.notes.trim()
+          if (notes.length > 1000) {
+            return NextResponse.json({ error: "Notes max 1000 chars" }, { status: 400 })
+          }
+          data.notes = notes || null
+        } else {
+          return NextResponse.json({ error: "Invalid notes" }, { status: 400 })
+        }
+      }
+
+      if (typeof body.dueDate === "string" && body.dueDate.trim()) {
+        const dueRaw = body.dueDate.trim()
+        let due: Date
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dueRaw)) {
+          const [y, m, d] = dueRaw.split("-").map(Number)
+          due = new Date(y, m - 1, d, 23, 59, 59, 999)
+        } else {
+          due = new Date(dueRaw)
+        }
+        if (Number.isNaN(due.getTime())) {
+          return NextResponse.json({ error: "Invalid due date" }, { status: 400 })
+        }
+        data.dueDate = due
+        // Future due date → allow overdue notifications again
+        const today = startOfToday()
+        const dueDay = new Date(due)
+        dueDay.setHours(0, 0, 0, 0)
+        if (dueDay.getTime() >= today.getTime()) {
+          data.overdueNotifiedAt = null
+        }
+      }
+
+      if (typeof body.userId === "string" && body.userId.trim()) {
+        const nextUserId = body.userId.trim()
+        if (nextUserId !== existing.userId) {
+          const target = await db.user.findUnique({
+            where: { id: nextUserId },
+            select: { id: true, name: true, email: true, isActive: true },
+          })
+          if (!target) {
+            return NextResponse.json({ error: "Target user not found" }, { status: 404 })
+          }
+          if (!target.isActive) {
+            return NextResponse.json(
+              { error: "Cannot reassign to a deactivated user" },
+              { status: 400 }
+            )
+          }
+          data.userId = nextUserId
+        }
+      }
+
+      if (typeof body.status === "string") {
+        const nextStatus = body.status.trim().toUpperCase()
+        if (nextStatus !== "ASSIGNED" && nextStatus !== "DONE") {
+          return NextResponse.json({ error: "Status must be ASSIGNED or DONE" }, { status: 400 })
+        }
+        data.status = nextStatus
+        if (nextStatus === "DONE") {
+          data.completedAt = existing.completedAt || new Date()
+        } else {
+          data.completedAt = null
+        }
+      }
+
+      const hasFieldChange =
+        data.title !== undefined ||
+        data.notes !== undefined ||
+        data.dueDate !== undefined ||
+        data.userId !== undefined ||
+        data.status !== undefined
+      if (!hasFieldChange) {
+        return NextResponse.json({ error: "Nothing to update" }, { status: 400 })
+      }
+
+      const updated = await db.trainingAssignment.update({
+        where: { id },
+        data,
+      })
+
+      const userMap = await loadUserMap([updated.userId, updated.assignedById, existing.userId])
+      const notifyIds = new Set<string>([updated.userId])
+      if (existing.userId !== updated.userId) notifyIds.add(existing.userId)
+
+      const dueLabel = new Date(updated.dueDate).toLocaleDateString()
+      await notifyUsers({
+        userIds: [...notifyIds],
+        title: "Training assignment updated",
+        message:
+          existing.userId !== updated.userId
+            ? `"${updated.title}" was reassigned (due ${dueLabel}). Check Learning → My Training.`
+            : `"${updated.title}" was updated — due ${dueLabel}. Check Learning → My Training.`,
+        type: "INFO",
+        link: "/dashboard/training/my",
+        metadata: { kind: "training_updated", assignmentId: updated.id },
+      })
+
+      void logAudit({
+        userId: session.user.id,
+        userName: session.user.name || "unknown",
+        userRole: session.user.role || "",
+        department: "LEARNING",
+        page: "training",
+        action: "UPDATE",
+        entityType: "TrainingAssignment",
+        entityId: updated.id,
+        description: `Updated training assignment "${updated.title}"`,
+        oldValue: JSON.stringify({
+          title: existing.title,
+          notes: existing.notes,
+          dueDate: existing.dueDate,
+          userId: existing.userId,
+          status: existing.status,
+        }),
+        newValue: JSON.stringify({
+          title: updated.title,
+          notes: updated.notes,
+          dueDate: updated.dueDate,
+          userId: updated.userId,
+          status: updated.status,
+        }),
+        ipAddress: getIpAddress(req),
+        userAgent: getUserAgent(req),
+      })
+
+      return NextResponse.json({ ok: true, assignment: serializeAssignment(updated, userMap) })
+    }
+
     if (existing.userId !== session.user.id && !admin) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }

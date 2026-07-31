@@ -11,6 +11,7 @@ import {
   Clock,
   GraduationCap,
   Loader2,
+  Pencil,
   Plus,
   QrCode,
   RefreshCw,
@@ -23,7 +24,10 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { AssignmentDetailDialog } from "@/components/training/assignment-detail-dialog"
+import {
+  AssignmentDetailDialog,
+  type TrainingAssignmentEditPayload,
+} from "@/components/training/assignment-detail-dialog"
 import { cn } from "@/lib/utils"
 import { dueCountdown, dueToneClass, formatDueDate } from "@/lib/training-due"
 
@@ -100,6 +104,7 @@ export default function AssignTrainingPage() {
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [team, setTeam] = useState<TeamMember[]>([])
   const [saving, setSaving] = useState(false)
+  const [updating, setUpdating] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
@@ -111,7 +116,13 @@ export default function AssignTrainingPage() {
   const [formDue, setFormDue] = useState("")
   const [formNotes, setFormNotes] = useState("")
   const [detail, setDetail] = useState<Assignment | null>(null)
+  const [detailStartEdit, setDetailStartEdit] = useState(false)
   const [sectionsPrimed, setSectionsPrimed] = useState(false)
+
+  const openDetail = (a: Assignment, startEdit = false) => {
+    setDetailStartEdit(startEdit)
+    setDetail(a)
+  }
 
   const role = session?.user?.role || ""
   const canAccess = role === "SUPER_ADMIN" || role === "ADMIN"
@@ -254,6 +265,38 @@ export default function AssignTrainingPage() {
     }
   }
 
+  const updateAssignment = async (payload: TrainingAssignmentEditPayload) => {
+    setUpdating(true)
+    try {
+      const res = await fetch("/api/training/assignments", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          id: payload.id,
+          action: "UPDATE",
+          title: payload.title,
+          notes: payload.notes,
+          dueDate: payload.dueDate,
+          userId: payload.userId,
+          status: payload.status,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.detail || data.error || "Failed to update")
+      toast.success("Assignment updated")
+      if (data.assignment) {
+        setDetail(data.assignment as Assignment)
+        setDetailStartEdit(false)
+      }
+      await load()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update")
+    } finally {
+      setUpdating(false)
+    }
+  }
+
   const needsAttention = useMemo(() => {
     return assignments
       .filter((a) => a.status !== "DONE")
@@ -281,7 +324,7 @@ export default function AssignTrainingPage() {
     setSectionsPrimed(true)
   }, [loading, sectionsPrimed, assignments.length, overdueOnly.length, needsAttention.length])
 
-  // Compact list: title + assignee + due/days left. Full details via Open.
+  // Compact list: title + assignee + due/days left. Edit/Open for admins.
   const renderAssignmentRow = (a: Assignment, opts?: { showPerson?: boolean }) => {
     const cd = dueCountdown(a.dueDate, a.status)
     return (
@@ -290,7 +333,7 @@ export default function AssignTrainingPage() {
           <button
             type="button"
             className="min-w-0 flex-1 space-y-0.5 text-left rounded-md py-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            onClick={() => setDetail(a)}
+            onClick={() => openDetail(a)}
             aria-label={`Open details for ${a.title}`}
           >
             <p className="font-medium truncate text-sm">{a.title}</p>
@@ -320,9 +363,20 @@ export default function AssignTrainingPage() {
           <Button
             type="button"
             size="sm"
+            variant="secondary"
+            className="h-8 gap-1 shrink-0 px-2.5"
+            onClick={() => openDetail(a, true)}
+            aria-label={`Edit ${a.title}`}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            <span className="sr-only sm:not-sr-only">Edit</span>
+          </Button>
+          <Button
+            type="button"
+            size="sm"
             variant="outline"
             className="h-8 gap-1 shrink-0 px-2.5"
-            onClick={() => setDetail(a)}
+            onClick={() => openDetail(a)}
           >
             Open
             <ChevronRight className="h-3.5 w-3.5" />
@@ -547,9 +601,17 @@ export default function AssignTrainingPage() {
         assignment={detail}
         open={!!detail}
         onOpenChange={(open) => {
-          if (!open) setDetail(null)
+          if (!open) {
+            setDetail(null)
+            setDetailStartEdit(false)
+          }
         }}
         showAssignee
+        canEdit
+        startInEditMode={detailStartEdit}
+        team={team}
+        onSave={(payload) => void updateAssignment(payload)}
+        saving={updating}
         onDelete={(id) => void deleteAssignment(id)}
         deleting={!!detail && deletingId === detail.id}
       />
