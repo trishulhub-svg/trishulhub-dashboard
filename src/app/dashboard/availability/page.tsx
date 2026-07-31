@@ -311,8 +311,10 @@ function AvailabilityPageInner() {
   // ── Copy dialog state ──
   const [copyDialogOpen, setCopyDialogOpen] = useState(false);
   const [copySourceUserId, setCopySourceUserId] = useState("");
-  const [copyMode, setCopyMode] = useState<"user" | "date" | "range">("user");
+  const [copyMode, setCopyMode] = useState<"day" | "user" | "date" | "range">("day");
   const [copyTargetUserId, setCopyTargetUserId] = useState("");
+  const [copySourceDay, setCopySourceDay] = useState<string>("1"); // Monday default
+  const [copyTargetDay, setCopyTargetDay] = useState<string>("1");
   const [copyTargetDate, setCopyTargetDate] = useState("");
   const [copyTargetStartDate, setCopyTargetStartDate] = useState("");
   const [copyTargetEndDate, setCopyTargetEndDate] = useState("");
@@ -373,11 +375,17 @@ function AvailabilityPageInner() {
     setOverrideDialogOpen(true);
   }, []);
 
-  // ── Helper: open copy dialog with source user preset ──
-  const openCopyDialog = useCallback((sourceUserId: string) => {
+  // ── Helper: open copy dialog with source user (and optional source day) preset ──
+  const openCopyDialog = useCallback((sourceUserId: string, sourceDayOfWeek?: number) => {
     setCopySourceUserId(sourceUserId);
-    setCopyMode("user");
-    setCopyTargetUserId("");
+    setCopyMode("day");
+    setCopyTargetUserId(sourceUserId); // same person by default for day→day
+    const day =
+      typeof sourceDayOfWeek === "number" && sourceDayOfWeek >= 0 && sourceDayOfWeek <= 6
+        ? String(sourceDayOfWeek)
+        : "1";
+    setCopySourceDay(day);
+    setCopyTargetDay(String((Number(day) + 1) % 7)); // always suggest a different weekday
     setCopyTargetDate("");
     setCopyTargetStartDate("");
     setCopyTargetEndDate("");
@@ -868,6 +876,67 @@ function AvailabilityPageInner() {
   };
 
   // ── Copy handlers ──
+  // Option 0: Copy one weekday's recurring slots → another weekday (same or different person)
+  const copyDayToDay = async (
+    sourceUserId: string,
+    sourceDay: number,
+    targetUserId: string,
+    targetDay: number
+  ) => {
+    const sourceSlots = availabilities.filter(
+      (a) => a.userId === sourceUserId && a.dayOfWeek === sourceDay
+    );
+    if (sourceSlots.length === 0) {
+      toast.error(`No ${DAY_NAMES[sourceDay]} schedule found for the source member`);
+      return;
+    }
+
+    // Same person + same day would be a no-op replace with identical data — still allowed
+    // but warn if identical.
+    if (sourceUserId === targetUserId && sourceDay === targetDay) {
+      toast.error("Pick a different target day (or another member) to copy to");
+      return;
+    }
+
+    // Replace only the target person's slots for the target weekday
+    const targetSlots = availabilities.filter(
+      (a) => a.userId === targetUserId && a.dayOfWeek === targetDay
+    );
+    await Promise.all(
+      targetSlots.map((s) =>
+        fetch(`/api/availability/${s.id}`, { method: "DELETE", credentials: "include" })
+      )
+    );
+
+    let failCount = 0;
+    for (const s of sourceSlots) {
+      const res = await fetch("/api/availability", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          userId: targetUserId,
+          dayOfWeek: targetDay,
+          startTime: s.startTime,
+          endTime: s.endTime,
+          isAvailable: s.isAvailable,
+        }),
+      });
+      if (!res.ok) failCount++;
+    }
+
+    const targetName =
+      teamUsers.find((u) => u.id === targetUserId)?.name ||
+      (targetUserId === sourceUserId ? "same member" : "target member");
+    if (failCount === 0) {
+      toast.success(
+        `${DAY_NAMES[sourceDay]} → ${DAY_NAMES[targetDay]} copied for ${targetName} (${sourceSlots.length} slot${sourceSlots.length === 1 ? "" : "s"})`
+      );
+    } else {
+      toast.error(`${failCount}/${sourceSlots.length} slots failed to copy`);
+    }
+  };
+
   // Option 1: Copy weekly schedule from source user to target user (replaces target's schedule)
   const copyToUser = async (sourceUserId: string, targetUserId: string) => {
     const sourceSlots = availabilities.filter((a) => a.userId === sourceUserId);
@@ -1006,7 +1075,24 @@ function AvailabilityPageInner() {
     }
     setCopying(true);
     try {
-      if (copyMode === "user") {
+      if (copyMode === "day") {
+        const sourceDay = Number(copySourceDay);
+        const targetDay = Number(copyTargetDay);
+        if (
+          Number.isNaN(sourceDay) ||
+          Number.isNaN(targetDay) ||
+          sourceDay < 0 ||
+          sourceDay > 6 ||
+          targetDay < 0 ||
+          targetDay > 6
+        ) {
+          toast.error("Select a source day and a target day");
+          setCopying(false);
+          return;
+        }
+        const targetUserId = copyTargetUserId || copySourceUserId;
+        await copyDayToDay(copySourceUserId, sourceDay, targetUserId, targetDay);
+      } else if (copyMode === "user") {
         if (!copyTargetUserId || copyTargetUserId === copySourceUserId) {
           toast.error("Select a different target user");
           setCopying(false);
@@ -2132,7 +2218,7 @@ function AvailabilityPageInner() {
                 <Button variant="outline" size="sm" className="flex-1 min-w-[100px] h-9 text-xs" onClick={() => { setDayDetailDialogOpen(false); openQuickAddOverride(selectedDayDetail.userId, selectedDayDetail.date); }}>
                   <CalendarClock className="h-3.5 w-3.5 mr-1" /> Add Override
                 </Button>
-                <Button variant="outline" size="sm" className="flex-1 min-w-[100px] h-9 text-xs" onClick={() => { setDayDetailDialogOpen(false); openCopyDialog(selectedDayDetail.userId); }}>
+                <Button variant="outline" size="sm" className="flex-1 min-w-[100px] h-9 text-xs" onClick={() => { setDayDetailDialogOpen(false); openCopyDialog(selectedDayDetail.userId, selectedDayDetail.dayData.dayOfWeek); }}>
                   <Copy className="h-3.5 w-3.5 mr-1" /> Copy Day
                 </Button>
                 <Button variant="outline" size="sm" className="flex-1 min-w-[100px] h-9 text-xs" onClick={() => { setDayDetailDialogOpen(false); setSchedUserId(selectedDayDetail.userId); setActiveTab("schedule"); }}>
@@ -2494,7 +2580,7 @@ function AvailabilityPageInner() {
               Copy Availability
             </DialogTitle>
             <DialogDescription>
-              Copy <span className="font-medium text-foreground">{copySourceName}</span>&apos;s schedule to a destination. Choose how you want to apply it.
+              Copy <span className="font-medium text-foreground">{copySourceName}</span>&apos;s schedule — one weekday to another day (same person or anyone else), a full week, a date, or a range.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -2504,20 +2590,35 @@ function AvailabilityPageInner() {
               <div className="text-sm font-medium mt-0.5">{copySourceName}</div>
               <div className="text-xs text-muted-foreground mt-0.5">
                 {availabilities.filter((a) => a.userId === copySourceUserId).length} recurring slots
+                {copyMode === "day" ? ` · ${DAY_NAMES[Number(copySourceDay)] || "day"} selected` : ""}
               </div>
             </div>
 
             {/* Mode selector */}
             <div className="space-y-2">
-              <Label>Copy To</Label>
-              <div className="grid grid-cols-3 gap-2">
+              <Label>Copy Mode</Label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <button
                   type="button"
-                  onClick={() => setCopyMode("user")}
+                  onClick={() => {
+                    setCopyMode("day");
+                    if (!copyTargetUserId) setCopyTargetUserId(copySourceUserId);
+                  }}
+                  className={`text-xs px-3 py-2.5 rounded-md border transition-all ${copyMode === "day" ? "border-primary bg-primary/10 text-primary font-medium" : "border-border text-muted-foreground hover:bg-muted/50"}`}
+                >
+                  <CalendarClock className="h-3.5 w-3.5 mx-auto mb-1" />
+                  Day → Day
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCopyMode("user");
+                    if (copyTargetUserId === copySourceUserId) setCopyTargetUserId("");
+                  }}
                   className={`text-xs px-3 py-2.5 rounded-md border transition-all ${copyMode === "user" ? "border-primary bg-primary/10 text-primary font-medium" : "border-border text-muted-foreground hover:bg-muted/50"}`}
                 >
                   <Users className="h-3.5 w-3.5 mx-auto mb-1" />
-                  Another Member
+                  Full Week
                 </button>
                 <button
                   type="button"
@@ -2538,6 +2639,62 @@ function AvailabilityPageInner() {
               </div>
             </div>
 
+            {/* Day → Day: same person or another member, any weekday mapping */}
+            {copyMode === "day" && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label>Source Day</Label>
+                    <Select value={copySourceDay} onValueChange={setCopySourceDay}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Source day" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {DAY_NAMES.map((name, i) => (
+                          <SelectItem key={i} value={String(i)}>{name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Target Day</Label>
+                    <Select value={copyTargetDay} onValueChange={setCopyTargetDay}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Target day" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {DAY_NAMES.map((name, i) => (
+                          <SelectItem key={i} value={String(i)}>{name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Copy To Member</Label>
+                  <Select value={copyTargetUserId || copySourceUserId} onValueChange={setCopyTargetUserId}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select member" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {teamUsers.map((u) => (
+                        <SelectItem key={u.id} value={u.id}>
+                          {u.id === copySourceUserId ? `${u.name} (same person)` : u.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="p-2.5 rounded-md bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-800">
+                  <p className="text-[11px] text-blue-700 dark:text-blue-400">
+                    Copies <strong>{DAY_NAMES[Number(copySourceDay)] || "source day"}</strong> slots onto{" "}
+                    <strong>{DAY_NAMES[Number(copyTargetDay)] || "target day"}</strong> for the selected member
+                    (same person OK). Only that target weekday is replaced.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Conditional fields based on mode */}
             {copyMode === "user" && (
               <div className="space-y-2">
@@ -2556,7 +2713,7 @@ function AvailabilityPageInner() {
                 </Select>
                 <div className="p-2.5 rounded-md bg-amber-50 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-700">
                   <p className="text-[11px] text-amber-800 dark:text-amber-200">
-                    This will <strong>replace</strong> the target user&apos;s existing recurring weekly schedule with the source&apos;s schedule.
+                    This will <strong>replace</strong> the target user&apos;s entire recurring weekly schedule. For same-person day copies, use <strong>Day → Day</strong>.
                   </p>
                 </div>
               </div>
@@ -2565,18 +2722,17 @@ function AvailabilityPageInner() {
             {copyMode === "date" && (
               <div className="space-y-3">
                 <div className="space-y-2">
-                  <Label>Apply To (Optional — defaults to source member)</Label>
-                  <Select value={copyTargetUserId} onValueChange={setCopyTargetUserId}>
+                  <Label>Apply To</Label>
+                  <Select value={copyTargetUserId || copySourceUserId} onValueChange={setCopyTargetUserId}>
                     <SelectTrigger className="w-full">
                       <SelectValue placeholder={`Source member (${copySourceName})`} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">— Use source member —</SelectItem>
-                      {teamUsers
-                        .filter((u) => u.id !== copySourceUserId)
-                        .map((u) => (
-                          <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
-                        ))}
+                      {teamUsers.map((u) => (
+                        <SelectItem key={u.id} value={u.id}>
+                          {u.id === copySourceUserId ? `${u.name} (same person)` : u.name}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -2611,18 +2767,17 @@ function AvailabilityPageInner() {
             {copyMode === "range" && (
               <div className="space-y-3">
                 <div className="space-y-2">
-                  <Label>Apply To (Optional — defaults to source member)</Label>
-                  <Select value={copyTargetUserId} onValueChange={setCopyTargetUserId}>
+                  <Label>Apply To</Label>
+                  <Select value={copyTargetUserId || copySourceUserId} onValueChange={setCopyTargetUserId}>
                     <SelectTrigger className="w-full">
                       <SelectValue placeholder={`Source member (${copySourceName})`} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">— Use source member —</SelectItem>
-                      {teamUsers
-                        .filter((u) => u.id !== copySourceUserId)
-                        .map((u) => (
-                          <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
-                        ))}
+                      {teamUsers.map((u) => (
+                        <SelectItem key={u.id} value={u.id}>
+                          {u.id === copySourceUserId ? `${u.name} (same person)` : u.name}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
