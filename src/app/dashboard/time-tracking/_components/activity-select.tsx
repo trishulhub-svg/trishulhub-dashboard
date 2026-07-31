@@ -32,7 +32,11 @@ export function ActivitySelectItems({
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-400" />
               </span>
             )}
-            <span>{safeText(p.name)}</span>
+            <span>
+              {safeText(p.name)}
+              {p.status === "COMPLETED" ? " (completed)" : ""}
+              {p.isDemo ? " · demo" : ""}
+            </span>
           </span>
         </SelectItem>
       ))}

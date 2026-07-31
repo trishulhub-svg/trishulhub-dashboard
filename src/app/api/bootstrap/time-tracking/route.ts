@@ -80,7 +80,7 @@ export async function GET(req: NextRequest) {
         where: projectWhere,
         select: { id: true, name: true, status: true, progress: true, isDemo: true },
         orderBy: { createdAt: "desc" },
-        take: 100,
+        take: 300,
       }),
       isAdminUser
         ? db.user.findMany({

@@ -96,6 +96,25 @@ async function assertAssigneesOnProject(projectId: string, assigneeIds: string[]
   return { ok: true as const }
 }
 
+async function ensureAssigneesAreMembers(projectId: string, assigneeIds: string[]) {
+  const unique = [...new Set(assigneeIds)]
+  if (unique.length === 0) return
+  const existing = await db.projectMember.findMany({
+    where: { projectId, userId: { in: unique } },
+    select: { userId: true },
+  })
+  const have = new Set(existing.map((m) => m.userId))
+  const missing = unique.filter((id) => !have.has(id))
+  if (missing.length === 0) return
+  await db.projectMember.createMany({
+    data: missing.map((userId) => ({
+      projectId,
+      userId,
+      role: "MEMBER",
+    })),
+  })
+}
+
 async function syncAssignees(milestoneId: string, assigneeIds: string[]) {
   const unique = [...new Set(assigneeIds)]
   await db.projectMilestoneAssignee.deleteMany({
@@ -227,7 +246,10 @@ export async function POST(
     }
 
     const [assigneeCheck, maxOrder, assigneeUsers] = await Promise.all([
-      assertAssigneesOnProject(projectId, parsed.data.assigneeIds),
+      (async () => {
+        await ensureAssigneesAreMembers(projectId, parsed.data.assigneeIds)
+        return assertAssigneesOnProject(projectId, parsed.data.assigneeIds)
+      })(),
       db.projectMilestone.aggregate({
         where: { projectId },
         _max: { sortOrder: true },
@@ -475,6 +497,7 @@ export async function PATCH(
     }
 
     if (assigneeIds !== undefined) {
+      await ensureAssigneesAreMembers(projectId, assigneeIds)
       const assigneeCheck = await assertAssigneesOnProject(projectId, assigneeIds)
       if (!assigneeCheck.ok) {
         return NextResponse.json({ error: assigneeCheck.error }, { status: 400 })

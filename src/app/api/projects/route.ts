@@ -54,8 +54,8 @@ export async function GET(req: NextRequest) {
     const projectId = searchParams.get("projectId")
     const isMinimal = searchParams.get("fields") === "minimal"
 
-    // W6: Reject negative/zero limit, cap at 200, default 100
-    const limit = Math.max(1, Math.min(Number(searchParams.get("limit")) || 100, 200))
+    // Cap list size; time-tracking needs a wide picker (was 200)
+    const limit = Math.max(1, Math.min(Number(searchParams.get("limit")) || 100, 500))
 
     // W5: Add offset pagination parameter
     const offset = Math.max(Number(searchParams.get("offset")) || 0, 0)

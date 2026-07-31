@@ -243,6 +243,21 @@ function TimeTrackingPageInner() {
   }, [activityCatalog]);
   const trainingSelectValue =
     activityCatalog.find((a) => a.key === "TRAINING")?.selectValue || "__training__";
+  /** Clock-in / switch: only non-completed projects */
+  const activeProjects = useMemo(
+    () => projects.filter((p) => p.status !== "COMPLETED"),
+    [projects]
+  );
+  /** Admin edit/add: include completed so historical projects (e.g. Nipstudy) stay selectable */
+  const editableProjects = useMemo(() => {
+    const sorted = [...projects].sort((a, b) => {
+      const aDone = a.status === "COMPLETED" ? 1 : 0;
+      const bDone = b.status === "COMPLETED" ? 1 : 0;
+      if (aDone !== bDone) return aDone - bDone;
+      return a.name.localeCompare(b.name);
+    });
+    return sorted;
+  }, [projects]);
 
   const fetchActivityCatalog = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -314,17 +329,20 @@ function TimeTrackingPageInner() {
 
   const fetchProjects = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch("/api/projects?fields=minimal", { credentials: "include", signal });
+      const res = await fetch("/api/projects?fields=minimal&limit=500", {
+        credentials: "include",
+        signal,
+      });
       if (res.ok) {
         const data = await res.json();
         const arr = safeArray<Project>(Array.isArray(data) ? data : data?.data || data);
-        setProjects(arr.filter((p) => p.status !== "COMPLETED"));
+        setProjects(arr);
       } else {
-        const res2 = await fetch("/api/projects", { credentials: "include", signal });
+        const res2 = await fetch("/api/projects?limit=500", { credentials: "include", signal });
         if (res2.ok) {
           const data2 = await res2.json();
           const arr2 = safeArray<Project>(Array.isArray(data2) ? data2 : data2?.data || data2);
-          setProjects(arr2.filter((p) => p.status !== "COMPLETED"));
+          setProjects(arr2);
         }
       }
     } catch (err) {
@@ -404,7 +422,7 @@ function TimeTrackingPageInner() {
         const projectsArr = safeArray<Project>(
           Array.isArray(data.projects) ? data.projects : []
         );
-        setProjects(projectsArr.filter((p) => p.status !== "COMPLETED"));
+        setProjects(projectsArr);
 
         if (isAdminUser && Array.isArray(data.teamUsers)) {
           setTeamUsers(
@@ -1557,7 +1575,7 @@ function TimeTrackingPageInner() {
             timerRef={timerCardRef}
             activeEntry={activeEntry}
             elapsed={elapsed}
-            projects={projects}
+            projects={activeProjects}
             activities={visibleActivities}
             activityLabels={activityLabels}
             selectedProject={selectedProject}
@@ -1691,7 +1709,7 @@ function TimeTrackingPageInner() {
       <SwitchSessionDialog
         open={switchOpen}
         onOpenChange={setSwitchOpen}
-        projects={projects}
+        projects={activeProjects}
         activities={visibleActivities}
         selectedProject={switchProject}
         description={switchDescription}
@@ -1781,15 +1799,16 @@ function TimeTrackingPageInner() {
         entry={editEntry}
         onClose={() => setEditEntry(null)}
         projects={(() => {
-          if (!editEntry?.project?.id) return projects;
-          if (projects.some((p) => p.id === editEntry.project!.id)) return projects;
+          const pid = editEntry?.projectId || editEntry?.project?.id;
+          if (!pid) return editableProjects;
+          if (editableProjects.some((p) => p.id === pid)) return editableProjects;
           return [
             {
-              id: editEntry.project.id,
-              name: editEntry.project.name,
+              id: pid,
+              name: editEntry?.project?.name || "Linked project",
               status: "IN_PROGRESS",
             },
-            ...projects,
+            ...editableProjects,
           ];
         })()}
         activities={
@@ -1813,7 +1832,7 @@ function TimeTrackingPageInner() {
         open={addEntryOpen}
         onOpenChange={setAddEntryOpen}
         teamUsers={teamUsers}
-        projects={projects}
+        projects={editableProjects}
         activities={
           canEditActivityCatalog
             ? activityCatalog.filter((a) => a.enabled)

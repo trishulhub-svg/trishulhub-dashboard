@@ -55,13 +55,30 @@ export async function getAssignedProjectIds(userId: string, role: string): Promi
     return clientProjects.map((cp) => cp.id)
   }
 
-  // DEVELOPER: filtered by project membership
+  // DEVELOPER: project membership OR open milestone assignment
+  // (so members added on the project OR assigned via milestones can clock time)
   const memberships = await db.projectMember.findMany({
     where: { userId },
     select: { projectId: true },
   })
+  const ids = new Set(memberships.map((m) => m.projectId))
 
-  return memberships.map(m => m.projectId)
+  try {
+    const milestoneProjects = (await db.$queryRawUnsafe(
+      `SELECT DISTINCT m."projectId" as "projectId"
+       FROM "ProjectMilestone" m
+       INNER JOIN "ProjectMilestoneAssignee" a ON a."milestoneId" = m."id"
+       WHERE a."userId" = ?`,
+      userId
+    )) as Array<{ projectId: string }>
+    for (const row of milestoneProjects) {
+      if (row?.projectId) ids.add(row.projectId)
+    }
+  } catch {
+    /* non-fatal — membership alone still applies */
+  }
+
+  return [...ids]
 }
 
 /**

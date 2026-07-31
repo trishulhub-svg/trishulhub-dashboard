@@ -1,7 +1,7 @@
 "use client";
 
 import type { RefObject } from "react";
-import { Clock, Pencil, Trash2 } from "lucide-react";
+import { Clock, Pencil, Trash2, UserRound } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -60,6 +60,23 @@ interface TodayViewProps {
   onEditEntry: (entry: TimeEntry) => void;
   onDeleteEntry: (id: string) => void;
   onEndSessionConfirm: (id: string) => void;
+}
+
+function sessionDetailLine(entry: TimeEntry): string {
+  const notes = (entry.workNotes || "").trim();
+  const desc = (entry.description || "").trim();
+  const attended =
+    notes
+      .split("\n")
+      .map((l) => l.trim())
+      .find((l) => /^attended:/i.test(l)) ||
+    desc
+      .split("\n")
+      .map((l) => l.trim())
+      .find((l) => /^attended:/i.test(l));
+  if (attended) return attended;
+  if (notes) return notes;
+  return desc || "—";
 }
 
 export function TodayView({
@@ -141,7 +158,6 @@ export function TodayView({
         />
       )}
 
-      {/* One-line weekly mini summary */}
       <p className="text-xs sm:text-sm text-muted-foreground px-0.5 leading-relaxed">
         <span className="font-medium text-foreground/80">This week</span>
         <span className="mx-1.5 text-border">·</span>
@@ -150,7 +166,6 @@ export function TodayView({
         <span className="font-medium text-foreground tabular-nums">{formatHours(weekTotal)}</span>
       </p>
 
-      {/* Today's entries */}
       <section className="rounded-xl border border-border overflow-hidden">
         <div className="px-3.5 py-3 border-b border-border flex items-baseline justify-between gap-2">
           <div>
@@ -158,7 +173,9 @@ export function TodayView({
             <p className="text-xs text-muted-foreground mt-0.5">
               {todayEntries.length === 0
                 ? "No completed entries yet"
-                : `${todayEntries.length} completed`}
+                : isAdmin
+                  ? `${todayEntries.length} completed · team view`
+                  : `${todayEntries.length} completed`}
             </p>
           </div>
         </div>
@@ -173,8 +190,9 @@ export function TodayView({
               <Table aria-label="Today's time entries">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Project</TableHead>
-                    <TableHead>Description</TableHead>
+                    {isAdmin && <TableHead>Person</TableHead>}
+                    <TableHead>Activity</TableHead>
+                    <TableHead>Session details</TableHead>
                     <TableHead>In</TableHead>
                     <TableHead>Out</TableHead>
                     <TableHead>Duration</TableHead>
@@ -182,57 +200,87 @@ export function TodayView({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {todayEntries.map((entry) => (
-                    <TableRow key={entry.id}>
-                      <TableCell>
-                        <Badge variant="outline" className="text-xs">
-                          {safeText(entryActivityLabel(entry, activityLabels), "No Project")}
-                        </Badge>
-                      </TableCell>
-                      <TableCell
-                        className="text-sm text-muted-foreground max-w-[180px] truncate cursor-pointer hover:underline hover:text-foreground"
-                        onClick={() => entry.description && onViewDescription(entry)}
-                        tabIndex={0}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && entry.description) onViewDescription(entry);
-                        }}
-                        role="button"
-                      >
-                        {safeText(entry.description, "—")}
-                      </TableCell>
-                      <TableCell className="text-sm tabular-nums">{formatTime(entry.clockIn)}</TableCell>
-                      <TableCell className="text-sm tabular-nums">
-                        {entry.clockOut ? formatTime(entry.clockOut) : "—"}
-                      </TableCell>
-                      <TableCell className="text-sm font-medium tabular-nums">
-                        {formatHours(safeNumber(entry.totalHours))}
-                      </TableCell>
-                      {isAdmin && (
+                  {todayEntries.map((entry) => {
+                    const detail = sessionDetailLine(entry);
+                    return (
+                      <TableRow key={entry.id}>
+                        {isAdmin && (
+                          <TableCell className="min-w-[120px]">
+                            <div className="flex items-center gap-1.5">
+                              <UserRound className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium truncate">
+                                  {safeText(entry.user?.name, "Unknown")}
+                                </p>
+                                {entry.user?.role && (
+                                  <p className="text-[10px] text-muted-foreground truncate">
+                                    {entry.user.role.replace(/_/g, " ")}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </TableCell>
+                        )}
                         <TableCell>
-                          <div className="flex items-center gap-0.5">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-muted-foreground hover:text-primary"
-                              onClick={() => onEditEntry(entry)}
-                              aria-label="Edit time entry"
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                              onClick={() => onDeleteEntry(entry.id)}
-                              aria-label="Delete time entry"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
+                          <div className="space-y-1">
+                            <Badge variant="outline" className="text-xs">
+                              {safeText(entryActivityLabel(entry, activityLabels), "No Project")}
+                            </Badge>
+                            {entry.activityType && entry.activityType !== "PROJECT" && (
+                              <p className="text-[10px] text-muted-foreground">
+                                {entry.activityType.replace(/_/g, " ")}
+                              </p>
+                            )}
                           </div>
                         </TableCell>
-                      )}
-                    </TableRow>
-                  ))}
+                        <TableCell
+                          className="text-sm text-muted-foreground max-w-[220px] cursor-pointer hover:underline hover:text-foreground"
+                          onClick={() => onViewDescription(entry)}
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") onViewDescription(entry);
+                          }}
+                          role="button"
+                          title="View full session notes"
+                        >
+                          <span className="line-clamp-2">{safeText(detail, "—")}</span>
+                        </TableCell>
+                        <TableCell className="text-sm tabular-nums whitespace-nowrap">
+                          {formatTime(entry.clockIn)}
+                        </TableCell>
+                        <TableCell className="text-sm tabular-nums whitespace-nowrap">
+                          {entry.clockOut ? formatTime(entry.clockOut) : "—"}
+                        </TableCell>
+                        <TableCell className="text-sm font-medium tabular-nums">
+                          {formatHours(safeNumber(entry.totalHours))}
+                        </TableCell>
+                        {isAdmin && (
+                          <TableCell>
+                            <div className="flex items-center gap-0.5">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-primary"
+                                onClick={() => onEditEntry(entry)}
+                                aria-label="Edit time entry"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                onClick={() => onDeleteEntry(entry.id)}
+                                aria-label="Delete time entry"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        )}
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
