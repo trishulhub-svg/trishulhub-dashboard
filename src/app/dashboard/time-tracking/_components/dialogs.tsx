@@ -42,9 +42,72 @@ import { ActivitySelectItems } from "./activity-select";
 export type SessionMilestone = {
   id: string
   title: string
+  description?: string | null
   dueDate?: string | null
+  dueTime?: string | null
   done?: boolean
   carriedForward?: boolean
+  assignees?: Array<{
+    userId?: string
+    user?: { id?: string; name?: string | null; email?: string | null; role?: string | null } | null
+  }>
+}
+
+function formatSessionRole(role?: string | null) {
+  const cleaned = (role || "").replace(/_/g, " ").trim()
+  if (!cleaned) return ""
+  return cleaned
+    .split(/\s+/)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ")
+}
+
+function MilestoneSessionDetails({ m }: { m: SessionMilestone }) {
+  const dueLabel = m.dueDate
+    ? new Date(m.dueDate).toLocaleDateString(undefined, {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        timeZone: "UTC",
+      })
+    : ""
+  const assignees = Array.isArray(m.assignees) ? m.assignees : []
+  return (
+    <div className="min-w-0 space-y-1">
+      <p className="text-sm font-medium break-words whitespace-pre-wrap leading-snug">
+        {safeText(m.title)}
+      </p>
+      {m.description?.trim() ? (
+        <p className="text-xs text-muted-foreground break-words whitespace-pre-wrap leading-relaxed">
+          {safeText(m.description)}
+        </p>
+      ) : null}
+      {(dueLabel || m.dueTime) && (
+        <p className="text-[11px] text-muted-foreground break-words">
+          Due {dueLabel || "—"}
+          {m.dueTime ? ` · ${m.dueTime} UK` : ""}
+        </p>
+      )}
+      {assignees.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {assignees.map((a, idx) => {
+            const name = a.user?.name || a.user?.email || "Assignee"
+            const role = formatSessionRole(a.user?.role)
+            return (
+              <span
+                key={a.userId || a.user?.id || `${name}-${idx}`}
+                className="text-[10px] rounded-full bg-muted px-1.5 py-0.5 text-muted-foreground break-words whitespace-normal max-w-full"
+              >
+                {safeText(name)}
+                {role ? ` · ${role}` : ""}
+              </span>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
 }
 
 interface ClockOutDialogProps {
@@ -132,27 +195,19 @@ export function ClockOutDialog({
                   <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
                 </p>
               ) : (
-                <ul className="space-y-2 max-h-40 overflow-y-auto">
+                <ul className="space-y-2 max-h-56 overflow-y-auto">
                   {dueMilestones.map((m) => {
                     const checked = checkedMilestoneIds.has(m.id)
                     const carried = carryForwardMilestoneIds.has(m.id)
                     return (
                       <li key={m.id} className="space-y-1 rounded-md border border-border/50 bg-background/70 p-2 text-sm">
-                        <div className={checked ? "line-through text-muted-foreground" : ""}>
-                          {safeText(m.title)}
+                        <div className={checked ? "opacity-70" : ""}>
+                          <div className={checked ? "[&_*]:line-through [&_*]:text-muted-foreground" : ""}>
+                            <MilestoneSessionDetails m={m} />
+                          </div>
                           {m.carriedForward && (
-                            <span className="ml-2 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
+                            <span className="mt-1 inline-flex rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
                               carried forward
-                            </span>
-                          )}
-                          {m.dueDate && (
-                            <span className="block text-[10px] text-muted-foreground">
-                              Due{" "}
-                              {new Date(m.dueDate).toLocaleDateString(undefined, {
-                                month: "short",
-                                day: "numeric",
-                                timeZone: "UTC",
-                              })}
                             </span>
                           )}
                         </div>
@@ -293,27 +348,13 @@ export function MilestoneBriefingDialog({
               >
                 <input
                   type="checkbox"
-                  className="mt-1 h-4 w-4 accent-emerald-600 opacity-60"
+                  className="mt-1 h-4 w-4 accent-emerald-600 opacity-60 shrink-0"
                   checked={false}
                   disabled
                   readOnly
                   aria-hidden
                 />
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">{safeText(m.title)}</p>
-                  {m.dueDate && (
-                    <p className="text-[11px] text-muted-foreground">
-                      Due{" "}
-                      {new Date(m.dueDate).toLocaleDateString(undefined, {
-                        weekday: "short",
-                        month: "short",
-                        day: "numeric",
-                        year: "numeric",
-                        timeZone: "UTC",
-                      })}
-                    </p>
-                  )}
-                </div>
+                <MilestoneSessionDetails m={m} />
               </div>
             ))
           )}

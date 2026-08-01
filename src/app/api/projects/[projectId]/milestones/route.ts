@@ -23,7 +23,7 @@ function canManageMilestones(role: string): boolean {
 }
 
 const createSchema = z.object({
-  title: z.string().trim().min(1).max(200),
+  title: z.string().trim().min(1).max(2000),
   description: z.string().trim().max(2000).optional().nullable(),
   dueDate: z.string().min(1, "Due date is required"),
   /** Optional UK local time HH:mm — overdue fires after this instant */
@@ -38,7 +38,7 @@ const createSchema = z.object({
 
 const patchSchema = z.object({
   id: z.string().min(1),
-  title: z.string().trim().min(1).max(200).optional(),
+  title: z.string().trim().min(1).max(2000).optional(),
   description: z.string().trim().max(2000).optional().nullable(),
   done: z.boolean().optional(),
   sortOrder: z.number().int().optional(),

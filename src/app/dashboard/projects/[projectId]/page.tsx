@@ -334,6 +334,15 @@ function SortableMilestoneRow({
   );
 }
 
+function formatMilestoneRole(role: string) {
+  const cleaned = (role || "").replace(/_/g, " ").trim();
+  if (!cleaned) return "";
+  return cleaned
+    .split(/\s+/)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+}
+
 function MilestoneRow({
   m,
   userId,
@@ -366,8 +375,10 @@ function MilestoneRow({
 }) {
   const mId = extractStr(m, "id", "");
   const mTitle = extractStr(m, "title", "");
+  const mDescription = extractStr(m, "description", "");
   const mDone = m.done === true;
   const mDue = extractStr(m, "dueDate", "");
+  const mDueTime = extractStr(m, "dueTime", "");
   const assignees = Array.isArray(m.assignees) ? (m.assignees as Record<string, unknown>[]) : [];
   const isAssignee = assignees.some(
     (a) =>
@@ -376,8 +387,18 @@ function MilestoneRow({
   );
   const canToggleDone = canManage || isAssignee;
 
+  const dueLabel = mDue
+    ? new Date(mDue).toLocaleDateString(undefined, {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        timeZone: "UTC",
+      })
+    : "";
+
   return (
-    <div className="flex items-start gap-2 p-2.5 rounded-lg border border-white/20 dark:border-white/10 bg-white/60 dark:bg-white/[0.03]">
+    <div className="flex items-start gap-2 p-3 rounded-lg border border-white/20 dark:border-white/10 bg-white/60 dark:bg-white/[0.03]">
       {dragHandleProps && (
         <button
           type="button"
@@ -407,86 +428,113 @@ function MilestoneRow({
       >
         <CheckCircle2 className={cn("h-4 w-4", mDone ? "text-emerald-500" : "text-muted-foreground/40")} />
       </button>
-      <div className="flex-1 min-w-0 space-y-1">
-        <span className={cn("text-xs font-medium block", mDone && "line-through text-muted-foreground")}>{mTitle}</span>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {mDue && (
-            <Badge variant="outline" className="text-[9px] h-5 px-1.5 gap-1 font-normal">
-              <CalendarDays className="h-2.5 w-2.5" />
-              {new Date(mDue).toLocaleDateString(undefined, {
-                weekday: canManage ? "short" : undefined,
-                month: "short",
-                day: "numeric",
-                year: canManage ? undefined : "numeric",
-                timeZone: "UTC",
-              })}
-            </Badge>
+      <div className="flex-1 min-w-0 space-y-1.5">
+        <p
+          className={cn(
+            "text-sm font-medium break-words whitespace-pre-wrap leading-snug",
+            mDone && "line-through text-muted-foreground"
           )}
+        >
+          {mTitle || "Untitled milestone"}
+        </p>
+        {mDescription.trim() ? (
+          <p className="text-xs text-muted-foreground break-words whitespace-pre-wrap leading-relaxed">
+            {mDescription}
+          </p>
+        ) : null}
+        {(mDue || mDueTime) && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Badge variant="outline" className="text-[10px] h-auto min-h-5 px-1.5 py-0.5 gap-1 font-normal whitespace-normal">
+              <CalendarDays className="h-2.5 w-2.5 shrink-0" />
+              <span>
+                {dueLabel || "Due"}
+                {mDueTime ? ` · ${mDueTime} UK` : ""}
+              </span>
+            </Badge>
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-1.5">
           {assignees.length === 0 ? (
-            <span className="text-[9px] text-muted-foreground">All members</span>
+            <span className="text-[10px] text-muted-foreground">No assignees</span>
           ) : (
             assignees.map((a) => {
+              const aUserId = extractStr(a, "userId", "") || extractNestedStr(a, ["user", "id"], "");
               const name = extractNestedStr(a, ["user", "name"], "?");
+              const email = extractNestedStr(a, ["user", "email"], "");
+              const role = formatMilestoneRole(extractNestedStr(a, ["user", "role"], ""));
               return (
-                <Badge key={extractStr(a, "userId", name)} variant="secondary" className="text-[9px] h-5 px-1.5 font-normal">
-                  {name}
+                <Badge
+                  key={aUserId || `${name}-${role}`}
+                  variant="secondary"
+                  className="text-[10px] h-auto min-h-5 px-1.5 py-0.5 font-normal whitespace-normal max-w-full"
+                  title={email || name}
+                >
+                  <span className="break-words">
+                    {name}
+                    {role ? ` · ${role}` : ""}
+                  </span>
                 </Badge>
               );
             })
           )}
         </div>
       </div>
-      {(onMoveUp || onMoveDown) && (
-        <div className="flex flex-col gap-0.5 shrink-0">
-          <button
-            type="button"
-            onClick={onMoveUp}
-            disabled={!onMoveUp}
-            className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30"
-            title="Move earlier"
-            aria-label="Move earlier"
-          >
-            <ChevronUp className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={onMoveDown}
-            disabled={!onMoveDown}
-            className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30"
-            title="Move later"
-            aria-label="Move later"
-          >
-            <ChevronDown className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
-      {canManage && (onEdit || onDelete || onDuplicate) && (
-        <div className="flex items-center gap-1 shrink-0">
-          {onDuplicate && (
-            <button
-              type="button"
-              onClick={() => onDuplicate(m)}
-              className="text-muted-foreground hover:text-foreground transition-colors p-1"
-              title="Duplicate milestone"
-            >
-              <CopyPlus className="h-3.5 w-3.5" />
-            </button>
+      {(onMoveUp || onMoveDown || (canManage && (onEdit || onDelete || onDuplicate))) && (
+        <div className="flex flex-col items-end gap-0.5 shrink-0">
+          {(onMoveUp || onMoveDown) && (
+            <div className="flex flex-col gap-0.5">
+              <button
+                type="button"
+                onClick={onMoveUp}
+                disabled={!onMoveUp}
+                className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30"
+                title="Move earlier"
+                aria-label="Move earlier"
+              >
+                <ChevronUp className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={onMoveDown}
+                disabled={!onMoveDown}
+                className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30"
+                title="Move later"
+                aria-label="Move later"
+              >
+                <ChevronDown className="h-3.5 w-3.5" />
+              </button>
+            </div>
           )}
-          {onEdit && (
-            <button type="button" onClick={() => onEdit(m)} className="text-muted-foreground hover:text-foreground transition-colors p-1" title="Edit">
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
-          )}
-          {onDelete && (
-            <button type="button" onClick={() => onDelete(mId)} className="text-muted-foreground hover:text-red-500 transition-colors p-1" title="Delete">
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
+          {canManage && (onEdit || onDelete || onDuplicate) && (
+            <div className="flex items-center gap-0.5">
+              {onDuplicate && (
+                <button
+                  type="button"
+                  onClick={() => onDuplicate(m)}
+                  className="text-muted-foreground hover:text-foreground transition-colors p-1"
+                  title="Duplicate milestone"
+                >
+                  <CopyPlus className="h-3.5 w-3.5" />
+                </button>
+              )}
+              {onEdit && (
+                <button type="button" onClick={() => onEdit(m)} className="text-muted-foreground hover:text-foreground transition-colors p-1" title="Edit">
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+              )}
+              {onDelete && (
+                <button type="button" onClick={() => onDelete(mId)} className="text-muted-foreground hover:text-red-500 transition-colors p-1" title="Delete">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
           )}
         </div>
       )}
     </div>
   );
 }
+
 
 export default function ProjectDetailPage() {
   const params = useParams();
@@ -560,6 +608,7 @@ export default function ProjectDetailPage() {
   // Infrastructure panel: collapsed by default; remember open/closed per project
   const [infraSectionOpen, setInfraSectionOpen] = useState(false);
   const [newMilestoneTitle, setNewMilestoneTitle] = useState("");
+  const [newMilestoneDescription, setNewMilestoneDescription] = useState("");
   const [newMilestoneDue, setNewMilestoneDue] = useState("");
   const [newMilestoneDueTime, setNewMilestoneDueTime] = useState("");
   const [newMilestoneAssignees, setNewMilestoneAssignees] = useState<string[]>([]);
@@ -567,6 +616,7 @@ export default function ProjectDetailPage() {
   const [milestoneWeekFilter, setMilestoneWeekFilter] = useState<string>("__all__");
   const [editingMilestone, setEditingMilestone] = useState<Record<string, unknown> | null>(null);
   const [editMilestoneTitle, setEditMilestoneTitle] = useState("");
+  const [editMilestoneDescription, setEditMilestoneDescription] = useState("");
   const [editMilestoneDue, setEditMilestoneDue] = useState("");
   const [editMilestoneDueTime, setEditMilestoneDueTime] = useState("");
   const [editMilestoneAssignees, setEditMilestoneAssignees] = useState<string[]>([]);
@@ -1143,8 +1193,13 @@ export default function ProjectDetailPage() {
       toast.error("Select at least one project member to assign");
       return;
     }
+    if (newMilestoneTitle.trim().length > 2000) {
+      toast.error("Title must be at most 2000 characters");
+      return;
+    }
     setMilestoneSaving(true);
     const title = newMilestoneTitle.trim();
+    const description = newMilestoneDescription.trim() || null;
     const dueDate = newMilestoneDue;
     const dueTime = newMilestoneDueTime || null;
     const assigneeIds = [...newMilestoneAssignees];
@@ -1155,6 +1210,7 @@ export default function ProjectDetailPage() {
         credentials: "include",
         body: JSON.stringify({
           title,
+          description,
           dueDate,
           dueTime,
           assigneeIds,
@@ -1164,6 +1220,7 @@ export default function ProjectDetailPage() {
         const created = (await res.json().catch(() => null)) as Record<string, unknown> | null;
         toast.success("Milestone added");
         setNewMilestoneTitle("");
+        setNewMilestoneDescription("");
         setNewMilestoneDue("");
         setNewMilestoneDueTime("");
         setNewMilestoneAssignees([]);
@@ -1196,6 +1253,7 @@ export default function ProjectDetailPage() {
   const openEditMilestone = (m: Record<string, unknown>) => {
     setEditingMilestone(m);
     setEditMilestoneTitle(extractStr(m, "title", ""));
+    setEditMilestoneDescription(extractStr(m, "description", ""));
     const due = extractStr(m, "dueDate", "");
     setEditMilestoneDue(due ? due.slice(0, 10) : "");
     setEditMilestoneDueTime(extractStr(m, "dueTime", ""));
@@ -1214,6 +1272,10 @@ export default function ProjectDetailPage() {
       toast.error("Title and due date are required");
       return;
     }
+    if (editMilestoneTitle.trim().length > 2000) {
+      toast.error("Title must be at most 2000 characters");
+      return;
+    }
     if (editMilestoneAssignees.length === 0) {
       toast.error("Select at least one project member to assign");
       return;
@@ -1227,6 +1289,7 @@ export default function ProjectDetailPage() {
         body: JSON.stringify({
           id,
           title: editMilestoneTitle.trim(),
+          description: editMilestoneDescription.trim() || null,
           dueDate: editMilestoneDue,
           dueTime: editMilestoneDueTime || null,
           assigneeIds: editMilestoneAssignees,
@@ -1373,7 +1436,8 @@ export default function ProjectDetailPage() {
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          title: `${titleBase} (copy)`.slice(0, 200),
+          title: `${titleBase} (copy)`.slice(0, 2000),
+          description: extractStr(m, "description", "").trim() || null,
           dueDate,
           dueTime,
           assigneeIds: assignees,
@@ -1849,7 +1913,7 @@ export default function ProjectDetailPage() {
               <Badge variant="secondary" className="text-[10px] h-5 px-1.5">
                 {milestonesData.filter((m) => m.done === true).length}/{milestonesData.length}
               </Badge>
-              {canManageMilestones && milestonesData.length > 0 && (
+              {milestonesData.length > 0 && (
                 <span className="text-[10px] text-muted-foreground hidden sm:inline">Grouped by week</span>
               )}
             </div>
@@ -1857,12 +1921,30 @@ export default function ProjectDetailPage() {
           <div className="p-4 space-y-2">
             {canManageMilestones && (
               <div className="space-y-2 mb-3 rounded-lg border border-dashed border-border/60 p-3 bg-white/30 dark:bg-white/[0.02]">
-                <Input
-                  placeholder="Milestone title…"
-                  value={newMilestoneTitle}
-                  onChange={(e) => setNewMilestoneTitle(e.target.value)}
-                  className="h-8 text-xs"
-                />
+                <div className="space-y-1">
+                  <Textarea
+                    placeholder="Milestone title…"
+                    value={newMilestoneTitle}
+                    onChange={(e) => setNewMilestoneTitle(e.target.value)}
+                    className="min-h-[64px] text-xs resize-y"
+                    maxLength={2000}
+                  />
+                  <p className="text-[10px] text-muted-foreground text-right tabular-nums">
+                    {newMilestoneTitle.length}/2000
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <Textarea
+                    placeholder="Description (optional)…"
+                    value={newMilestoneDescription}
+                    onChange={(e) => setNewMilestoneDescription(e.target.value)}
+                    className="min-h-[56px] text-xs resize-y"
+                    maxLength={2000}
+                  />
+                  <p className="text-[10px] text-muted-foreground text-right tabular-nums">
+                    {newMilestoneDescription.length}/2000
+                  </p>
+                </div>
                 <div className="flex flex-wrap gap-2 items-center">
                   <div className="space-y-0.5">
                     <Label className="text-[10px] text-muted-foreground">Due date * (UK)</Label>
@@ -1894,6 +1976,9 @@ export default function ProjectDetailPage() {
                       {activeMembers.map((member) => {
                         const mUserId = extractStr(member, "userId", "");
                         const mUserName = extractNestedStr(member, ["user", "name"], "Unknown");
+                        const mRole = formatMilestoneRole(
+                          extractNestedStr(member, ["user", "role"], "") || extractStr(member, "role", "")
+                        );
                         const selected = newMilestoneAssignees.includes(mUserId);
                         return (
                           <button
@@ -1901,13 +1986,13 @@ export default function ProjectDetailPage() {
                             type="button"
                             onClick={() => toggleAssignee(newMilestoneAssignees, setNewMilestoneAssignees, mUserId)}
                             className={cn(
-                              "text-[10px] px-2 py-1 rounded-full border transition-colors",
+                              "text-[10px] px-2 py-1 rounded-full border transition-colors whitespace-normal text-left max-w-full",
                               selected
                                 ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-700 dark:text-emerald-300"
                                 : "bg-muted/40 border-transparent text-muted-foreground hover:border-border"
                             )}
                           >
-                            {mUserName}
+                            {mUserName}{mRole ? ` · ${mRole}` : ""}
                           </button>
                         );
                       })}
@@ -1922,9 +2007,9 @@ export default function ProjectDetailPage() {
             )}
             {milestonesData.length === 0 ? (
               <p className="text-xs text-muted-foreground text-center py-4">No milestones yet</p>
-            ) : canManageMilestones ? (
+            ) : (
               <div className="space-y-3">
-                {/* Week filter chips — jump to a week quickly */}
+                {/* Same week grouping for every role so nothing is hidden or cramped */}
                 <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-0.5 px-0.5">
                   <button
                     type="button"
@@ -1965,7 +2050,7 @@ export default function ProjectDetailPage() {
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2 min-w-0">
                           <CalendarDays className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                          <h3 className="text-xs font-semibold tracking-tight truncate">{week.label}</h3>
+                          <h3 className="text-xs font-semibold tracking-tight break-words">{week.label}</h3>
                           <Badge variant="secondary" className="text-[9px] h-4 px-1.5 shrink-0">
                             {weekDone}/{week.items.length} done
                           </Badge>
@@ -1976,22 +2061,15 @@ export default function ProjectDetailPage() {
                         userId={userId}
                         canManage={canManageMilestones}
                         onToggle={handleToggleMilestone}
-                        onEdit={openEditMilestone}
-                        onDelete={handleDeleteMilestone}
-                        onDuplicate={handleDuplicateMilestone}
+                        onEdit={canManageMilestones ? openEditMilestone : undefined}
+                        onDelete={canManageMilestones ? handleDeleteMilestone : undefined}
+                        onDuplicate={canManageMilestones ? handleDuplicateMilestone : undefined}
                         onReorder={canManageMilestones ? handleReorderMilestones : undefined}
                       />
                     </div>
                   );
                 })}
               </div>
-            ) : (
-              <MilestoneListWithDoneCollapsed
-                items={sortMilestonesForDisplay(milestonesData)}
-                userId={userId}
-                canManage={false}
-                onToggle={handleToggleMilestone}
-              />
             )}
           </div>
         </div>
@@ -1999,15 +2077,35 @@ export default function ProjectDetailPage() {
 
       {/* Edit milestone dialog */}
       <Dialog open={!!editingMilestone} onOpenChange={(o) => !o && setEditingMilestone(null)}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-base">Edit milestone</DialogTitle>
-            <DialogDescription className="text-xs">Update title, due date, and assignees.</DialogDescription>
+            <DialogDescription className="text-xs">Update title, description, due date, and assignees.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
               <Label className="text-xs">Title</Label>
-              <Input value={editMilestoneTitle} onChange={(e) => setEditMilestoneTitle(e.target.value)} className="h-9 text-sm" />
+              <Textarea
+                value={editMilestoneTitle}
+                onChange={(e) => setEditMilestoneTitle(e.target.value)}
+                className="min-h-[72px] text-sm resize-y"
+                maxLength={2000}
+              />
+              <p className="text-[10px] text-muted-foreground text-right tabular-nums">
+                {editMilestoneTitle.length}/2000
+              </p>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Description (optional)</Label>
+              <Textarea
+                value={editMilestoneDescription}
+                onChange={(e) => setEditMilestoneDescription(e.target.value)}
+                className="min-h-[72px] text-sm resize-y"
+                maxLength={2000}
+              />
+              <p className="text-[10px] text-muted-foreground text-right tabular-nums">
+                {editMilestoneDescription.length}/2000
+              </p>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
@@ -2025,6 +2123,7 @@ export default function ProjectDetailPage() {
                 {activeMembers.map((member) => {
                   const mUserId = extractStr(member, "userId", "");
                   const mUserName = extractNestedStr(member, ["user", "name"], "Unknown");
+                  const mRole = formatMilestoneRole(extractNestedStr(member, ["user", "role"], "") || extractStr(member, "role", ""));
                   const selected = editMilestoneAssignees.includes(mUserId);
                   return (
                     <button
@@ -2032,13 +2131,13 @@ export default function ProjectDetailPage() {
                       type="button"
                       onClick={() => toggleAssignee(editMilestoneAssignees, setEditMilestoneAssignees, mUserId)}
                       className={cn(
-                        "text-[10px] px-2 py-1 rounded-full border transition-colors",
+                        "text-[10px] px-2 py-1 rounded-full border transition-colors whitespace-normal text-left max-w-full",
                         selected
                           ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-700 dark:text-emerald-300"
                           : "bg-muted/40 border-transparent text-muted-foreground"
                       )}
                     >
-                      {mUserName}
+                      {mUserName}{mRole ? ` · ${mRole}` : ""}
                     </button>
                   );
                 })}
