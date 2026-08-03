@@ -205,8 +205,8 @@ export async function GET(req: NextRequest) {
     const rl = rateLimit(`user-details-get-${session.user.id}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
-    // Ensure the UserDetail table exists (safe no-op when already migrated)
-    await ensureAllTables()
+    // Do NOT run ensureAllTables() on GET — full migrate is cold-start heavy and
+    // was blocking My Details forever. Table already exists; POST still migrates.
 
     const userId = session.user.id
     const userRole = session.user.role
@@ -215,11 +215,10 @@ export async function GET(req: NextRequest) {
 
     // Fast path: own details only (admins use this for the "My Details" tab)
     if (!adminView || scope === "me") {
-      const [detail, dbKey] = await Promise.all([
-        db.userDetail.findUnique({ where: { userId } }),
-        getCredentialDbKey(),
-      ])
+      const detail = await db.userDetail.findUnique({ where: { userId } })
       if (!detail) return NextResponse.json(null)
+      // Only load encryption key when there is something to mask
+      const dbKey = await getCredentialDbKey()
       return NextResponse.json(toResponse(detail, { decryptSensitive: true, dbKey: dbKey || undefined }))
     }
 

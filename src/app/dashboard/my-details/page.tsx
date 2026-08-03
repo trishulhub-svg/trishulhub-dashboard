@@ -289,13 +289,13 @@ function MyDetailsPageInner() {
     fetchMyDetail();
   }, [sessionStatus, fetchMyDetail]);
 
-  // Load team list whenever admin opens Team tab
+  // Load team list when admin opens Team tab (once per visit; Refresh always refetches)
   useEffect(() => {
     if (sessionStatus === "loading" || !isUserAdmin) return;
-    if (adminTab === "team") {
-      void fetchTeamDetails();
-    }
-  }, [sessionStatus, isUserAdmin, adminTab, fetchTeamDetails]);
+    if (adminTab !== "team") return;
+    void fetchTeamDetails();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refetch only when tab/session flips
+  }, [sessionStatus, isUserAdmin, adminTab]);
 
   // ── Pre-fill form when editing rejected details ──
   useEffect(() => {
