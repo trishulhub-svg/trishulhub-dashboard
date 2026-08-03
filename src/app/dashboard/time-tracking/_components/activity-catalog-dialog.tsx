@@ -127,13 +127,13 @@ export function ActivityCatalogDialog({
             and cannot be edited here.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-3 py-1 max-h-[50vh] overflow-y-auto pr-1">
+        <div className="space-y-3 py-1 max-h-[min(50vh,360px)] overflow-y-auto overscroll-contain pr-1">
           {rows.map((row, i) => (
             <div
               key={row.key}
-              className="flex items-center gap-3 rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5"
+              className="flex items-start sm:items-center gap-2.5 sm:gap-3 rounded-lg border border-border/70 bg-muted/20 px-2.5 sm:px-3 py-2.5"
             >
-              <label className="inline-flex items-center gap-2 shrink-0">
+              <label className="inline-flex items-center gap-1.5 shrink-0 pt-2 sm:pt-0">
                 <input
                   type="checkbox"
                   className="h-4 w-4 accent-[var(--primary)]"
@@ -145,12 +145,12 @@ export function ActivityCatalogDialog({
                     );
                   }}
                 />
-                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                <span className="text-[10px] uppercase tracking-wide text-muted-foreground hidden sm:inline">
                   On
                 </span>
               </label>
               <div className="flex-1 min-w-0 space-y-1">
-                <Label className="text-[10px] text-muted-foreground">{row.key}</Label>
+                <Label className="text-[10px] text-muted-foreground truncate block">{row.key}</Label>
                 <Input
                   value={row.label}
                   maxLength={60}
@@ -169,7 +169,7 @@ export function ActivityCatalogDialog({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+                  className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive mt-5 sm:mt-0"
                   aria-label={`Remove ${row.label}`}
                   onClick={() => setRows((prev) => prev.filter((_, idx) => idx !== i))}
                 >
@@ -179,8 +179,8 @@ export function ActivityCatalogDialog({
             </div>
           ))}
         </div>
-        <div className="flex items-end gap-2 pt-1 border-t border-border/60">
-          <div className="flex-1 space-y-1">
+        <div className="flex flex-col sm:flex-row sm:items-end gap-2 pt-1 border-t border-border/60">
+          <div className="flex-1 min-w-0 space-y-1">
             <Label className="text-[10px] text-muted-foreground">Add activity</Label>
             <Input
               value={newLabel}
@@ -196,16 +196,16 @@ export function ActivityCatalogDialog({
               }}
             />
           </div>
-          <Button type="button" variant="outline" className="h-9 shrink-0" onClick={addCustom}>
+          <Button type="button" variant="outline" className="h-9 w-full sm:w-auto shrink-0" onClick={addCustom}>
             <Plus className="h-3.5 w-3.5 mr-1" />
             Add
           </Button>
         </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+        <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
+          <Button variant="outline" className="w-full sm:w-auto" onClick={() => onOpenChange(false)} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={() => void save()} disabled={saving || rows.length === 0}>
+          <Button className="w-full sm:w-auto" onClick={() => void save()} disabled={saving || rows.length === 0}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
             Save
           </Button>

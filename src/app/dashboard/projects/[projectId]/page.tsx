@@ -1958,19 +1958,19 @@ export default function ProjectDetailPage() {
                         const initials = uName.split(" ").map((n) => n[0] || "").join("").slice(0, 2).toUpperCase();
                         const busy = addingMemberId === uId;
                         return (
-                          <div key={uId} className="flex items-center justify-between p-2.5 rounded-lg border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/[0.02] hover:bg-white/60 dark:hover:bg-white/[0.05] transition-colors">
-                            <div className="flex items-center gap-2.5">
-                              <Avatar className="h-7 w-7 ring-1 ring-muted">
+                          <div key={uId} className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between p-2.5 rounded-lg border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/[0.02] hover:bg-white/60 dark:hover:bg-white/[0.05] transition-colors">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <Avatar className="h-7 w-7 ring-1 ring-muted shrink-0">
                                 <AvatarFallback className="text-[10px] bg-gradient-to-br from-primary/20 to-primary/5">{initials || "?"}</AvatarFallback>
                               </Avatar>
-                              <div>
-                                <p className="text-xs font-medium">{uName}</p>
-                                <p className="text-[10px] text-muted-foreground">
+                              <div className="min-w-0">
+                                <p className="text-xs font-medium truncate">{uName}</p>
+                                <p className="text-[10px] text-muted-foreground truncate">
                                   {safeText(uRole)}{uDept ? ` · ${safeText(uDept)}` : ""}
                                 </p>
                               </div>
                             </div>
-                            <div className="flex gap-1.5">
+                            <div className="flex gap-1.5 shrink-0 self-end sm:self-auto">
                               <Button
                                 type="button"
                                 size="sm"
@@ -2011,17 +2011,17 @@ export default function ProjectDetailPage() {
           className="rounded-xl border border-white/20 dark:border-white/10 bg-white/60 dark:bg-white/[0.02] backdrop-blur-xl overflow-hidden"
           style={{ animation: "card-enter 0.4s ease-out both", animationDelay: "165ms" }}
         >
-          <div className="flex items-center justify-between px-4 py-3 border-b border-black/[0.04] dark:border-white/[0.06]">
-            <CollapsibleTrigger className="flex items-center gap-2 min-w-0 text-left group flex-1 [&[data-state=open]>svg.ms-chevron]:rotate-180">
+          <div className="flex items-center justify-between px-3 sm:px-4 py-3 border-b border-black/[0.04] dark:border-white/[0.06]">
+            <CollapsibleTrigger className="flex items-center gap-1.5 sm:gap-2 min-w-0 text-left group flex-1 [&[data-state=open]>svg.ms-chevron]:rotate-180">
               <CheckCircle2 className="h-4 w-4 text-muted-foreground shrink-0" />
-              <h2 className="text-sm font-bold tracking-tight">Milestones</h2>
+              <h2 className="text-sm font-bold tracking-tight truncate">Milestones</h2>
               <Badge variant="secondary" className="text-[10px] h-5 px-1.5 shrink-0">
                 {milestonesData.filter((m) => m.done === true).length}/{milestonesData.length}
               </Badge>
               {milestonesData.length > 0 && (
-                <span className="text-[10px] text-muted-foreground hidden sm:inline">Grouped by week</span>
+                <span className="text-[10px] text-muted-foreground hidden md:inline">Grouped by week</span>
               )}
-              <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:inline">
+              <span className="text-[10px] text-muted-foreground shrink-0 hidden md:inline">
                 {milestoneSectionOpen ? "Click to collapse" : "Click to expand"}
               </span>
               <ChevronDown className="ms-chevron h-4 w-4 text-muted-foreground shrink-0 ml-auto transition-transform" />
@@ -2055,14 +2055,14 @@ export default function ProjectDetailPage() {
                     {newMilestoneDescription.length}/2000
                   </p>
                 </div>
-                <div className="flex flex-wrap gap-2 items-center">
+                <div className="flex flex-wrap gap-2 items-end">
                   <div className="space-y-0.5">
                     <Label className="text-[10px] text-muted-foreground">Due date * (UK)</Label>
                     <Input
                       type="date"
                       value={newMilestoneDue}
                       onChange={(e) => setNewMilestoneDue(e.target.value)}
-                      className="h-8 text-xs w-[150px]"
+                      className="h-8 text-xs w-full min-w-[140px] sm:w-[150px]"
                     />
                   </div>
                   <div className="space-y-0.5">
@@ -2071,10 +2071,10 @@ export default function ProjectDetailPage() {
                       type="time"
                       value={newMilestoneDueTime}
                       onChange={(e) => setNewMilestoneDueTime(e.target.value)}
-                      className="h-8 text-xs w-[120px]"
+                      className="h-8 text-xs w-full min-w-[110px] sm:w-[120px]"
                     />
                   </div>
-                  <Button size="sm" className="h-8 text-xs shrink-0 ml-auto mt-3" onClick={handleAddMilestone} disabled={milestoneSaving}>
+                  <Button size="sm" className="h-8 text-xs shrink-0 w-full sm:w-auto sm:ml-auto" onClick={handleAddMilestone} disabled={milestoneSaving}>
                     {milestoneSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3 mr-1" />}
                     Add
                   </Button>
