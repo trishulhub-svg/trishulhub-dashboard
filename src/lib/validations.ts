@@ -232,10 +232,18 @@ export const timeActivityTypes = [
   "RD_SA",
 ] as const
 
+/** Built-in or custom catalog key (CUSTOM_SLUG). */
+export const timeActivityTypeSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(40)
+  .regex(/^[A-Z][A-Z0-9_]{0,39}$/, "Invalid activity type")
+
 export const startTimeEntrySchema = z.object({
   projectId: z.string().optional(),
   description: z.string().max(500).optional(),
-  activityType: z.enum(timeActivityTypes).optional(),
+  activityType: timeActivityTypeSchema.optional(),
   trainingAssignmentId: z.string().min(1).optional(),
   switchMode: z.enum(["end", "delete"]).optional(),
   // Device clock integrity (required for self-serve clock-in)
@@ -333,11 +341,8 @@ export const adminUpdateTimeEntrySchema = z.object({
   id: z.string().min(1),
   description: z.string().max(1000).optional().nullable(),
   projectId: z.string().min(1).nullable().optional(),
-  // PROJECT | TRAINING | SUPERVISION | HR_ADMIN | RD_SA | null (clear / no project)
-  activityType: z
-    .enum(["PROJECT", "TRAINING", "SUPERVISION", "HR_ADMIN", "RD_SA"])
-    .nullable()
-    .optional(),
+  // PROJECT | built-in | custom catalog key | null (clear / no project)
+  activityType: timeActivityTypeSchema.nullable().optional(),
   trainingAssignmentId: z.string().min(1).nullable().optional(),
   clockIn: z.string().min(1).optional(), // ISO date string
   clockOut: z.string().nullable().optional(), // ISO date string (null to clear)

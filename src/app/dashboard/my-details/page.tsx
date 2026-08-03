@@ -220,6 +220,8 @@ function MyDetailsPageInner() {
   const [unlockTarget, setUnlockTarget] = useState<UserDetailResponse | null>(null);
   const [unlockDialogOpen, setUnlockDialogOpen] = useState(false);
 
+  const [refreshing, setRefreshing] = useState(false);
+
   // Admin filters (persist across refresh)
   const [adminTab, setAdminTab] = useUrlState("tab", "mine");
   const [filterStatus, setFilterStatus] = useUrlState("status", "ALL");
@@ -257,18 +259,28 @@ function MyDetailsPageInner() {
         router.push("/login");
         return;
       }
-      if (!res.ok) return;
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.error || "Failed to refresh team details");
+        return;
+      }
       const data = await res.json();
       setAllDetails(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error("[my-details] fetchTeamDetails error:", err);
+      toast.error("Failed to refresh team details");
     }
   }, [router, isUserAdmin]);
 
   const fetchData = useCallback(async () => {
-    await fetchMyDetail();
-    if (isUserAdmin && adminTab === "team") {
-      await fetchTeamDetails();
+    setRefreshing(true);
+    try {
+      await fetchMyDetail();
+      if (isUserAdmin && adminTab === "team") {
+        await fetchTeamDetails();
+      }
+    } finally {
+      setRefreshing(false);
     }
   }, [fetchMyDetail, fetchTeamDetails, isUserAdmin, adminTab]);
 
@@ -277,13 +289,13 @@ function MyDetailsPageInner() {
     fetchMyDetail();
   }, [sessionStatus, fetchMyDetail]);
 
-  // Load team list only when admin opens Team tab
+  // Load team list whenever admin opens Team tab
   useEffect(() => {
     if (sessionStatus === "loading" || !isUserAdmin) return;
-    if (adminTab === "team" && allDetails.length === 0) {
+    if (adminTab === "team") {
       void fetchTeamDetails();
     }
-  }, [sessionStatus, isUserAdmin, adminTab, allDetails.length, fetchTeamDetails]);
+  }, [sessionStatus, isUserAdmin, adminTab, fetchTeamDetails]);
 
   // ── Pre-fill form when editing rejected details ──
   useEffect(() => {
@@ -521,8 +533,8 @@ function MyDetailsPageInner() {
         title={isUserAdmin ? "My Details & Team Management" : "My Details"}
         description="Manage your personal, government ID, and bank account information"
       >
-        <Button variant="outline" size="sm" onClick={fetchData} disabled={submitting}>
-          <RefreshCw className="h-4 w-4 mr-2" /> Refresh
+        <Button variant="outline" size="sm" onClick={() => void fetchData()} disabled={submitting || refreshing}>
+          <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? "animate-spin" : ""}`} /> Refresh
         </Button>
       </PageHeader>
 

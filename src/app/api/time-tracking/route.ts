@@ -25,14 +25,12 @@ type TimeEntryWithUser = {
   [key: string]: unknown;
 }
 
-type ActivityType = "PROJECT" | "TRAINING" | "SUPERVISION" | "HR_ADMIN" | "RD_SA"
+import {
+  canUseActivityType as catalogAllowsActivity,
+  getTimeActivityCatalog,
+} from "@/lib/time-activity-catalog"
 
-function canUseActivityType(role: string, activityType: ActivityType): boolean {
-  if (activityType === "HR_ADMIN") return role === "ADMIN" || role === "SUPER_ADMIN"
-  if (activityType === "RD_SA") return role === "SUPER_ADMIN" || role === "PROJECT_MANAGER"
-  // Training + Supervision available to all clock-in roles
-  return true
-}
+type ActivityType = string
 
 /** Shared helper to fetch all active time entries for admin dashboards */
 async function fetchAdminActiveEntries(): Promise<TimeEntryWithUser[]> {
@@ -333,8 +331,11 @@ export async function POST(req: NextRequest) {
 
     const requestedActivity =
       (activityType as ActivityType | undefined) || (projectId ? "PROJECT" : undefined)
-    if (requestedActivity && !canUseActivityType(userRole, requestedActivity)) {
-      return NextResponse.json({ error: "You are not allowed to use that activity type" }, { status: 403 })
+    if (requestedActivity) {
+      const catalog = await getTimeActivityCatalog()
+      if (!catalogAllowsActivity(userRole, requestedActivity, catalog)) {
+        return NextResponse.json({ error: "You are not allowed to use that activity type" }, { status: 403 })
+      }
     }
     if (requestedActivity === "TRAINING" && !trainingAssignmentId) {
       return NextResponse.json({ error: "Select an assigned training before starting" }, { status: 400 })

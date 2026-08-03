@@ -1,13 +1,21 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import { db } from "@/lib/db"
+import { db, getAppSetting } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 import { encryptCredentialToJson, decryptCredentialFromJson } from "@/lib/encryption"
 import { notifyRoles } from "@/lib/notify"
+
+async function getCredentialDbKey(): Promise<string> {
+  try {
+    return await getAppSetting("credentialEncryptionKey")
+  } catch {
+    return ""
+  }
+}
 
 // ━━ Validation constants ━━
 
@@ -128,9 +136,10 @@ function toResponse(
       department: string | null
     }
   },
-  options?: { decryptSensitive?: boolean }
+  options?: { decryptSensitive?: boolean; dbKey?: string }
 ): UserDetailResponse {
   const decryptSensitive = options?.decryptSensitive !== false
+  const dbKey = options?.dbKey
 
   // List views skip decrypt (major speed win); detail/self still masks properly
   let govIdMasked = ""
@@ -139,7 +148,7 @@ function toResponse(
       govIdMasked = "••••••••"
     } else {
       try {
-        const decrypted = decryptCredentialFromJson(detail.govIdNumber)
+        const decrypted = decryptCredentialFromJson(detail.govIdNumber, dbKey)
         govIdMasked = maskSensitive(decrypted)
       } catch {
         govIdMasked = maskSensitive(detail.govIdNumber)
@@ -153,7 +162,7 @@ function toResponse(
       bankAccountMasked = "••••••••"
     } else {
       try {
-        const decrypted = decryptCredentialFromJson(detail.bankAccountNumber)
+        const decrypted = decryptCredentialFromJson(detail.bankAccountNumber, dbKey)
         bankAccountMasked = maskSensitive(decrypted)
       } catch {
         bankAccountMasked = maskSensitive(detail.bankAccountNumber)
@@ -196,7 +205,8 @@ export async function GET(req: NextRequest) {
     const rl = rateLimit(`user-details-get-${session.user.id}`, RATE_LIMITS.general.limit, RATE_LIMITS.general.windowMs)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
-    // Ensure the UserDetail table exists
+    // Ensure the UserDetail table exists (safe no-op when already migrated)
+    await ensureAllTables()
 
     const userId = session.user.id
     const userRole = session.user.role
@@ -205,11 +215,12 @@ export async function GET(req: NextRequest) {
 
     // Fast path: own details only (admins use this for the "My Details" tab)
     if (!adminView || scope === "me") {
-      const detail = await db.userDetail.findUnique({
-        where: { userId },
-      })
+      const [detail, dbKey] = await Promise.all([
+        db.userDetail.findUnique({ where: { userId } }),
+        getCredentialDbKey(),
+      ])
       if (!detail) return NextResponse.json(null)
-      return NextResponse.json(toResponse(detail, { decryptSensitive: true }))
+      return NextResponse.json(toResponse(detail, { decryptSensitive: true, dbKey: dbKey || undefined }))
     }
 
     if (adminView) {
@@ -419,9 +430,23 @@ export async function POST(req: NextRequest) {
       bankBranchFinal = bankBranch || null
     }
 
-    // ── Encrypt sensitive fields ──
-    const govIdEncrypted = encryptCredentialToJson(govIdNumber)
-    const bankAccountEncrypted = encryptCredentialToJson(bankAccountNumber)
+    // ── Encrypt sensitive fields (prefer Access Hub DB key, same as credentials) ──
+    const dbKey = await getCredentialDbKey()
+    let govIdEncrypted: string
+    let bankAccountEncrypted: string
+    try {
+      govIdEncrypted = encryptCredentialToJson(govIdNumber, dbKey || undefined)
+      bankAccountEncrypted = encryptCredentialToJson(bankAccountNumber, dbKey || undefined)
+    } catch (encErr: unknown) {
+      console.error("[user-details] POST encryption error:", encErr)
+      return NextResponse.json(
+        {
+          error:
+            "Encryption is not configured. Set credentialEncryptionKey in Access Hub (or ENCRYPTION_KEY env) and retry.",
+        },
+        { status: 500 }
+      )
+    }
 
     // ── Fetch existing detail (if any) ──
     const existing = await db.userDetail.findUnique({ where: { userId } })
@@ -497,9 +522,16 @@ export async function POST(req: NextRequest) {
       console.error("[user-details] POST notification error (non-blocking):", notifyErr)
     }
 
-    return NextResponse.json(toResponse(detail), { status: existing ? 200 : 201 })
+    return NextResponse.json(toResponse(detail, { dbKey: dbKey || undefined }), { status: existing ? 200 : 201 })
   } catch (error: unknown) {
     console.error("[user-details] POST Error:", error)
+    const msg = error instanceof Error ? error.message : ""
+    if (msg.toLowerCase().includes("encryption") || msg.toLowerCase().includes("credential")) {
+      return NextResponse.json(
+        { error: "Encryption is not configured. Please contact an admin." },
+        { status: 500 }
+      )
+    }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

@@ -607,6 +607,8 @@ export default function ProjectDetailPage() {
   const [visibilitySaving, setVisibilitySaving] = useState(false);
   // Infrastructure panel: collapsed by default; remember open/closed per project
   const [infraSectionOpen, setInfraSectionOpen] = useState(false);
+  // Milestones panel: same collapse pattern as infrastructure
+  const [milestoneSectionOpen, setMilestoneSectionOpen] = useState(false);
   const [newMilestoneTitle, setNewMilestoneTitle] = useState("");
   const [newMilestoneDescription, setNewMilestoneDescription] = useState("");
   const [newMilestoneDue, setNewMilestoneDue] = useState("");
@@ -620,7 +622,10 @@ export default function ProjectDetailPage() {
   const [editMilestoneDue, setEditMilestoneDue] = useState("");
   const [editMilestoneDueTime, setEditMilestoneDueTime] = useState("");
   const [editMilestoneAssignees, setEditMilestoneAssignees] = useState<string[]>([]);
-  const canManageMilestones = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+  const [addingMemberId, setAddingMemberId] = useState<string | null>(null);
+  const canManageMilestones =
+    userRole === "SUPER_ADMIN" || userRole === "ADMIN" || userRole === "PROJECT_MANAGER";
+  const PM_MILESTONE_ROLES = useMemo(() => new Set(["PROJECT_MANAGER", "DEVELOPER"]), []);
 
   // PERF: One bootstrap seeds React Query caches (single auth), then per-resource queries
   // stay enabled for mutations/refetch without a cold waterfall of 4–5 session checks.
@@ -728,7 +733,12 @@ export default function ProjectDetailPage() {
   // by the time the dialog opens. The query is enabled when addMemberOpen
   // is true OR when the user hovers the add-member button (prefetch).
   const [prefetchTeamUsers, setPrefetchTeamUsers] = useState(false);
-  const { data: teamUsersData = [] } = useQuery({
+  const {
+    data: teamUsersData = [],
+    isLoading: teamUsersLoading,
+    isError: teamUsersError,
+    refetch: refetchTeamUsers,
+  } = useQuery({
     queryKey: ["team-users"],
     queryFn: async () => {
       const res = await fetch("/api/team?type=users", { credentials: "include" });
@@ -738,7 +748,7 @@ export default function ProjectDetailPage() {
       return Array.isArray(ud) ? ud : (Array.isArray((ud as Record<string, unknown>)?.data) ? (ud as Record<string, unknown>).data as unknown[] : []);
     },
     // Enable on: dialog open OR prefetch trigger (hover/focus on add button)
-    enabled: !isInIframe && canManageProject && (addMemberOpen || prefetchTeamUsers),
+    enabled: canManageProject && (addMemberOpen || prefetchTeamUsers),
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
     refetchOnWindowFocus: false,
@@ -809,19 +819,54 @@ export default function ProjectDetailPage() {
       }),
     [members]
   );
+  const milestoneAssigneeMembers = useMemo(() => {
+    if (userRole !== "PROJECT_MANAGER") return activeMembers;
+    return activeMembers.filter((m) => {
+      const role = extractNestedStr(m, ["user", "role"], "");
+      return PM_MILESTONE_ROLES.has(role);
+    });
+  }, [activeMembers, userRole, PM_MILESTONE_ROLES]);
   const teamUsers = teamUsersData;
   const websites = websitesData;
   const infrastructure = infraData;
   const infraStorageKey = projectId ? `trishul:project-infra-open:${projectId}` : null;
+  const milestoneStorageKey = projectId ? `trishul:project-milestones-open:${projectId}` : null;
 
   useEffect(() => {
     if (!infraStorageKey || typeof window === "undefined") return;
-    try {
-      setInfraSectionOpen(window.localStorage.getItem(infraStorageKey) === "1");
-    } catch {
-      setInfraSectionOpen(false);
-    }
+    let cancelled = false;
+    const open = (() => {
+      try {
+        return window.localStorage.getItem(infraStorageKey) === "1";
+      } catch {
+        return false;
+      }
+    })();
+    queueMicrotask(() => {
+      if (!cancelled) setInfraSectionOpen(open);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [infraStorageKey]);
+
+  useEffect(() => {
+    if (!milestoneStorageKey || typeof window === "undefined") return;
+    let cancelled = false;
+    const open = (() => {
+      try {
+        return window.localStorage.getItem(milestoneStorageKey) === "1";
+      } catch {
+        return false;
+      }
+    })();
+    queueMicrotask(() => {
+      if (!cancelled) setMilestoneSectionOpen(open);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [milestoneStorageKey]);
 
   const setInfraSectionOpenPersist = useCallback(
     (open: boolean) => {
@@ -834,6 +879,19 @@ export default function ProjectDetailPage() {
       }
     },
     [infraStorageKey]
+  );
+
+  const setMilestoneSectionOpenPersist = useCallback(
+    (open: boolean) => {
+      setMilestoneSectionOpen(open);
+      if (!milestoneStorageKey || typeof window === "undefined") return;
+      try {
+        window.localStorage.setItem(milestoneStorageKey, open ? "1" : "0");
+      } catch {
+        /* private mode / quota */
+      }
+    },
+    [milestoneStorageKey]
   );
 
   const infraGroups = infrastructure?.groups || emptyInfraGroups();
@@ -1140,18 +1198,30 @@ export default function ProjectDetailPage() {
   };
 
   const handleAddMember = async (userId: string, role: string) => {
+    if (addingMemberId) return;
+    setAddingMemberId(userId);
     try {
-      const res = await fetch(`/api/projects/${projectId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ userId, role }) });
+      const res = await fetch(`/api/projects/${projectId}/members`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ userId, role }),
+      });
       if (res.ok) {
-        toast.success("Member added");
+        toast.success(role === "LEAD" ? "Lead added" : "Member added");
         setAddMemberOpen(false);
-        // PERF: Only invalidate the members query — not the entire project.
-        // invalidateAll() refetches project + members + websites + infra,
-        // which causes a visible flash and adds ~1-2s of loading state.
         queryClient.invalidateQueries({ queryKey: ["project-members", projectId] });
+        queryClient.invalidateQueries({ queryKey: ["team-users"] });
+      } else {
+        if (handle401(res)) return;
+        const d = await res.json().catch(() => ({}));
+        toast.error(d.error || "Failed to add member");
       }
-      else { if (handle401(res)) return; const d = await res.json(); toast.error(d.error || "Failed to add member"); }
-    } catch { toast.error("Failed to add member"); }
+    } catch {
+      toast.error("Failed to add member");
+    } finally {
+      setAddingMemberId(null);
+    }
   };
 
   const handleUpdateProject = async (updates: Record<string, unknown>) => {
@@ -1861,7 +1931,19 @@ export default function ProjectDetailPage() {
                   <DialogTitle className="text-base font-bold">Add Team Member</DialogTitle>
                   <DialogDescription className="text-xs">Assign a team member to this project.</DialogDescription>
                 </DialogHeader>
-                {availableUsers.length === 0 ? (
+                {teamUsersLoading ? (
+                  <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading team…
+                  </div>
+                ) : teamUsersError ? (
+                  <div className="space-y-3 py-4 text-center">
+                    <p className="text-sm text-muted-foreground">Could not load team members.</p>
+                    <Button type="button" size="sm" variant="outline" onClick={() => void refetchTeamUsers()}>
+                      Retry
+                    </Button>
+                  </div>
+                ) : availableUsers.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-4 text-center">
                     All team members are already assigned to this project.
                   </p>
@@ -1874,6 +1956,7 @@ export default function ProjectDetailPage() {
                         const uDept = extractStr(user, "department", "");
                         const uId = extractStr(user, "id", "");
                         const initials = uName.split(" ").map((n) => n[0] || "").join("").slice(0, 2).toUpperCase();
+                        const busy = addingMemberId === uId;
                         return (
                           <div key={uId} className="flex items-center justify-between p-2.5 rounded-lg border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/[0.02] hover:bg-white/60 dark:hover:bg-white/[0.05] transition-colors">
                             <div className="flex items-center gap-2.5">
@@ -1888,8 +1971,25 @@ export default function ProjectDetailPage() {
                               </div>
                             </div>
                             <div className="flex gap-1.5">
-                              <Button size="sm" variant="outline" className="h-7 text-[10px] px-2" onClick={() => handleAddMember(uId, "MEMBER")}>Member</Button>
-                              <Button size="sm" className="h-7 text-[10px] px-2" onClick={() => handleAddMember(uId, "LEAD")}>Lead</Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-[10px] px-2"
+                                disabled={!!addingMemberId}
+                                onClick={() => void handleAddMember(uId, "MEMBER")}
+                              >
+                                {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : "Member"}
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                className="h-7 text-[10px] px-2"
+                                disabled={!!addingMemberId}
+                                onClick={() => void handleAddMember(uId, "LEAD")}
+                              >
+                                Lead
+                              </Button>
                             </div>
                           </div>
                         );
@@ -1903,21 +2003,31 @@ export default function ProjectDetailPage() {
         </div>
       )}
 
-      {/* ═══════ Milestones ═══════ */}
+      {/* ═══════ Milestones (collapsible like Infrastructure) ═══════ */}
       {!isInIframe && (
-        <div className="rounded-xl border border-white/20 dark:border-white/10 bg-white/60 dark:bg-white/[0.02] backdrop-blur-xl overflow-hidden" style={{ animation: "card-enter 0.4s ease-out both", animationDelay: "165ms" }}>
+        <Collapsible
+          open={milestoneSectionOpen}
+          onOpenChange={setMilestoneSectionOpenPersist}
+          className="rounded-xl border border-white/20 dark:border-white/10 bg-white/60 dark:bg-white/[0.02] backdrop-blur-xl overflow-hidden"
+          style={{ animation: "card-enter 0.4s ease-out both", animationDelay: "165ms" }}
+        >
           <div className="flex items-center justify-between px-4 py-3 border-b border-black/[0.04] dark:border-white/[0.06]">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+            <CollapsibleTrigger className="flex items-center gap-2 min-w-0 text-left group flex-1 [&[data-state=open]>svg.ms-chevron]:rotate-180">
+              <CheckCircle2 className="h-4 w-4 text-muted-foreground shrink-0" />
               <h2 className="text-sm font-bold tracking-tight">Milestones</h2>
-              <Badge variant="secondary" className="text-[10px] h-5 px-1.5">
+              <Badge variant="secondary" className="text-[10px] h-5 px-1.5 shrink-0">
                 {milestonesData.filter((m) => m.done === true).length}/{milestonesData.length}
               </Badge>
               {milestonesData.length > 0 && (
                 <span className="text-[10px] text-muted-foreground hidden sm:inline">Grouped by week</span>
               )}
-            </div>
+              <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:inline">
+                {milestoneSectionOpen ? "Click to collapse" : "Click to expand"}
+              </span>
+              <ChevronDown className="ms-chevron h-4 w-4 text-muted-foreground shrink-0 ml-auto transition-transform" />
+            </CollapsibleTrigger>
           </div>
+          <CollapsibleContent>
           <div className="p-4 space-y-2">
             {canManageMilestones && (
               <div className="space-y-2 mb-3 rounded-lg border border-dashed border-border/60 p-3 bg-white/30 dark:bg-white/[0.02]">
@@ -1969,11 +2079,15 @@ export default function ProjectDetailPage() {
                     Add
                   </Button>
                 </div>
-                {activeMembers.length > 0 ? (
+                {milestoneAssigneeMembers.length > 0 ? (
                   <div className="space-y-1">
-                    <Label className="text-[10px] text-muted-foreground">Assign to * (active project members — single or multiple)</Label>
+                    <Label className="text-[10px] text-muted-foreground">
+                      {userRole === "PROJECT_MANAGER"
+                        ? "Assign to * (Developers / PM only — single or multiple)"
+                        : "Assign to * (active project members — single or multiple)"}
+                    </Label>
                     <div className="flex flex-wrap gap-1.5">
-                      {activeMembers.map((member) => {
+                      {milestoneAssigneeMembers.map((member) => {
                         const mUserId = extractStr(member, "userId", "");
                         const mUserName = extractNestedStr(member, ["user", "name"], "Unknown");
                         const mRole = formatMilestoneRole(
@@ -2000,7 +2114,9 @@ export default function ProjectDetailPage() {
                   </div>
                 ) : (
                   <p className="text-[10px] text-amber-600 dark:text-amber-400">
-                    Add active team members to this project first, then assign the milestone.
+                    {userRole === "PROJECT_MANAGER"
+                      ? "Add a Developer or yourself as a project member first, then assign the milestone."
+                      : "Add active team members to this project first, then assign the milestone."}
                   </p>
                 )}
               </div>
@@ -2072,7 +2188,8 @@ export default function ProjectDetailPage() {
               </div>
             )}
           </div>
-        </div>
+          </CollapsibleContent>
+        </Collapsible>
       )}
 
       {/* Edit milestone dialog */}
@@ -2118,9 +2235,13 @@ export default function ProjectDetailPage() {
               </div>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Assignees * (active members)</Label>
+              <Label className="text-xs">
+                {userRole === "PROJECT_MANAGER"
+                  ? "Assignees * (Developers / PM only)"
+                  : "Assignees * (active members)"}
+              </Label>
               <div className="flex flex-wrap gap-1.5">
-                {activeMembers.map((member) => {
+                {milestoneAssigneeMembers.map((member) => {
                   const mUserId = extractStr(member, "userId", "");
                   const mUserName = extractNestedStr(member, ["user", "name"], "Unknown");
                   const mRole = formatMilestoneRole(extractNestedStr(member, ["user", "role"], "") || extractStr(member, "role", ""));

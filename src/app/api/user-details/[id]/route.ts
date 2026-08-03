@@ -304,6 +304,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     // Mask the gov ID and bank account numbers (never expose raw values)
     const { decryptCredentialFromJson } = await import("@/lib/encryption")
+    const { getAppSetting } = await import("@/lib/db")
+    let dbKey = ""
+    try {
+      dbKey = await getAppSetting("credentialEncryptionKey")
+    } catch {
+      dbKey = ""
+    }
     const maskSensitive = (value: string | null, fallback = "") => {
       if (!value) return fallback
       if (value.length <= 4) return "•".repeat(value.length)
@@ -313,7 +320,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     let govIdMasked = ""
     if (detail.govIdNumber) {
       try {
-        govIdMasked = maskSensitive(decryptCredentialFromJson(detail.govIdNumber))
+        govIdMasked = maskSensitive(decryptCredentialFromJson(detail.govIdNumber, dbKey || undefined))
       } catch {
         govIdMasked = maskSensitive(detail.govIdNumber)
       }
@@ -322,7 +329,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     let bankAccountMasked = ""
     if (detail.bankAccountNumber) {
       try {
-        bankAccountMasked = maskSensitive(decryptCredentialFromJson(detail.bankAccountNumber))
+        bankAccountMasked = maskSensitive(decryptCredentialFromJson(detail.bankAccountNumber, dbKey || undefined))
       } catch {
         bankAccountMasked = maskSensitive(detail.bankAccountNumber)
       }

@@ -19,7 +19,18 @@ import { logAudit, getIpAddress, getUserAgent, buildDescription } from "@/lib/au
 import { z } from "zod"
 
 function canManageMilestones(role: string): boolean {
-  return role === "SUPER_ADMIN" || role === "ADMIN"
+  return role === "SUPER_ADMIN" || role === "ADMIN" || role === "PROJECT_MANAGER"
+}
+
+/** Roles a PROJECT_MANAGER may assign milestones to (not Admin / Super Admin). */
+const PM_ASSIGNABLE_ROLES = new Set(["PROJECT_MANAGER", "DEVELOPER"])
+
+function canAssigneeBePickedBy(actorRole: string, assigneeRole: string | null | undefined): boolean {
+  if (actorRole === "SUPER_ADMIN" || actorRole === "ADMIN") return true
+  if (actorRole === "PROJECT_MANAGER") {
+    return PM_ASSIGNABLE_ROLES.has(assigneeRole || "")
+  }
+  return false
 }
 
 const createSchema = z.object({
@@ -72,11 +83,40 @@ const milestoneInclude = {
   },
 } as const
 
-async function assertAssigneesOnProject(projectId: string, assigneeIds: string[]) {
+async function assertAssigneesAllowedForActor(actorRole: string, assigneeIds: string[]) {
+  if (actorRole !== "PROJECT_MANAGER" || assigneeIds.length === 0) {
+    return { ok: true as const }
+  }
+  const users = await db.user.findMany({
+    where: { id: { in: assigneeIds } },
+    select: { id: true, role: true },
+  })
+  if (users.length !== new Set(assigneeIds).size) {
+    return { ok: false as const, error: "One or more assignees were not found" }
+  }
+  const blocked = users.filter((u) => !canAssigneeBePickedBy(actorRole, u.role))
+  if (blocked.length > 0) {
+    return {
+      ok: false as const,
+      error:
+        "Project Managers can only assign milestones to Developers or themselves (not Admin / Super Admin)",
+    }
+  }
+  return { ok: true as const }
+}
+
+async function assertAssigneesOnProject(
+  projectId: string,
+  assigneeIds: string[],
+  actorRole: string
+) {
   if (assigneeIds.length === 0) return { ok: true as const }
   const members = await db.projectMember.findMany({
     where: { projectId, userId: { in: assigneeIds } },
-    select: { userId: true, user: { select: { isActive: true } } },
+    select: {
+      userId: true,
+      user: { select: { isActive: true, role: true } },
+    },
   })
   const memberSet = new Set(members.map((m) => m.userId))
   const invalid = assigneeIds.filter((id) => !memberSet.has(id))
@@ -91,6 +131,15 @@ async function assertAssigneesOnProject(projectId: string, assigneeIds: string[]
     return {
       ok: false as const,
       error: "Cannot assign deactivated users. Reactivate them in Team first.",
+    }
+  }
+  if (actorRole === "PROJECT_MANAGER") {
+    const blocked = members.filter((m) => !canAssigneeBePickedBy(actorRole, m.user?.role))
+    if (blocked.length > 0) {
+      return {
+        ok: false as const,
+        error: "Project Managers can only assign milestones to Developers or themselves (not Admin / Super Admin)",
+      }
     }
   }
   return { ok: true as const }
@@ -195,7 +244,7 @@ export async function POST(
     if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     if (!canManageMilestones(session.user.role)) {
       return NextResponse.json(
-        { error: "Forbidden: Only Admin or Super Admin can create milestones" },
+        { error: "Forbidden: Only Admin, Super Admin, or Project Manager can create milestones" },
         { status: 403 }
       )
     }
@@ -247,8 +296,16 @@ export async function POST(
 
     const [assigneeCheck, maxOrder, assigneeUsers] = await Promise.all([
       (async () => {
-        await ensureAssigneesAreMembers(projectId, parsed.data.assigneeIds)
-        return assertAssigneesOnProject(projectId, parsed.data.assigneeIds)
+        const roleCheck = await assertAssigneesAllowedForActor(
+          session.user.role,
+          parsed.data.assigneeIds
+        )
+        if (!roleCheck.ok) return roleCheck
+        // Only Admin/SA may auto-add missing members; PM must pick existing members
+        if (session.user.role === "SUPER_ADMIN" || session.user.role === "ADMIN") {
+          await ensureAssigneesAreMembers(projectId, parsed.data.assigneeIds)
+        }
+        return assertAssigneesOnProject(projectId, parsed.data.assigneeIds, session.user.role)
       })(),
       db.projectMilestone.aggregate({
         where: { projectId },
@@ -382,7 +439,7 @@ export async function PATCH(
     if (Array.isArray(body.reorder)) {
       if (!canManageMilestones(session.user.role)) {
         return NextResponse.json(
-          { error: "Forbidden: Only Admin or Super Admin can reorder milestones" },
+          { error: "Forbidden: Only Admin, Super Admin, or Project Manager can reorder milestones" },
           { status: 403 }
         )
       }
@@ -490,15 +547,21 @@ export async function PATCH(
       // Assigned team members may mark milestones done/undone (drives project progress)
       if (!isCompletionOnly || !isAssignee) {
         return NextResponse.json(
-          { error: "Forbidden: Only Admin/Super Admin can edit milestones (assignees may mark done)" },
+          { error: "Forbidden: Only Admin/Super Admin/PM can edit milestones (assignees may mark done)" },
           { status: 403 }
         )
       }
     }
 
     if (assigneeIds !== undefined) {
-      await ensureAssigneesAreMembers(projectId, assigneeIds)
-      const assigneeCheck = await assertAssigneesOnProject(projectId, assigneeIds)
+      const roleCheck = await assertAssigneesAllowedForActor(session.user.role, assigneeIds)
+      if (!roleCheck.ok) {
+        return NextResponse.json({ error: roleCheck.error }, { status: 400 })
+      }
+      if (session.user.role === "SUPER_ADMIN" || session.user.role === "ADMIN") {
+        await ensureAssigneesAreMembers(projectId, assigneeIds)
+      }
+      const assigneeCheck = await assertAssigneesOnProject(projectId, assigneeIds, session.user.role)
       if (!assigneeCheck.ok) {
         return NextResponse.json({ error: assigneeCheck.error }, { status: 400 })
       }
@@ -629,7 +692,7 @@ export async function DELETE(
     if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     if (!canManageMilestones(session.user.role)) {
       return NextResponse.json(
-        { error: "Forbidden: Only Admin or Super Admin can delete milestones" },
+        { error: "Forbidden: Only Admin, Super Admin, or Project Manager can delete milestones" },
         { status: 403 }
       )
     }

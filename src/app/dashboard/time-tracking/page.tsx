@@ -107,7 +107,7 @@ function TimeTrackingPageInner() {
   const { data: session, status: sessionStatus } = useSession();
   const userRole = session?.user?.role || "DEVELOPER";
   const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
-  const canEditActivityCatalog = userRole === "SUPER_ADMIN";
+  const canEditActivityCatalog = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
   // ── Core data ──
   const [entries, setEntries] = useState<TimeEntry[]>([]);

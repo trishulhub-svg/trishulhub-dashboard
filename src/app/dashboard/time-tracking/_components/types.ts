@@ -64,7 +64,7 @@ export interface Project {
 
 /** Non-project activity row from /api/time-tracking/activity-catalog */
 export interface TimeActivityItem {
-  key: "TRAINING" | "SUPERVISION" | "HR_ADMIN" | "RD_SA";
+  key: string;
   label: string;
   enabled: boolean;
   roles: string[];

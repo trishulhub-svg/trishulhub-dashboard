@@ -1,6 +1,6 @@
 /**
  * GET/PUT /api/time-tracking/activity-catalog
- * Super Admin: configure non-project activity labels / visibility for the timer picker.
+ * Admin / Super Admin: configure non-project activity labels / visibility / custom rows.
  * Project names remain owned by the Projects section (demo projects included as projects).
  */
 import { NextRequest, NextResponse } from "next/server"
@@ -11,22 +11,35 @@ import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 import {
   activitiesVisibleForRole,
   getTimeActivityCatalog,
+  isBuiltinActivityKey,
+  isValidCustomActivityKey,
   saveTimeActivityCatalog,
-  type TimeActivityKey,
 } from "@/lib/time-activity-catalog"
 import { z } from "zod"
+
+function canEditCatalog(role: string): boolean {
+  return role === "SUPER_ADMIN" || role === "ADMIN"
+}
 
 const putSchema = z.object({
   items: z
     .array(
       z.object({
-        key: z.enum(["TRAINING", "SUPERVISION", "HR_ADMIN", "RD_SA"]),
+        key: z
+          .string()
+          .trim()
+          .min(1)
+          .max(40)
+          .transform((k) => k.toUpperCase())
+          .refine((k) => isBuiltinActivityKey(k) || isValidCustomActivityKey(k), {
+            message: "Invalid activity key",
+          }),
         label: z.string().trim().min(1).max(60),
         enabled: z.boolean(),
       })
     )
     .min(1)
-    .max(10),
+    .max(20),
 })
 
 export async function GET() {
@@ -39,7 +52,7 @@ export async function GET() {
     return NextResponse.json({
       catalog,
       visible: activitiesVisibleForRole(catalog, role),
-      canEdit: role === "SUPER_ADMIN",
+      canEdit: canEditCatalog(role),
     })
   } catch (e) {
     console.error("[time-tracking/activity-catalog GET]", e)
@@ -51,8 +64,11 @@ export async function PUT(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (session.user.role !== "SUPER_ADMIN") {
-      return NextResponse.json({ error: "Only Super Admin can edit the activity list" }, { status: 403 })
+    if (!canEditCatalog(session.user.role)) {
+      return NextResponse.json(
+        { error: "Only Admin or Super Admin can edit the activity list" },
+        { status: 403 }
+      )
     }
 
     const rl = rateLimit(
@@ -71,9 +87,7 @@ export async function PUT(req: NextRequest) {
       )
     }
 
-    const catalog = await saveTimeActivityCatalog(
-      parsed.data.items as Array<{ key: TimeActivityKey; label: string; enabled: boolean }>
-    )
+    const catalog = await saveTimeActivityCatalog(parsed.data.items)
 
     void logAudit({
       userId: session.user.id,
