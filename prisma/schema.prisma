@@ -313,7 +313,7 @@ model Project {
   websites     ProjectWebsite[]
   infrastructure ProjectInfrastructure?
   infraItems     ProjectInfraItem[]
-  infraMemberAccess ProjectInfraMemberAccess?
+  infraMemberAccess ProjectInfraMemberAccess[]
   milestones   ProjectMilestone[]
   // methods are fetched via raw SQL on _ProjectMethodToProject join table
 
@@ -375,9 +375,11 @@ model ProjectInfraItem {
   @@map("ProjectInfraItem")
 }
 
+// Timed per-user visibility grants (PM/Admin selects who can view infra secrets)
 model ProjectInfraMemberAccess {
   id           String    @id @default(cuid())
-  projectId    String    @unique
+  projectId    String
+  userId       String
   visibleUntil DateTime?
   enabledBy    String?
   createdAt    DateTime  @default(now())
@@ -385,6 +387,9 @@ model ProjectInfraMemberAccess {
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
+  @@unique([projectId, userId])
+  @@index([projectId])
+  @@index([userId])
   @@map("ProjectInfraMemberAccess")
 }
 

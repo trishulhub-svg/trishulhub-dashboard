@@ -8,6 +8,7 @@ import { encryptCredentialToJson } from "@/lib/encryption"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 import { canAccessProject, isValidProjectId } from "@/lib/project-access"
 import { ensureCriticalSchema } from "@/lib/auto-migrate"
+import { isInfraGrantActive, serializeInfraGrant } from "@/lib/infra-member-access"
 import {
   BUILTIN_INFRA_GROUPS,
   builtinLabelForKey,
@@ -45,10 +46,6 @@ async function loadCredDbKey(): Promise<string> {
   } catch {
     return ""
   }
-}
-
-function isMemberAccessActive(access: { visibleUntil: Date | null } | null, now = new Date()): boolean {
-  return !!access?.visibleUntil && access.visibleUntil.getTime() > now.getTime()
 }
 
 function serializeItem(item: InfraItem) {
@@ -140,8 +137,37 @@ export async function GET(
     await ensureCriticalSchema()
 
     const canManage = isAdminOrProjectManager(userRole)
-    const memberAccess = await db.projectInfraMemberAccess.findUnique({ where: { projectId } })
-    const memberCanView = isMemberAccessActive(memberAccess)
+    const now = new Date()
+
+    let memberCanView = false
+    let grants: ReturnType<typeof serializeInfraGrant>[] = []
+    let ownVisibleUntil: string | null = null
+
+    if (canManage) {
+      const rows = await db.projectInfraMemberAccess.findMany({
+        where: { projectId },
+        orderBy: { updatedAt: "desc" },
+      })
+      const userIds = [...new Set(rows.map((r) => r.userId))]
+      const users = userIds.length
+        ? await db.user.findMany({
+            where: { id: { in: userIds } },
+            select: { id: true, name: true },
+          })
+        : []
+      const nameById = new Map(users.map((u) => [u.id, u.name]))
+      grants = rows.map((r) =>
+        serializeInfraGrant({ ...r, userName: nameById.get(r.userId) || null }, now)
+      )
+      memberCanView = grants.some((g) => g.isActive)
+    } else {
+      const own = await db.projectInfraMemberAccess.findUnique({
+        where: { projectId_userId: { projectId, userId } },
+      })
+      memberCanView = isInfraGrantActive(own, now)
+      ownVisibleUntil = own?.visibleUntil?.toISOString() ?? null
+    }
+
     const canView = canManage || memberCanView
 
     const visibleItems = canView
@@ -158,10 +184,17 @@ export async function GET(
       groups,
       groupDefs,
       groupKeys: groupDefs.map((g) => g.key),
-      memberAccess: {
-        visibleUntil: memberAccess?.visibleUntil?.toISOString() ?? null,
-        isActive: memberCanView,
-      },
+      memberAccess: canManage
+        ? {
+            isActive: memberCanView,
+            visibleUntil: null,
+            grants,
+          }
+        : {
+            isActive: memberCanView,
+            visibleUntil: ownVisibleUntil,
+            grants: [],
+          },
       canManage,
       canView,
     })
@@ -325,11 +358,28 @@ export async function PUT(
       return NextResponse.json({ error: "Project not found" }, { status: 404 })
     }
 
-    let body: { visibleUntil?: unknown }
+    await ensureCriticalSchema()
+
+    let body: { visibleUntil?: unknown; userIds?: unknown }
     try {
       body = await req.json()
     } catch {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    }
+
+    if (!Array.isArray(body.userIds) || body.userIds.length === 0) {
+      return NextResponse.json({ error: "Select at least one member" }, { status: 400 })
+    }
+    const userIds = [
+      ...new Set(
+        body.userIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0).map((id) => id.trim())
+      ),
+    ]
+    if (userIds.length === 0) {
+      return NextResponse.json({ error: "Select at least one member" }, { status: 400 })
+    }
+    if (userIds.length > 50) {
+      return NextResponse.json({ error: "Too many members selected" }, { status: 400 })
     }
 
     let visibleUntil: Date | null = null
@@ -341,20 +391,54 @@ export async function PUT(
       if (Number.isNaN(visibleUntil.getTime())) {
         return NextResponse.json({ error: "visibleUntil must be a valid ISO date" }, { status: 400 })
       }
+      if (visibleUntil.getTime() <= Date.now()) {
+        return NextResponse.json({ error: "visibleUntil must be in the future" }, { status: 400 })
+      }
     }
 
-    const access = await db.projectInfraMemberAccess.upsert({
-      where: { projectId },
-      create: {
-        projectId,
-        visibleUntil,
-        enabledBy: visibleUntil ? session.user.id : null,
-      },
-      update: {
-        visibleUntil,
-        enabledBy: visibleUntil ? session.user.id : null,
+    const members = await db.projectMember.findMany({
+      where: { projectId, userId: { in: userIds } },
+      include: {
+        user: { select: { id: true, name: true, role: true, isActive: true } },
       },
     })
+    if (members.length !== userIds.length) {
+      return NextResponse.json({ error: "One or more selected users are not project members" }, { status: 400 })
+    }
+    for (const m of members) {
+      if (!m.user.isActive) {
+        return NextResponse.json({ error: `Cannot grant access to deactivated user (${m.user.name})` }, { status: 400 })
+      }
+      if (isAdminOrProjectManager(m.user.role)) {
+        return NextResponse.json(
+          { error: `${m.user.name} already has full infrastructure access as ${m.user.role}` },
+          { status: 400 }
+        )
+      }
+    }
+
+    const now = new Date()
+    for (const uid of userIds) {
+      if (visibleUntil) {
+        await db.projectInfraMemberAccess.upsert({
+          where: { projectId_userId: { projectId, userId: uid } },
+          create: {
+            projectId,
+            userId: uid,
+            visibleUntil,
+            enabledBy: session.user.id,
+          },
+          update: {
+            visibleUntil,
+            enabledBy: session.user.id,
+          },
+        })
+      } else {
+        await db.projectInfraMemberAccess.deleteMany({
+          where: { projectId, userId: uid },
+        })
+      }
+    }
 
     void logAudit({
       userId: session.user.id,
@@ -364,19 +448,33 @@ export async function PUT(
       page: "projects",
       action: "ACCESS",
       entityType: "ProjectInfraMemberAccess",
-      entityId: access.id,
+      entityId: projectId,
       description: visibleUntil
-        ? `Enabled project infrastructure member visibility until ${visibleUntil.toISOString()} for project ${projectId}`
-        : `Disabled project infrastructure member visibility for project ${projectId}`,
+        ? `Granted infrastructure visibility to ${userIds.length} member(s) until ${visibleUntil.toISOString()} for project ${projectId}`
+        : `Revoked infrastructure visibility for ${userIds.length} member(s) on project ${projectId}`,
       ipAddress: getIpAddress(req),
       userAgent: getUserAgent(req),
     })
 
+    const allRows = await db.projectInfraMemberAccess.findMany({
+      where: { projectId },
+      orderBy: { updatedAt: "desc" },
+    })
+    const allUserIds = [...new Set(allRows.map((r) => r.userId))]
+    const allUsers = allUserIds.length
+      ? await db.user.findMany({ where: { id: { in: allUserIds } }, select: { id: true, name: true } })
+      : []
+    const nameById = new Map(allUsers.map((u) => [u.id, u.name]))
+    const allGrants = allRows.map((r) =>
+      serializeInfraGrant({ ...r, userName: nameById.get(r.userId) || null }, now)
+    )
+
     return NextResponse.json({
       success: true,
       memberAccess: {
-        visibleUntil: access.visibleUntil?.toISOString() ?? null,
-        isActive: isMemberAccessActive(access),
+        isActive: allGrants.some((g) => g.isActive),
+        visibleUntil: null,
+        grants: allGrants,
       },
     })
   } catch (error) {

@@ -83,10 +83,21 @@ type InfraItem = {
   updatedAt?: string;
 };
 
+type InfraMemberGrant = {
+  userId: string;
+  userName: string | null;
+  visibleUntil: string | null;
+  isActive: boolean;
+};
+
 type InfraItemsResponse = {
   groups: Record<string, InfraItem[]>;
   groupDefs?: InfraGroupDef[];
-  memberAccess: { visibleUntil: string | null; isActive: boolean };
+  memberAccess: {
+    visibleUntil: string | null;
+    isActive: boolean;
+    grants?: InfraMemberGrant[];
+  };
   canManage: boolean;
   canView: boolean;
 };
@@ -605,6 +616,8 @@ export default function ProjectDetailPage() {
   const [revealing, setRevealing] = useState<string | null>(null);
   const [visibilityPreset, setVisibilityPreset] = useState("30");
   const [visibilitySaving, setVisibilitySaving] = useState(false);
+  const [infraAccessUserIds, setInfraAccessUserIds] = useState<string[]>([]);
+  const [infraAccessDialogOpen, setInfraAccessDialogOpen] = useState(false);
   // Infrastructure panel: collapsed by default; remember open/closed per project
   const [infraSectionOpen, setInfraSectionOpen] = useState(false);
   // Milestones panel: same collapse pattern as infrastructure
@@ -826,6 +839,12 @@ export default function ProjectDetailPage() {
       return PM_MILESTONE_ROLES.has(role);
     });
   }, [activeMembers, userRole, PM_MILESTONE_ROLES]);
+  const infraAccessCandidates = useMemo(() => {
+    return activeMembers.filter((m) => {
+      const role = extractNestedStr(m, ["user", "role"], "");
+      return role === "DEVELOPER";
+    });
+  }, [activeMembers]);
   const teamUsers = teamUsersData;
   const websites = websitesData;
   const infrastructure = infraData;
@@ -922,7 +941,15 @@ export default function ProjectDetailPage() {
     }
     return merged;
   }, [infrastructure?.groupDefs, infraGroups, localCustomGroups]);
-  const infraMemberAccess = infrastructure?.memberAccess || { visibleUntil: null, isActive: false };
+  const infraMemberAccess = infrastructure?.memberAccess || {
+    visibleUntil: null,
+    isActive: false,
+    grants: [],
+  };
+  const infraAccessGrants = useMemo(
+    () => (infraMemberAccess.grants || []).filter((g) => g.isActive),
+    [infraMemberAccess.grants]
+  );
   const infraCanView = infrastructure?.canView ?? canManageProject;
   const infraItemCount = infraGroupDefs.reduce(
     (count, group) => count + (infraGroups[group.key]?.length || 0),
@@ -1073,29 +1100,57 @@ export default function ProjectDetailPage() {
     }
   }, [projectId, queryClient]);
 
-  const handleUpdateInfraMemberAccess = useCallback(async (visibleUntil: string | null) => {
-    setVisibilitySaving(true);
-    try {
-      const res = await fetch(`/api/projects/${projectId}/infra-items`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ visibleUntil }),
-      });
-      if (res.status === 401) { window.location.href = "/login"; return; }
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        toast.error(err.error || "Failed to update member visibility");
+  const handleUpdateInfraMemberAccess = useCallback(
+    async (visibleUntil: string | null, userIds: string[]) => {
+      if (userIds.length === 0) {
+        toast.error("Select at least one developer");
         return;
       }
-      toast.success(visibleUntil ? "Infrastructure visible to members" : "Infrastructure hidden from members");
-      queryClient.invalidateQueries({ queryKey: ["project-infra-items", projectId] });
-    } catch {
-      toast.error("Failed to update member visibility");
-    } finally {
-      setVisibilitySaving(false);
-    }
-  }, [projectId, queryClient]);
+      setVisibilitySaving(true);
+      try {
+        const res = await fetch(`/api/projects/${projectId}/infra-items`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ visibleUntil, userIds }),
+        });
+        if (res.status === 401) {
+          window.location.href = "/login";
+          return;
+        }
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          toast.error(err.error || "Failed to update member visibility");
+          return;
+        }
+        const data = deepSanitize(await res.json()) as {
+          memberAccess?: InfraItemsResponse["memberAccess"];
+        };
+        if (data.memberAccess) {
+          queryClient.setQueryData(
+            ["project-infra-items", projectId],
+            (prev: InfraItemsResponse | null | undefined) =>
+              prev
+                ? { ...prev, memberAccess: { ...prev.memberAccess, ...data.memberAccess } }
+                : prev
+          );
+        }
+        toast.success(
+          visibleUntil
+            ? `Access granted to ${userIds.length} developer${userIds.length === 1 ? "" : "s"}`
+            : `Access revoked for ${userIds.length} developer${userIds.length === 1 ? "" : "s"}`
+        );
+        setInfraAccessUserIds([]);
+        setInfraAccessDialogOpen(false);
+        queryClient.invalidateQueries({ queryKey: ["project-infra-items", projectId] });
+      } catch {
+        toast.error("Failed to update member visibility");
+      } finally {
+        setVisibilitySaving(false);
+      }
+    },
+    [projectId, queryClient]
+  );
 
   const handleRevealInfraItem = useCallback(async (item: InfraItem) => {
     setRevealing(item.id);
@@ -1129,8 +1184,14 @@ export default function ProjectDetailPage() {
   const enableInfraVisibility = useCallback(() => {
     const minutes = Number.parseInt(visibilityPreset, 10);
     const visibleUntil = new Date(Date.now() + Math.max(1, minutes) * 60_000).toISOString();
-    handleUpdateInfraMemberAccess(visibleUntil);
-  }, [handleUpdateInfraMemberAccess, visibilityPreset]);
+    handleUpdateInfraMemberAccess(visibleUntil, infraAccessUserIds);
+  }, [handleUpdateInfraMemberAccess, visibilityPreset, infraAccessUserIds]);
+
+  const toggleInfraAccessUser = useCallback((uid: string) => {
+    setInfraAccessUserIds((prev) =>
+      prev.includes(uid) ? prev.filter((id) => id !== uid) : [...prev, uid]
+    );
+  }, []);
 
   const copyToClipboard = useCallback((text: string, label: string) => {
     if (!text) return;
@@ -2290,50 +2351,57 @@ export default function ProjectDetailPage() {
               <Badge variant="secondary" className="text-[10px] font-semibold h-5 px-1.5 shrink-0">{infraItemCount} items</Badge>
             )}
             {!canManageProject && infraMemberAccess.isActive && (
-              <Badge className="text-[10px] h-5 px-1.5 bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 shrink-0">Visible now</Badge>
+              <Badge className="text-[10px] h-5 px-1.5 bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 shrink-0">
+                Visible
+                {infraMemberAccess.visibleUntil
+                  ? ` until ${new Date(infraMemberAccess.visibleUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                  : " now"}
+              </Badge>
             )}
             <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:inline">
               {infraSectionOpen ? "Click to collapse" : "Click to expand"}
             </span>
             <ChevronDown className="infra-chevron h-4 w-4 text-muted-foreground shrink-0 ml-auto transition-transform" />
           </CollapsibleTrigger>
-          {canManageProject && infraSectionOpen && (
+          {canManageProject && (
             <div
               className="flex flex-wrap items-center gap-2"
               onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
               onKeyDown={(e) => e.stopPropagation()}
             >
+              {infraSectionOpen && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2.5 text-[10px] gap-1"
+                  onClick={() => setCustomGroupDialogOpen(true)}
+                >
+                  <Plus className="h-3 w-3" /> Custom group
+                </Button>
+              )}
               <Button
+                type="button"
                 size="sm"
                 variant="outline"
                 className="h-7 px-2.5 text-[10px] gap-1"
-                onClick={() => setCustomGroupDialogOpen(true)}
+                onClick={() => {
+                  setInfraAccessUserIds([]);
+                  setInfraAccessDialogOpen(true);
+                }}
               >
-                <Plus className="h-3 w-3" /> Custom group
+                <Users className="h-3 w-3" />
+                Members
+                {infraAccessGrants.length > 0 ? (
+                  <Badge variant="secondary" className="h-4 px-1 text-[9px]">
+                    {infraAccessGrants.length}
+                  </Badge>
+                ) : null}
               </Button>
-              <div className="flex items-center gap-1.5 rounded-full border border-border/60 bg-background/70 px-2 py-1">
-                <span className="text-[10px] text-muted-foreground">Members</span>
-                <select
-                  value={visibilityPreset}
-                  onChange={(e) => setVisibilityPreset(e.target.value)}
-                  className="h-6 rounded-md border border-border/60 bg-background px-1.5 text-[10px]"
-                  disabled={visibilitySaving}
-                >
-                  <option value="15">15 min</option>
-                  <option value="30">30 min</option>
-                  <option value="60">1 hour</option>
-                  <option value="240">4 hours</option>
-                </select>
-                <Button size="sm" variant="outline" className="h-6 px-2 text-[10px]" onClick={enableInfraVisibility} disabled={visibilitySaving}>
-                  {visibilitySaving ? <Loader2 className="h-3 w-3 animate-spin" /> : "Show"}
-                </Button>
-                <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" onClick={() => handleUpdateInfraMemberAccess(null)} disabled={visibilitySaving || !infraMemberAccess.visibleUntil}>
-                  Hide
-                </Button>
-              </div>
-              {infraMemberAccess.visibleUntil && (
-                <span className="text-[10px] text-muted-foreground">
-                  Visible until {new Date(infraMemberAccess.visibleUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              {infraAccessGrants.length > 0 && (
+                <span className="text-[10px] text-muted-foreground truncate max-w-[160px] sm:max-w-[220px]">
+                  Access: {infraAccessGrants.map((g) => g.userName || "User").join(", ")}
                 </span>
               )}
             </div>
@@ -2559,6 +2627,142 @@ export default function ProjectDetailPage() {
               </Button>
               <Button size="sm" variant="outline" className="h-8 text-xs" onClick={resetInfraItemDialog} disabled={infraSaving}>
                 Cancel
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {canManageProject && (
+        <Dialog
+          open={infraAccessDialogOpen}
+          onOpenChange={(open) => {
+            setInfraAccessDialogOpen(open);
+            if (!open) setInfraAccessUserIds([]);
+          }}
+        >
+          <DialogContent className="sm:max-w-md bg-white/80 dark:bg-gray-950/80 backdrop-blur-xl border-white/20 dark:border-white/10">
+            <DialogHeader>
+              <DialogTitle className="text-base font-bold flex items-center gap-2">
+                <Users className="h-4 w-4" /> Temporary member access
+              </DialogTitle>
+              <DialogDescription className="text-xs">
+                Select developers who can view infrastructure. Access auto-revokes when the timer ends.
+              </DialogDescription>
+            </DialogHeader>
+
+            {infraAccessGrants.length > 0 && (
+              <div className="space-y-1.5 rounded-lg border border-border/50 bg-muted/20 p-2.5">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Active now</p>
+                <div className="flex flex-col gap-1.5">
+                  {infraAccessGrants.map((g) => (
+                    <div key={g.userId} className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium truncate">{g.userName || "Developer"}</p>
+                        {g.visibleUntil && (
+                          <p className="text-[10px] text-muted-foreground">
+                            Until {new Date(g.visibleUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          </p>
+                        )}
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-[10px] text-red-600 shrink-0"
+                        disabled={visibilitySaving}
+                        onClick={() => handleUpdateInfraMemberAccess(null, [g.userId])}
+                      >
+                        Revoke
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label className="text-xs font-medium">Developers on this project</Label>
+              {infraAccessCandidates.length === 0 ? (
+                <p className="text-xs text-muted-foreground rounded-md border border-dashed border-border/60 p-3">
+                  No active developers on this project. Add a developer as a project member first.
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
+                  {infraAccessCandidates.map((m) => {
+                    const uid = extractStr(m, "userId", "");
+                    const name = extractNestedStr(m, ["user", "name"], "Developer");
+                    const selected = infraAccessUserIds.includes(uid);
+                    const alreadyActive = infraAccessGrants.some((g) => g.userId === uid);
+                    return (
+                      <button
+                        key={uid}
+                        type="button"
+                        onClick={() => toggleInfraAccessUser(uid)}
+                        className={cn(
+                          "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-colors",
+                          selected
+                            ? "border-foreground/40 bg-foreground text-background"
+                            : "border-border/60 bg-background/70 hover:bg-muted/50"
+                        )}
+                      >
+                        <span className="truncate max-w-[120px]">{name}</span>
+                        {alreadyActive && !selected && (
+                          <span className="text-[9px] opacity-70">active</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Label className="text-xs font-medium shrink-0">Duration</Label>
+              <select
+                value={visibilityPreset}
+                onChange={(e) => setVisibilityPreset(e.target.value)}
+                className="h-8 rounded-md border border-border/60 bg-background px-2 text-xs"
+                disabled={visibilitySaving}
+              >
+                <option value="15">15 min</option>
+                <option value="30">30 min</option>
+                <option value="60">1 hour</option>
+                <option value="240">4 hours</option>
+              </select>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <Button
+                type="button"
+                size="sm"
+                className="h-8 text-xs gap-1"
+                onClick={enableInfraVisibility}
+                disabled={visibilitySaving || infraAccessUserIds.length === 0}
+              >
+                {visibilitySaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Eye className="h-3 w-3" />}
+                Grant access
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 text-xs gap-1"
+                onClick={() => handleUpdateInfraMemberAccess(null, infraAccessUserIds)}
+                disabled={visibilitySaving || infraAccessUserIds.length === 0}
+              >
+                <EyeOff className="h-3 w-3" />
+                Revoke selected
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-8 text-xs"
+                onClick={() => setInfraAccessDialogOpen(false)}
+                disabled={visibilitySaving}
+              >
+                Close
               </Button>
             </div>
           </DialogContent>

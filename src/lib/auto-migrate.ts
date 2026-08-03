@@ -22,7 +22,7 @@ function getErrMsg(err: unknown): string {
 
 // Bump when adding CRITICAL_COLUMNS / CRITICAL_TABLES so warm serverless
 // instances re-run migrations after deploy (stale syncDone otherwise skips ALTERs).
-const SCHEMA_REVISION = 202607305
+const SCHEMA_REVISION = 202608031
 
 // Use globalThis to persist the syncDone flag across hot reloads in dev
 // and across serverless function warm invocations in production.
@@ -376,7 +376,8 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
     name: "ProjectInfraMemberAccess",
     sql: `CREATE TABLE IF NOT EXISTS "ProjectInfraMemberAccess" (
       "id" TEXT NOT NULL PRIMARY KEY,
-      "projectId" TEXT NOT NULL UNIQUE,
+      "projectId" TEXT NOT NULL,
+      "userId" TEXT NOT NULL,
       "visibleUntil" DATETIME,
       "enabledBy" TEXT,
       "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -627,6 +628,64 @@ async function columnExists(table: string, column: string): Promise<boolean> {
 }
 
 /**
+ * Rebuild ProjectInfraMemberAccess from project-wide grant → per-user grants.
+ * Old rows (no userId) are dropped; PMs must re-select who gets temporary access.
+ */
+async function ensureInfraMemberAccessPerUserSchema(): Promise<void> {
+  try {
+    const tableOk = await (async () => {
+      try {
+        await db.$executeRawUnsafe(`SELECT 1 FROM "ProjectInfraMemberAccess" LIMIT 0`)
+        return true
+      } catch {
+        return false
+      }
+    })()
+    if (!tableOk) return
+
+    const hasUserId = await columnExists("ProjectInfraMemberAccess", "userId")
+    if (hasUserId) {
+      try {
+        await db.$executeRawUnsafe(
+          `CREATE UNIQUE INDEX IF NOT EXISTS "ProjectInfraMemberAccess_projectId_userId_key" ON "ProjectInfraMemberAccess"("projectId", "userId")`
+        )
+      } catch (err: unknown) {
+        if (!getErrMsg(err)?.includes("already exists")) {
+          console.warn(`[auto-migrate] ProjectInfraMemberAccess unique index: ${getErrMsg(err)}`)
+        }
+      }
+      return
+    }
+
+    await db.$executeRawUnsafe(`DROP TABLE IF EXISTS "ProjectInfraMemberAccess_new"`)
+    await db.$executeRawUnsafe(`CREATE TABLE "ProjectInfraMemberAccess_new" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "projectId" TEXT NOT NULL,
+      "userId" TEXT NOT NULL,
+      "visibleUntil" DATETIME,
+      "enabledBy" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE CASCADE
+    )`)
+    await db.$executeRawUnsafe(`DROP TABLE "ProjectInfraMemberAccess"`)
+    await db.$executeRawUnsafe(`ALTER TABLE "ProjectInfraMemberAccess_new" RENAME TO "ProjectInfraMemberAccess"`)
+    await db.$executeRawUnsafe(
+      `CREATE UNIQUE INDEX IF NOT EXISTS "ProjectInfraMemberAccess_projectId_userId_key" ON "ProjectInfraMemberAccess"("projectId", "userId")`
+    )
+    await db.$executeRawUnsafe(
+      `CREATE INDEX IF NOT EXISTS "ProjectInfraMemberAccess_projectId_idx" ON "ProjectInfraMemberAccess"("projectId")`
+    )
+    await db.$executeRawUnsafe(
+      `CREATE INDEX IF NOT EXISTS "ProjectInfraMemberAccess_userId_idx" ON "ProjectInfraMemberAccess"("userId")`
+    )
+    console.log("[auto-migrate] Rebuilt ProjectInfraMemberAccess for per-user grants")
+  } catch (err: unknown) {
+    console.warn(`[auto-migrate] ProjectInfraMemberAccess per-user migrate: ${getErrMsg(err)}`)
+  }
+}
+
+/**
  * Fast path: apply CRITICAL_TABLES + CRITICAL_COLUMNS only.
  * Safe to call from read APIs so "no such column" cannot blank the UI
  * if instrumentation timed out before ALTERs finished.
@@ -658,6 +717,7 @@ export async function ensureCriticalSchema(): Promise<void> {
       }
     }
   }
+  await ensureInfraMemberAccessPerUserSchema()
   setCriticalSchemaDone()
 }
 

@@ -7,6 +7,7 @@ import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { encryptCredentialToJson, decryptCredentialFromJson } from "@/lib/encryption"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 import { canAccessProject, isValidProjectId } from "@/lib/project-access"
+import { isInfraGrantActive } from "@/lib/infra-member-access"
 
 import {
   builtinLabelForKey,
@@ -42,10 +43,6 @@ async function loadCredDbKey(): Promise<string> {
   } catch {
     return ""
   }
-}
-
-function isMemberAccessActive(access: { visibleUntil: Date | null } | null, now = new Date()): boolean {
-  return !!access?.visibleUntil && access.visibleUntil.getTime() > now.getTime()
 }
 
 function serializeItem(item: InfraItem) {
@@ -302,8 +299,10 @@ export async function POST(
 
     const canManage = isAdminOrProjectManager(userRole)
     if (!canManage) {
-      const memberAccess = await db.projectInfraMemberAccess.findUnique({ where: { projectId } })
-      if (!isMemberAccessActive(memberAccess)) {
+      const memberAccess = await db.projectInfraMemberAccess.findUnique({
+        where: { projectId_userId: { projectId, userId } },
+      })
+      if (!isInfraGrantActive(memberAccess)) {
         return NextResponse.json({ error: "Infrastructure visibility has expired" }, { status: 403 })
       }
     }
