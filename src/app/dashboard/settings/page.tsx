@@ -5,10 +5,9 @@ import { useSession, signOut } from "next-auth/react";
 import { useTheme } from "next-themes";
 import {
   Settings, User, Bell, Palette, Shield, Moon, Sun, Monitor,
-  Loader2, CheckCircle2, Mail, Server, Plus, TestTube, AlertCircle,
-  Eye, EyeOff, Upload, Camera, Pencil, Trash2,
+  Loader2, CheckCircle2, Mail, AlertCircle,
+  Eye, EyeOff, Upload, Camera, Trash2,
 } from "lucide-react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,9 +23,9 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { PageHeader } from "@/components/page-header";
+import { SettingsSection } from "@/components/dashboard/settings-section";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { safeArray } from "@/lib/utils";
 
 const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 const APP_VERSION = "1.0.0";
@@ -34,20 +33,6 @@ const APP_NAME = "TrishulHub";
 const PREFS_FETCH_TIMEOUT_MS = 10000;
 const QUIET_HOURS_DEBOUNCE_MS = 300;
 
-interface SmtpConfig {
-  id: string;
-  host: string;
-  port: number;
-  username: string;
-  fromEmail: string;
-  fromName: string;
-  secure: boolean;
-  isPrimary: boolean;
-  isActive: boolean;
-  createdAt: string;
-  updatedAt: string;
-  passwordSet?: boolean;
-}
 
 interface NotificationPrefs {
   emailNotifications: boolean;
@@ -142,6 +127,10 @@ export default function SettingsPage() {
   const [changingPassword, setChangingPassword] = useState(false);
   const [passwordOtpSent, setPasswordOtpSent] = useState(false);
   const [passwordOtpCode, setPasswordOtpCode] = useState("");
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showEmailChangePassword, setShowEmailChangePassword] = useState(false);
 
   const [changeEmailOpen, setChangeEmailOpen] = useState(false);
   const [newEmailAddress, setNewEmailAddress] = useState("");
@@ -150,21 +139,6 @@ export default function SettingsPage() {
   const [otpSent, setOtpSent] = useState(false);
   const [emailChangeLoading, setEmailChangeLoading] = useState(false);
 
-  const [smtpConfigs, setSmtpConfigs] = useState<SmtpConfig[]>([]);
-  const [smtpLoading, setSmtpLoading] = useState(false);
-  const [smtpDialogOpen, setSmtpDialogOpen] = useState(false);
-  const [smtpEditId, setSmtpEditId] = useState<string | null>(null);
-  const [smtpForm, setSmtpForm] = useState({ host: "", port: 587, username: "", password: "", fromEmail: "", fromName: APP_NAME, secure: false, isPrimary: true });
-  const [smtpSaving, setSmtpSaving] = useState(false);
-  const [smtpTesting, setSmtpTesting] = useState(false);
-  const [smtpDeleteConfirm, setSmtpDeleteConfirm] = useState<string | null>(null);
-  const [smtpDeleteLoading, setSmtpDeleteLoading] = useState(false);
-
-  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [showEmailChangePassword, setShowEmailChangePassword] = useState(false);
-  const [showSmtpPassword, setShowSmtpPassword] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const [avatar, setAvatar] = useState<string | null>(null);
@@ -176,7 +150,6 @@ export default function SettingsPage() {
   const prefsSnapshotRef = useRef<NotificationPrefs>(DEFAULT_PREFS);
 
   const userRole = session?.user?.role || "DEVELOPER";
-  const isSuperAdmin = userRole === "SUPER_ADMIN";
   const isAdminOrAbove = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
 
   const handlePasswordVerifyOtpRef = useRef<(() => void) | null>(null);
@@ -418,27 +391,6 @@ export default function SettingsPage() {
     }
   };
 
-  const fetchSmtpConfigs = useCallback(async () => {
-    if (!isSuperAdmin) return;
-    setSmtpLoading(true);
-    try {
-      const res = await fetch("/api/smtp", { credentials: "include" });
-      if (res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setSmtpConfigs(safeArray(data));
-      } else {
-        toast.error("Failed to load SMTP configurations");
-      }
-    } catch (err) {
-      console.error("[settings] Failed to fetch SMTP configs:", err);
-    } finally {
-      setSmtpLoading(false);
-    }
-  }, [isSuperAdmin]);
-
-  useEffect(() => {
-    fetchSmtpConfigs();
-  }, [fetchSmtpConfigs]);
 
   const handleSave = async () => {
     if (!session?.user?.id) return;
@@ -664,111 +616,9 @@ export default function SettingsPage() {
     }
   };
 
-  const handleSaveSmtp = async () => {
-    if (!smtpForm.host || !smtpForm.username || !smtpForm.fromEmail) {
-      toast.error("Host, username, and from email are required");
-      return;
-    }
-    if (!smtpEditId && !smtpForm.password) {
-      toast.error("Password is required for new SMTP configurations");
-      return;
-    }
-    setSmtpSaving(true);
-    try {
-      const url = "/api/smtp";
-      const method = smtpEditId ? "PATCH" : "POST";
-      const body = smtpEditId
-        ? { id: smtpEditId, ...smtpForm }
-        : smtpForm;
 
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(body),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        toast.success(smtpEditId ? "SMTP config updated" : "SMTP config added");
-        setSmtpDialogOpen(false);
-        setSmtpEditId(null);
-        setSmtpForm({ host: "", port: 587, username: "", password: "", fromEmail: "", fromName: APP_NAME, secure: false, isPrimary: true });
-        fetchSmtpConfigs();
-      } else {
-        toast.error(`${data.error || "Failed to save SMTP config"}`, { duration: 8000 });
-      }
-    } catch {
-      console.error("[settings] SMTP save failed");
-      toast.error("Network error saving SMTP. This may be a timeout - try clicking Add again.", { duration: 8000 });
-    } finally {
-      setSmtpSaving(false);
-    }
-  };
 
-  const handleTestSmtp = async () => {
-    if (!smtpForm.host || !smtpForm.username) {
-      toast.error("Host and username are required to test");
-      return;
-    }
-    if (!smtpForm.password) {
-      toast.error(smtpEditId ? "Enter the password to test the connection (current password is not shown)" : "Password is required to test");
-      return;
-    }
-    setSmtpTesting(true);
-    try {
-      const res = await fetch("/api/smtp/test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(smtpForm),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data.success) {
-        toast.success("SMTP connection successful!");
-      } else {
-        toast.error(data.error || "SMTP connection failed");
-      }
-    } catch {
-      toast.error("SMTP connection test failed");
-    } finally {
-      setSmtpTesting(false);
-    }
-  };
 
-  const handleDeleteSmtp = async (id: string) => {
-    setSmtpDeleteLoading(true);
-    try {
-      const res = await fetch(`/api/smtp?id=${id}`, { method: "DELETE", credentials: "include" });
-      if (res.ok) {
-        toast.success("SMTP config deleted");
-        setSmtpDeleteConfirm(null);
-        fetchSmtpConfigs();
-      } else {
-        const data = await res.json().catch(() => ({}));
-        toast.error(data.error || "Failed to delete");
-      }
-    } catch {
-      toast.error("Failed to delete SMTP config");
-    } finally {
-      setSmtpDeleteLoading(false);
-    }
-  };
-
-  const handleEditSmtp = (config: SmtpConfig) => {
-    setSmtpEditId(config.id);
-    setShowSmtpPassword(false);
-    setSmtpForm({
-      host: config.host,
-      port: config.port,
-      username: config.username,
-      password: "",
-      fromEmail: config.fromEmail,
-      fromName: config.fromName,
-      secure: config.secure,
-      isPrimary: config.isPrimary,
-    });
-    setSmtpDialogOpen(true);
-  };
 
   if (status === "loading" || !session) {
     return (
@@ -787,15 +637,13 @@ export default function SettingsPage() {
       <PageHeader title="Settings" description="Manage your account and application settings" />
 
       {/* Profile Image */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Camera className="h-5 w-5 text-muted-foreground" />
-            <CardTitle className="text-base">Profile Image</CardTitle>
-          </div>
-          <CardDescription>Upload a profile picture. PNG, JPEG, WebP, or GIF up to 2 MB.</CardDescription>
-        </CardHeader>
-        <CardContent>
+      <SettingsSection
+        icon={<Camera className="h-5 w-5" />}
+        title="Profile Image"
+        description="Upload a profile picture. PNG, JPEG, WebP, or GIF up to 2 MB."
+        defaultOpen
+      >
+
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
             <Avatar className="h-20 w-20 border">
               {avatar ? (
@@ -845,19 +693,17 @@ export default function SettingsPage() {
               />
             </div>
           </div>
-        </CardContent>
-      </Card>
+        
+      </SettingsSection>
 
       {/* Profile */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <User className="h-5 w-5 text-muted-foreground" />
-            <CardTitle className="text-base">Profile</CardTitle>
-          </div>
-          <CardDescription>Your personal information</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      <SettingsSection
+        icon={<User className="h-5 w-5" />}
+        title="Profile"
+        description="Your personal information"
+        defaultOpen
+      >
+        <div className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1">
               <Label className="text-xs" htmlFor="profile-name">Name</Label>
@@ -891,19 +737,17 @@ export default function SettingsPage() {
             {saving ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Saving...</> :
              name === session?.user?.name ? "No Changes" : "Save Changes"}
           </Button>
-        </CardContent>
-      </Card>
+        
+        </div>
+      </SettingsSection>
 
       {/* Change Password */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Shield className="h-5 w-5 text-muted-foreground" />
-            <CardTitle className="text-base">Change Password</CardTitle>
-          </div>
-          <CardDescription>Update your password securely with email verification</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      <SettingsSection
+        icon={<Shield className="h-5 w-5" />}
+        title="Change Password"
+        description="Update your password securely with email verification"
+      >
+        <div className="space-y-4">
           {!passwordOtpSent ? (
             <>
               <div className="space-y-1">
@@ -1018,19 +862,18 @@ export default function SettingsPage() {
               </div>
             </>
           )}
-        </CardContent>
-      </Card>
+        
+        </div>
+      </SettingsSection>
 
       {/* Appearance */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Palette className="h-5 w-5 text-muted-foreground" />
-            <CardTitle className="text-base">Appearance</CardTitle>
-          </div>
-          <CardDescription>Customize how {APP_NAME} looks for you</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      <SettingsSection
+        icon={<Palette className="h-5 w-5" />}
+        title="Appearance"
+        description={`Customize how ${APP_NAME} looks for you`}
+        defaultOpen
+      >
+        <div className="space-y-4">
           <div>
             <Label className="text-xs mb-2 block">Theme</Label>
             <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2">
@@ -1068,19 +911,17 @@ export default function SettingsPage() {
               </Button>
             </div>
           </div>
-        </CardContent>
-      </Card>
+        
+        </div>
+      </SettingsSection>
 
       {/* Notification Preferences */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Bell className="h-5 w-5 text-muted-foreground" />
-            <CardTitle className="text-base">Notification Preferences</CardTitle>
-          </div>
-          <CardDescription>Choose which alerts appear in your notification bell</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
+      <SettingsSection
+        icon={<Bell className="h-5 w-5" />}
+        title="Notification Preferences"
+        description="Choose which alerts appear in your notification bell"
+      >
+        <div className="space-y-6">
           {prefsLoading ? (
             <div className="space-y-3">
               {[1, 2, 3].map((i) => <Skeleton key={i} className="h-8 w-full" />)}
@@ -1160,85 +1001,17 @@ export default function SettingsPage() {
               )}
             </>
           )}
-        </CardContent>
-      </Card>
-
-      {/* SMTP Configuration - SUPER_ADMIN only */}
-      {isSuperAdmin && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Server className="h-5 w-5 text-muted-foreground" />
-                <div>
-                  <CardTitle className="text-base">SMTP Configuration</CardTitle>
-                  <CardDescription>Configure email servers for OTP delivery. Max 2 servers (primary + failover). Email delivery logs are under System → Email Logs.</CardDescription>
-                </div>
-              </div>
-              <Button
-                size="sm"
-                onClick={() => { setSmtpEditId(null); setSmtpForm({ host: "", port: 587, username: "", password: "", fromEmail: "", fromName: APP_NAME, secure: false, isPrimary: true }); setShowSmtpPassword(false); setSmtpDialogOpen(true); }}
-                disabled={smtpConfigs.length >= 2}
-              >
-                <Plus className="h-4 w-4 mr-1" /> Add SMTP
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {smtpLoading ? (
-              <div className="space-y-3">
-                {[1, 2].map((i) => (<Skeleton key={i} className="h-20 w-full rounded-lg" />))}
-              </div>
-            ) : smtpConfigs.length === 0 ? (
-              <div className="text-center py-8 border-2 border-dashed rounded-lg">
-                <Server className="h-8 w-8 mx-auto text-muted-foreground opacity-50 mb-2" />
-                <p className="text-sm text-muted-foreground">No SMTP servers configured</p>
-                <p className="text-xs text-muted-foreground mt-1">Add a Brevo or other SMTP server to enable email verification</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {smtpConfigs.map((config) => (
-                  <div key={config.id} className="flex items-center justify-between p-3 border rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <div className={`h-8 w-8 rounded-full flex items-center justify-center ${config.isPrimary ? "bg-green-100 dark:bg-green-900/30" : "bg-blue-100 dark:bg-blue-900/30"}`}>
-                        <Server className={`h-4 w-4 ${config.isPrimary ? "text-green-600" : "text-blue-600"}`} />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium">{config.host}:{config.port}</span>
-                          <Badge variant={config.isPrimary ? "default" : "secondary"} className="text-[10px]">
-                            {config.isPrimary ? "Primary" : "Failover"}
-                          </Badge>
-                          {!config.isActive && <Badge variant="destructive" className="text-[10px]">Inactive</Badge>}
-                        </div>
-                        <p className="text-xs text-muted-foreground">{config.username} &middot; From: {config.fromEmail}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleEditSmtp(config)} title="Edit" aria-label="Edit SMTP config">
-                        <Pencil className="h-3 w-3" />
-                      </Button>
-                      <Button size="icon" variant="ghost" className="h-7 w-7 text-red-500 hover:text-red-600" onClick={() => setSmtpDeleteConfirm(config.id)} title="Delete" aria-label="Delete SMTP config">
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
+        
+        </div>
+      </SettingsSection>
 
       {/* System Information */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Settings className="h-5 w-5 text-muted-foreground" />
-            <CardTitle className="text-base">System Information</CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent>
+      <SettingsSection
+        icon={<Settings className="h-5 w-5" />}
+        title="System Information"
+        collapsible={false}
+      >
+
           <div className="grid gap-2 text-sm">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Version</span>
@@ -1257,8 +1030,8 @@ export default function SettingsPage() {
               <span className="text-xs">{session?.user?.email}</span>
             </div>
           </div>
-        </CardContent>
-      </Card>
+        
+      </SettingsSection>
 
       {/* Email Change Dialog */}
       <Dialog open={changeEmailOpen} onOpenChange={(open) => {
@@ -1372,140 +1145,6 @@ export default function SettingsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* SMTP Config Dialog */}
-      <Dialog open={smtpDialogOpen} onOpenChange={setSmtpDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Server className="h-5 w-5" />
-              {smtpEditId ? "Edit SMTP Configuration" : "Add SMTP Configuration"}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-              <div className="flex items-start gap-2">
-                <AlertCircle className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
-                <div>
-                  <p className="text-xs font-medium text-blue-700 dark:text-blue-300">Brevo SMTP Settings</p>
-                  <p className="text-[11px] text-blue-600 dark:text-blue-400">Host: smtp-relay.brevo.com &middot; Port: 587 &middot; SSL/TLS: OFF (uses STARTTLS) &middot; Username: your login email &middot; Password: your SMTP key</p>
-                </div>
-              </div>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <Label className="text-xs">SMTP Host *</Label>
-                <Input
-                  value={smtpForm.host}
-                  onChange={(e) => setSmtpForm({ ...smtpForm, host: e.target.value })}
-                  placeholder="smtp-relay.brevo.com"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Port</Label>
-                <Input
-                  type="number"
-                  value={smtpForm.port}
-                  onChange={(e) => setSmtpForm({ ...smtpForm, port: parseInt(e.target.value) || 587 })}
-                  placeholder="587"
-                />
-              </div>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <Label className="text-xs">Username *</Label>
-                <Input
-                  value={smtpForm.username}
-                  onChange={(e) => setSmtpForm({ ...smtpForm, username: e.target.value })}
-                  placeholder="your-email@example.com"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">{smtpEditId ? "New Password (leave blank to keep)" : "Password *"}</Label>
-                <div className="relative">
-                  <Input
-                    type={showSmtpPassword ? "text" : "password"}
-                    value={smtpForm.password}
-                    onChange={(e) => setSmtpForm({ ...smtpForm, password: e.target.value })}
-                    placeholder={smtpEditId ? "Leave blank to keep current" : "SMTP key/password"}
-                    className="pr-10"
-                  />
-                  <PasswordToggle visible={showSmtpPassword} onToggle={() => setShowSmtpPassword(!showSmtpPassword)} />
-                </div>
-              </div>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <Label className="text-xs">From Email *</Label>
-                <Input
-                  type="email"
-                  value={smtpForm.fromEmail}
-                  onChange={(e) => setSmtpForm({ ...smtpForm, fromEmail: e.target.value })}
-                  placeholder="noreply@yourdomain.com"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">From Name</Label>
-                <Input
-                  value={smtpForm.fromName}
-                  onChange={(e) => setSmtpForm({ ...smtpForm, fromName: e.target.value })}
-                  placeholder={APP_NAME}
-                />
-              </div>
-            </div>
-            <div className="flex items-center gap-6">
-              <div className="flex items-center gap-2">
-                <Switch
-                  checked={smtpForm.secure}
-                  onCheckedChange={(val) => setSmtpForm({ ...smtpForm, secure: val, port: val ? 465 : 587 })}
-                />
-                <div>
-                  <Label className="text-xs">SSL/TLS (Implicit)</Label>
-                  <p className="text-[10px] text-muted-foreground">{smtpForm.secure ? "Port 465 - Direct SSL" : "Port 587 - STARTTLS auto-upgrade"}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Switch
-                  checked={smtpForm.isPrimary}
-                  onCheckedChange={(val) => setSmtpForm({ ...smtpForm, isPrimary: val })}
-                />
-                <Label className="text-xs">Primary Server</Label>
-              </div>
-            </div>
-          </div>
-          <div className="p-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
-            <p className="text-[11px] text-amber-700 dark:text-amber-300"><strong>Tip:</strong> Click &quot;Test&quot; first to verify your SMTP connection before adding.</p>
-          </div>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => handleTestSmtp()} disabled={smtpTesting}>
-              {smtpTesting ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <TestTube className="h-4 w-4 mr-1" />}
-              Test
-            </Button>
-            <Button variant="outline" onClick={() => setSmtpDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSaveSmtp} disabled={smtpSaving}>
-              {smtpSaving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-1" />}
-              {smtpEditId ? "Update" : "Add"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* SMTP Delete Confirmation Dialog */}
-      <Dialog open={!!smtpDeleteConfirm} onOpenChange={(open) => !open && setSmtpDeleteConfirm(null)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Delete SMTP Configuration</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            Are you sure you want to delete this SMTP configuration? Any emails using this server will fail until a new one is configured.
-          </p>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setSmtpDeleteConfirm(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={() => smtpDeleteConfirm && handleDeleteSmtp(smtpDeleteConfirm)} disabled={smtpDeleteLoading}>
-              {smtpDeleteLoading ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Deleting...</> : "Delete"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

@@ -31,12 +31,12 @@ export function PageHeader({ title, description, children, showBack = true }: Pa
             <ArrowLeft className="h-4 w-4" />
           </Button>
         )}
-        <div className="min-w-0 border-l-[2.5px] border-primary pl-3">
+        <div className="min-w-0 border-l-[2.5px] border-primary pl-3 sm:pl-3.5">
           <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-foreground">
             {safeText(title, "")}
           </h1>
           {description && (
-            <p className="text-muted-foreground text-xs sm:text-sm mt-0.5 leading-relaxed">
+            <p className="text-muted-foreground text-xs sm:text-sm mt-0.5 leading-relaxed max-w-2xl">
               {safeText(description, "")}
             </p>
           )}

@@ -38,6 +38,7 @@ export const CONTROLLABLE_PAGES: ControllablePage[] = [
   { title: "API Keys", href: "/dashboard/api-keys" },
   { title: "Audit Trail", href: "/dashboard/audit-trail" },
   { title: "Email Logs", href: "/dashboard/email-logs" },
+  { title: "SMTP", href: "/dashboard/smtp" },
   { title: "Settings", href: "/dashboard/settings", locked: true },
 ]
 
@@ -124,7 +125,7 @@ export function isRoleAllowedDashboardHref(href: string, role: string | undefine
   if (!role) return false
   if (role === "SUPER_ADMIN") return true
 
-  const superAdminOnly = ["/dashboard/email-logs"]
+  const superAdminOnly = ["/dashboard/email-logs", "/dashboard/smtp"]
   const adminOnly = [
     "/dashboard/finance",
     "/dashboard/crm",

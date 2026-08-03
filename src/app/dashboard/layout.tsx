@@ -37,6 +37,7 @@ import {
   ScrollText,
   FlaskConical,
   Mail,
+  Server,
   Receipt,
   Wallet,
   ChevronRight,
@@ -157,6 +158,7 @@ const navGroups: NavGroup[] = [
       { title: "API Keys", href: "/dashboard/api-keys", icon: Key, roles: ["SUPER_ADMIN", "ADMIN"] },
       { title: "Audit Trail", href: "/dashboard/audit-trail", icon: ScrollText, roles: ["SUPER_ADMIN", "ADMIN"] },
       { title: "Email Logs", href: "/dashboard/email-logs", icon: Mail, roles: ["SUPER_ADMIN"] },
+      { title: "SMTP", href: "/dashboard/smtp", icon: Server, roles: ["SUPER_ADMIN"] },
       { title: "Settings", href: "/dashboard/settings", icon: Settings, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
     ],
   },
@@ -340,16 +342,17 @@ const SidebarContent = React.memo(function SidebarContent({
         collapsed && "justify-center px-2"
       )}>
         <div className={cn(
-          "th-sidebar-brand-mark relative shrink-0 overflow-hidden rounded-xl",
-          collapsed ? "h-10 w-10" : "h-12 w-12 sm:h-11 sm:w-11"
+          "th-sidebar-brand-mark relative shrink-0",
+          collapsed ? "h-9 w-9" : "h-10 w-10 sm:h-10 sm:w-10"
         )}>
           <Image
             src="/logo-mark.png"
             alt="TrishulHub"
             fill
-            className="object-cover object-center !p-0"
+            className="object-contain object-center !p-0"
             priority
-            sizes="48px"
+            sizes="40px"
+            data-no-warm
           />
         </div>
         {!collapsed && (
@@ -1198,7 +1201,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </header>
 
         {/* Page Content - more padding */}
-        <main className="flex-1 min-h-0 max-w-full p-3 sm:p-4 md:p-6 lg:p-8 pb-20 overflow-y-auto overflow-x-hidden overscroll-y-contain touch-pan-y">{children}</main>
+        <main className="th-page-shell flex-1 min-h-0 max-w-full p-3 sm:p-4 md:p-6 lg:p-8 pb-20 overflow-y-auto overflow-x-hidden overscroll-y-contain touch-pan-y">{children}</main>
       </div>
 
       {/* Agentation — visual feedback tool (SUPER_ADMIN only) */}

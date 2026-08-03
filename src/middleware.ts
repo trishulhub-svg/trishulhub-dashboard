@@ -105,6 +105,7 @@ export async function middleware(request: NextRequest) {
     // Super admin only routes — strictly SUPER_ADMIN.
     const superAdminOnlyRoutes: string[] = [
       "/dashboard/email-logs",
+      "/dashboard/smtp",
     ]
 
     // Admin only routes — NOT accessible to PROJECT_MANAGER.
