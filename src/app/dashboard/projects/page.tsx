@@ -779,7 +779,7 @@ function CreateProjectForm({ onSubmit, clients, defaultClientId }: {
         </div>
         <div className="space-y-1">
           <Label className="text-xs">Live URL</Label>
-          <Input name="liveUrl" type="url" placeholder="https://example.com" />
+          <Input name="liveUrl" type="text" inputMode="url" placeholder="https://example.com" />
         </div>
       </div>
       <Button type="submit" className="w-full">Create Project</Button>
@@ -1114,12 +1114,9 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
   const handleCreateProject = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
-    let clientId = form.get("clientId") as string;
-
-    // "No Client" means skip client requirement — the API will handle it
-    if (!clientId || clientId === "__none__") {
-      clientId = "";
-    }
+    const rawClientId = String(form.get("clientId") || "").trim();
+    // "No Client" / empty → null so API persists without a client
+    const clientId = !rawClientId || rawClientId === "__none__" ? null : rawClientId;
 
     const data = {
       name: form.get("name") as string,

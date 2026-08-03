@@ -22,7 +22,7 @@ function getErrMsg(err: unknown): string {
 
 // Bump when adding CRITICAL_COLUMNS / CRITICAL_TABLES so warm serverless
 // instances re-run migrations after deploy (stale syncDone otherwise skips ALTERs).
-const SCHEMA_REVISION = 202608031
+const SCHEMA_REVISION = 202608032
 
 // Use globalThis to persist the syncDone flag across hot reloads in dev
 // and across serverless function warm invocations in production.
@@ -718,6 +718,12 @@ export async function ensureCriticalSchema(): Promise<void> {
     }
   }
   await ensureInfraMemberAccessPerUserSchema()
+  try {
+    const { ensureProjectClientIdNullable } = await import("@/lib/project-clientid-migrate")
+    await ensureProjectClientIdNullable()
+  } catch (err: unknown) {
+    console.warn(`[auto-migrate] Project.clientId nullable (critical): ${getErrMsg(err)}`)
+  }
   setCriticalSchemaDone()
 }
 
@@ -827,64 +833,9 @@ export async function ensureAllTables(): Promise<void> {
     }
 
     // 1e. Make Project.clientId nullable (was NOT NULL, now optional for "No client" projects)
-    // SQLite doesn't support ALTER COLUMN, so we recreate the table if clientId is NOT NULL.
-    // This is critical for "No Client" project creation — without it, inserting null fails.
     try {
-      // Check if clientId is currently NOT NULL by inspecting the table schema
-      const columns = await db.$queryRawUnsafe(`PRAGMA table_info("Project")`) as Array<{
-        name: string
-        notnull: number
-        type: string
-        dflt_value: string | null
-        pk: number
-        cid: number
-      }>
-      const clientIdCol = columns.find(c => c.name === "clientId")
-      if (clientIdCol && clientIdCol.notnull === 1) {
-        // clientId is NOT NULL — need to recreate the table with nullable clientId
-        console.log("[auto-migrate] Project.clientId is NOT NULL — recreating table to make it nullable...")
-        await db.$executeRawUnsafe(`BEGIN`)
-        try {
-          // Step 1: Create new table with nullable clientId
-          await db.$executeRawUnsafe(`
-            CREATE TABLE IF NOT EXISTS "Project_new" (
-              "id" TEXT NOT NULL PRIMARY KEY,
-              "name" TEXT NOT NULL,
-              "description" TEXT,
-              "clientId" TEXT,
-              "status" TEXT NOT NULL DEFAULT 'PLANNING',
-              "progress" INTEGER NOT NULL DEFAULT 0,
-              "isDemo" BOOLEAN NOT NULL DEFAULT 0,
-              "startDate" DATETIME,
-              "deadline" DATETIME,
-              "budget" REAL,
-              "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE SET NULL
-            )
-          `)
-          // Step 2: Copy data from old table (convert empty strings to null)
-          await db.$executeRawUnsafe(`
-            INSERT INTO "Project_new" ("id", "name", "description", "clientId", "status", "progress", "isDemo", "startDate", "deadline", "budget", "createdAt", "updatedAt")
-            SELECT "id", "name", "description", NULLIF("clientId", ''), "status", "progress",
-              COALESCE("isDemo", 0), "startDate", "deadline", "budget", "createdAt", "updatedAt"
-            FROM "Project"
-          `)
-          // Step 3: Drop old table and rename new one
-          await db.$executeRawUnsafe(`DROP TABLE "Project"`)
-          await db.$executeRawUnsafe(`ALTER TABLE "Project_new" RENAME TO "Project"`)
-          // Step 4: Recreate indexes
-          await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Project_clientId_index" ON "Project"("clientId")`)
-          await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Project_status_index" ON "Project"("status")`)
-          await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Project_deadline_index" ON "Project"("deadline")`)
-          await db.$executeRawUnsafe(`COMMIT`)
-          console.log("[auto-migrate] Project.clientId is now nullable — 'No Client' projects will work")
-        } catch (innerErr: unknown) {
-          await db.$executeRawUnsafe(`ROLLBACK`).catch(() => {})
-          const innerMsg = innerErr instanceof Error ? innerErr.message : String(innerErr)
-          console.warn(`[auto-migrate] Project.clientId nullable migration failed: ${innerMsg}`)
-        }
-      }
+      const { ensureProjectClientIdNullable } = await import("@/lib/project-clientid-migrate")
+      await ensureProjectClientIdNullable()
     } catch (err: unknown) {
       console.warn(`[auto-migrate] Project.clientId nullable check: ${getErrMsg(err)}`)
     }

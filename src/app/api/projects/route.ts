@@ -307,10 +307,18 @@ export async function POST(req: NextRequest) {
     // SECURITY: Sanitize project creation data using validated (and schema-constrained) values
     const name = sanitizeInput(validated.name, 200)
     const projectStatus = validated.status || "PLANNING"
-    // Normalize clientId: empty string ("") and undefined both mean "No Client"
-    // and must be persisted as null (Prisma expects null for optional relations).
+    // Normalize clientId: empty / "__none__" / undefined → null ("No Client")
     const rawClientId = typeof validated.clientId === "string" ? validated.clientId.trim() : ""
-    const clientId = rawClientId.length > 0 ? rawClientId : null
+    const clientId =
+      rawClientId.length > 0 && rawClientId !== "__none__" ? rawClientId : null
+
+    // Ensure DB allows null clientId (legacy Turso tables were NOT NULL)
+    try {
+      const { ensureProjectClientIdNullable } = await import("@/lib/project-clientid-migrate")
+      await ensureProjectClientIdNullable()
+    } catch (migErr) {
+      console.warn("[projects] POST: clientId nullable ensure failed:", migErr)
+    }
 
     // If clientId is provided, verify client exists
     if (clientId) {
@@ -375,39 +383,17 @@ export async function POST(req: NextRequest) {
         // Retry without isDemo (DB default will handle it)
         project = await db.project.create({ data: createData as any })
       } else if (errMsg.includes("NOT NULL") && errMsg.includes("clientId")) {
-        // The clientId column is NOT NULL in the DB — this happens on older DBs
-        // where the nullable migration hasn't been applied yet.
-        // Attempt a raw SQL fix: recreate the table with nullable clientId.
-        console.error("[projects] POST: clientId column is NOT NULL — attempting migration fix...")
+        console.error("[projects] POST: clientId column is NOT NULL — running nullable migration…")
         try {
-          // Quick fix: try to make the column nullable via table recreation
-          await db.$executeRawUnsafe(`BEGIN`)
-          await db.$executeRawUnsafe(`
-            CREATE TABLE IF NOT EXISTS "Project_new" (
-              "id" TEXT NOT NULL PRIMARY KEY, "name" TEXT NOT NULL, "description" TEXT,
-              "clientId" TEXT, "status" TEXT NOT NULL DEFAULT 'PLANNING', "progress" INTEGER NOT NULL DEFAULT 0,
-              "isDemo" BOOLEAN NOT NULL DEFAULT 0, "startDate" DATETIME, "deadline" DATETIME, "budget" REAL,
-              "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE SET NULL
-            )
-          `)
-          await db.$executeRawUnsafe(`
-            INSERT INTO "Project_new" SELECT "id", "name", "description", NULLIF("clientId", ''),
-              "status", "progress", COALESCE("isDemo", 0), "startDate", "deadline", "budget", "createdAt", "updatedAt" FROM "Project"
-          `)
-          await db.$executeRawUnsafe(`DROP TABLE "Project"`)
-          await db.$executeRawUnsafe(`ALTER TABLE "Project_new" RENAME TO "Project"`)
-          await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Project_clientId_index" ON "Project"("clientId")`)
-          await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Project_status_index" ON "Project"("status")`)
-          await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Project_deadline_index" ON "Project"("deadline")`)
-          await db.$executeRawUnsafe(`COMMIT`)
-          console.log("[projects] POST: clientId column is now nullable — retrying create...")
-          // Retry the create
+          const { ensureProjectClientIdNullable } = await import("@/lib/project-clientid-migrate")
+          const ok = await ensureProjectClientIdNullable()
+          if (!ok) {
+            throw new Error("clientId nullable migration did not complete")
+          }
           project = await db.project.create({
             data: { ...createData, isDemo: validated.isDemo === true } as any,
           })
         } catch (fixErr) {
-          await db.$executeRawUnsafe(`ROLLBACK`).catch(() => {})
           console.error("[projects] POST: migration fix failed:", fixErr instanceof Error ? fixErr.message : String(fixErr))
           throw new Error("Cannot create project with no client — database schema needs migration. Please contact admin to run migrations.")
         }
