@@ -23,6 +23,83 @@ import { openCursorWorkspace, openQwenWorkspace } from "@/lib/open-external-app"
    TRISHULHUB WORKSPACE v2.1 — Live AI + Dynamic Agents
    ═══════════════════════════════════════════════════════════════ */
 
+/** Animated Long Horizon progress — fills up smoothly with live % + sheen when running. */
+function HorizonProgressBar({
+  progress,
+  isActive,
+  mode,
+}: {
+  progress: number;
+  isActive: boolean;
+  mode: string;
+}) {
+  const target = Math.min(100, Math.max(0, Math.round(progress)));
+  const [display, setDisplay] = useState(0);
+  const [fill, setFill] = useState(0);
+  const rafRef = useRef<number | null>(null);
+  const startRef = useRef({ from: 0, to: 0, t0: 0 });
+
+  useEffect(() => {
+    const from = display;
+    const to = target;
+    if (from === to) {
+      setFill(to);
+      return;
+    }
+    startRef.current = { from, to, t0: performance.now() };
+    const duration = Math.min(1400, 400 + Math.abs(to - from) * 12);
+
+    const tick = (now: number) => {
+      const { from: f, to: t, t0 } = startRef.current;
+      const p = Math.min(1, (now - t0) / duration);
+      // ease-out cubic — feels like progress stacking up then settling
+      const eased = 1 - Math.pow(1 - p, 3);
+      const value = f + (t - f) * eased;
+      setDisplay(Math.round(value));
+      setFill(value);
+      if (p < 1) {
+        rafRef.current = requestAnimationFrame(tick);
+      }
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+    };
+    // re-run when target changes; intentionally omit `display` to avoid restart loops
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target]);
+
+  return (
+    <div className="ws-horizon-progress-block">
+      <div
+        className={`ws-horizon-progress-track ws-horizon-progress-track--${mode}${
+          isActive ? " ws-horizon-progress-track--running" : ""
+        }`}
+        role="progressbar"
+        aria-valuenow={display}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label={`Project progress ${display} percent`}
+      >
+        <div className="ws-horizon-progress-segments" aria-hidden />
+        <div
+          className={`ws-horizon-progress-fill${isActive ? " ws-horizon-progress-fill--running" : ""}`}
+          style={{ width: `${fill}%` }}
+        >
+          {isActive && fill > 2 && <span className="ws-horizon-progress-sheen" aria-hidden />}
+          {isActive && fill > 1 && <span className="ws-horizon-progress-edge" aria-hidden />}
+        </div>
+      </div>
+      <span
+        className={`ws-horizon-progress-label ws-horizon-progress-pct ws-horizon-progress-label--${mode}`}
+      >
+        {display}
+        <span className="ws-horizon-progress-pct-sym">%</span>
+      </span>
+    </div>
+  );
+}
+
 export default function TrishulWorkspacePage() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -691,13 +768,12 @@ export default function TrishulWorkspacePage() {
                             {p.activeUserCount} {p.activeUserCount === 1 ? "user" : "users"} active
                           </span>
                         )}
-                        <span className={`ws-horizon-progress-label ws-horizon-progress-label--${mode}`} style={{ marginLeft: p.isActive ? undefined : "auto" }}>
-                          {p.progress}%
-                        </span>
                       </div>
-                      <div className={`ws-horizon-progress-track ws-horizon-progress-track--${mode}`}>
-                        <div className="ws-horizon-progress-fill" style={{ width: `${Math.min(100, Math.max(0, p.progress))}%` }} />
-                      </div>
+                      <HorizonProgressBar
+                        progress={p.progress}
+                        isActive={p.isActive}
+                        mode={mode}
+                      />
                     </div>
                   ))
                 )}
@@ -1665,22 +1741,133 @@ export default function TrishulWorkspacePage() {
           letter-spacing: 0.02em;
           margin-left: auto;
         }
+        .ws-horizon-progress-block {
+          display: grid;
+          grid-template-columns: 1fr auto;
+          align-items: center;
+          gap: 0.55rem;
+          width: 100%;
+        }
+        .ws-horizon-progress-pct {
+          margin-left: 0;
+          font-variant-numeric: tabular-nums;
+          font-size: 0.72rem;
+          font-weight: 700;
+          letter-spacing: 0.04em;
+          color: var(--ws-text);
+          min-width: 2.4rem;
+          text-align: right;
+        }
+        .ws-horizon-progress-pct-sym {
+          font-size: 0.58rem;
+          font-weight: 600;
+          opacity: 0.65;
+          margin-left: 0.05rem;
+        }
         .ws-horizon-progress-track {
-          width: 100%; height: 3px;
+          position: relative;
+          width: 100%;
+          height: 8px;
           border-radius: 100px;
           background: var(--ws-card-border);
           overflow: hidden;
+          box-shadow: inset 0 1px 2px rgba(0,0,0,0.12);
+        }
+        .ws-horizon-progress-track--running {
+          background: color-mix(in oklch, var(--ws-card-border) 70%, rgba(6,182,212,0.18));
+        }
+        .ws-horizon-progress-segments {
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+          background: repeating-linear-gradient(
+            90deg,
+            transparent 0,
+            transparent calc(10% - 1px),
+            rgba(255,255,255,0.07) calc(10% - 1px),
+            rgba(255,255,255,0.07) 10%
+          );
+          opacity: 0.55;
+          z-index: 1;
+        }
+        .ws-root--light .ws-horizon-progress-segments,
+        .ws-root--bluelight .ws-horizon-progress-segments {
+          background: repeating-linear-gradient(
+            90deg,
+            transparent 0,
+            transparent calc(10% - 1px),
+            rgba(0,0,0,0.06) calc(10% - 1px),
+            rgba(0,0,0,0.06) 10%
+          );
         }
         .ws-horizon-progress-fill {
-          height: 100%; border-radius: 100px;
-          background: linear-gradient(90deg, #06b6d4, #8b5cf6);
-          transition: width 0.5s ease;
+          position: relative;
+          height: 100%;
+          border-radius: 100px;
+          background: linear-gradient(90deg, #0e7490 0%, #06b6d4 55%, #22d3ee 100%);
+          box-shadow: 0 0 10px rgba(6,182,212,0.25);
+          will-change: width;
+          z-index: 2;
+          overflow: hidden;
         }
-        .ws-root--bluelight .ws-horizon-progress-fill {
-          background: linear-gradient(90deg, #0e7490, #0891b2);
+        .ws-horizon-progress-fill--running {
+          background: linear-gradient(
+            90deg,
+            #0e7490 0%,
+            #06b6d4 40%,
+            #22d3ee 70%,
+            #67e8f9 100%
+          );
+          background-size: 200% 100%;
+          animation: ws-horizon-fill-flow 2.8s ease-in-out infinite;
         }
-        .ws-root--light .ws-horizon-progress-fill {
-          background: linear-gradient(90deg, #0891b2, #7c3aed);
+        .ws-horizon-progress-sheen {
+          position: absolute;
+          inset: 0;
+          background: linear-gradient(
+            105deg,
+            transparent 35%,
+            rgba(255,255,255,0.45) 50%,
+            transparent 65%
+          );
+          background-size: 220% 100%;
+          animation: ws-horizon-sheen 1.8s ease-in-out infinite;
+          pointer-events: none;
+        }
+        .ws-horizon-progress-edge {
+          position: absolute;
+          top: 0;
+          right: 0;
+          width: 6px;
+          height: 100%;
+          border-radius: 100px;
+          background: rgba(255,255,255,0.75);
+          box-shadow: 0 0 8px 2px rgba(34,211,238,0.55);
+          pointer-events: none;
+        }
+        @keyframes ws-horizon-sheen {
+          0% { background-position: 120% 0; }
+          100% { background-position: -40% 0; }
+        }
+        @keyframes ws-horizon-fill-flow {
+          0%, 100% { background-position: 0% 50%; }
+          50% { background-position: 100% 50%; }
+        }
+        .ws-root--bluelight .ws-horizon-progress-fill,
+        .ws-root--bluelight .ws-horizon-progress-fill--running {
+          background: linear-gradient(90deg, #155e75 0%, #0e7490 50%, #0891b2 100%);
+          box-shadow: 0 0 8px rgba(14,116,144,0.28);
+        }
+        .ws-root--light .ws-horizon-progress-fill,
+        .ws-root--light .ws-horizon-progress-fill--running {
+          background: linear-gradient(90deg, #0e7490 0%, #0891b2 55%, #06b6d4 100%);
+          box-shadow: 0 0 8px rgba(8,145,178,0.22);
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .ws-horizon-progress-fill--running,
+          .ws-horizon-progress-sheen {
+            animation: none;
+          }
         }
 
         /* ═══════════════════════════════════════
