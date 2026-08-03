@@ -948,19 +948,19 @@ export default function TrishulWorkspacePage() {
           color: var(--ws-text);
           --ws-bg: #09090b;
           --ws-text: #fafafa;
-          --ws-text-muted: rgba(255,255,255,0.45);
-          --ws-text-dim: rgba(255,255,255,0.22);
-          --ws-card-bg: rgba(255,255,255,0.03);
-          --ws-card-border: rgba(255,255,255,0.06);
-          --ws-card-hover: rgba(255,255,255,0.05);
-          --ws-card-border-hover: rgba(255,255,255,0.10);
+          --ws-text-muted: rgba(255,255,255,0.48);
+          --ws-text-dim: rgba(255,255,255,0.26);
+          --ws-card-bg: rgba(255,255,255,0.035);
+          --ws-card-border: rgba(255,255,255,0.07);
+          --ws-card-hover: rgba(255,255,255,0.055);
+          --ws-card-border-hover: rgba(6,182,212,0.22);
           --ws-accent-cyan: #06b6d4;
-          --ws-accent-purple: #8b5cf6;
-          --ws-accent-pink: #ec4899;
+          --ws-accent-purple: #22d3ee;
+          --ws-accent-pink: #67e8f9;
           --ws-accent-green: #22c55e;
           --ws-accent-cyan-dim: rgba(6,182,212,0.10);
-          --ws-accent-purple-dim: rgba(139,92,246,0.10);
-          --ws-accent-pink-dim: rgba(236,72,153,0.10);
+          --ws-accent-purple-dim: rgba(34,211,238,0.10);
+          --ws-accent-pink-dim: rgba(103,232,249,0.10);
         }
         @media (min-width: 480px) {
           .ws-root { margin: -1.25rem; }
@@ -970,14 +970,14 @@ export default function TrishulWorkspacePage() {
         }
 
         .ws-root--light {
-          --ws-bg: #f8f9fb;
+          --ws-bg: #f6f8fa;
           --ws-text: #0a0a0a;
-          --ws-text-muted: rgba(0,0,0,0.45);
-          --ws-text-dim: rgba(0,0,0,0.20);
-          --ws-card-bg: rgba(255,255,255,0.70);
+          --ws-text-muted: rgba(0,0,0,0.48);
+          --ws-text-dim: rgba(0,0,0,0.24);
+          --ws-card-bg: rgba(255,255,255,0.82);
           --ws-card-border: rgba(0,0,0,0.06);
-          --ws-card-hover: rgba(255,255,255,0.90);
-          --ws-card-border-hover: rgba(0,0,0,0.10);
+          --ws-card-hover: rgba(255,255,255,0.96);
+          --ws-card-border-hover: rgba(8,145,178,0.22);
           --ws-accent-green: #16a34a;
         }
         .ws-root--bluelight {
@@ -986,17 +986,17 @@ export default function TrishulWorkspacePage() {
           --ws-text: #2a241c;
           --ws-text-muted: rgba(42,36,28,0.48);
           --ws-text-dim: rgba(42,36,28,0.28);
-          --ws-card-bg: rgba(255,252,246,0.82);
+          --ws-card-bg: rgba(255,252,246,0.88);
           --ws-card-border: rgba(42,36,28,0.08);
-          --ws-card-hover: rgba(255,252,246,0.95);
-          --ws-card-border-hover: rgba(42,36,28,0.14);
+          --ws-card-hover: rgba(255,252,246,0.98);
+          --ws-card-border-hover: rgba(14,116,144,0.22);
           --ws-accent-cyan: #0e7490;
-          --ws-accent-purple: #7c3aed;
-          --ws-accent-pink: #db2777;
+          --ws-accent-purple: #0891b2;
+          --ws-accent-pink: #06b6d4;
           --ws-accent-green: #15803d;
           --ws-accent-cyan-dim: rgba(14,116,144,0.10);
-          --ws-accent-purple-dim: rgba(124,58,237,0.10);
-          --ws-accent-pink-dim: rgba(219,39,119,0.10);
+          --ws-accent-purple-dim: rgba(8,145,178,0.10);
+          --ws-accent-pink-dim: rgba(6,182,212,0.10);
         }
 
         /* ═══════════════════════════════════════
@@ -1027,37 +1027,38 @@ export default function TrishulWorkspacePage() {
         }
         .ws-orb {
           position: absolute; border-radius: 50%;
-          filter: blur(120px); will-change: transform;
+          filter: blur(72px);
+          contain: layout style;
         }
         .ws-orb--1 {
-          width: 500px; height: 500px;
+          width: 480px; height: 480px;
           top: -15%; right: -5%;
-          background: rgba(6,182,212,0.08);
+          background: rgba(6,182,212,0.09);
           animation: ws-drift-1 25s ease-in-out infinite;
         }
         @media (max-width: 639px) {
-          .ws-orb--1 { width: 300px; height: 300px; }
-          .ws-orb--2 { width: 250px; height: 250px; }
-          .ws-orb--3 { width: 200px; height: 200px; }
+          .ws-orb--1 { width: 280px; height: 280px; }
+          .ws-orb--2 { width: 230px; height: 230px; }
+          .ws-orb--3 { width: 180px; height: 180px; }
         }
         .ws-orb--2 {
-          width: 400px; height: 400px;
+          width: 380px; height: 380px;
           bottom: -10%; left: -5%;
-          background: rgba(139,92,246,0.06);
+          background: rgba(14,116,144,0.07);
           animation: ws-drift-2 30s ease-in-out infinite;
         }
         .ws-orb--3 {
-          width: 300px; height: 300px;
+          width: 280px; height: 280px;
           top: 40%; left: 40%;
-          background: rgba(236,72,153,0.04);
+          background: rgba(34,211,238,0.05);
           animation: ws-drift-3 35s ease-in-out infinite;
         }
-        .ws-root--light .ws-orb--1 { background: rgba(6,182,212,0.06); }
-        .ws-root--light .ws-orb--2 { background: rgba(139,92,246,0.04); }
-        .ws-root--light .ws-orb--3 { background: rgba(236,72,153,0.03); }
-        .ws-root--bluelight .ws-orb--1 { background: rgba(14,116,144,0.06); }
-        .ws-root--bluelight .ws-orb--2 { background: rgba(124,58,237,0.04); }
-        .ws-root--bluelight .ws-orb--3 { background: rgba(219,39,119,0.03); }
+        .ws-root--light .ws-orb--1 { background: rgba(6,182,212,0.07); }
+        .ws-root--light .ws-orb--2 { background: rgba(8,145,178,0.05); }
+        .ws-root--light .ws-orb--3 { background: rgba(34,211,238,0.04); }
+        .ws-root--bluelight .ws-orb--1 { background: rgba(14,116,144,0.07); }
+        .ws-root--bluelight .ws-orb--2 { background: rgba(8,145,178,0.05); }
+        .ws-root--bluelight .ws-orb--3 { background: rgba(6,182,212,0.04); }
 
         @keyframes ws-drift-1 {
           0%, 100% { transform: translate(0, 0) scale(1); }
@@ -1092,7 +1093,7 @@ export default function TrishulWorkspacePage() {
           pointer-events: none;
           background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
           background-repeat: repeat; background-size: 200px;
-          opacity: 0.018;
+          opacity: 0.01;
         }
 
         /* ═══════════════════════════════════════
@@ -1213,22 +1214,37 @@ export default function TrishulWorkspacePage() {
            ═══════════════════════════════════════ */
         .ws-card {
           position: relative;
-          border-radius: 14px;
+          border-radius: 16px;
           background: var(--ws-card-bg);
           border: 1px solid var(--ws-card-border);
           overflow: hidden;
           opacity: 0;
           transform: translateY(16px);
-          transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
-          backdrop-filter: blur(12px);
-          -webkit-backdrop-filter: blur(12px);
+          transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+            transform 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+            background-color 0.25s ease,
+            border-color 0.25s ease,
+            box-shadow 0.25s ease;
+          backdrop-filter: none;
+          -webkit-backdrop-filter: none;
+          box-shadow: 0 1px 0 rgba(255,255,255,0.03), 0 6px 20px rgba(0,0,0,0.12);
         }
         .ws-card:hover {
           background: var(--ws-card-hover);
           border-color: var(--ws-card-border-hover);
+          box-shadow: 0 1px 0 rgba(255,255,255,0.04), 0 10px 28px rgba(0,0,0,0.16);
         }
         .ws-root--light .ws-card {
-          box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.02);
+          box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 6px 16px rgba(0,0,0,0.03);
+        }
+        .ws-root--light .ws-card:hover {
+          box-shadow: 0 2px 4px rgba(0,0,0,0.04), 0 10px 24px rgba(8,145,178,0.06);
+        }
+        .ws-root--bluelight .ws-card {
+          box-shadow: 0 1px 2px rgba(42,36,28,0.04), 0 6px 16px rgba(42,36,28,0.03);
+        }
+        .ws-root--bluelight .ws-card:hover {
+          box-shadow: 0 2px 4px rgba(42,36,28,0.05), 0 10px 24px rgba(14,116,144,0.06);
         }
 
         /* ═══════════════════════════════════════
@@ -1250,10 +1266,11 @@ export default function TrishulWorkspacePage() {
         .ws-hero-glow {
           position: absolute;
           top: -60px; right: -40px;
-          width: 280px; height: 280px;
+          width: 260px; height: 260px;
           border-radius: 50%;
-          filter: blur(100px);
+          filter: blur(64px);
           pointer-events: none; z-index: 0;
+          opacity: 0.9;
         }
         .ws-hero-glow--dark {
           background: radial-gradient(circle, rgba(6,182,212,0.08), transparent 70%);
@@ -1868,6 +1885,20 @@ export default function TrishulWorkspacePage() {
           .ws-horizon-progress-sheen {
             animation: none;
           }
+          .ws-orb--1,
+          .ws-orb--2,
+          .ws-orb--3,
+          .ws-pulse-dot,
+          .ws-feed-live-dot,
+          .ws-status-dot,
+          .ws-cursor--blink,
+          .ws-feed-blink,
+          .ws-live-user-dot,
+          .ws-hero-rings,
+          .ws-horizon-badge:not(.ws-horizon-badge--paused),
+          .ws-feed-warn {
+            animation: none;
+          }
         }
 
         /* ═══════════════════════════════════════
@@ -2094,7 +2125,6 @@ export default function TrishulWorkspacePage() {
           left: 0; right: 0;
           display: flex; align-items: center; gap: 0.45rem;
           transition: top 0.7s cubic-bezier(0.16, 1, 0.3, 1);
-          will-change: top;
         }
         .ws-bar-label {
           font-size: 0.6rem; font-weight: 600;
@@ -2114,9 +2144,9 @@ export default function TrishulWorkspacePage() {
           width: 0;
         }
         .ws-in .ws-bar-fill { width: inherit; }
-        .ws-bar-fill--cyan { background: var(--ws-accent-cyan); box-shadow: 0 0 8px rgba(6,182,212,0.3); }
-        .ws-bar-fill--purple { background: var(--ws-accent-purple); box-shadow: 0 0 8px rgba(139,92,246,0.3); }
-        .ws-bar-fill--pink { background: var(--ws-accent-pink); box-shadow: 0 0 8px rgba(236,72,153,0.3); }
+        .ws-bar-fill--cyan { background: var(--ws-accent-cyan); box-shadow: 0 0 6px rgba(6,182,212,0.28); }
+        .ws-bar-fill--purple { background: var(--ws-accent-purple); box-shadow: 0 0 6px rgba(34,211,238,0.24); }
+        .ws-bar-fill--pink { background: var(--ws-accent-pink); box-shadow: 0 0 6px rgba(103,232,249,0.22); }
         .ws-bar-pct {
           font-size: 0.55rem; font-weight: 600;
           font-variant-numeric: tabular-nums;

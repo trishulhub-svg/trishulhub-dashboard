@@ -32,11 +32,11 @@ export function PageHeader({ title, description, children, showBack = true }: Pa
           </Button>
         )}
         <div className="min-w-0 border-l-[2.5px] border-primary pl-3 sm:pl-3.5">
-          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-foreground">
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-foreground text-balance">
             {safeText(title, "")}
           </h1>
           {description && (
-            <p className="text-muted-foreground text-xs sm:text-sm mt-0.5 leading-relaxed max-w-2xl">
+            <p className="text-muted-foreground text-xs sm:text-sm mt-0.5 leading-relaxed max-w-2xl text-pretty">
               {safeText(description, "")}
             </p>
           )}
