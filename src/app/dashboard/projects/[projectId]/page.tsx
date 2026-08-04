@@ -354,6 +354,8 @@ function formatMilestoneRole(role: string) {
     .join(" ");
 }
 
+const MILESTONE_DESC_PREVIEW_CHARS = 280;
+
 function MilestoneRow({
   m,
   userId,
@@ -386,7 +388,7 @@ function MilestoneRow({
 }) {
   const mId = extractStr(m, "id", "");
   const mTitle = extractStr(m, "title", "");
-  const mDescription = extractStr(m, "description", "");
+  const mDescription = extractStr(m, "description", "").trim();
   const mDone = m.done === true;
   const mDue = extractStr(m, "dueDate", "");
   const mDueTime = extractStr(m, "dueTime", "");
@@ -397,6 +399,13 @@ function MilestoneRow({
       extractNestedStr(a, ["user", "id"], "") === userId
   );
   const canToggleDone = canManage || isAssignee;
+  const descLong = mDescription.length > MILESTONE_DESC_PREVIEW_CHARS;
+  const [descExpanded, setDescExpanded] = useState(false);
+  const [readOpen, setReadOpen] = useState(false);
+  const descShown =
+    !descLong || descExpanded
+      ? mDescription
+      : `${mDescription.slice(0, MILESTONE_DESC_PREVIEW_CHARS).trimEnd()}…`;
 
   const dueLabel = mDue
     ? new Date(mDue).toLocaleDateString(undefined, {
@@ -409,7 +418,14 @@ function MilestoneRow({
     : "";
 
   return (
-    <div className="flex items-start gap-2 p-3 rounded-lg border border-white/20 dark:border-white/10 bg-white/60 dark:bg-white/[0.03]">
+    <div
+      className={cn(
+        "flex items-start gap-2 p-3 rounded-lg border bg-white/60 dark:bg-white/[0.03]",
+        isAssignee && !mDone
+          ? "border-amber-500/35 ring-1 ring-amber-500/20"
+          : "border-white/20 dark:border-white/10"
+      )}
+    >
       {dragHandleProps && (
         <button
           type="button"
@@ -439,20 +455,54 @@ function MilestoneRow({
       >
         <CheckCircle2 className={cn("h-4 w-4", mDone ? "text-emerald-500" : "text-muted-foreground/40")} />
       </button>
-      <div className="flex-1 min-w-0 space-y-1.5">
-        <p
-          className={cn(
-            "text-sm font-medium break-words whitespace-pre-wrap leading-snug",
-            mDone && "line-through text-muted-foreground"
-          )}
-        >
-          {mTitle || "Untitled milestone"}
-        </p>
-        {mDescription.trim() ? (
-          <p className="text-xs text-muted-foreground break-words whitespace-pre-wrap leading-relaxed">
-            {mDescription}
+      <div className="flex-1 min-w-0 space-y-2">
+        <div className="flex flex-wrap items-start gap-x-2 gap-y-1">
+          <p
+            className={cn(
+              "text-sm font-semibold break-words whitespace-pre-wrap leading-snug flex-1 min-w-0",
+              mDone && "line-through text-muted-foreground"
+            )}
+          >
+            {mTitle || "Untitled milestone"}
           </p>
-        ) : null}
+          {isAssignee && !mDone && (
+            <Badge className="text-[10px] h-5 px-1.5 bg-amber-500/15 text-amber-800 dark:text-amber-200 border border-amber-500/30 shrink-0">
+              Assigned to you
+            </Badge>
+          )}
+        </div>
+
+        {mDescription ? (
+          <div className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-2 space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Description
+              </p>
+              <button
+                type="button"
+                onClick={() => setReadOpen(true)}
+                className="text-[10px] font-medium text-foreground/80 hover:text-foreground underline-offset-2 hover:underline shrink-0"
+              >
+                Read full
+              </button>
+            </div>
+            <p className="text-sm text-foreground/90 break-words whitespace-pre-wrap leading-relaxed">
+              {descShown}
+            </p>
+            {descLong && (
+              <button
+                type="button"
+                onClick={() => setDescExpanded((v) => !v)}
+                className="text-[11px] font-medium text-foreground/70 hover:text-foreground"
+              >
+                {descExpanded ? "Show less" : "Show more"}
+              </button>
+            )}
+          </div>
+        ) : (
+          <p className="text-[11px] text-muted-foreground italic">No description provided</p>
+        )}
+
         {(mDue || mDueTime) && (
           <div className="flex flex-wrap items-center gap-1.5">
             <Badge variant="outline" className="text-[10px] h-auto min-h-5 px-1.5 py-0.5 gap-1 font-normal whitespace-normal">
@@ -473,11 +523,15 @@ function MilestoneRow({
               const name = extractNestedStr(a, ["user", "name"], "?");
               const email = extractNestedStr(a, ["user", "email"], "");
               const role = formatMilestoneRole(extractNestedStr(a, ["user", "role"], ""));
+              const mine = aUserId === userId;
               return (
                 <Badge
                   key={aUserId || `${name}-${role}`}
                   variant="secondary"
-                  className="text-[10px] h-auto min-h-5 px-1.5 py-0.5 font-normal whitespace-normal max-w-full"
+                  className={cn(
+                    "text-[10px] h-auto min-h-5 px-1.5 py-0.5 font-normal whitespace-normal max-w-full",
+                    mine && "bg-amber-500/15 border border-amber-500/30"
+                  )}
                   title={email || name}
                 >
                   <span className="break-words">
@@ -542,6 +596,45 @@ function MilestoneRow({
           )}
         </div>
       )}
+
+      <Dialog open={readOpen} onOpenChange={setReadOpen}>
+        <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-base break-words whitespace-pre-wrap leading-snug pr-6">
+              {mTitle || "Untitled milestone"}
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Full milestone description for assignees to follow.
+              {dueLabel || mDueTime
+                ? ` Due ${dueLabel || "—"}${mDueTime ? ` · ${mDueTime} UK` : ""}.`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg border border-border/70 bg-muted/25 px-3 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+              Description
+            </p>
+            <p className="text-sm text-foreground break-words whitespace-pre-wrap leading-relaxed">
+              {mDescription || "No description provided."}
+            </p>
+          </div>
+          {assignees.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {assignees.map((a) => {
+                const aUserId = extractStr(a, "userId", "") || extractNestedStr(a, ["user", "id"], "");
+                const name = extractNestedStr(a, ["user", "name"], "?");
+                const role = formatMilestoneRole(extractNestedStr(a, ["user", "role"], ""));
+                return (
+                  <Badge key={aUserId || name} variant="secondary" className="text-[10px] font-normal">
+                    {name}
+                    {role ? ` · ${role}` : ""}
+                  </Badge>
+                );
+              })}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -2105,11 +2198,14 @@ export default function ProjectDetailPage() {
                   </p>
                 </div>
                 <div className="space-y-1">
+                  <Label className="text-[10px] text-muted-foreground">
+                    Description (what assignees should do)
+                  </Label>
                   <Textarea
-                    placeholder="Description (optional)…"
+                    placeholder="Clear work notes for assignees — steps, links, acceptance criteria…"
                     value={newMilestoneDescription}
                     onChange={(e) => setNewMilestoneDescription(e.target.value)}
-                    className="min-h-[56px] text-xs resize-y"
+                    className="min-h-[88px] text-sm resize-y"
                     maxLength={2000}
                   />
                   <p className="text-[10px] text-muted-foreground text-right tabular-nums">
@@ -2274,11 +2370,12 @@ export default function ProjectDetailPage() {
               </p>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Description (optional)</Label>
+              <Label className="text-xs">Description (what assignees should do)</Label>
               <Textarea
                 value={editMilestoneDescription}
                 onChange={(e) => setEditMilestoneDescription(e.target.value)}
-                className="min-h-[72px] text-sm resize-y"
+                placeholder="Clear work notes for assignees — steps, links, acceptance criteria…"
+                className="min-h-[120px] text-sm resize-y"
                 maxLength={2000}
               />
               <p className="text-[10px] text-muted-foreground text-right tabular-nums">
