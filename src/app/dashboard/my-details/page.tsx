@@ -26,6 +26,8 @@ import {
   Copy,
   Check,
   EyeOff,
+  Pencil,
+  Plus,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -170,6 +172,11 @@ function initials(name: string): string {
     .join("") || "?";
 }
 
+/** Admin/SA may add/edit details only for these roles (not Admin / Super Admin). */
+function canAdminManageUserDetails(role: string | undefined | null): boolean {
+  return role === "DEVELOPER" || role === "PROJECT_MANAGER";
+}
+
 // ━━ Main Page ━━
 
 export default function MyDetailsPage() {
@@ -222,6 +229,20 @@ function MyDetailsPageInner() {
   // Admin unlock country dialog
   const [unlockTarget, setUnlockTarget] = useState<UserDetailResponse | null>(null);
   const [unlockDialogOpen, setUnlockDialogOpen] = useState(false);
+
+  // Admin add/edit details for DEVELOPER / PM
+  const [adminEditOpen, setAdminEditOpen] = useState(false);
+  const [adminEditTarget, setAdminEditTarget] = useState<UserDetailResponse | null>(null);
+  const [adminEditSubmitting, setAdminEditSubmitting] = useState(false);
+  const [adminFormCountry, setAdminFormCountry] = useState<Country>("");
+  const [adminFormFullName, setAdminFormFullName] = useState("");
+  const [adminFormGovIdType, setAdminFormGovIdType] = useState<GovIdType>("");
+  const [adminFormGovIdNumber, setAdminFormGovIdNumber] = useState("");
+  const [adminFormBankAccountName, setAdminFormBankAccountName] = useState("");
+  const [adminFormBankAccountNumber, setAdminFormBankAccountNumber] = useState("");
+  const [adminFormBankSortCode, setAdminFormBankSortCode] = useState("");
+  const [adminFormBankName, setAdminFormBankName] = useState("");
+  const [adminFormBankBranch, setAdminFormBankBranch] = useState("");
 
   const [refreshing, setRefreshing] = useState(false);
 
@@ -415,25 +436,46 @@ function MyDetailsPageInner() {
       return;
     }
     setReviewSubmitting(true);
+    const targetId = reviewTarget.id;
+    const nextStatus = reviewStatus;
+    const nextReason = reviewStatus === "REJECTED" ? rejectReason.trim() : null;
     try {
-      const res = await fetch(`/api/user-details/${reviewTarget.id}`, {
+      const res = await fetch(`/api/user-details/${targetId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
           action: "REVIEW",
-          status: reviewStatus,
-          rejectedReason: reviewStatus === "REJECTED" ? rejectReason.trim() : undefined,
+          status: nextStatus,
+          rejectedReason: nextReason || undefined,
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        toast.success(`Details ${reviewStatus === "APPROVED" ? "approved" : "rejected"}`);
+        // Optimistic UI — don't wait on a full me+team refetch
+        setAllDetails((prev) =>
+          prev.map((d) =>
+            d.id === targetId
+              ? {
+                  ...d,
+                  status: nextStatus,
+                  rejectedReason: nextReason,
+                  reviewedBy: currentUserId || d.reviewedBy,
+                  reviewedAt: new Date().toISOString(),
+                }
+              : d
+          )
+        );
+        toast.success(
+          nextStatus === "APPROVED"
+            ? "Approved — email is being sent and logged"
+            : "Rejected — email is being sent and logged"
+        );
         setReviewDialogOpen(false);
         setReviewTarget(null);
         setRejectReason("");
         setReviewStatus("APPROVED");
-        fetchData();
+        void fetchTeamDetails();
       } else {
         toast.error(data.error || "Failed to update status");
       }
@@ -442,6 +484,112 @@ function MyDetailsPageInner() {
       toast.error("Failed to update status");
     } finally {
       setReviewSubmitting(false);
+    }
+  };
+
+  const openAdminEdit = (row: UserDetailResponse) => {
+    if (!canAdminManageUserDetails(row.user?.role)) {
+      toast.error("You can only add/edit details for Developers and Project Managers");
+      return;
+    }
+    setAdminEditTarget(row);
+    setAdminFormCountry((row.country as Country) || "");
+    setAdminFormFullName(row.fullNameAsPerId || "");
+    setAdminFormGovIdType((row.govIdType as GovIdType) || "");
+    setAdminFormGovIdNumber("");
+    setAdminFormBankAccountName(row.bankAccountName || "");
+    setAdminFormBankAccountNumber("");
+    setAdminFormBankSortCode(row.bankSortCode || "");
+    setAdminFormBankName(row.bankName || "");
+    setAdminFormBankBranch(row.bankBranch || "");
+    setAdminEditOpen(true);
+  };
+
+  const handleAdminCountryChange = (v: Country) => {
+    setAdminFormCountry(v);
+    if (v === "UK") setAdminFormGovIdType("NI");
+    else if (v === "INDIA") setAdminFormGovIdType("");
+    else setAdminFormGovIdType("");
+  };
+
+  const handleAdminEditSubmit = async () => {
+    if (!adminEditTarget?.userId) return;
+    if (!adminFormCountry) {
+      toast.error("Please select a country");
+      return;
+    }
+    if (!adminFormFullName.trim()) {
+      toast.error("Please enter full name as per ID");
+      return;
+    }
+    if (!adminFormGovIdType) {
+      toast.error("Please select government ID type");
+      return;
+    }
+    if (!adminFormGovIdNumber.trim()) {
+      toast.error("Please enter government ID number");
+      return;
+    }
+    if (!adminFormBankAccountName.trim()) {
+      toast.error("Please enter bank account holder name");
+      return;
+    }
+    if (!adminFormBankAccountNumber.trim()) {
+      toast.error("Please enter bank account number");
+      return;
+    }
+    if (!adminFormBankSortCode.trim()) {
+      toast.error(adminFormCountry === "UK" ? "Please enter sort code" : "Please enter IFSC code");
+      return;
+    }
+    if (!adminFormBankName.trim()) {
+      toast.error("Please enter bank name");
+      return;
+    }
+    if (adminFormCountry === "INDIA" && !adminFormBankBranch.trim()) {
+      toast.error("Please enter bank branch");
+      return;
+    }
+
+    setAdminEditSubmitting(true);
+    try {
+      const res = await fetch("/api/user-details", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          targetUserId: adminEditTarget.userId,
+          country: adminFormCountry,
+          fullNameAsPerId: adminFormFullName.trim(),
+          govIdType: adminFormGovIdType,
+          govIdNumber: adminFormGovIdNumber.trim(),
+          bankAccountName: adminFormBankAccountName.trim(),
+          bankAccountNumber: adminFormBankAccountNumber.trim(),
+          bankSortCode: adminFormBankSortCode.trim(),
+          bankName: adminFormBankName.trim(),
+          bankBranch: adminFormBankBranch.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data.error || "Failed to save details");
+        return;
+      }
+      toast.success(
+        adminEditTarget.status === "NOT_SUBMITTED"
+          ? "Details added — pending review"
+          : "Details updated — pending review"
+      );
+      setAdminEditOpen(false);
+      setAdminEditTarget(null);
+      setAdminFormGovIdNumber("");
+      setAdminFormBankAccountNumber("");
+      void fetchTeamDetails();
+    } catch (err) {
+      console.error("[my-details] handleAdminEditSubmit error:", err);
+      toast.error("Failed to save details");
+    } finally {
+      setAdminEditSubmitting(false);
     }
   };
 
@@ -703,7 +851,8 @@ function MyDetailsPageInner() {
                   <IdCard className="h-4 w-4" /> Team Details
                 </CardTitle>
                 <CardDescription>
-                  Review and manage personal details submitted by team members
+                  Review team details. Add or edit for Developers and Project Managers who have not
+                  submitted (or cannot). Admins and Super Admins manage their own details only.
                 </CardDescription>
               </CardHeader>
               <CardContent className="p-0">
@@ -755,6 +904,21 @@ function MyDetailsPageInner() {
                             </TableCell>
                             <TableCell className="text-right">
                               <div className="flex items-center justify-end gap-1">
+                                {canAdminManageUserDetails(d.user?.role) && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-8 w-8 p-0"
+                                    onClick={() => openAdminEdit(d)}
+                                    title={d.status === "NOT_SUBMITTED" ? "Add details" : "Edit details"}
+                                  >
+                                    {d.status === "NOT_SUBMITTED" ? (
+                                      <Plus className="h-4 w-4" />
+                                    ) : (
+                                      <Pencil className="h-4 w-4" />
+                                    )}
+                                  </Button>
+                                )}
                                 {d.status !== "NOT_SUBMITTED" && (
                                   <>
                                     <Button
@@ -847,58 +1011,74 @@ function MyDetailsPageInner() {
                           </Badge>
                           <span className="text-muted-foreground">{d.country ? countryLabel(d.country) : "No country"}</span>
                         </div>
-                        {d.status !== "NOT_SUBMITTED" && (
-                          <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-wrap gap-2">
+                          {canAdminManageUserDetails(d.user?.role) && (
                             <Button
                               size="sm"
                               variant="outline"
                               className="h-8"
-                              onClick={() => { setViewTarget(d); setViewDialogOpen(true); }}
+                              onClick={() => openAdminEdit(d)}
                             >
-                              <Eye className="h-3.5 w-3.5 mr-1" /> View
+                              {d.status === "NOT_SUBMITTED" ? (
+                                <><Plus className="h-3.5 w-3.5 mr-1" /> Add</>
+                              ) : (
+                                <><Pencil className="h-3.5 w-3.5 mr-1" /> Edit</>
+                              )}
                             </Button>
-                            {d.status === "PENDING" && (
-                              <>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-8 text-green-600 border-green-200 hover:bg-green-50 dark:hover:bg-green-900/20"
-                                  onClick={() => {
-                                    setReviewTarget(d);
-                                    setReviewStatus("APPROVED");
-                                    setRejectReason("");
-                                    setReviewDialogOpen(true);
-                                  }}
-                                >
-                                  <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-8 text-red-600 border-red-200 hover:bg-red-50 dark:hover:bg-red-900/20"
-                                  onClick={() => {
-                                    setReviewTarget(d);
-                                    setReviewStatus("REJECTED");
-                                    setRejectReason("");
-                                    setReviewDialogOpen(true);
-                                  }}
-                                >
-                                  <XCircle className="h-3.5 w-3.5 mr-1" /> Reject
-                                </Button>
-                              </>
-                            )}
-                            {d.countryLocked && (
+                          )}
+                          {d.status !== "NOT_SUBMITTED" && (
+                            <>
                               <Button
                                 size="sm"
                                 variant="outline"
                                 className="h-8"
-                                onClick={() => { setUnlockTarget(d); setUnlockDialogOpen(true); }}
+                                onClick={() => { setViewTarget(d); setViewDialogOpen(true); }}
                               >
-                                <Unlock className="h-3.5 w-3.5 mr-1" /> Unlock
+                                <Eye className="h-3.5 w-3.5 mr-1" /> View
                               </Button>
-                            )}
-                          </div>
-                        )}
+                              {d.status === "PENDING" && (
+                                <>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 text-green-600 border-green-200 hover:bg-green-50 dark:hover:bg-green-900/20"
+                                    onClick={() => {
+                                      setReviewTarget(d);
+                                      setReviewStatus("APPROVED");
+                                      setRejectReason("");
+                                      setReviewDialogOpen(true);
+                                    }}
+                                  >
+                                    <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 text-red-600 border-red-200 hover:bg-red-50 dark:hover:bg-red-900/20"
+                                    onClick={() => {
+                                      setReviewTarget(d);
+                                      setReviewStatus("REJECTED");
+                                      setRejectReason("");
+                                      setReviewDialogOpen(true);
+                                    }}
+                                  >
+                                    <XCircle className="h-3.5 w-3.5 mr-1" /> Reject
+                                  </Button>
+                                </>
+                              )}
+                              {d.countryLocked && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8"
+                                  onClick={() => { setUnlockTarget(d); setUnlockDialogOpen(true); }}
+                                >
+                                  <Unlock className="h-3.5 w-3.5 mr-1" /> Unlock
+                                </Button>
+                              )}
+                            </>
+                          )}
+                        </div>
                       </div>
                     ))
                   )}
@@ -1165,6 +1345,208 @@ function MyDetailsPageInner() {
             <Button variant="outline" onClick={() => setUnlockDialogOpen(false)}>Cancel</Button>
             <Button onClick={handleUnlockCountry} className="bg-yellow-600 hover:bg-yellow-700">
               <Unlock className="h-4 w-4 mr-2" /> Unlock
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ━━ Admin Add/Edit Details (DEVELOPER / PM only) ━━ */}
+      <Dialog
+        open={adminEditOpen}
+        onOpenChange={(open) => {
+          setAdminEditOpen(open);
+          if (!open) {
+            setAdminEditTarget(null);
+            setAdminFormGovIdNumber("");
+            setAdminFormBankAccountNumber("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {adminEditTarget?.status === "NOT_SUBMITTED" ? (
+                <Plus className="h-4 w-4" />
+              ) : (
+                <Pencil className="h-4 w-4" />
+              )}
+              {adminEditTarget?.status === "NOT_SUBMITTED" ? "Add Details" : "Edit Details"}
+            </DialogTitle>
+            <DialogDescription>
+              {adminEditTarget && (
+                <>
+                  For <strong>{adminEditTarget.user?.name}</strong> ({adminEditTarget.user?.email}) —{" "}
+                  {safeText(adminEditTarget.user?.role, "")}. Sensitive fields must be re-entered.
+                  Saved details go to <strong>Pending</strong> for review.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-1">
+            <div>
+              <Label className="text-sm font-medium">Country *</Label>
+              <RadioGroup
+                value={adminFormCountry}
+                onValueChange={(v) => handleAdminCountryChange(v as Country)}
+                className="grid grid-cols-2 gap-2 mt-2"
+              >
+                <label
+                  className={cn(
+                    "flex items-center gap-2 rounded-lg border p-3 cursor-pointer text-sm",
+                    adminFormCountry === "UK" ? "border-primary bg-primary/5" : "border-input"
+                  )}
+                >
+                  <RadioGroupItem value="UK" /> United Kingdom
+                </label>
+                <label
+                  className={cn(
+                    "flex items-center gap-2 rounded-lg border p-3 cursor-pointer text-sm",
+                    adminFormCountry === "INDIA" ? "border-primary bg-primary/5" : "border-input"
+                  )}
+                >
+                  <RadioGroupItem value="INDIA" /> India
+                </label>
+              </RadioGroup>
+            </div>
+
+            {adminFormCountry && (
+              <>
+                <div>
+                  <Label htmlFor="admin-full-name" className="text-sm font-medium">
+                    Full Name (as per ID) *
+                  </Label>
+                  <Input
+                    id="admin-full-name"
+                    className="mt-1.5"
+                    value={adminFormFullName}
+                    onChange={(e) => setAdminFormFullName(e.target.value)}
+                    maxLength={200}
+                  />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label className="text-sm font-medium">Gov ID Type *</Label>
+                    <Select
+                      value={adminFormGovIdType}
+                      onValueChange={(v) => setAdminFormGovIdType(v as GovIdType)}
+                    >
+                      <SelectTrigger className="mt-1.5">
+                        <SelectValue placeholder="Select type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {adminFormCountry === "INDIA" && (
+                          <>
+                            <SelectItem value="AADHAAR">Aadhaar</SelectItem>
+                            <SelectItem value="PAN">PAN</SelectItem>
+                          </>
+                        )}
+                        {adminFormCountry === "UK" && (
+                          <SelectItem value="NI">National Insurance (NI)</SelectItem>
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label htmlFor="admin-gov-id" className="text-sm font-medium">
+                      Gov ID Number *
+                    </Label>
+                    <Input
+                      id="admin-gov-id"
+                      className="mt-1.5 font-mono"
+                      value={adminFormGovIdNumber}
+                      onChange={(e) => setAdminFormGovIdNumber(e.target.value)}
+                      placeholder={
+                        adminEditTarget?.govIdNumberMasked
+                          ? `Was ${adminEditTarget.govIdNumberMasked}`
+                          : "Enter full ID"
+                      }
+                      autoComplete="off"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <Label htmlFor="admin-bank-holder" className="text-sm font-medium">
+                    Account Holder Name *
+                  </Label>
+                  <Input
+                    id="admin-bank-holder"
+                    className="mt-1.5"
+                    value={adminFormBankAccountName}
+                    onChange={(e) => setAdminFormBankAccountName(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="admin-bank-acct" className="text-sm font-medium">
+                    Account Number *
+                  </Label>
+                  <Input
+                    id="admin-bank-acct"
+                    className="mt-1.5 font-mono"
+                    value={adminFormBankAccountNumber}
+                    onChange={(e) => setAdminFormBankAccountNumber(e.target.value)}
+                    placeholder={
+                      adminEditTarget?.bankAccountNumberMasked
+                        ? `Was ${adminEditTarget.bankAccountNumberMasked}`
+                        : "Enter full account number"
+                    }
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="admin-sort" className="text-sm font-medium">
+                      {adminFormCountry === "INDIA" ? "IFSC Code" : "Sort Code"} *
+                    </Label>
+                    <Input
+                      id="admin-sort"
+                      className="mt-1.5 font-mono"
+                      value={adminFormBankSortCode}
+                      onChange={(e) => setAdminFormBankSortCode(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="admin-bank-name" className="text-sm font-medium">
+                      Bank Name *
+                    </Label>
+                    <Input
+                      id="admin-bank-name"
+                      className="mt-1.5"
+                      value={adminFormBankName}
+                      onChange={(e) => setAdminFormBankName(e.target.value)}
+                    />
+                  </div>
+                </div>
+                {adminFormCountry === "INDIA" && (
+                  <div>
+                    <Label htmlFor="admin-branch" className="text-sm font-medium">
+                      Bank Branch *
+                    </Label>
+                    <Input
+                      id="admin-branch"
+                      className="mt-1.5"
+                      value={adminFormBankBranch}
+                      onChange={(e) => setAdminFormBankBranch(e.target.value)}
+                    />
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setAdminEditOpen(false)}
+              disabled={adminEditSubmitting}
+            >
+              Cancel
+            </Button>
+            <Button onClick={() => void handleAdminEditSubmit()} disabled={adminEditSubmitting || !adminFormCountry}>
+              {adminEditSubmitting ? (
+                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4 mr-2" />
+              )}
+              Save for review
             </Button>
           </DialogFooter>
         </DialogContent>

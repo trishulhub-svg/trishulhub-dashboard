@@ -1,12 +1,11 @@
-import { NextRequest, NextResponse } from "next/server"
+import { after, NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureAllTables } from "@/lib/auto-migrate"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
-import { sendEmailWithFailover } from "@/lib/email"
+import { isValidEmail, logEmailEvent, sendEmailWithFailover } from "@/lib/email"
 import { notifyUsers } from "@/lib/notify"
 
 const VALID_STATUSES = ["PENDING", "APPROVED", "REJECTED"] as const
@@ -31,7 +30,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const rl = rateLimit(`user-details-patch-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
-    await ensureAllTables()
+    // Do NOT await ensureAllTables() here — it made Approve feel stuck for many seconds.
 
     const userId = session.user.id
     const userRole = session.user.role
@@ -117,33 +116,49 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         userAgent: getUserAgent(req),
       })
 
-      // ── Notify the user (in-app + email) ──
-      // In-app notification (fire-and-forget)
-      try {
-        await notifyUsers({
-          userIds: detail.userId,
-          title: `Details ${newStatus === "APPROVED" ? "Approved" : "Rejected"}`,
-          message: newStatus === "APPROVED"
+      // In-app notify — never block Approve/Reject on this
+      void notifyUsers({
+        userIds: detail.userId,
+        title: `Details ${newStatus === "APPROVED" ? "Approved" : "Rejected"}`,
+        message:
+          newStatus === "APPROVED"
             ? `Your personal details have been approved by ${session.user.name || "an admin"}.`
             : `Your personal details were rejected by ${session.user.name || "an admin"}. Reason: ${rejectedReason}`,
-          type: newStatus === "APPROVED" ? "SUCCESS" : "WARNING",
-          link: "/dashboard/my-details",
-          metadata: { userDetailId: id, status: newStatus },
-        })
-      } catch (notifyErr: unknown) {
-        console.error("[user-details] PATCH in-app notification error (non-blocking):", notifyErr)
-      }
+        type: newStatus === "APPROVED" ? "SUCCESS" : "WARNING",
+        link: "/dashboard/my-details",
+        metadata: { userDetailId: id, status: newStatus },
+      })
 
-      // ── Email notification via SMTP failover ──
-      // Don't block the response on email delivery — fire-and-forget.
-      void (async () => {
+      // Email via after() so Vercel keeps the work alive after the HTTP response,
+      // and EmailLog is always written (SENT / FAILED).
+      const recipientEmail = (updated.user?.email || "").trim()
+      const userName = updated.user?.name || "there"
+      const adminName = session.user.name || "an administrator"
+      after(async () => {
         try {
-          const userName = updated.user?.name || "there"
-          const subject = newStatus === "APPROVED"
-            ? "Your TrishulHub details have been approved"
-            : "Action needed: TrishulHub details rejected"
-          const html = newStatus === "APPROVED"
-            ? `
+          if (!recipientEmail || !isValidEmail(recipientEmail)) {
+            await logEmailEvent({
+              to: recipientEmail || "(missing)",
+              subject:
+                newStatus === "APPROVED"
+                  ? "Your TrishulHub details have been approved"
+                  : "Action needed: TrishulHub details rejected",
+              type: "USER_DETAIL_REVIEW",
+              status: "FAILED",
+              error: "User has no valid email address",
+              triggeredBy: userId,
+              metadata: JSON.stringify({ userDetailId: id, status: newStatus }),
+            })
+            return
+          }
+
+          const subject =
+            newStatus === "APPROVED"
+              ? "Your TrishulHub details have been approved"
+              : "Action needed: TrishulHub details rejected"
+          const html =
+            newStatus === "APPROVED"
+              ? `
               <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; background: #f9fafb; border-radius: 12px;">
                 <div style="text-align: center; margin-bottom: 24px;">
                   <h1 style="color: #1f2937; font-size: 22px; margin: 0;">TrishulHub</h1>
@@ -152,13 +167,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
                 <div style="background: #ffffff; padding: 24px; border-radius: 8px; border: 1px solid #e5e7eb;">
                   <h2 style="color: #059669; font-size: 18px; margin: 0 0 12px 0;">✓ Details Approved</h2>
                   <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 12px 0;">Hi ${userName},</p>
-                  <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 12px 0;">Your personal details (country, government ID, and bank account information) have been reviewed and <strong>approved</strong> by ${session.user.name || "an administrator"}.</p>
+                  <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 12px 0;">Your personal details (country, government ID, and bank account information) have been reviewed and <strong>approved</strong> by ${adminName}.</p>
                   <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0;">You can view your details anytime in the TrishulHub dashboard.</p>
                 </div>
                 <p style="color: #9ca3af; font-size: 12px; text-align: center; margin-top: 16px;">This is an automated message from TrishulHub.</p>
               </div>
             `
-            : `
+              : `
               <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; background: #f9fafb; border-radius: 12px;">
                 <div style="text-align: center; margin-bottom: 24px;">
                   <h1 style="color: #1f2937; font-size: 22px; margin: 0;">TrishulHub</h1>
@@ -167,7 +182,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
                 <div style="background: #ffffff; padding: 24px; border-radius: 8px; border: 1px solid #e5e7eb;">
                   <h2 style="color: #dc2626; font-size: 18px; margin: 0 0 12px 0;">✗ Details Rejected</h2>
                   <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 12px 0;">Hi ${userName},</p>
-                  <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 12px 0;">Your personal details were reviewed by ${session.user.name || "an administrator"} and <strong>rejected</strong>. Please review the reason below and resubmit.</p>
+                  <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 12px 0;">Your personal details were reviewed by ${adminName} and <strong>rejected</strong>. Please review the reason below and resubmit.</p>
                   <div style="background: #fef2f2; border-left: 4px solid #dc2626; padding: 12px 16px; margin: 16px 0; border-radius: 4px;">
                     <p style="color: #991b1b; font-size: 14px; line-height: 1.5; margin: 0;"><strong>Reason:</strong> ${rejectedReason.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>
                   </div>
@@ -176,19 +191,38 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
                 <p style="color: #9ca3af; font-size: 12px; text-align: center; margin-top: 16px;">This is an automated message from TrishulHub.</p>
               </div>
             `
-          await sendEmailWithFailover({
-            to: updated.user?.email || "",
+
+          const result = await sendEmailWithFailover({
+            to: recipientEmail,
             subject,
             html,
             type: "USER_DETAIL_REVIEW",
             triggeredBy: userId,
           })
+          if (!result.success) {
+            console.error("[user-details] REVIEW email failed:", result.error)
+          }
         } catch (emailErr: unknown) {
-          console.error("[user-details] PATCH email notification error (non-blocking):", emailErr instanceof Error ? emailErr.message : String(emailErr))
+          console.error(
+            "[user-details] PATCH email notification error:",
+            emailErr instanceof Error ? emailErr.message : String(emailErr)
+          )
+          try {
+            await logEmailEvent({
+              to: recipientEmail || "(missing)",
+              subject: "USER_DETAIL_REVIEW",
+              type: "USER_DETAIL_REVIEW",
+              status: "FAILED",
+              error: emailErr instanceof Error ? emailErr.message : String(emailErr),
+              triggeredBy: userId,
+              metadata: JSON.stringify({ userDetailId: id, status: newStatus }),
+            })
+          } catch {
+            /* ignore secondary log failure */
+          }
         }
-      })()
+      })
 
-      // Return masked response (without re-fetching — updated already has the data)
       return NextResponse.json({
         id: updated.id,
         userId: updated.userId,
@@ -203,6 +237,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         createdAt: updated.createdAt.toISOString(),
         updatedAt: updated.updatedAt.toISOString(),
         user: updated.user,
+        emailQueued: true,
       })
     }
 
@@ -239,19 +274,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         userAgent: getUserAgent(req),
       })
 
-      // In-app notification to the user
-      try {
-        await notifyUsers({
-          userIds: detail.userId,
-          title: "Country Selection Unlocked",
-          message: `An admin has unlocked your country selection. You can now choose a different country in My Details.`,
-          type: "INFO",
-          link: "/dashboard/my-details",
-          metadata: { userDetailId: id, action: "UNLOCK_COUNTRY" },
-        })
-      } catch (notifyErr: unknown) {
-        console.error("[user-details] PATCH unlock notification error (non-blocking):", notifyErr)
-      }
+      void notifyUsers({
+        userIds: detail.userId,
+        title: "Country Selection Unlocked",
+        message:
+          "An admin has unlocked your country selection. You can now choose a different country in My Details.",
+        type: "INFO",
+        link: "/dashboard/my-details",
+        metadata: { userDetailId: id, action: "UNLOCK_COUNTRY" },
+      })
 
       return NextResponse.json({
         id: updated.id,

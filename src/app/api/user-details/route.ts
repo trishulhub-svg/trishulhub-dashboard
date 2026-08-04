@@ -7,7 +7,7 @@ import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureAllTables } from "@/lib/auto-migrate"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 import { encryptCredentialToJson, decryptCredentialFromJson } from "@/lib/encryption"
-import { notifyRoles } from "@/lib/notify"
+import { notifyRoles, notifyUsers } from "@/lib/notify"
 
 async function getCredentialDbKey(): Promise<string> {
   try {
@@ -303,9 +303,13 @@ export async function GET(req: NextRequest) {
   }
 }
 
+const ADMIN_EDITABLE_ROLES = new Set(["DEVELOPER", "PROJECT_MANAGER"])
+
 // ━━ POST /api/user-details ━━
 // Create or update the current user's own details.
-// - Country can only be set ONCE (if countryLocked is true, reject change)
+// Admins / Super Admins may also pass targetUserId to add/edit details for a
+// DEVELOPER or PROJECT_MANAGER (not for ADMIN / SUPER_ADMIN).
+// - Country can only be set ONCE for self (if countryLocked is true, reject change)
 // - Encrypt govIdNumber and bankAccountNumber using encryptCredentialToJson
 // - Status resets to PENDING on any edit
 export async function POST(req: NextRequest) {
@@ -319,11 +323,11 @@ export async function POST(req: NextRequest) {
 
     await ensureAllTables()
 
-    const userId = session.user.id
-    const userRole = session.user.role
+    const actorId = session.user.id
+    const actorRole = session.user.role
 
     // CLIENT users are not allowed to submit HR details
-    if (userRole === "CLIENT") {
+    if (actorRole === "CLIENT") {
       return NextResponse.json({ error: "Client accounts cannot submit user details" }, { status: 403 })
     }
 
@@ -332,6 +336,41 @@ export async function POST(req: NextRequest) {
       body = await req.json()
     } catch {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    }
+
+    // Optional admin-on-behalf target
+    const targetUserIdRaw =
+      typeof body.targetUserId === "string" ? body.targetUserId.trim() : ""
+    let userId = actorId
+    let isAdminOnBehalf = false
+    let targetUserName = session.user.name || "A team member"
+
+    if (targetUserIdRaw && targetUserIdRaw !== actorId) {
+      if (!isAdmin(actorRole)) {
+        return NextResponse.json(
+          { error: "Only Admin or Super Admin can edit another user's details" },
+          { status: 403 }
+        )
+      }
+      const target = await db.user.findUnique({
+        where: { id: targetUserIdRaw },
+        select: { id: true, name: true, email: true, role: true, isActive: true },
+      })
+      if (!target || !target.isActive) {
+        return NextResponse.json({ error: "Target user not found or inactive" }, { status: 404 })
+      }
+      if (!ADMIN_EDITABLE_ROLES.has(target.role)) {
+        return NextResponse.json(
+          {
+            error:
+              "Admins can only add or edit details for Developers and Project Managers (not Admin or Super Admin)",
+          },
+          { status: 403 }
+        )
+      }
+      userId = target.id
+      isAdminOnBehalf = true
+      targetUserName = target.name || target.email || "Team member"
     }
 
     const country = typeof body.country === "string" ? body.country.toUpperCase() : ""
@@ -450,13 +489,19 @@ export async function POST(req: NextRequest) {
     // ── Fetch existing detail (if any) ──
     const existing = await db.userDetail.findUnique({ where: { userId } })
 
-    // ── Country lock enforcement ──
-    // If user already has a country set AND it's locked, they can only resubmit
-    // with the SAME country (admin must unlock to change it).
-    if (existing?.country && existing.countryLocked && existing.country !== country) {
-      return NextResponse.json({
-        error: `Your country is locked to ${existing.country === "UK" ? "United Kingdom" : "India"}. Please contact an admin to change it.`,
-      }, { status: 403 })
+    // ── Country lock enforcement (self only; admins may override on behalf) ──
+    if (
+      !isAdminOnBehalf &&
+      existing?.country &&
+      existing.countryLocked &&
+      existing.country !== country
+    ) {
+      return NextResponse.json(
+        {
+          error: `Your country is locked to ${existing.country === "UK" ? "United Kingdom" : "India"}. Please contact an admin to change it.`,
+        },
+        { status: 403 }
+      )
     }
 
     // ── Build the data payload ──
@@ -486,42 +531,63 @@ export async function POST(req: NextRequest) {
       detail = await db.userDetail.update({
         where: { userId },
         data,
+        include: {
+          user: {
+            select: { id: true, name: true, email: true, role: true, department: true },
+          },
+        },
       })
     } else {
       detail = await db.userDetail.create({
         data: { userId, ...data },
+        include: {
+          user: {
+            select: { id: true, name: true, email: true, role: true, department: true },
+          },
+        },
       })
     }
 
     // Audit: log submission (fire-and-forget)
     void logAudit({
-      userId: session.user.id,
+      userId: actorId,
       userName: session.user.name || "unknown",
-      userRole,
+      userRole: actorRole,
       department: "HR_PEOPLE",
       page: "my-details",
       action: existing ? "UPDATE" : "CREATE",
       entityType: "UserDetail",
       entityId: detail.id,
-      description: `${existing ? "Updated" : "Submitted"} personal details (country: ${country}, govIdType: ${govIdType})`,
+      description: isAdminOnBehalf
+        ? `${existing ? "Updated" : "Added"} personal details for ${targetUserName} (country: ${country}, govIdType: ${govIdType})`
+        : `${existing ? "Updated" : "Submitted"} personal details (country: ${country}, govIdType: ${govIdType})`,
       ipAddress: getIpAddress(req),
       userAgent: getUserAgent(req),
     })
 
-    // Notify admins about new submission (fire-and-forget, don't block)
-    try {
-      await notifyRoles(["SUPER_ADMIN", "ADMIN"], {
+    // Notifications — never block the response
+    if (isAdminOnBehalf) {
+      void notifyUsers({
+        userIds: userId,
+        title: "Details updated by admin",
+        message: `${session.user.name || "An administrator"} ${existing ? "updated" : "added"} your personal details. They are pending review.`,
+        type: "INFO",
+        link: "/dashboard/my-details",
+        metadata: { userDetailId: detail.id, submittedByAdmin: actorId },
+      })
+    } else {
+      void notifyRoles(["SUPER_ADMIN", "ADMIN"], {
         title: "New Details Submission",
         message: `${session.user.name || "A team member"} submitted their personal details for review (${country === "UK" ? "United Kingdom" : "India"}).`,
         type: "APPROVAL",
         link: "/dashboard/my-details",
         metadata: { userDetailId: detail.id, userId },
       })
-    } catch (notifyErr: unknown) {
-      console.error("[user-details] POST notification error (non-blocking):", notifyErr)
     }
 
-    return NextResponse.json(toResponse(detail, { dbKey: dbKey || undefined }), { status: existing ? 200 : 201 })
+    return NextResponse.json(toResponse(detail, { dbKey: dbKey || undefined }), {
+      status: existing ? 200 : 201,
+    })
   } catch (error: unknown) {
     console.error("[user-details] POST Error:", error)
     const msg = error instanceof Error ? error.message : ""
