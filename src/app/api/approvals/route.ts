@@ -124,7 +124,7 @@ export async function POST(req: NextRequest) {
 
     // Notify all admins/super_admins about new approval request
     try {
-      await notifyRoles(["SUPER_ADMIN", "ADMIN"], {
+      void notifyRoles(["SUPER_ADMIN", "ADMIN"], {
         title: "New Approval Request",
         message: `${requesterType === "AI" ? "AI Agent" : "Team member"} requests approval: ${title}`,
         type: "APPROVAL",
@@ -229,7 +229,7 @@ export async function PATCH(req: NextRequest) {
           requester?.role === "ADMIN" ||
           requester?.role === "PROJECT_MANAGER"
 
-        await notifyUsers({
+        void notifyUsers({
           userIds: approval.requesterId,
           title: `Approval ${status === "APPROVED" ? "Approved" : status === "REJECTED" ? "Rejected" : "Needs Improvement"}`,
           message: `Your request "${approval.title}" has been ${status.toLowerCase()}.${sanitizedFeedback ? ` Feedback: ${sanitizedFeedback}` : ""}`,

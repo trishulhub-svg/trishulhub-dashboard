@@ -4,7 +4,6 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureAllTables } from "@/lib/auto-migrate"
 import {
   DEFAULT_EXPENSE_CATEGORIES,
   normalizeExpenseCategoryName,
@@ -76,8 +75,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Category name must be 40 characters or fewer" }, { status: 400 })
     }
 
-    await ensureAllTables()
-
     const id = crypto.randomUUID()
     const now = new Date().toISOString()
     try {
@@ -142,8 +139,6 @@ export async function PATCH(req: NextRequest) {
     if (name.length > 40) {
       return NextResponse.json({ error: "Category name must be 40 characters or fewer" }, { status: 400 })
     }
-
-    await ensureAllTables()
 
     const existing = (await db.$queryRawUnsafe(
       `SELECT "id", "name" FROM "ExpenseCategory" WHERE "id" = ? LIMIT 1`,

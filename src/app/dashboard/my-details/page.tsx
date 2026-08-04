@@ -409,14 +409,17 @@ function MyDetailsPageInner() {
           bankBranch: formBankBranch,
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         toast.success("Details submitted for review");
         setIsEditing(false);
-        // Reset sensitive fields
         setFormGovIdNumber("");
         setFormBankAccountNumber("");
-        fetchData();
+        // Paint from response immediately — don't wait on a second full refetch
+        if (data?.id) {
+          setMyDetail(data as UserDetailResponse);
+        }
+        void fetchMyDetail();
       } else {
         toast.error(data.error || "Failed to submit details");
       }

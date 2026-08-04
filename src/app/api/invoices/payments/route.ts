@@ -4,7 +4,6 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureAllTables } from "@/lib/auto-migrate"
 import { deepSanitize } from "@/lib/utils"
 import { roundMoney } from "@/lib/money"
 import { z } from "zod"
@@ -27,8 +26,6 @@ export async function POST(req: NextRequest) {
 
     const rl = rateLimit(`invoice-payments-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
-
-    await ensureAllTables()
 
     let body: unknown
     try {

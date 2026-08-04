@@ -133,7 +133,7 @@ export async function POST(
         user.role === "ADMIN" ||
         user.role === "PROJECT_MANAGER"
 
-      await notifyUsers({
+      void notifyUsers({
         userIds: userId,
         title: "Project Assignment",
         message: `You have been assigned to project "${project.name}" as ${memberRole || "MEMBER"}`,

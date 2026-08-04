@@ -4,7 +4,6 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureAllTables } from "@/lib/auto-migrate"
 import { isAdmin } from "@/lib/rbac"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
@@ -145,8 +144,6 @@ export async function GET(req: NextRequest) {
 // POST /api/expenses - Create expense (ADMIN/SUPER_ADMIN only)
 export async function POST(req: NextRequest) {
   try {
-    await ensureAllTables()
-
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -252,8 +249,6 @@ export async function POST(req: NextRequest) {
 // PATCH /api/expenses - Update expense
 export async function PATCH(req: NextRequest) {
   try {
-    await ensureAllTables()
-
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -376,8 +371,6 @@ export async function PATCH(req: NextRequest) {
 // PUT /api/expenses - Full update expense (ADMIN/SUPER_ADMIN only)
 export async function PUT(req: NextRequest) {
   try {
-    await ensureAllTables()
-
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -487,8 +480,6 @@ export async function PUT(req: NextRequest) {
 // DELETE /api/expenses - Delete expense (SUPER_ADMIN and ADMIN only)
 export async function DELETE(req: NextRequest) {
   try {
-    await ensureAllTables()
-
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 

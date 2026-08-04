@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
       select: { id: true, createdAt: true },
     })
 
-    const notifiedAdmins = await notifyRoles(["SUPER_ADMIN", "ADMIN"], {
+    void notifyRoles(["SUPER_ADMIN", "ADMIN"], {
       title: "Training QR requested",
       message: `${userName} needs a new Percipio login QR. Upload a fresh code in Learning.`,
       type: "WARNING",
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
       ok: true,
       alreadyPending: false,
       request,
-      notifiedAdmins,
+      notifiedAdmins: true,
       message: "Request sent. Super Admin will upload a new QR shortly.",
     })
   } catch (err) {

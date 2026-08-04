@@ -4,7 +4,6 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureAllTables } from "@/lib/auto-migrate"
 import { deepSanitize } from "@/lib/utils"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 import { z } from "zod"
@@ -85,8 +84,6 @@ export async function PUT(req: NextRequest) {
     )
     if (!rateOk) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
-    await ensureAllTables()
-
     let body: unknown
     try {
       body = await req.json()
@@ -157,8 +154,6 @@ export async function DELETE(req: NextRequest) {
 
     const clientId = new URL(req.url).searchParams.get("clientId")
     if (!clientId) return NextResponse.json({ error: "clientId is required" }, { status: 400 })
-
-    await ensureAllTables()
 
     const existing = await db.client.findUnique({
       where: { id: clientId },
