@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef } from "react";
+import { forwardRef, useEffect, useMemo, useState } from "react";
 import { Loader2, Play, Repeat2, StopCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,13 @@ import { cn, safeText } from "@/lib/utils";
 import type { Project, TimeActivityItem, TimeEntry, TrainingAssignment } from "./types";
 import { entryActivityLabel } from "./types";
 import { formatDuration, formatDurationShort, formatTime } from "./utils";
-import { ActivitySelectItems } from "./activity-select";
+import {
+  ClockInKindToggle,
+  NonProjectActivityItems,
+  ProjectSelectItems,
+  WorkDot,
+  type ClockInKind,
+} from "./activity-select";
 
 interface TimerHeroProps {
   activeEntry: TimeEntry | null;
@@ -39,6 +45,17 @@ interface TimerHeroProps {
   onStart: () => void;
   onSwitchClick: () => void;
   onClockOutClick: () => void;
+}
+
+function inferKind(
+  selected: string,
+  activities: TimeActivityItem[],
+  projects: Project[]
+): ClockInKind {
+  if (!selected || selected === "none") return "project";
+  if (activities.some((a) => a.selectValue === selected)) return "activity";
+  if (projects.some((p) => p.id === selected)) return "project";
+  return "project";
 }
 
 export const TimerHero = forwardRef<HTMLDivElement, TimerHeroProps>(function TimerHero(
@@ -70,6 +87,30 @@ export const TimerHero = forwardRef<HTMLDivElement, TimerHeroProps>(function Tim
     activities.find((a) => a.key === "TRAINING")?.selectValue || "__training__";
   const isTrainingSelected = selectedProject === trainingSelect;
   const startDisabled = starting || (isTrainingSelected && !selectedTrainingAssignmentId);
+
+  const [kind, setKind] = useState<ClockInKind>(() =>
+    inferKind(selectedProject, activities, projects)
+  );
+
+  useEffect(() => {
+    setKind(inferKind(selectedProject, activities, projects));
+  }, [selectedProject, activities, projects]);
+
+  const projectHasWork = useMemo(
+    () => projects.some((p) => p.hasOpenAssignedMilestones),
+    [projects]
+  );
+  const activityBadgeKeys = useMemo(() => {
+    const keys = new Set<string>();
+    if (trainingAssignments.length > 0) keys.add("TRAINING");
+    return keys;
+  }, [trainingAssignments.length]);
+  const activityHasWork = activityBadgeKeys.size > 0;
+
+  const handleKindChange = (next: ClockInKind) => {
+    setKind(next);
+    onProjectChange("none");
+  };
 
   const activeLabel = activeEntry
     ? entryActivityLabel(activeEntry, activityLabels)
@@ -168,21 +209,48 @@ export const TimerHero = forwardRef<HTMLDivElement, TimerHeroProps>(function Tim
           </div>
         ) : (
           <div className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">What are you working on?</Label>
+              <ClockInKindToggle
+                value={kind}
+                onChange={handleKindChange}
+                projectHasWork={projectHasWork}
+                activityHasWork={activityHasWork}
+              />
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
               <div>
-                <Label className="text-xs mb-1.5 block text-muted-foreground">Activity</Label>
-                <Select value={selectedProject} onValueChange={onProjectChange}>
+                <Label className="text-xs mb-1.5 block text-muted-foreground">
+                  {kind === "project" ? "Select project" : "Select activity"}
+                </Label>
+                <Select
+                  value={selectedProject === "none" ? undefined : selectedProject}
+                  onValueChange={onProjectChange}
+                >
                   <SelectTrigger className="h-10 bg-background/80">
-                    <SelectValue placeholder="Optional activity..." />
+                    <SelectValue
+                      placeholder={
+                        kind === "project" ? "Choose a project..." : "Choose an activity..."
+                      }
+                    />
                   </SelectTrigger>
                   <SelectContent>
-                    <ActivitySelectItems projects={projects} activities={activities} />
+                    {kind === "project" ? (
+                      <ProjectSelectItems projects={projects} />
+                    ) : (
+                      <NonProjectActivityItems
+                        activities={activities}
+                        badgeKeys={activityBadgeKeys}
+                      />
+                    )}
                   </SelectContent>
                 </Select>
               </div>
               {isTrainingSelected && (
                 <div>
-                  <Label className="text-xs mb-1.5 block text-muted-foreground">
+                  <Label className="text-xs mb-1.5 flex items-center gap-1.5 text-muted-foreground">
+                    {trainingAssignments.length > 0 && <WorkDot title="Assigned training" />}
                     Assigned training
                   </Label>
                   <Select
@@ -207,7 +275,10 @@ export const TimerHero = forwardRef<HTMLDivElement, TimerHeroProps>(function Tim
                       ) : (
                         trainingAssignments.map((assignment) => (
                           <SelectItem key={assignment.id} value={assignment.id}>
-                            {safeText(assignment.title)}
+                            <span className="inline-flex items-center gap-2">
+                              <WorkDot title="Assigned training" />
+                              <span>{safeText(assignment.title)}</span>
+                            </span>
                           </SelectItem>
                         ))
                       )}
@@ -215,7 +286,7 @@ export const TimerHero = forwardRef<HTMLDivElement, TimerHeroProps>(function Tim
                   </Select>
                 </div>
               )}
-              <div>
+              <div className={isTrainingSelected ? "sm:col-span-2" : undefined}>
                 <Label className="text-xs mb-1.5 block text-muted-foreground">Description</Label>
                 <Input
                   placeholder="What are you working on?"
@@ -229,7 +300,7 @@ export const TimerHero = forwardRef<HTMLDivElement, TimerHeroProps>(function Tim
               size="lg"
               className="h-12 px-8 text-base font-semibold w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white"
               onClick={onStart}
-              disabled={startDisabled}
+              disabled={startDisabled || selectedProject === "none" || !selectedProject}
             >
               {starting ? (
                 <Loader2 className="h-5 w-5 mr-2 animate-spin" />

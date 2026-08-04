@@ -153,10 +153,32 @@ export async function saveTimeActivityCatalog(
 ): Promise<TimeActivityItem[]> {
   const next: TimeActivityItem[] = []
   const seen = new Set<string>()
+  const allowedRoles = new Set([
+    "SUPER_ADMIN",
+    "ADMIN",
+    "PROJECT_MANAGER",
+    "DEVELOPER",
+  ])
+
+  const cleanRoles = (roles: unknown): string[] => {
+    if (!Array.isArray(roles)) return []
+    return [
+      ...new Set(
+        roles
+          .filter((r): r is string => typeof r === "string")
+          .map((r) => r.trim().toUpperCase())
+          .filter((r) => allowedRoles.has(r))
+      ),
+    ]
+  }
 
   for (const def of DEFAULT_TIME_ACTIVITY_CATALOG) {
     const hit = items.find((p) => p.key === def.key)
-    const item = normalizeItem(hit ? { ...def, ...hit, roles: def.roles } : def, def)
+    const roles = hit && "roles" in hit ? cleanRoles(hit.roles) : def.roles
+    const item = normalizeItem(
+      hit ? { ...def, ...hit, roles } : def,
+      def
+    )
     if (item) {
       next.push(item)
       seen.add(item.key)
@@ -170,7 +192,7 @@ export async function saveTimeActivityCatalog(
       key,
       label: row.label,
       enabled: row.enabled,
-      roles: row.roles || [],
+      roles: cleanRoles(row.roles),
     })
     if (!item) continue
     next.push(item)
@@ -193,21 +215,29 @@ export function activitiesVisibleForRole(
   })
 }
 
-/** Role may clock this activity type (built-in rules + enabled custom rows). */
+/** Role may clock this activity type — driven by catalog roles (empty = all). */
 export function canUseActivityType(
   role: string,
   activityType: string,
   catalog?: TimeActivityItem[]
 ): boolean {
-  if (activityType === "PROJECT" || activityType === "TRAINING" || activityType === "SUPERVISION") {
-    return true
-  }
-  if (activityType === "HR_ADMIN") return role === "ADMIN" || role === "SUPER_ADMIN"
-  if (activityType === "RD_SA") return role === "SUPER_ADMIN" || role === "PROJECT_MANAGER"
+  if (activityType === "PROJECT") return true
 
-  const item = catalog?.find((c) => c.key === activityType)
-  if (!item) return isValidCustomActivityKey(activityType)
-  if (!item.enabled) return false
-  if (!item.roles.length) return true
-  return item.roles.includes(role)
+  const list = catalog || DEFAULT_TIME_ACTIVITY_CATALOG
+  const item = list.find((c) => c.key === activityType)
+  if (item) {
+    if (!item.enabled) return false
+    if (!item.roles.length) return true
+    return item.roles.includes(role)
+  }
+
+  // Unknown custom key without catalog row — allow only valid custom keys
+  return isValidCustomActivityKey(activityType)
 }
+
+export const CLOCK_IN_ROLE_OPTIONS = [
+  { id: "SUPER_ADMIN", label: "Super Admin" },
+  { id: "ADMIN", label: "Admin" },
+  { id: "PROJECT_MANAGER", label: "PM" },
+  { id: "DEVELOPER", label: "Developer" },
+] as const

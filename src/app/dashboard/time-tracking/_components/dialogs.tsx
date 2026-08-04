@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { ArrowLeft, CheckCircle2, Clock, Eye, Loader2, Pencil, Plus, Repeat2, StopCircle } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -36,7 +36,13 @@ import { safeText } from "@/lib/utils";
 import type { Project, TeamUser, TimeActivityItem, TimeEntry, TrainingAssignment } from "./types";
 import { canEditWorkNotes, workNotesHoursLeft } from "./types";
 import { formatDate, formatDuration, formatHours, formatTime } from "./utils";
-import { ActivitySelectItems } from "./activity-select";
+import {
+  ActivitySelectItems,
+  ClockInKindToggle,
+  NonProjectActivityItems,
+  ProjectSelectItems,
+  WorkDot,
+} from "./activity-select";
 
 /* ── Clock Out ── */
 export type SessionMilestone = {
@@ -505,7 +511,25 @@ export function SwitchSessionDialog({
     activities.find((a) => a.key === "TRAINING")?.selectValue || "__training__";
   const isTrainingSelected = selectedProject === trainingSelect;
   const actionDisabled =
-    !!switchingMode || (isTrainingSelected && !selectedTrainingAssignmentId);
+    !!switchingMode ||
+    !selectedProject ||
+    selectedProject === "none" ||
+    (isTrainingSelected && !selectedTrainingAssignmentId);
+
+  const [kind, setKind] = useState<"project" | "activity">("project");
+
+  useEffect(() => {
+    if (!open) return;
+    if (activities.some((a) => a.selectValue === selectedProject)) setKind("activity");
+    else setKind("project");
+  }, [open, selectedProject, activities]);
+
+  const projectHasWork = projects.some((p) => p.hasOpenAssignedMilestones);
+  const activityBadgeKeys = useMemo(() => {
+    const keys = new Set<string>();
+    if (trainingAssignments.length > 0) keys.add("TRAINING");
+    return keys;
+  }, [trainingAssignments.length]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -516,25 +540,51 @@ export function SwitchSessionDialog({
             Switch running session
           </DialogTitle>
           <DialogDescription>
-            Choose the next activity, then decide whether to complete or delete the current timer.
+            Pick Project or Activity, then choose whether to complete or delete the current timer.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
+          <ClockInKindToggle
+            value={kind}
+            onChange={(next) => {
+              setKind(next);
+              onProjectChange("none");
+            }}
+            projectHasWork={projectHasWork}
+            activityHasWork={activityBadgeKeys.size > 0}
+          />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-2">
-              <Label>Next activity</Label>
-              <Select value={selectedProject} onValueChange={onProjectChange}>
+              <Label>{kind === "project" ? "Select project" : "Select activity"}</Label>
+              <Select
+                value={selectedProject === "none" ? undefined : selectedProject}
+                onValueChange={onProjectChange}
+              >
                 <SelectTrigger>
-                  <SelectValue placeholder="Optional activity..." />
+                  <SelectValue
+                    placeholder={
+                      kind === "project" ? "Choose a project..." : "Choose an activity..."
+                    }
+                  />
                 </SelectTrigger>
                 <SelectContent>
-                  <ActivitySelectItems projects={projects} activities={activities} />
+                  {kind === "project" ? (
+                    <ProjectSelectItems projects={projects} />
+                  ) : (
+                    <NonProjectActivityItems
+                      activities={activities}
+                      badgeKeys={activityBadgeKeys}
+                    />
+                  )}
                 </SelectContent>
               </Select>
             </div>
             {isTrainingSelected && (
               <div className="space-y-2">
-                <Label>Assigned training</Label>
+                <Label className="inline-flex items-center gap-1.5">
+                  {trainingAssignments.length > 0 && <WorkDot />}
+                  Assigned training
+                </Label>
                 <Select
                   value={selectedTrainingAssignmentId}
                   onValueChange={onTrainingAssignmentChange}
@@ -557,7 +607,10 @@ export function SwitchSessionDialog({
                     ) : (
                       trainingAssignments.map((assignment) => (
                         <SelectItem key={assignment.id} value={assignment.id}>
-                          {safeText(assignment.title)}
+                          <span className="inline-flex items-center gap-2">
+                            <WorkDot />
+                            <span>{safeText(assignment.title)}</span>
+                          </span>
                         </SelectItem>
                       ))
                     )}

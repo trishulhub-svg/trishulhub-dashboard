@@ -525,7 +525,7 @@ function TimeTrackingPageInner() {
     }
   }, []);
 
-  const loadTrainingAssignments = useCallback(async () => {
+  const loadTrainingAssignments = useCallback(async (opts?: { silent?: boolean }) => {
     setTrainingAssignmentsLoading(true);
     try {
       const res = await fetch("/api/training/assignments?mine=1", { credentials: "include" });
@@ -537,16 +537,24 @@ function TimeTrackingPageInner() {
         setTrainingAssignments(assignments);
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(safeText(err?.error, "Failed to load assigned trainings"));
+        if (!opts?.silent) {
+          toast.error(safeText(err?.error, "Failed to load assigned trainings"));
+        }
         setTrainingAssignments([]);
       }
     } catch {
-      toast.error("Failed to load assigned trainings");
+      if (!opts?.silent) toast.error("Failed to load assigned trainings");
       setTrainingAssignments([]);
     } finally {
       setTrainingAssignmentsLoading(false);
     }
   }, []);
+
+  // Prefetch open trainings so Activity tab / Training row can show yellow dots
+  useEffect(() => {
+    if (sessionStatus !== "authenticated") return;
+    void loadTrainingAssignments({ silent: true });
+  }, [sessionStatus, loadTrainingAssignments]);
 
   const handleTimerProjectChange = useCallback(
     (value: string) => {

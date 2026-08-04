@@ -36,6 +36,10 @@ const putSchema = z.object({
           }),
         label: z.string().trim().min(1).max(60),
         enabled: z.boolean(),
+        roles: z
+          .array(z.enum(["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"]))
+          .max(8)
+          .optional(),
       })
     )
     .min(1)
