@@ -4,7 +4,6 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin, isAdminOrProjectManager, getAssignedClientIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureAllTables } from "@/lib/auto-migrate"
 import { deepSanitize } from "@/lib/utils"
 import { createSupportTicketSchema, updateSupportTicketSchema, validateRequest } from "@/lib/validations"
 
@@ -108,8 +107,6 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     // Issue #21: ensureAllTables()
-    await ensureAllTables()
-
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -183,8 +180,6 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   try {
     // Issue #21: ensureAllTables()
-    await ensureAllTables()
-
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -255,8 +250,6 @@ export async function PUT(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   try {
     // Issue #21: ensureAllTables()
-    await ensureAllTables()
-
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 

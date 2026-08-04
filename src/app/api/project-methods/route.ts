@@ -4,8 +4,6 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdminOrProjectManager } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureAllTables } from "@/lib/auto-migrate"
-
 // GET /api/project-methods — List all project methods (admin/PM only)
 export async function GET() {
   try {
@@ -48,8 +46,6 @@ export async function POST(req: NextRequest) {
 
     const name = (body.name || "").trim()
     if (!name) return NextResponse.json({ error: "Name is required" }, { status: 400 })
-
-    await ensureAllTables()
 
     // W46: Use crypto.randomUUID() instead of weak ID generation
     const id = crypto.randomUUID()
@@ -119,8 +115,6 @@ export async function PATCH(req: NextRequest) {
     const name = (body.name || "").trim()
     if (!name) return NextResponse.json({ error: "Name is required" }, { status: 400 })
 
-    await ensureAllTables()
-
     // UPDATE only name — NEVER reference updatedAt
     try {
       await db.$executeRawUnsafe(
@@ -157,8 +151,6 @@ export async function DELETE(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const id = searchParams.get("id")
     if (!id) return NextResponse.json({ error: "ID is required" }, { status: 400 })
-
-    await ensureAllTables()
 
     // Nullify projectMethodId on clients (safe — wrapped in try since column may not exist)
     try {

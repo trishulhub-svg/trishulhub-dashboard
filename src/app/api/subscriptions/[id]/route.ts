@@ -4,7 +4,6 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { updateSubscriptionSchema, validateRequest } from "@/lib/validations"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureAllTables } from "@/lib/auto-migrate"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
 // TODO: Extract DEFAULT_EXCHANGE_RATES to shared constants (duplicated from subscriptions/route.ts)
@@ -35,8 +34,6 @@ export async function PATCH(
     if (!rl.success) {
       return NextResponse.json({ error: "Rate limit exceeded. Please try again later." }, { status: 429 })
     }
-
-    await ensureAllTables()
 
     // Wrap req.json() in try/catch for malformed JSON
     let body: unknown
@@ -172,8 +169,6 @@ export async function DELETE(
     if (!rl.success) {
       return NextResponse.json({ error: "Rate limit exceeded. Please try again later." }, { status: 429 })
     }
-
-    await ensureAllTables()
 
     const { id } = await params
 

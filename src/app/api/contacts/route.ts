@@ -5,7 +5,6 @@ import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { isAdminOrProjectManager } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureAllTables } from "@/lib/auto-migrate"
 import { deepSanitize } from "@/lib/utils"
 import { z } from "zod"
 
@@ -62,8 +61,6 @@ export async function POST(req: NextRequest) {
 
     const rl = rateLimit(`contacts-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
-
-    await ensureAllTables()
 
     let body: unknown
     try {

@@ -113,7 +113,7 @@ async function notifyOverdueIfNeeded() {
     const userMap = await loadUserMap(overdue.map((o) => o.userId))
     for (const item of overdue) {
       const name = userMap.get(item.userId)?.name || "A team member"
-      await notifyRoles(["SUPER_ADMIN", "ADMIN"], {
+      void notifyRoles(["SUPER_ADMIN", "ADMIN"], {
         title: "Training overdue",
         message: `${name} has not completed "${item.title}" (due ${new Date(item.dueDate).toLocaleDateString()}).`,
         type: "WARNING",
@@ -354,7 +354,7 @@ export async function POST(req: NextRequest) {
       created.push(assignment)
     }
 
-    await notifyUsers({
+    void notifyUsers({
       userIds: targetIds,
       title: "New training assigned",
       message: `You have been assigned "${title}" — due ${due.toLocaleDateString()}. Open Learning → My Training.`,
@@ -573,7 +573,7 @@ export async function PATCH(req: NextRequest) {
       if (existing.userId !== updated.userId) notifyIds.add(existing.userId)
 
       const dueLabel = new Date(updated.dueDate).toLocaleDateString()
-      await notifyUsers({
+      void notifyUsers({
         userIds: [...notifyIds],
         title: "Training assignment updated",
         message:
@@ -635,7 +635,7 @@ export async function PATCH(req: NextRequest) {
 
     const userMap = await loadUserMap([updated.userId, updated.assignedById])
     const who = userMap.get(updated.userId)?.name || session.user.name || "A team member"
-    await notifyRoles(["SUPER_ADMIN", "ADMIN"], {
+    void notifyRoles(["SUPER_ADMIN", "ADMIN"], {
       title: "Training completed",
       message: `${who} marked "${updated.title}" as done.`,
       type: "SUCCESS",

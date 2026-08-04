@@ -5,7 +5,6 @@ import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { createSubscriptionSchema, validateRequest } from "@/lib/validations"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureAllTables } from "@/lib/auto-migrate"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
 // TODO: Store exchange rates in DB — these fallbacks become stale
@@ -166,8 +165,6 @@ export async function POST(req: NextRequest) {
     if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
-
-    await ensureAllTables()
 
     // Rate limit
     const rl = rateLimit(`subs-write-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)

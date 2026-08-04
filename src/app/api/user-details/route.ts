@@ -4,14 +4,24 @@ import { authOptions } from "@/lib/auth"
 import { db, getAppSetting } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureAllTables } from "@/lib/auto-migrate"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 import { encryptCredentialToJson, decryptCredentialFromJson } from "@/lib/encryption"
 import { notifyRoles, notifyUsers } from "@/lib/notify"
+import { runAfterResponse } from "@/lib/background"
+
+let _cachedCredentialKey: string | null = null
+let _cachedCredentialKeyAt = 0
 
 async function getCredentialDbKey(): Promise<string> {
+  // Cache briefly so Submit does not hit AppSetting on every encrypt path
+  if (_cachedCredentialKey != null && Date.now() - _cachedCredentialKeyAt < 60_000) {
+    return _cachedCredentialKey
+  }
   try {
-    return await getAppSetting("credentialEncryptionKey")
+    const key = await getAppSetting("credentialEncryptionKey")
+    _cachedCredentialKey = key
+    _cachedCredentialKeyAt = Date.now()
+    return key
   } catch {
     return ""
   }
@@ -321,8 +331,6 @@ export async function POST(req: NextRequest) {
     const rl = rateLimit(`user-details-post-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
-    await ensureAllTables()
-
     const actorId = session.user.id
     const actorRole = session.user.role
 
@@ -565,25 +573,29 @@ export async function POST(req: NextRequest) {
       userAgent: getUserAgent(req),
     })
 
-    // Notifications — never block the response
-    if (isAdminOnBehalf) {
-      void notifyUsers({
-        userIds: userId,
-        title: "Details updated by admin",
-        message: `${session.user.name || "An administrator"} ${existing ? "updated" : "added"} your personal details. They are pending review.`,
-        type: "INFO",
-        link: "/dashboard/my-details",
-        metadata: { userDetailId: detail.id, submittedByAdmin: actorId },
-      })
-    } else {
-      void notifyRoles(["SUPER_ADMIN", "ADMIN"], {
-        title: "New Details Submission",
-        message: `${session.user.name || "A team member"} submitted their personal details for review (${country === "UK" ? "United Kingdom" : "India"}).`,
-        type: "APPROVAL",
-        link: "/dashboard/my-details",
-        metadata: { userDetailId: detail.id, userId },
-      })
-    }
+    // Notifications after response — keep Submit snappy on Vercel
+    const notifyExisting = !!existing
+    const notifyActorName = session.user.name || (isAdminOnBehalf ? "An administrator" : "A team member")
+    runAfterResponse(async () => {
+      if (isAdminOnBehalf) {
+        await notifyUsers({
+          userIds: userId,
+          title: "Details updated by admin",
+          message: `${notifyActorName} ${notifyExisting ? "updated" : "added"} your personal details. They are pending review.`,
+          type: "INFO",
+          link: "/dashboard/my-details",
+          metadata: { userDetailId: detail.id, submittedByAdmin: actorId },
+        })
+      } else {
+        await notifyRoles(["SUPER_ADMIN", "ADMIN"], {
+          title: "New Details Submission",
+          message: `${notifyActorName} submitted their personal details for review (${country === "UK" ? "United Kingdom" : "India"}).`,
+          type: "APPROVAL",
+          link: "/dashboard/my-details",
+          metadata: { userDetailId: detail.id, userId },
+        })
+      }
+    })
 
     return NextResponse.json(toResponse(detail, { dbKey: dbKey || undefined }), {
       status: existing ? 200 : 201,

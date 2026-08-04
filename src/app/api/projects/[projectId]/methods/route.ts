@@ -3,8 +3,6 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdminOrProjectManager } from "@/lib/rbac"
-import { ensureAllTables } from "@/lib/auto-migrate"
-
 // GET /api/projects/[projectId]/methods — Get methods assigned to a project
 export async function GET(req: NextRequest, { params }: { params: Promise<{ projectId: string }> }) {
   try {
@@ -49,8 +47,6 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ proj
     if (!id || !/^[a-zA-Z0-9_-]{1,50}$/.test(id)) {
       return NextResponse.json({ error: "Invalid project ID format" }, { status: 400 })
     }
-
-    await ensureAllTables()
 
     let body: { methodIds?: string[] }
     try {

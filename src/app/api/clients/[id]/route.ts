@@ -6,7 +6,6 @@ import { Prisma } from "@prisma/client"
 import { updateClientSchema, validateRequest } from "@/lib/validations"
 import { isAdmin, isAdminOrProjectManager, getAssignedClientIds } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureAllTables } from "@/lib/auto-migrate"
 import { deepSanitize } from "@/lib/utils"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
@@ -197,8 +196,6 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await ensureAllTables()
-
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 

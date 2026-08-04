@@ -8,7 +8,6 @@ import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { createInvoiceSchema, updateInvoiceSchema, validateRequest } from "@/lib/validations"
 // Note: deepSanitize is actually a deep clone, not XSS sanitization
 import { deepSanitize } from "@/lib/utils"
-import { ensureAllTables } from "@/lib/auto-migrate"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 import { COMPANY_DEFAULT_CURRENCY, normalizeCurrency, roundMoney } from "@/lib/money"
 
@@ -100,8 +99,6 @@ export async function POST(req: NextRequest) {
     if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
-
-    await ensureAllTables()
 
     const userId = session.user.id
     const { success: rateOk } = rateLimit(`invoices-post:${userId}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
@@ -210,8 +207,6 @@ export async function PATCH(req: NextRequest) {
     if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
-
-    await ensureAllTables()
 
     const userId = session.user.id
     const { success: rateOk } = rateLimit(`invoices-patch:${userId}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
@@ -387,8 +382,6 @@ export async function DELETE(req: NextRequest) {
     if (!isAdmin(userRole)) {
       return NextResponse.json({ error: "Only admins can delete invoices" }, { status: 403 })
     }
-
-    await ensureAllTables()
 
     const userId = session.user.id
     const { success: rateOk } = rateLimit(`invoices-delete:${userId}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)

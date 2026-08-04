@@ -104,7 +104,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     // Notify the employee about the leave decision (fire-and-forget)
     if (status === "APPROVED" || status === "REJECTED") {
       try {
-        await notifyUsers({
+        void notifyUsers({
           userIds: leave.userId,
           title: `Leave ${status === "APPROVED" ? "Approved" : "Rejected"}`,
           message: `Your ${leave.leaveType.replace(/_/g, " ").toLowerCase()} leave request from ${new Date(leave.startDate).toLocaleDateString()} to ${new Date(leave.endDate).toLocaleDateString()} has been ${status.toLowerCase()}${leave.feedback ? `. Feedback: ${leave.feedback}` : ""}.`,

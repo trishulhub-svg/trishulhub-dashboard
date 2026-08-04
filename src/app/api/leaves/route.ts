@@ -4,7 +4,6 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureAllTables } from "@/lib/auto-migrate"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 import { notifyRoles } from "@/lib/notify"
 
@@ -98,8 +97,6 @@ export async function POST(req: NextRequest) {
     const rl = rateLimit(`leaves-post-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
     if (!rl.success) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
-    await ensureAllTables()
-
     const sessionUserId = session.user.id
     const userRole = session.user.role
     let body
@@ -174,7 +171,7 @@ export async function POST(req: NextRequest) {
 
     // Notify admins about new leave request (fire-and-forget, don't block creation)
     try {
-      await notifyRoles(["SUPER_ADMIN", "ADMIN"], {
+      void notifyRoles(["SUPER_ADMIN", "ADMIN"], {
         title: "New Leave Request",
         message: `${leave.user?.name || "A team member"} requested ${leaveType.replace("_", " ").toLowerCase()} leave from ${new Date(startDate).toLocaleDateString()} to ${new Date(endDate).toLocaleDateString()}`,
         type: "APPROVAL",

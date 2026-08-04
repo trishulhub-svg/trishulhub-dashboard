@@ -3,7 +3,6 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureAllTables } from "@/lib/auto-migrate"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 import { sendInvoiceEmail, isValidEmail } from "@/lib/email"
 
@@ -28,8 +27,6 @@ export async function POST(req: NextRequest) {
     if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
-
-    await ensureAllTables()
 
     const userId = session.user.id
     const rl = rateLimit(`invoices-send:${userId}`, RATE_LIMITS.invoiceSend.limit, RATE_LIMITS.invoiceSend.windowMs)

@@ -185,7 +185,7 @@ export async function POST(req: NextRequest) {
     // Smart notify: only the pending cohort for THIS upload (A then B example)
     const requesterIds = [...new Set(pending.map((p) => p.userId))]
     if (requesterIds.length > 0) {
-      await notifyUsers({
+      void notifyUsers({
         userIds: requesterIds,
         title: "New training QR available",
         message:

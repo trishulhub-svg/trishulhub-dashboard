@@ -23,6 +23,8 @@ function getErrMsg(err: unknown): string {
 // Bump when adding CRITICAL_COLUMNS / CRITICAL_TABLES so warm serverless
 // instances re-run migrations after deploy (stale syncDone otherwise skips ALTERs).
 const SCHEMA_REVISION = 202608032
+const SCHEMA_REVISION_SETTING_KEY = "auto_migrate_schema_revision"
+const CRITICAL_REVISION_SETTING_KEY = "auto_migrate_critical_revision"
 
 // Use globalThis to persist the syncDone flag across hot reloads in dev
 // and across serverless function warm invocations in production.
@@ -32,6 +34,9 @@ declare global {
   var __trishulAutoMigrateSyncDone: boolean | undefined
   var __trishulAutoMigrateRevision: number | undefined
   var __trishulCriticalSchemaRevision: number | undefined
+  var __trishulAutoMigrateInflight: Promise<void> | undefined
+  var __trishulCriticalSchemaInflight: Promise<void> | undefined
+  var __trishulPersistedRevisionChecked: boolean | undefined
 }
 
 function isSyncDone(): boolean {
@@ -57,6 +62,59 @@ function isCriticalSchemaDone(): boolean {
 
 function setCriticalSchemaDone() {
   globalThis.__trishulCriticalSchemaRevision = SCHEMA_REVISION
+}
+
+async function readPersistedRevision(key: string): Promise<number | null> {
+  try {
+    const rows = await db.$queryRawUnsafe<Array<{ value: string }>>(
+      `SELECT value FROM "AppSetting" WHERE "key" = ? LIMIT 1`,
+      key
+    )
+    const raw = rows?.[0]?.value
+    const n = raw != null ? Number.parseInt(String(raw), 10) : NaN
+    return Number.isFinite(n) ? n : null
+  } catch {
+    return null
+  }
+}
+
+/** One cheap SELECT — skips hundreds of ALTER attempts on cold serverless starts. */
+async function hydrateFullFromPersisted(): Promise<boolean> {
+  if (isSyncDone()) return true
+  const n = await readPersistedRevision(SCHEMA_REVISION_SETTING_KEY)
+  globalThis.__trishulPersistedRevisionChecked = true
+  if (n === SCHEMA_REVISION) {
+    setSyncDone(true)
+    return true
+  }
+  return false
+}
+
+async function hydrateCriticalFromPersisted(): Promise<boolean> {
+  if (isCriticalSchemaDone()) return true
+  if (await hydrateFullFromPersisted()) return true
+  const n = await readPersistedRevision(CRITICAL_REVISION_SETTING_KEY)
+  if (n === SCHEMA_REVISION) {
+    setCriticalSchemaDone()
+    return true
+  }
+  return false
+}
+
+async function persistRevision(key: string): Promise<void> {
+  try {
+    await db.$executeRawUnsafe(
+      `CREATE TABLE IF NOT EXISTS "AppSetting" ("key" TEXT NOT NULL PRIMARY KEY, "value" TEXT NOT NULL DEFAULT '', "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`
+    )
+    await db.$executeRawUnsafe(
+      `INSERT INTO "AppSetting" ("key", "value", "updatedAt") VALUES (?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT("key") DO UPDATE SET "value" = excluded."value", "updatedAt" = CURRENT_TIMESTAMP`,
+      key,
+      String(SCHEMA_REVISION)
+    )
+  } catch (err: unknown) {
+    console.warn(`[auto-migrate] persist revision ${key}: ${getErrMsg(err)}`)
+  }
 }
 
 /** Columns to add if missing: uses "try ALTER, catch duplicate" approach */
@@ -692,42 +750,70 @@ async function ensureInfraMemberAccessPerUserSchema(): Promise<void> {
  */
 export async function ensureCriticalSchema(): Promise<void> {
   if (isCriticalSchemaDone()) return
-  try {
-    await db.$queryRawUnsafe("SELECT 1")
-  } catch (err: unknown) {
-    console.error("[auto-migrate] ensureCriticalSchema DB failed:", getErrMsg(err))
+  if (await hydrateCriticalFromPersisted()) return
+  if (globalThis.__trishulCriticalSchemaInflight) {
+    await globalThis.__trishulCriticalSchemaInflight
     return
   }
-  for (const tableDef of CRITICAL_TABLES) {
+
+  globalThis.__trishulCriticalSchemaInflight = (async () => {
     try {
-      await db.$executeRawUnsafe(tableDef.sql)
+      await db.$queryRawUnsafe("SELECT 1")
     } catch (err: unknown) {
-      if (!getErrMsg(err)?.includes("already exists")) {
-        console.warn(`[auto-migrate] Table ${tableDef.name}: ${getErrMsg(err)}`)
+      console.error("[auto-migrate] ensureCriticalSchema DB failed:", getErrMsg(err))
+      return
+    }
+    for (const tableDef of CRITICAL_TABLES) {
+      try {
+        await db.$executeRawUnsafe(tableDef.sql)
+      } catch (err: unknown) {
+        if (!getErrMsg(err)?.includes("already exists")) {
+          console.warn(`[auto-migrate] Table ${tableDef.name}: ${getErrMsg(err)}`)
+        }
       }
     }
-  }
-  for (const colDef of CRITICAL_COLUMNS) {
-    try {
-      await db.$executeRawUnsafe(colDef.sql)
-    } catch (err: unknown) {
-      const msg = getErrMsg(err) || ""
-      if (!msg.includes("duplicate column") && !msg.includes("no such table")) {
-        console.warn(`[auto-migrate] Column ${colDef.column} on ${colDef.table}: ${msg}`)
+    for (const colDef of CRITICAL_COLUMNS) {
+      try {
+        await db.$executeRawUnsafe(colDef.sql)
+      } catch (err: unknown) {
+        const msg = getErrMsg(err) || ""
+        if (!msg.includes("duplicate column") && !msg.includes("no such table")) {
+          console.warn(`[auto-migrate] Column ${colDef.column} on ${colDef.table}: ${msg}`)
+        }
       }
     }
-  }
-  await ensureInfraMemberAccessPerUserSchema()
-  try {
-    const { ensureProjectClientIdNullable } = await import("@/lib/project-clientid-migrate")
-    await ensureProjectClientIdNullable()
-  } catch (err: unknown) {
-    console.warn(`[auto-migrate] Project.clientId nullable (critical): ${getErrMsg(err)}`)
-  }
-  setCriticalSchemaDone()
+    await ensureInfraMemberAccessPerUserSchema()
+    try {
+      const { ensureProjectClientIdNullable } = await import("@/lib/project-clientid-migrate")
+      await ensureProjectClientIdNullable()
+    } catch (err: unknown) {
+      console.warn(`[auto-migrate] Project.clientId nullable (critical): ${getErrMsg(err)}`)
+    }
+    setCriticalSchemaDone()
+    // Persist critical revision so cold Submit/Save paths skip ALTER storms
+    await persistRevision(CRITICAL_REVISION_SETTING_KEY)
+  })().finally(() => {
+    globalThis.__trishulCriticalSchemaInflight = undefined
+  })
+
+  await globalThis.__trishulCriticalSchemaInflight
 }
 
 export async function ensureAllTables(): Promise<void> {
+  if (isSyncDone()) return
+  if (await hydrateFullFromPersisted()) return
+  if (globalThis.__trishulAutoMigrateInflight) {
+    await globalThis.__trishulAutoMigrateInflight
+    return
+  }
+
+  globalThis.__trishulAutoMigrateInflight = doEnsureAllTables().finally(() => {
+    globalThis.__trishulAutoMigrateInflight = undefined
+  })
+  await globalThis.__trishulAutoMigrateInflight
+}
+
+async function doEnsureAllTables(): Promise<void> {
   if (isSyncDone()) return
 
   try {
@@ -1471,6 +1557,8 @@ export async function ensureAllTables(): Promise<void> {
 
     // Mark as done ONLY after all migrations succeed
     setSyncDone(true)
+    await persistRevision(CRITICAL_REVISION_SETTING_KEY)
+    await persistRevision(SCHEMA_REVISION_SETTING_KEY)
   } catch (err: unknown) {
     console.error("[auto-migrate] Schema check error (non-fatal):", getErrMsg(err))
   }

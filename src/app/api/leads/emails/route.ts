@@ -5,7 +5,6 @@ import { db } from "@/lib/db"
 import { z } from "zod"
 import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureAllTables } from "@/lib/auto-migrate"
 import { deepSanitize } from "@/lib/utils"
 
 // ━━ Zod schema for creating a lead email ━━
@@ -72,8 +71,6 @@ export async function GET(req: NextRequest) {
 // POST /api/leads/emails - Create a lead email (ADMIN/SUPER_ADMIN only)
 export async function POST(req: NextRequest) {
   try {
-    await ensureAllTables()
-
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
