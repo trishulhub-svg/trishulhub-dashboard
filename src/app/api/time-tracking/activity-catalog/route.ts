@@ -40,6 +40,7 @@ const putSchema = z.object({
           .array(z.enum(["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"]))
           .max(8)
           .optional(),
+        userIds: z.array(z.string().trim().min(1).max(64)).max(200).optional(),
       })
     )
     .min(1)

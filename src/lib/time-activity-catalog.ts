@@ -24,6 +24,11 @@ export type TimeActivityItem = {
   enabled: boolean
   /** Roles that may use this activity (empty = all clock-in roles) */
   roles: string[]
+  /**
+   * Users who get a yellow “assigned work” blink for this activity.
+   * Empty = no user-targeted yellow dots (role visibility still applies).
+   */
+  userIds: string[]
   selectValue: string
 }
 
@@ -33,6 +38,7 @@ export const DEFAULT_TIME_ACTIVITY_CATALOG: TimeActivityItem[] = [
     label: "Training",
     enabled: true,
     roles: [],
+    userIds: [],
     selectValue: "__training__",
   },
   {
@@ -40,6 +46,7 @@ export const DEFAULT_TIME_ACTIVITY_CATALOG: TimeActivityItem[] = [
     label: "Supervision",
     enabled: true,
     roles: [],
+    userIds: [],
     selectValue: "__supervision__",
   },
   {
@@ -47,6 +54,7 @@ export const DEFAULT_TIME_ACTIVITY_CATALOG: TimeActivityItem[] = [
     label: "HR & Administration",
     enabled: true,
     roles: ["SUPER_ADMIN", "ADMIN"],
+    userIds: [],
     selectValue: "__hr_admin__",
   },
   {
@@ -54,6 +62,7 @@ export const DEFAULT_TIME_ACTIVITY_CATALOG: TimeActivityItem[] = [
     label: "R&D / SA",
     enabled: true,
     roles: ["SUPER_ADMIN", "PROJECT_MANAGER"],
+    userIds: [],
     selectValue: "__rd_sa__",
   },
 ]
@@ -105,12 +114,17 @@ function normalizeItem(
     Array.isArray(raw?.roles) && raw.roles.every((r) => typeof r === "string")
       ? (raw.roles as string[])
       : fallback?.roles || def?.roles || []
+  const userIds =
+    Array.isArray(raw?.userIds) && raw.userIds.every((r) => typeof r === "string")
+      ? [...new Set((raw.userIds as string[]).map((id) => id.trim()).filter(Boolean))].slice(0, 200)
+      : fallback?.userIds || def?.userIds || []
 
   return {
     key,
     label: labelSrc.slice(0, 60),
     enabled: typeof raw?.enabled === "boolean" ? raw.enabled : fallback?.enabled ?? true,
     roles,
+    userIds,
     selectValue: def?.selectValue || selectValueForKey(key),
   }
 }
@@ -149,7 +163,13 @@ export async function getTimeActivityCatalog(): Promise<TimeActivityItem[]> {
 }
 
 export async function saveTimeActivityCatalog(
-  items: Array<{ key: string; label: string; enabled: boolean; roles?: string[] }>
+  items: Array<{
+    key: string
+    label: string
+    enabled: boolean
+    roles?: string[]
+    userIds?: string[]
+  }>
 ): Promise<TimeActivityItem[]> {
   const next: TimeActivityItem[] = []
   const seen = new Set<string>()
@@ -172,13 +192,23 @@ export async function saveTimeActivityCatalog(
     ]
   }
 
+  const cleanUserIds = (ids: unknown): string[] => {
+    if (!Array.isArray(ids)) return []
+    return [
+      ...new Set(
+        ids
+          .filter((id): id is string => typeof id === "string")
+          .map((id) => id.trim())
+          .filter((id) => id.length > 0 && id.length <= 64)
+      ),
+    ].slice(0, 200)
+  }
+
   for (const def of DEFAULT_TIME_ACTIVITY_CATALOG) {
     const hit = items.find((p) => p.key === def.key)
     const roles = hit && "roles" in hit ? cleanRoles(hit.roles) : def.roles
-    const item = normalizeItem(
-      hit ? { ...def, ...hit, roles } : def,
-      def
-    )
+    const userIds = hit && "userIds" in hit ? cleanUserIds(hit.userIds) : def.userIds
+    const item = normalizeItem(hit ? { ...def, ...hit, roles, userIds } : def, def)
     if (item) {
       next.push(item)
       seen.add(item.key)
@@ -193,6 +223,7 @@ export async function saveTimeActivityCatalog(
       label: row.label,
       enabled: row.enabled,
       roles: cleanRoles(row.roles),
+      userIds: cleanUserIds(row.userIds),
     })
     if (!item) continue
     next.push(item)
@@ -213,6 +244,17 @@ export function activitiesVisibleForRole(
     if (!item.roles.length) return true
     return item.roles.includes(role)
   })
+}
+
+/** Activity keys that should show a yellow blink for this user (excluding TRAINING — handled via assignments). */
+export function catalogYellowDotKeysForUser(
+  catalog: TimeActivityItem[],
+  userId: string
+): string[] {
+  if (!userId) return []
+  return catalog
+    .filter((item) => item.enabled && Array.isArray(item.userIds) && item.userIds.includes(userId))
+    .map((item) => item.key)
 }
 
 /** Role may clock this activity type — driven by catalog roles (empty = all). */

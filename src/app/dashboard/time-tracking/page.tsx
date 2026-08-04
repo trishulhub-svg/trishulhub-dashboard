@@ -63,12 +63,20 @@ import {
 } from "./_components/dialogs";
 
 const FALLBACK_ACTIVITIES: TimeActivityItem[] = [
-  { key: "TRAINING", label: "Training", enabled: true, roles: [], selectValue: "__training__" },
+  {
+    key: "TRAINING",
+    label: "Training",
+    enabled: true,
+    roles: [],
+    userIds: [],
+    selectValue: "__training__",
+  },
   {
     key: "SUPERVISION",
     label: "Supervision",
     enabled: true,
     roles: [],
+    userIds: [],
     selectValue: "__supervision__",
   },
   {
@@ -76,6 +84,7 @@ const FALLBACK_ACTIVITIES: TimeActivityItem[] = [
     label: "HR & Administration",
     enabled: true,
     roles: ["SUPER_ADMIN", "ADMIN"],
+    userIds: [],
     selectValue: "__hr_admin__",
   },
   {
@@ -83,6 +92,7 @@ const FALLBACK_ACTIVITIES: TimeActivityItem[] = [
     label: "R&D / SA",
     enabled: true,
     roles: ["SUPER_ADMIN", "PROJECT_MANAGER"],
+    userIds: [],
     selectValue: "__rd_sa__",
   },
 ];
@@ -1602,6 +1612,7 @@ function TimeTrackingPageInner() {
             activeEntries={activeEntries}
             activeElapsedMap={activeElapsedMap}
             endingEntryId={endingEntryId}
+            currentUserId={session?.user?.id}
             onProjectChange={handleTimerProjectChange}
             onDescriptionChange={setTimerDescription}
             onTrainingAssignmentChange={setSelectedTrainingAssignmentId}
@@ -1725,6 +1736,7 @@ function TimeTrackingPageInner() {
         selectedTrainingAssignmentId={switchTrainingAssignmentId}
         trainingAssignmentsLoading={trainingAssignmentsLoading}
         switchingMode={switchStartingMode}
+        currentUserId={session?.user?.id}
         onProjectChange={handleSwitchProjectChange}
         onDescriptionChange={setSwitchDescription}
         onTrainingAssignmentChange={setSwitchTrainingAssignmentId}

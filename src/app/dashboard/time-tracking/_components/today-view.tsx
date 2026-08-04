@@ -50,6 +50,7 @@ interface TodayViewProps {
   activeEntries: TimeEntry[];
   activeElapsedMap: Record<string, number>;
   endingEntryId: string | null;
+  currentUserId?: string;
   onProjectChange: (v: string) => void;
   onDescriptionChange: (v: string) => void;
   onTrainingAssignmentChange: (v: string) => void;
@@ -102,6 +103,7 @@ export function TodayView({
   activeEntries,
   activeElapsedMap,
   endingEntryId,
+  currentUserId,
   onProjectChange,
   onDescriptionChange,
   onTrainingAssignmentChange,
@@ -141,6 +143,7 @@ export function TodayView({
         starting={starting}
         stopping={stopping}
         fromWorkspace={fromWorkspace}
+        currentUserId={currentUserId}
         onProjectChange={onProjectChange}
         onDescriptionChange={onDescriptionChange}
         onTrainingAssignmentChange={onTrainingAssignmentChange}
