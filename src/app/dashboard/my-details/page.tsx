@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, Suspense } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, Suspense } from "react";
 import { useUrlState } from "@/hooks/use-url-state";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
@@ -23,6 +23,9 @@ import {
   FileText,
   Filter,
   Search,
+  Copy,
+  Check,
+  EyeOff,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -1054,16 +1057,31 @@ function MyDetailsPageInner() {
                 </div>
               )}
 
-              <DetailField icon={User} label="Full Name (as per ID)" value={viewTarget.fullNameAsPerId} />
-              <DetailField icon={FileText} label="Government ID Type" value={govIdTypeLabel(viewTarget.govIdType)} />
-              <DetailField icon={IdCard} label="Government ID Number" value={viewTarget.govIdNumberMasked || "—"} mono />
-              <DetailField icon={User} label="Bank Account Holder Name" value={viewTarget.bankAccountName} />
-              <DetailField icon={Landmark} label="Bank Account Number" value={viewTarget.bankAccountNumberMasked || "—"} mono />
-              <DetailField icon={Building2} label={sortCodeLabel(viewTarget.country)} value={viewTarget.bankSortCode} mono />
-              <DetailField icon={Building2} label="Bank Name" value={viewTarget.bankName} />
+              <DetailField icon={User} label="Full Name (as per ID)" value={viewTarget.fullNameAsPerId} copyable />
+              <DetailField icon={FileText} label="Government ID Type" value={govIdTypeLabel(viewTarget.govIdType)} copyable />
+              <SensitiveDetailField
+                icon={IdCard}
+                label="Government ID Number"
+                maskedValue={viewTarget.govIdNumberMasked || "—"}
+                detailId={viewTarget.id}
+                field="govId"
+              />
+              <DetailField icon={User} label="Bank Account Holder Name" value={viewTarget.bankAccountName} copyable />
+              <SensitiveDetailField
+                icon={Landmark}
+                label="Bank Account Number"
+                maskedValue={viewTarget.bankAccountNumberMasked || "—"}
+                detailId={viewTarget.id}
+                field="bankAccount"
+              />
+              <DetailField icon={Building2} label={sortCodeLabel(viewTarget.country)} value={viewTarget.bankSortCode} mono copyable />
+              <DetailField icon={Building2} label="Bank Name" value={viewTarget.bankName} copyable />
               {viewTarget.country === "INDIA" && (
-                <DetailField icon={Building2} label="Bank Branch" value={viewTarget.bankBranch} />
+                <DetailField icon={Building2} label="Bank Branch" value={viewTarget.bankBranch} copyable />
               )}
+              <p className="text-[11px] text-muted-foreground">
+                Hold Reveal on Government ID or Account Number to view the full value. Copy works for all payment fields (Admin / Super Admin only).
+              </p>
 
               {viewTarget.status === "APPROVED" && viewTarget.reviewedAt && (
                 <p className="text-xs text-muted-foreground">
@@ -1560,20 +1578,202 @@ interface DetailFieldProps {
   label: string;
   value: string | null | undefined;
   mono?: boolean;
+  copyable?: boolean;
 }
 
-function DetailField({ icon: Icon, label, value, mono }: DetailFieldProps) {
+async function copyText(text: string, label: string) {
+  const value = (text || "").trim();
+  if (!value || value === "—") {
+    toast.error(`No ${label} to copy`);
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(value);
+    toast.success(`${label} copied`);
+  } catch {
+    toast.error("Failed to copy");
+  }
+}
+
+function DetailField({ icon: Icon, label, value, mono, copyable }: DetailFieldProps) {
+  const [copied, setCopied] = useState(false);
+  const display = safeText(value, "—") || "—";
+
   return (
     <div className="space-y-1">
       <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
         <Icon className="h-3.5 w-3.5" />
         {label}
       </div>
-      <div className={cn(
-        "text-sm py-1.5 px-3 rounded-md bg-muted/40 min-h-[36px] flex items-center",
-        mono && "font-mono"
-      )}>
-        {safeText(value, "—") || "—"}
+      <div
+        className={cn(
+          "text-sm py-1.5 px-3 rounded-md bg-muted/40 min-h-[36px] flex items-center justify-between gap-2",
+          mono && "font-mono"
+        )}
+      >
+        <span className="truncate">{display}</span>
+        {copyable && display !== "—" && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 shrink-0"
+            aria-label={`Copy ${label}`}
+            title={`Copy ${label}`}
+            onClick={() => {
+              void copyText(display, label).then(() => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              });
+            }}
+          >
+            {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Admin-only: hold to reveal encrypted gov ID / account number + copy. */
+function SensitiveDetailField({
+  icon: Icon,
+  label,
+  maskedValue,
+  detailId,
+  field,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  maskedValue: string;
+  detailId: string;
+  field: "govId" | "bankAccount";
+}) {
+  const [revealed, setRevealed] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const holdingRef = useRef(false);
+
+  const hide = useCallback(() => {
+    holdingRef.current = false;
+    setRevealed(null);
+    setLoading(false);
+  }, []);
+
+  const reveal = useCallback(async () => {
+    holdingRef.current = true;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/user-details/${detailId}/reveal?field=${field}`, {
+        credentials: "include",
+      });
+      if (!holdingRef.current) return;
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.error || "Failed to reveal");
+        hide();
+        return;
+      }
+      const data = await res.json();
+      if (!holdingRef.current) return;
+      const value =
+        field === "govId"
+          ? String(data.govIdNumber || "")
+          : String(data.bankAccountNumber || "");
+      if (!value) {
+        toast.error("No value stored");
+        hide();
+        return;
+      }
+      setRevealed(value);
+    } catch {
+      if (holdingRef.current) toast.error("Failed to reveal");
+      hide();
+    } finally {
+      if (holdingRef.current) setLoading(false);
+    }
+  }, [detailId, field, hide]);
+
+  const copy = useCallback(async () => {
+    try {
+      let value = revealed;
+      if (!value) {
+        const res = await fetch(`/api/user-details/${detailId}/reveal?field=${field}`, {
+          credentials: "include",
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          toast.error(err.error || "Failed to copy");
+          return;
+        }
+        const data = await res.json();
+        value =
+          field === "govId"
+            ? String(data.govIdNumber || "")
+            : String(data.bankAccountNumber || "");
+      }
+      if (!value) {
+        toast.error(`No ${label} to copy`);
+        return;
+      }
+      await navigator.clipboard.writeText(value);
+      toast.success(`${label} copied`);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      toast.error("Failed to copy");
+    }
+  }, [revealed, detailId, field, label]);
+
+  useEffect(() => () => hide(), [hide]);
+
+  const display = revealed || maskedValue || "—";
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        <Icon className="h-3.5 w-3.5" />
+        {label}
+      </div>
+      <div className="flex items-center gap-2">
+        <div
+          className={cn(
+            "flex-1 text-sm py-1.5 px-3 rounded-md bg-muted/40 min-h-[36px] flex items-center font-mono",
+            revealed && "bg-amber-500/10 ring-1 ring-amber-500/30"
+          )}
+        >
+          <span className="truncate">{loading && !revealed ? "Revealing…" : display}</span>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-9 px-2.5 shrink-0 gap-1.5 select-none"
+          title="Click and hold to reveal"
+          aria-label={`Hold to reveal ${label}`}
+          onPointerDown={(e) => {
+            e.preventDefault();
+            void reveal();
+          }}
+          onPointerUp={hide}
+          onPointerLeave={hide}
+          onPointerCancel={hide}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          {revealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+          <span className="text-[11px]">{revealed ? "Hide" : "Hold"}</span>
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-9 w-9 shrink-0"
+          aria-label={`Copy ${label}`}
+          title={`Copy ${label}`}
+          onClick={() => void copy()}
+        >
+          {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+        </Button>
       </div>
     </div>
   );

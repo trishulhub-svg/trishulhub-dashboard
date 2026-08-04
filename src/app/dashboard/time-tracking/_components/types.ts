@@ -68,6 +68,8 @@ export interface TimeActivityItem {
   label: string;
   enabled: boolean;
   roles: string[];
+  /** Users who get a yellow assigned-work blink for this activity */
+  userIds?: string[];
   selectValue: string;
 }
 

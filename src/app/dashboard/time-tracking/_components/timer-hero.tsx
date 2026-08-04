@@ -39,6 +39,7 @@ interface TimerHeroProps {
   starting: boolean;
   stopping: boolean;
   fromWorkspace: boolean;
+  currentUserId?: string;
   onProjectChange: (value: string) => void;
   onDescriptionChange: (value: string) => void;
   onTrainingAssignmentChange: (value: string) => void;
@@ -73,6 +74,7 @@ export const TimerHero = forwardRef<HTMLDivElement, TimerHeroProps>(function Tim
     starting,
     stopping,
     fromWorkspace,
+    currentUserId,
     onProjectChange,
     onDescriptionChange,
     onTrainingAssignmentChange,
@@ -103,8 +105,13 @@ export const TimerHero = forwardRef<HTMLDivElement, TimerHeroProps>(function Tim
   const activityBadgeKeys = useMemo(() => {
     const keys = new Set<string>();
     if (trainingAssignments.length > 0) keys.add("TRAINING");
+    for (const a of activities) {
+      if (Array.isArray(a.userIds) && a.userIds.length > 0 && currentUserId && a.userIds.includes(currentUserId)) {
+        keys.add(a.key);
+      }
+    }
     return keys;
-  }, [trainingAssignments.length]);
+  }, [trainingAssignments.length, activities, currentUserId]);
   const activityHasWork = activityBadgeKeys.size > 0;
 
   const handleKindChange = (next: ClockInKind) => {
