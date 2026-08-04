@@ -79,16 +79,24 @@ function MilestoneSessionDetails({ m }: { m: SessionMilestone }) {
       })
     : ""
   const assignees = Array.isArray(m.assignees) ? m.assignees : []
+  const description = (m.description || "").trim()
   return (
-    <div className="min-w-0 space-y-1">
-      <p className="text-sm font-medium break-words whitespace-pre-wrap leading-snug">
+    <div className="min-w-0 space-y-1.5">
+      <p className="text-sm font-semibold break-words whitespace-pre-wrap leading-snug">
         {safeText(m.title)}
       </p>
-      {m.description?.trim() ? (
-        <p className="text-xs text-muted-foreground break-words whitespace-pre-wrap leading-relaxed">
-          {safeText(m.description)}
-        </p>
-      ) : null}
+      {description ? (
+        <div className="rounded-md border border-border/60 bg-muted/30 px-2 py-1.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+            Description
+          </p>
+          <p className="text-sm text-foreground/90 break-words whitespace-pre-wrap leading-relaxed">
+            {safeText(description)}
+          </p>
+        </div>
+      ) : (
+        <p className="text-[11px] text-muted-foreground italic">No description provided</p>
+      )}
       {(dueLabel || m.dueTime) && (
         <p className="text-[11px] text-muted-foreground break-words">
           Due {dueLabel || "—"}
