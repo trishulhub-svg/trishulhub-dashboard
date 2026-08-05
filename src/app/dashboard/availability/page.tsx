@@ -1817,7 +1817,7 @@ function AvailabilityPageInner() {
         </TabsContent>
 
         {/* ═══════════════════════════════════════════════════════════════════════
-            TAB 2: My Schedule (recurring weekly schedule)
+            TAB 2: My Schedule (recurring weekly template + this week's effective days)
         ═══════════════════════════════════════════════════════════════════════ */}
         <TabsContent value="schedule" className="space-y-4">
           {/* Controls */}
@@ -1869,6 +1869,11 @@ function AvailabilityPageInner() {
             </div>
           </Card>
 
+          <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5 text-[11px] text-muted-foreground leading-relaxed">
+            <span className="font-medium text-foreground">How availability is applied: </span>
+            Override (specific date) wins first, then Date Range for covered dates, otherwise the recurring weekly slots below. Weekly Overview uses the same order.
+          </div>
+
           {schedUserId ? (
             <div className="space-y-3">
               {/* Weekly hours summary */}
@@ -1876,50 +1881,96 @@ function AvailabilityPageInner() {
                 const userAvails = availabilities.filter((a) => a.userId === schedUserId && a.isAvailable);
                 const totalWeeklyHours = userAvails.reduce((sum, a) => sum + slotHours(a.startTime, a.endTime), 0);
                 const configuredDays = new Set(userAvails.map((a) => a.dayOfWeek)).size;
+                const schedWeekUser = weekSchedule?.users.find((u) => u.user.id === schedUserId);
+                const effectiveHours = weekDates.reduce((sum, d) => {
+                  const ds = formatDateOnly(d);
+                  return sum + (schedWeekUser?.days[ds]?.totalHours || 0);
+                }, 0);
                 return (
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground px-1">
                     <span className="flex items-center gap-1.5">
                       <Clock className="h-3.5 w-3.5 text-emerald-500" />
-                      <span className="font-medium text-foreground">{Math.round(totalWeeklyHours * 10) / 10}h</span> total weekly
+                      <span className="font-medium text-foreground">{Math.round(totalWeeklyHours * 10) / 10}h</span> recurring weekly
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <LayoutGrid className="h-3.5 w-3.5 text-violet-500" />
+                      <span className="font-medium text-foreground">{Math.round(effectiveHours * 10) / 10}h</span> this week (with ranges/overrides)
                     </span>
                     <span className="flex items-center gap-1.5">
                       <CalendarDays className="h-3.5 w-3.5 text-sky-500" />
-                      <span className="font-medium text-foreground">{configuredDays}</span>/7 days configured
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <LayoutGrid className="h-3.5 w-3.5 text-amber-500" />
-                      <span className="font-medium text-foreground">{userAvails.length}</span> total slots
+                      <span className="font-medium text-foreground">{configuredDays}</span>/7 days in template
                     </span>
                   </div>
                 );
               })()}
 
-              {/* 7-day schedule cards */}
-              {DAY_NAMES.map((dayName, dayIndex) => {
+              {/* 7-day schedule cards — calendar dates for selected week */}
+              {weekDates.map((date, dayIndex) => {
+                const dow = date.getDay();
+                const dayName = DAY_NAMES[dow];
+                const dayStr = formatDateOnly(date);
                 const daySlots = availabilities.filter(
-                  (a) => a.userId === schedUserId && a.dayOfWeek === dayIndex
+                  (a) => a.userId === schedUserId && a.dayOfWeek === dow
                 );
                 const dayHours = daySlots
                   .filter((a) => a.isAvailable)
                   .reduce((sum, a) => sum + slotHours(a.startTime, a.endTime), 0);
-                const isToday = dayIndex === new Date().getDay();
+                const isToday = dayStr === todayStr;
+                const schedWeekUser = weekSchedule?.users.find((u) => u.user.id === schedUserId);
+                const dayData = schedWeekUser?.days[dayStr];
+                const dayRanges = dateRangesForDay(schedUserId, dayStr, dayData);
+                const hasOverride = !!dayData?.override;
+                const hasRange = dayRanges.length > 0;
+                const effectiveSource = hasOverride
+                  ? "override"
+                  : hasRange
+                    ? "date-range"
+                    : daySlots.length > 0
+                      ? "weekly"
+                      : "none";
 
                 return (
-                  <Card key={dayIndex} className={isToday ? "border-primary/30 bg-primary/[0.02]" : ""}>
+                  <Card key={dayStr} className={isToday ? "border-primary/30 bg-primary/[0.02]" : ""}>
                     <CardHeader className="py-3 px-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <div className={`h-2.5 w-2.5 rounded-full ${daySlots.length > 0 ? "bg-green-500" : "bg-gray-300 dark:bg-gray-600"}`} />
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                          <div
+                            className={cn(
+                              "h-2.5 w-2.5 rounded-full shrink-0",
+                              dayData?.isOnLeave
+                                ? "bg-sky-500"
+                                : dayData?.isUnavailable
+                                  ? "bg-red-500"
+                                  : dayData && dayData.availability.length > 0
+                                    ? "bg-green-500"
+                                    : daySlots.length > 0
+                                      ? "bg-green-500/60"
+                                      : "bg-gray-300 dark:bg-gray-600"
+                            )}
+                          />
                           <CardTitle className="text-sm font-semibold">
                             {dayName}
+                            <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                              {date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                            </span>
                             {isToday && (
                               <Badge className="ml-2 text-[9px] px-1.5 py-0 bg-primary/10 text-primary border-0">Today</Badge>
                             )}
                           </CardTitle>
-                          {daySlots.length > 0 && (
-                            <span className="text-xs text-muted-foreground">
-                              ({Math.round(dayHours * 10) / 10}h)
-                            </span>
+                          {effectiveSource === "override" && (
+                            <Badge className="text-[9px] px-1.5 py-0 bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200 border-0">
+                              Override
+                            </Badge>
+                          )}
+                          {effectiveSource === "date-range" && (
+                            <Badge className="text-[9px] px-1.5 py-0 bg-violet-100 text-violet-800 dark:bg-violet-900/50 dark:text-violet-200 border-0">
+                              Date range
+                            </Badge>
+                          )}
+                          {effectiveSource === "weekly" && daySlots.length > 0 && (
+                            <Badge className="text-[9px] px-1.5 py-0 bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200 border-0">
+                              Weekly template
+                            </Badge>
                           )}
                         </div>
                         {isUserAdmin && (
@@ -1927,77 +1978,123 @@ function AvailabilityPageInner() {
                             variant="ghost"
                             size="sm"
                             className="h-8 text-xs"
-                            onClick={() => openQuickAddSlot(schedUserId, dayIndex)}
+                            onClick={() => openQuickAddSlot(schedUserId, dow)}
                           >
                             <Plus className="h-3 w-3 mr-1" /> Add Slot
                           </Button>
                         )}
                       </div>
                     </CardHeader>
-                    <CardContent className="px-4 pb-3">
-                      {daySlots.length === 0 ? (
-                        <div className="flex items-center justify-between py-3 text-muted-foreground">
-                          <span className="text-xs">No availability configured</span>
-                          {isUserAdmin && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-8 text-xs"
-                              onClick={() => openQuickAddSlot(schedUserId, dayIndex)}
-                            >
-                              <Plus className="h-3 w-3 mr-1" /> Add
-                            </Button>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="space-y-1.5">
-                          {daySlots
-                            .slice()
-                            .sort((a, b) => a.startTime.localeCompare(b.startTime))
-                            .map((slot) => {
-                              const hours = slotHours(slot.startTime, slot.endTime);
+                    <CardContent className="px-4 pb-3 space-y-3">
+                      {/* Effective for this calendar date */}
+                      <div className="rounded-lg border border-border/50 bg-muted/15 p-2.5 space-y-1.5">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Effective on {dayStr}
+                        </p>
+                        {dayData?.isOnLeave ? (
+                          <p className="text-sm text-sky-700 dark:text-sky-300 font-medium">On leave</p>
+                        ) : dayData?.isUnavailable || (dayData?.override && !dayData.override.isAvailable) ? (
+                          <p className="text-sm text-red-700 dark:text-red-300 font-medium">
+                            Unavailable
+                            {dayData.override?.reason ? ` — ${safeText(dayData.override.reason)}` : ""}
+                            {dayRanges.filter((r) => !r.isAvailable).map((r) => r.reason).filter(Boolean)[0]
+                              ? ` — ${safeText(dayRanges.filter((r) => !r.isAvailable).map((r) => r.reason).filter(Boolean)[0]!)}`
+                              : ""}
+                          </p>
+                        ) : dayData && dayData.availability.length > 0 ? (
+                          <div className="space-y-1">
+                            {dayData.availability.map((slot) => {
+                              const isAllDay = slot.startTime === "00:00" && slot.endTime === "24:00";
                               return (
-                                <div
-                                  key={slot.id}
-                                  className="flex items-center gap-2 p-2.5 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
-                                >
-                                  <div className={`h-2 w-2 rounded-full shrink-0 ${slot.isAvailable ? "bg-green-500" : "bg-red-400"}`} />
-                                  <div className="flex-1 min-w-0">
-                                    <span className="text-sm font-medium">
-                                      {slot.startTime} – {slot.endTime}
-                                    </span>
-                                    <span className="text-xs text-muted-foreground ml-1.5">({hours}h)</span>
-                                    {!slot.isAvailable && (
-                                      <Badge className="ml-1.5 text-[8px] px-1 py-0 bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-200 border-0">
-                                        Unavailable
-                                      </Badge>
-                                    )}
-                                  </div>
-                                  {isUserAdmin && (
-                                    <div className="flex items-center gap-1 shrink-0">
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="h-8 px-2.5 text-xs"
-                                        onClick={() => openEditAvailability(slot)}
-                                      >
-                                        <Edit3 className="h-3 w-3 mr-1" />Edit
-                                      </Button>
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="h-8 px-2.5 text-xs text-red-600 hover:text-red-700 border-red-200 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-900/20"
-                                        onClick={() => setDeleteAvailId(slot.id)}
-                                      >
-                                        <Trash2 className="h-3 w-3 mr-1" />Delete
-                                      </Button>
-                                    </div>
+                                <div key={slot.id} className="text-sm font-medium">
+                                  {isAllDay ? "All day available" : `${slot.startTime} – ${slot.endTime}`}
+                                  {!isAllDay && (
+                                    <span className="text-xs text-muted-foreground ml-1.5">({slot.hours}h)</span>
                                   )}
+                                  {slot.source === "date-range" || slot.source === "override" ? (
+                                    <span className="text-[10px] text-muted-foreground ml-1.5">
+                                      via {slot.source === "override" ? "override" : "date range"}
+                                    </span>
+                                  ) : null}
                                 </div>
                               );
                             })}
-                        </div>
-                      )}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">Not set for this date</p>
+                        )}
+                      </div>
+
+                      {/* Recurring weekly template (always editable) */}
+                      <div className="space-y-1.5">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Recurring weekly template
+                          {daySlots.length > 0 ? ` (${Math.round(dayHours * 10) / 10}h)` : ""}
+                        </p>
+                        {daySlots.length === 0 ? (
+                          <div className="flex items-center justify-between py-2 text-muted-foreground">
+                            <span className="text-xs">No recurring slots — used when no override/range covers this date</span>
+                            {isUserAdmin && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 text-xs"
+                                onClick={() => openQuickAddSlot(schedUserId, dow)}
+                              >
+                                <Plus className="h-3 w-3 mr-1" /> Add
+                              </Button>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="space-y-1.5">
+                            {daySlots
+                              .slice()
+                              .sort((a, b) => a.startTime.localeCompare(b.startTime))
+                              .map((slot) => {
+                                const hours = slotHours(slot.startTime, slot.endTime);
+                                return (
+                                  <div
+                                    key={slot.id}
+                                    className="flex items-center gap-2 p-2.5 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
+                                  >
+                                    <div className={`h-2 w-2 rounded-full shrink-0 ${slot.isAvailable ? "bg-green-500" : "bg-red-400"}`} />
+                                    <div className="flex-1 min-w-0">
+                                      <span className="text-sm font-medium">
+                                        {slot.startTime} – {slot.endTime}
+                                      </span>
+                                      <span className="text-xs text-muted-foreground ml-1.5">({hours}h)</span>
+                                      {!slot.isAvailable && (
+                                        <Badge className="ml-1.5 text-[8px] px-1 py-0 bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-200 border-0">
+                                          Unavailable
+                                        </Badge>
+                                      )}
+                                    </div>
+                                    {isUserAdmin && (
+                                      <div className="flex items-center gap-1 shrink-0">
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="h-8 px-2.5 text-xs"
+                                          onClick={() => openEditAvailability(slot)}
+                                        >
+                                          <Edit3 className="h-3 w-3 mr-1" />Edit
+                                        </Button>
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="h-8 px-2.5 text-xs text-red-600 hover:text-red-700 border-red-200 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-900/20"
+                                          onClick={() => setDeleteAvailId(slot.id)}
+                                        >
+                                          <Trash2 className="h-3 w-3 mr-1" />Delete
+                                        </Button>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        )}
+                      </div>
                     </CardContent>
                   </Card>
                 );
@@ -2026,7 +2123,7 @@ function AvailabilityPageInner() {
                     Date Ranges
                   </CardTitle>
                   <CardDescription>
-                    Set availability or unavailability for a span of dates (vacation, project travel, multi-day leave).
+                    Multi-day availability or unavailability. These dates override the recurring weekly template in Weekly Overview and My Schedule.
                   </CardDescription>
                 </div>
                 {isUserAdmin && (
