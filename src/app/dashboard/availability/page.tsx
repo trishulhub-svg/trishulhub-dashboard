@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo, Suspense } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { safeArray, safeText } from "@/lib/utils";
+import { safeArray, safeText, cn } from "@/lib/utils";
 import { useUrlState } from "@/hooks/use-url-state";
 import {
   Clock, Plus, Trash2, CalendarDays, AlertCircle, ChevronLeft, ChevronRight,
@@ -119,9 +119,12 @@ interface TeamUser {
 interface WeekDayData {
   dayOfWeek: number;
   dayName: string;
-  availability: { id: string; startTime: string; endTime: string; isAvailable: boolean; hours: number }[];
+  availability: { id: string; startTime: string; endTime: string; isAvailable: boolean; hours: number; source?: string }[];
   override: { id: string; date: string; startTime: string | null; endTime: string | null; isAvailable: boolean; reason: string | null } | null;
+  dateRanges?: { id: string; startDate: string; endDate: string; startTime: string | null; endTime: string | null; isAvailable: boolean; reason: string | null }[];
+  fromDateRange?: boolean;
   isOnLeave: boolean;
+  isUnavailable?: boolean;
   totalHours: number;
 }
 
@@ -193,10 +196,19 @@ type CellStatus = "leave" | "unavailable" | "available" | "partial" | "notset";
 function getCellStatus(dayData: WeekDayData | undefined): CellStatus {
   if (!dayData) return "notset";
   if (dayData.isOnLeave) return "leave";
-  if (dayData.override && !dayData.override.isAvailable && dayData.availability.length === 0) return "unavailable";
+  if (
+    dayData.isUnavailable ||
+    (dayData.override && !dayData.override.isAvailable && dayData.availability.length === 0) ||
+    (Array.isArray(dayData.dateRanges) &&
+      dayData.dateRanges.some((dr) => !dr.isAvailable) &&
+      dayData.availability.length === 0 &&
+      !dayData.dateRanges.some((dr) => dr.isAvailable))
+  ) {
+    return "unavailable";
+  }
   if (dayData.availability.length > 0) {
-    // Partial = override exists OR fewer than 4 hours
-    if (dayData.override || dayData.totalHours < 4) return "partial";
+    // Partial = override / date-range overlay OR fewer than 4 hours
+    if (dayData.override || dayData.fromDateRange || dayData.totalHours < 4) return "partial";
     return "available";
   }
   return "notset";
@@ -1214,7 +1226,10 @@ function AvailabilityPageInner() {
   // ─── Render ──────────────────────────────────────────────────────────────────
 
   // Helper: find date ranges overlapping a given day for a user
-  const dateRangesForDay = (userId: string, dateStr: string) => {
+  const dateRangesForDay = (userId: string, dateStr: string, dayData?: WeekDayData | null) => {
+    if (dayData?.dateRanges && dayData.dateRanges.length > 0) {
+      return dayData.dateRanges.map((dr) => ({ ...dr, userId }));
+    }
     return (weekSchedule?.dateRanges || []).filter((dr) => {
       if (dr.userId !== userId) return false;
       return dr.startDate <= dateStr && dr.endDate >= dateStr;
@@ -1380,7 +1395,7 @@ function AvailabilityPageInner() {
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="h-3 w-3 rounded border bg-amber-50 dark:bg-amber-900/40 border-amber-200 dark:border-amber-700" />
-                Partial / Override
+                Partial / Override / Range
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="h-3 w-3 rounded border bg-sky-50 dark:bg-sky-900/40 border-sky-200 dark:border-sky-700" />
@@ -1395,7 +1410,7 @@ function AvailabilityPageInner() {
                 Not Set
               </span>
               <span className="flex items-center gap-1.5 ml-auto text-[10px] italic">
-                <Info className="h-3 w-3" /> Click a cell for details{isUserAdmin ? ", or use Copy to duplicate a member’s schedule" : ""}
+                <Info className="h-3 w-3" /> Date ranges appear only on days inside the selected range
               </span>
             </div>
           </div>
@@ -1434,7 +1449,13 @@ function AvailabilityPageInner() {
                     const configuredDays = weekDates.filter((d) => {
                       const ds = formatDateOnly(d);
                       const dd = userSchedule.days[ds];
-                      return dd && (dd.isOnLeave || dd.availability.length > 0);
+                      return (
+                        dd &&
+                        (dd.isOnLeave ||
+                          dd.isUnavailable ||
+                          dd.availability.length > 0 ||
+                          (dd.dateRanges && dd.dateRanges.length > 0))
+                      );
                     }).length;
                     const sourceSlotsCount = availabilities.filter((a) => a.userId === userSchedule.user.id).length;
 
@@ -1483,6 +1504,18 @@ function AvailabilityPageInner() {
                               const dd = userSchedule.days[ds];
                               const isToday = ds === todayStr;
                               const status = getCellStatus(dd);
+                              const dayRanges = dateRangesForDay(userSchedule.user.id, ds, dd);
+                              const cellLabel = dd?.isOnLeave
+                                ? "Leave"
+                                : dd?.isUnavailable || (dd?.override && !dd.override.isAvailable && dd.availability.length === 0)
+                                  ? "Off"
+                                  : dd && dd.availability.length > 0
+                                    ? dd.availability.some((s) => s.startTime === "00:00" && s.endTime === "24:00")
+                                      ? "All day"
+                                      : `${dd.totalHours}h`
+                                    : dayRanges.length > 0
+                                      ? "Range"
+                                      : "—";
                               return (
                                 <button
                                   key={ds}
@@ -1496,8 +1529,11 @@ function AvailabilityPageInner() {
                                     {date.getDate()}
                                   </span>
                                   <span className={`text-[8px] leading-tight text-center ${CELL_TEXT[status]}`}>
-                                    {dd?.isOnLeave ? "Leave" : dd && dd.availability.length > 0 ? `${dd.totalHours}h` : dd?.override && !dd.override.isAvailable ? "Off" : "—"}
+                                    {cellLabel}
                                   </span>
+                                  {dayRanges.length > 0 && (
+                                    <span className="h-1 w-1 rounded-full bg-violet-500" title="Date range" />
+                                  )}
                                 </button>
                               );
                             })}
@@ -1598,7 +1634,7 @@ function AvailabilityPageInner() {
                                 const dayData = userSchedule.days[dayStr];
                                 const isToday = dayStr === todayStr;
                                 const status = getCellStatus(dayData);
-                                const dayDateRanges = dateRangesForDay(userSchedule.user.id, dayStr);
+                                const dayDateRanges = dateRangesForDay(userSchedule.user.id, dayStr, dayData);
 
                                 if (!dayData) {
                                   return (
@@ -1656,17 +1692,30 @@ function AvailabilityPageInner() {
                                             )}
                                             {dayData.availability.slice(0, 2).map((slot) => {
                                               const rawEntry = findAvailEntry(slot.id);
+                                              const isAllDay = slot.startTime === "00:00" && slot.endTime === "24:00";
+                                              const fromRange = slot.source === "date-range" || dayData.fromDateRange;
                                               return (
                                                 <Badge
                                                   key={slot.id}
-                                                  className="text-[8px] px-1 py-0 bg-white/70 dark:bg-black/30 text-green-700 dark:text-green-300 border-0"
+                                                  className={cn(
+                                                    "text-[8px] px-1 py-0 border-0",
+                                                    fromRange
+                                                      ? "bg-violet-100/90 dark:bg-violet-900/40 text-violet-800 dark:text-violet-200"
+                                                      : "bg-white/70 dark:bg-black/30 text-green-700 dark:text-green-300"
+                                                  )}
                                                   onClick={(e) => {
                                                     e.stopPropagation();
                                                     if (rawEntry) openEditAvailability(rawEntry);
                                                   }}
-                                                  title={rawEntry ? "Click to edit" : undefined}
+                                                  title={
+                                                    fromRange
+                                                      ? "From date range"
+                                                      : rawEntry
+                                                        ? "Click to edit"
+                                                        : undefined
+                                                  }
                                                 >
-                                                  {slot.startTime}-{slot.endTime}
+                                                  {isAllDay ? "All day" : `${slot.startTime}-${slot.endTime}`}
                                                 </Badge>
                                               );
                                             })}
@@ -1674,10 +1723,12 @@ function AvailabilityPageInner() {
                                               <span className="text-[8px] text-muted-foreground">+{dayData.availability.length - 2}</span>
                                             )}
                                             <div className="w-full text-[9px] text-muted-foreground mt-0.5">
-                                              {dayData.totalHours}h total
+                                              {dayData.availability.some((s) => s.startTime === "00:00" && s.endTime === "24:00")
+                                                ? "All day"
+                                                : `${dayData.totalHours}h total`}
                                             </div>
                                           </div>
-                                        ) : dayData.override && !dayData.override.isAvailable ? (
+                                        ) : dayData.isUnavailable || (dayData.override && !dayData.override.isAvailable) || dayDateRanges.some((dr) => !dr.isAvailable) ? (
                                           <div className="flex-1 flex items-center justify-center">
                                             <span className="text-[10px] text-red-700 dark:text-red-200 font-medium">Off</span>
                                           </div>
@@ -2206,6 +2257,47 @@ function AvailabilityPageInner() {
                   </div>
                   {selectedDayDetail.dayData.override.reason && (
                     <div className="text-xs text-muted-foreground mt-0.5">{safeText(selectedDayDetail.dayData.override.reason)}</div>
+                  )}
+                </div>
+              )}
+
+              {/* Date ranges covering this day */}
+              {dateRangesForDay(selectedDayDetail.userId, selectedDayDetail.date, selectedDayDetail.dayData).length > 0 && (
+                <div className="p-3 rounded-lg bg-violet-50 dark:bg-violet-900/30 border border-violet-200 dark:border-violet-800 space-y-2">
+                  <div className="flex items-center gap-1.5">
+                    <CalendarRange className="h-3.5 w-3.5 text-violet-600 dark:text-violet-300" />
+                    <span className="text-xs font-semibold text-violet-800 dark:text-violet-200">
+                      Date range on this day
+                    </span>
+                  </div>
+                  {dateRangesForDay(selectedDayDetail.userId, selectedDayDetail.date, selectedDayDetail.dayData).map((dr) => (
+                    <div key={dr.id} className="text-xs text-violet-800 dark:text-violet-200">
+                      <span className="font-medium">
+                        {dr.isAvailable ? "Available" : "Unavailable"}
+                      </span>
+                      {dr.startTime && dr.endTime
+                        ? ` · ${dr.startTime}–${dr.endTime}`
+                        : " · All day"}
+                      <span className="text-muted-foreground">
+                        {" "}({dr.startDate} → {dr.endDate})
+                      </span>
+                      {dr.reason ? (
+                        <div className="text-muted-foreground mt-0.5">{safeText(dr.reason)}</div>
+                      ) : null}
+                    </div>
+                  ))}
+                  {isUserAdmin && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-[10px] text-violet-700 dark:text-violet-300 px-0"
+                      onClick={() => {
+                        setDayDetailDialogOpen(false);
+                        setActiveTab("date-ranges");
+                      }}
+                    >
+                      Manage date ranges
+                    </Button>
                   )}
                 </div>
               )}

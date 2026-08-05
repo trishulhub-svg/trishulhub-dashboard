@@ -8,11 +8,12 @@ import { ensureTable } from "@/lib/auto-migrate"
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 
-// I25: Handle overnight time ranges (e.g., 22:00–06:00)
+// I25: Handle overnight time ranges (e.g., 22:00–06:00) and end-of-day 24:00
 function calculateHours(startTime: string | null, endTime: string | null): number {
   if (!startTime || !endTime) return 0
   const [sh, sm] = startTime.split(":").map(Number)
-  const [eh, em] = endTime.split(":").map(Number)
+  const endNorm = endTime === "24:00" ? "24:00" : endTime
+  const [eh, em] = endNorm === "24:00" ? [24, 0] : endNorm.split(":").map(Number)
   let diff = (eh * 60 + em) - (sh * 60 + sm)
   if (diff < 0) diff += 24 * 60 // overnight
   return Math.max(0, Math.round((diff / 60) * 100) / 100)
@@ -200,12 +201,44 @@ async function handleDailyView(dateStr: string, dateObj: Date, userId: string) {
 
   // If there's an override marking the user unavailable, treat as a type of leave
   const unavailableOverride = overrides.find(o => !o.isAvailable)
+  const unavailableDateRange = dateRanges.find(dr => !dr.isAvailable)
+  const availableDateRanges = dateRanges.filter(dr => dr.isAvailable)
 
   // Calculate scheduled hours
   let totalScheduledHours = 0
-  const effectiveAvailabilities = unavailableOverride
-    ? [] // Override says unavailable — no scheduled hours
+  let effectiveAvailabilities = unavailableOverride || (unavailableDateRange && availableDateRanges.length === 0)
+    ? [] // Override / date-range says unavailable — no scheduled hours
     : availabilities
+
+  // Available date ranges with times replace recurring weekly for this day
+  if (!unavailableOverride && availableDateRanges.length > 0) {
+    const timed = availableDateRanges.filter(dr => dr.startTime && dr.endTime)
+    if (timed.length > 0) {
+      effectiveAvailabilities = timed.map(dr => ({
+        id: dr.id,
+        startTime: dr.startTime as string,
+        endTime: dr.endTime as string,
+        isAvailable: true,
+        userId: dr.userId,
+        dayOfWeek,
+        createdAt: dr.createdAt,
+        updatedAt: dr.updatedAt,
+      })) as typeof availabilities
+    } else if (effectiveAvailabilities.length === 0) {
+      // All-day available range, no recurring slots
+      effectiveAvailabilities = [{
+        id: availableDateRanges[0].id,
+        startTime: "00:00",
+        endTime: "24:00",
+        isAvailable: true,
+        userId: availableDateRanges[0].userId,
+        dayOfWeek,
+        createdAt: availableDateRanges[0].createdAt,
+        updatedAt: availableDateRanges[0].updatedAt,
+      }] as typeof availabilities
+    }
+  }
+
   for (const a of effectiveAvailabilities) {
     totalScheduledHours += calculateHours(a.startTime, a.endTime)
   }
@@ -400,10 +433,17 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
     arr.push(l)
     leavesByUser.set(l.userId, arr)
   }
+  const dateRangesByUser = new Map<string, typeof allDateRanges>()
+  for (const dr of allDateRanges) {
+    const arr = dateRangesByUser.get(dr.userId) || []
+    arr.push(dr)
+    dateRangesByUser.set(dr.userId, arr)
+  }
 
   // ── Build per-user day map ──
   const usersSchedule = users.map((user) => {
     const days: Record<string, Record<string, unknown>> = {}
+    const userDateRanges = dateRangesByUser.get(user.id) || []
 
     for (let i = 0; i < 7; i++) {
       const dayDate = weekDays[i]
@@ -428,11 +468,31 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
         return lStart <= dayEnd && lEnd >= dayStart
       })
 
+      // Date ranges that cover this calendar day only
+      const dayRanges = userDateRanges.filter((dr) => {
+        const rStart = dr.startDate instanceof Date ? dr.startDate : new Date(dr.startDate)
+        const rEnd = dr.endDate instanceof Date ? dr.endDate : new Date(dr.endDate)
+        const rStartDay = new Date(rStart)
+        rStartDay.setHours(0, 0, 0, 0)
+        const rEndDay = new Date(rEnd)
+        rEndDay.setHours(23, 59, 59, 999)
+        return rStartDay <= dayEnd && rEndDay >= dayStart
+      })
+
       // Determine effective availability
-      let effectiveAvailabilities: { id: string; startTime: string; endTime: string; isAvailable: boolean; hours: number }[] = userAvailabilities.map(a => ({
-        id: a.id, startTime: a.startTime, endTime: a.endTime, isAvailable: true, hours: calculateHours(a.startTime, a.endTime),
-      }))
+      // Priority: leave → day override → date range → recurring weekly slots
+      let effectiveAvailabilities: { id: string; startTime: string; endTime: string; isAvailable: boolean; hours: number; source?: string }[] =
+        userAvailabilities.map(a => ({
+          id: a.id,
+          startTime: a.startTime,
+          endTime: a.endTime,
+          isAvailable: true,
+          hours: calculateHours(a.startTime, a.endTime),
+          source: "weekly",
+        }))
       let isUnavailable = false
+      let appliedFromDateRange = false
+
       if (userOverride) {
         if (!userOverride.isAvailable) {
           effectiveAvailabilities = []
@@ -445,8 +505,49 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
               endTime: userOverride.endTime,
               isAvailable: true,
               hours: calculateHours(userOverride.startTime, userOverride.endTime),
+              source: "override",
             },
           ]
+        }
+      } else if (dayRanges.length > 0) {
+        const unavailableRange = dayRanges.find((dr) => !dr.isAvailable)
+        const availableRanges = dayRanges.filter((dr) => dr.isAvailable)
+
+        if (unavailableRange && availableRanges.length === 0) {
+          // Blocked for this day by date range
+          effectiveAvailabilities = []
+          isUnavailable = true
+          appliedFromDateRange = true
+        } else if (availableRanges.length > 0) {
+          const timed = availableRanges.filter((dr) => dr.startTime && dr.endTime)
+          if (timed.length > 0) {
+            // Date-range hours replace recurring weekly for days inside the range
+            effectiveAvailabilities = timed.map((dr) => ({
+              id: dr.id,
+              startTime: dr.startTime as string,
+              endTime: dr.endTime as string,
+              isAvailable: true,
+              hours: calculateHours(dr.startTime, dr.endTime),
+              source: "date-range",
+            }))
+            appliedFromDateRange = true
+          } else {
+            // All-day available range with no times — keep weekly slots if any,
+            // otherwise surface an all-day marker so the cell is not "Not Set"
+            if (effectiveAvailabilities.length === 0) {
+              effectiveAvailabilities = [
+                {
+                  id: availableRanges[0].id,
+                  startTime: "00:00",
+                  endTime: "24:00",
+                  isAvailable: true,
+                  hours: 24,
+                  source: "date-range",
+                },
+              ]
+            }
+            appliedFromDateRange = true
+          }
         }
       }
 
@@ -464,7 +565,8 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
           startTime: a.startTime,
           endTime: a.endTime,
           isAvailable: true,
-          hours: calculateHours(a.startTime, a.endTime),
+          hours: a.hours,
+          source: a.source || "weekly",
         })),
         override: userOverride
           ? {
@@ -476,7 +578,18 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
               reason: userOverride.reason,
             }
           : null,
-        isOnLeave: onLeave || isUnavailable,
+        dateRanges: dayRanges.map((dr) => ({
+          id: dr.id,
+          startDate: formatDateOnly(dr.startDate instanceof Date ? dr.startDate : new Date(dr.startDate)),
+          endDate: formatDateOnly(dr.endDate instanceof Date ? dr.endDate : new Date(dr.endDate)),
+          startTime: dr.startTime,
+          endTime: dr.endTime,
+          isAvailable: dr.isAvailable,
+          reason: dr.reason,
+        })),
+        fromDateRange: appliedFromDateRange,
+        isOnLeave: onLeave || (isUnavailable && !appliedFromDateRange && !!userOverride),
+        isUnavailable,
         totalHours: Math.round(totalHours * 100) / 100,
       }
     }
