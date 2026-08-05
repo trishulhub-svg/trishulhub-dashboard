@@ -5,6 +5,7 @@
 
 import { WORK_TIMEZONE } from "@/lib/clock-integrity"
 import { db } from "@/lib/db"
+import { formatDisplayDateWithWeekday } from "@/lib/format"
 
 /** Progress % from completed / total milestones (0 when none). */
 export function milestoneProgressPercent(doneCount: number, totalCount: number): number {
@@ -54,14 +55,7 @@ export function parseDueDateInput(value: string): Date | null {
 }
 
 export function formatDueDateLabel(d: Date | string): string {
-  const date = typeof d === "string" ? new Date(d) : d
-  return date.toLocaleDateString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "UTC",
-  })
+  return formatDisplayDateWithWeekday(d, "—")
 }
 
 /**

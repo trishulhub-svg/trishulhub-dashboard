@@ -41,6 +41,7 @@ import { toast } from "sonner";
 import { LEAD_COLUMNS } from "@/lib/types";
 import type { LeadStatus } from "@/lib/types";
 import { cn, safeText, safeNumber } from "@/lib/utils";
+import { formatDisplayDate, formatDisplayDateShort } from "@/lib/format";
 import { PageHeader } from "@/components/page-header";
 import { handleFetchError } from "@/lib/fetch-utils";
 
@@ -355,7 +356,7 @@ function LeadListViewRow({ lead, onClick }: { lead: Lead; onClick: () => void })
   else if (diffDays === 1) dateStr = "Yesterday";
   else if (diffDays < 7) dateStr = `${diffDays}d ago`;
   else if (diffDays < 30) dateStr = `${Math.floor(diffDays / 7)}w ago`;
-  else dateStr = createdDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  else dateStr = formatDisplayDateShort(createdDate);
 
   return (
     <div
@@ -1394,7 +1395,7 @@ function CRMPageInner() {
                     <div className="h-7 w-7 rounded-lg bg-muted/60 flex items-center justify-center shrink-0">
                       <Calendar className="h-3.5 w-3.5" />
                     </div>
-                    <span className="text-sm">Added {safeText(new Date(selectedLead.createdAt).toLocaleDateString(), "")}</span>
+                    <span className="text-sm">Added {safeText(formatDisplayDate(selectedLead.createdAt), "")}</span>
                   </div>
                 </div>
               )}

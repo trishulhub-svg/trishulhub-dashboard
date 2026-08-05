@@ -44,6 +44,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { toast } from "sonner";
 import type { ClientStatus } from "@/lib/types";
 import { safeText, safeNumber, deepSanitize } from "@/lib/utils";
+import { formatDate } from "@/lib/format";
 import { PageHeader } from "@/components/page-header";
 import { useUrlState } from "@/hooks/use-url-state";
 
@@ -265,12 +266,6 @@ const dealStageLabels: Record<string, string> = {
 // CLI-013: TODO - Replace hardcoded "en-IN" locale with user/session locale context
 function formatCurrency(n: number) {
   return `₹${n.toLocaleString("en-IN")}`;
-}
-
-// CLI-013: TODO - Replace hardcoded "en-IN" locale with user/session locale context
-function formatDate(d: string | null) {
-  if (!d) return "N/A";
-  return new Date(d).toLocaleDateString("en-IN", { year: "numeric", month: "short", day: "numeric" });
 }
 
 // CLI-032: Smart date search parser

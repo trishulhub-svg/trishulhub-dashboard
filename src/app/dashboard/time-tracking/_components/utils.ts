@@ -1,4 +1,5 @@
 import { safeNumber } from "@/lib/utils";
+import { formatDisplayDate, formatDisplayDateWithWeekday, formatDisplayDateShort } from "@/lib/format";
 
 export function toLocalDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -28,17 +29,7 @@ export function formatAttTime(isoStr?: string | null): string {
 }
 
 export function formatAttDate(isoStr?: string | null): string {
-  if (!isoStr) return "N/A";
-  try {
-    return new Date(isoStr).toLocaleDateString([], {
-      weekday: "short",
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  } catch {
-    return "N/A";
-  }
+  return formatDisplayDateWithWeekday(isoStr, "N/A");
 }
 
 export function formatDuration(ms: number): string {
@@ -72,7 +63,7 @@ export function formatTime(dateStr: string): string {
 }
 
 export function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString([], { month: "short", day: "numeric" });
+  return formatDisplayDate(dateStr, dateStr);
 }
 
 /** Monday-start week containing `ref` (defaults to today). */
@@ -103,18 +94,11 @@ export function formatWeekLabel(weekDays: Date[]): string {
   if (weekDays.length < 7) return "";
   const start = weekDays[0];
   const end = weekDays[6];
-  const sameMonth = start.getMonth() === end.getMonth();
   const sameYear = start.getFullYear() === end.getFullYear();
-  const startFmt = start.toLocaleDateString([], {
-    month: "short",
-    day: "numeric",
-    ...(sameYear ? {} : { year: "numeric" as const }),
-  });
-  const endFmt = end.toLocaleDateString([], {
-    month: sameMonth ? undefined : "short",
-    day: "numeric",
-    year: "numeric",
-  });
+  const startFmt = sameYear
+    ? formatDisplayDateShort(start)
+    : formatDisplayDate(start);
+  const endFmt = formatDisplayDate(end);
   return `${startFmt} – ${endFmt}`;
 }
 

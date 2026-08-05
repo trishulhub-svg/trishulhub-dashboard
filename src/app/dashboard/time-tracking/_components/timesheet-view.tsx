@@ -20,6 +20,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { safeNumber, safeText } from "@/lib/utils";
+import { formatDisplayDateWithWeekday } from "@/lib/format";
 import type { Project, TeamUser, TimeEntry } from "./types";
 import { entryActivityLabel } from "./types";
 import { dayBounds, formatDate, formatHours, formatTime, formatWeekLabel, getDateStr, isSameDay } from "./utils";
@@ -192,7 +193,7 @@ export function TimesheetView({
                     }`}
                   >
                     <p className={`text-xs font-medium ${isToday ? "text-primary" : "text-muted-foreground"}`}>
-                      {day.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" })}
+                      {formatDisplayDateWithWeekday(day)}
                       {isToday && <span className="ml-2 text-[10px] uppercase tracking-wide">Today</span>}
                     </p>
                     <p className="text-xs font-semibold tabular-nums">{formatHours(dayTotal)}</p>

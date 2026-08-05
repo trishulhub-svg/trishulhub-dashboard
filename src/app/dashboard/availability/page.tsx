@@ -4,6 +4,12 @@ import { useEffect, useState, useCallback, useMemo, Suspense } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { safeArray, safeText, cn } from "@/lib/utils";
+import {
+  formatDisplayDate,
+  formatDisplayDateRange,
+  formatDisplayDateShort,
+  formatDisplayDateWithWeekday,
+} from "@/lib/format";
 import { useUrlState } from "@/hooks/use-url-state";
 import {
   Clock, Plus, Trash2, CalendarDays, AlertCircle, ChevronLeft, ChevronRight,
@@ -1030,7 +1036,7 @@ function AvailabilityPageInner() {
       }),
     });
     if (res.ok) {
-      toast.success(`Schedule applied as override on ${targetDate}`);
+      toast.success(`Schedule applied as override on ${formatDisplayDate(targetDate)}`);
     } else {
       const err = await res.json().catch(() => ({}));
       toast.error(safeText(err.error, "Failed to create override"));
@@ -1073,7 +1079,7 @@ function AvailabilityPageInner() {
       }),
     });
     if (res.ok) {
-      toast.success(`Schedule applied as date range ${startDate} → ${endDate}`);
+      toast.success(`Schedule applied as date range ${formatDisplayDateRange(startDate, endDate)}`);
     } else {
       const err = await res.json().catch(() => ({}));
       toast.error(safeText(err.error, "Failed to create date range"));
@@ -1343,14 +1349,10 @@ function AvailabilityPageInner() {
                     <Button variant="outline" size="sm" className="min-w-[150px] sm:min-w-[220px] justify-start text-left font-normal h-9 text-xs sm:text-sm">
                       <CalendarDays className="mr-1.5 h-3.5 w-3.5" />
                       <span className="hidden sm:inline">
-                        {new Date(weekStartStr + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                        {" — "}
-                        {new Date(weekEndStr + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                        {formatDisplayDateShort(weekStartStr)} — {formatDisplayDate(weekEndStr)}
                       </span>
                       <span className="sm:hidden">
-                        {new Date(weekStartStr + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                        {" – "}
-                        {new Date(weekEndStr + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                        {formatDisplayDateShort(weekStartStr)} – {formatDisplayDateShort(weekEndStr)}
                       </span>
                     </Button>
                   </PopoverTrigger>
@@ -1584,7 +1586,7 @@ function AvailabilityPageInner() {
                                 {date.getDate()}
                               </div>
                               <div className={`text-[10px] ${isToday ? "text-primary" : "text-muted-foreground"}`}>
-                                {date.toLocaleDateString("en-US", { month: "short" })}
+                                {formatDisplayDateShort(date).split(" ")[1]}
                               </div>
                             </div>
                           );
@@ -1951,7 +1953,7 @@ function AvailabilityPageInner() {
                           <CardTitle className="text-sm font-semibold">
                             {dayName}
                             <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-                              {date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                              {formatDisplayDateShort(date)}
                             </span>
                             {isToday && (
                               <Badge className="ml-2 text-[9px] px-1.5 py-0 bg-primary/10 text-primary border-0">Today</Badge>
@@ -1989,7 +1991,7 @@ function AvailabilityPageInner() {
                       {/* Effective for this calendar date */}
                       <div className="rounded-lg border border-border/50 bg-muted/15 p-2.5 space-y-1.5">
                         <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                          Effective on {dayStr}
+                          Effective on {formatDisplayDate(dayStr)}
                         </p>
                         {dayData?.isOnLeave ? (
                           <p className="text-sm text-sky-700 dark:text-sky-300 font-medium">On leave</p>
@@ -2261,7 +2263,7 @@ function AvailabilityPageInner() {
                 <>
                   <span>{selectedDayDetail.userName}</span>
                   <span className="text-muted-foreground font-normal">—</span>
-                  <span>{selectedDayDetail.dayData.dayName}, {selectedDayDetail.date}</span>
+                  <span>{selectedDayDetail.dayData.dayName}, {formatDisplayDate(selectedDayDetail.date)}</span>
                 </>
               )}
             </DialogTitle>
@@ -2376,7 +2378,7 @@ function AvailabilityPageInner() {
                         ? ` · ${dr.startTime}–${dr.endTime}`
                         : " · All day"}
                       <span className="text-muted-foreground">
-                        {" "}({dr.startDate} → {dr.endDate})
+                        {" "}({formatDisplayDateRange(dr.startDate, dr.endDate)})
                       </span>
                       {dr.reason ? (
                         <div className="text-muted-foreground mt-0.5">{safeText(dr.reason)}</div>
@@ -2520,7 +2522,7 @@ function AvailabilityPageInner() {
                   <Button variant="outline" className="w-full justify-start text-left font-normal">
                     <CalendarDays className="mr-2 h-4 w-4" />
                     {formOverrideDate
-                      ? new Date(formOverrideDate + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "long", day: "numeric", year: "numeric" })
+                      ? formatDisplayDateWithWeekday(formOverrideDate)
                       : "Pick a date"}
                   </Button>
                 </PopoverTrigger>
@@ -2613,7 +2615,7 @@ function AvailabilityPageInner() {
                     <Button variant="outline" className="w-full justify-start text-left font-normal">
                       <CalendarDays className="mr-2 h-4 w-4" />
                       {formDateRangeStartDate
-                        ? new Date(formDateRangeStartDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                        ? formatDisplayDate(formDateRangeStartDate)
                         : "Pick a date"}
                     </Button>
                   </PopoverTrigger>
@@ -2641,7 +2643,7 @@ function AvailabilityPageInner() {
                     <Button variant="outline" className="w-full justify-start text-left font-normal">
                       <CalendarDays className="mr-2 h-4 w-4" />
                       {formDateRangeEndDate
-                        ? new Date(formDateRangeEndDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                        ? formatDisplayDate(formDateRangeEndDate)
                         : "Pick a date"}
                     </Button>
                   </PopoverTrigger>
@@ -2932,7 +2934,7 @@ function AvailabilityPageInner() {
                       <Button variant="outline" className="w-full justify-start text-left font-normal">
                         <CalendarDays className="mr-2 h-4 w-4" />
                         {copyTargetDate
-                          ? new Date(copyTargetDate + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "long", day: "numeric", year: "numeric" })
+                          ? formatDisplayDateWithWeekday(copyTargetDate)
                           : "Pick a date"}
                       </Button>
                     </PopoverTrigger>
@@ -2978,7 +2980,7 @@ function AvailabilityPageInner() {
                         <Button variant="outline" className="w-full justify-start text-left font-normal">
                           <CalendarDays className="mr-2 h-4 w-4" />
                           {copyTargetStartDate
-                            ? new Date(copyTargetStartDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                            ? formatDisplayDate(copyTargetStartDate)
                             : "Pick"}
                         </Button>
                       </PopoverTrigger>
@@ -3004,7 +3006,7 @@ function AvailabilityPageInner() {
                         <Button variant="outline" className="w-full justify-start text-left font-normal">
                           <CalendarDays className="mr-2 h-4 w-4" />
                           {copyTargetEndDate
-                            ? new Date(copyTargetEndDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                            ? formatDisplayDate(copyTargetEndDate)
                             : "Pick"}
                         </Button>
                       </PopoverTrigger>
@@ -3069,9 +3071,7 @@ function OverrideList({
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium">{override.user?.name || "Unknown"}</div>
                 <div className="text-xs text-muted-foreground mt-0.5">
-                  {new Date(override.date + "T00:00:00").toLocaleDateString("en-US", {
-                    weekday: "short", month: "short", day: "numeric",
-                  })}
+                  {formatDisplayDateWithWeekday(override.date)}
                 </div>
                 <div className="text-xs text-muted-foreground">
                   {override.startTime && override.endTime
@@ -3136,9 +3136,7 @@ function OverrideList({
                   </div>
                 </TableCell>
                 <TableCell className="text-xs">
-                  {new Date(override.date + "T00:00:00").toLocaleDateString("en-US", {
-                    weekday: "short", month: "short", day: "numeric",
-                  })}
+                  {formatDisplayDateWithWeekday(override.date)}
                 </TableCell>
                 <TableCell className="text-xs text-muted-foreground">
                   {override.startTime && override.endTime
@@ -3214,12 +3212,8 @@ function DateRangeList({
                   <div className="text-sm font-medium">{range.user?.name || "Unknown"}</div>
                   <div className="text-xs text-muted-foreground mt-0.5">
                     {isSingleDay
-                      ? new Date(range.startDate + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })
-                      : <>
-                        {new Date(range.startDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                        {" → "}
-                        {new Date(range.endDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                      </>}
+                      ? formatDisplayDateWithWeekday(range.startDate)
+                      : formatDisplayDateRange(range.startDate, range.endDate)}
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {range.startTime && range.endTime
@@ -3288,12 +3282,8 @@ function DateRangeList({
                   </TableCell>
                   <TableCell className="text-xs">
                     {isSingleDay
-                      ? new Date(range.startDate + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
-                      : <>
-                        {new Date(range.startDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                        {" → "}
-                        {new Date(range.endDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                      </>}
+                      ? formatDisplayDateWithWeekday(range.startDate)
+                      : formatDisplayDateRange(range.startDate, range.endDate)}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
                     {range.startTime && range.endTime

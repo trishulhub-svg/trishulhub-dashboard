@@ -8,6 +8,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { cn, safeText } from "@/lib/utils"
+import { formatDisplayDate } from "@/lib/format"
 
 type Assignment = {
   id: string
@@ -132,7 +133,7 @@ export default function DocxSignMyPage() {
                 <p className="text-sm font-semibold truncate">{safeText(a.document.title)}</p>
                 <p className="text-[11px] text-muted-foreground truncate">
                   Authorized Person {safeText(a.authorizedPersonName || a.assignedBy?.name)} ·{" "}
-                  {new Date(a.createdAt).toLocaleDateString()}
+                  {formatDisplayDate(a.createdAt)}
                   {a.signedAt ? ` · signed ${new Date(a.signedAt).toLocaleString()}` : ""}
                 </p>
                 {a.resignNote && a.status === "RESIGN_REQUESTED" && (

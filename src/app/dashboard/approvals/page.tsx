@@ -27,6 +27,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { safeArray, safeText, safeJsonParse } from "@/lib/utils";
+import { formatDisplayDateRange } from "@/lib/format";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 
@@ -269,7 +270,7 @@ function ApprovalsPageInner() {
       id: l.id,
       source: "LEAVE" as const,
       title: `${safeText(l.user?.name, "Unknown")} — ${formatLeaveType(l.leaveType)}`,
-      description: l.reason || `${formatLeaveType(l.leaveType)} from ${new Date(l.startDate).toLocaleDateString()} to ${new Date(l.endDate).toLocaleDateString()}`,
+      description: l.reason || `${formatLeaveType(l.leaveType)} from ${formatDisplayDateRange(l.startDate, l.endDate)}`,
       requesterName: safeText(l.user?.name, "Unknown"),
       requesterAvatar: l.user?.avatar || null,
       createdAt: l.createdAt,
@@ -632,7 +633,7 @@ function ApprovalsPageInner() {
                   <div className="flex items-center gap-1 text-xs text-muted-foreground">
                     <Calendar className="h-3 w-3" />
                     <span>
-                      {new Date(leave.startDate).toLocaleDateString()} — {new Date(leave.endDate).toLocaleDateString()}
+                      {formatDisplayDateRange(leave.startDate, leave.endDate)}
                     </span>
                   </div>
                 </div>
@@ -885,7 +886,7 @@ function ApprovalsPageInner() {
                   {item.source === "LEAVE" && item.startDate && item.endDate && (
                     <div className="flex items-center gap-1 text-xs text-muted-foreground">
                       <Calendar className="h-3 w-3" />
-                      <span>{new Date(item.startDate).toLocaleDateString()} — {new Date(item.endDate).toLocaleDateString()}</span>
+                      <span>{formatDisplayDateRange(item.startDate, item.endDate)}</span>
                     </div>
                   )}
                 </div>

@@ -15,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn, safeText } from "@/lib/utils";
+import { formatDisplayDate, formatDisplayDateShort } from "@/lib/format";
 import { toast } from "sonner";
 
 interface TeamUser {
@@ -71,7 +72,7 @@ function getWeekBounds(): { start: Date; end: Date; label: string } {
   const end = new Date(start);
   end.setDate(start.getDate() + 6);
   end.setHours(23, 59, 59, 999);
-  const label = `${start.toLocaleDateString([], { month: "short", day: "numeric" })} – ${end.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}`;
+  const label = `${formatDisplayDateShort(start)} – ${formatDisplayDate(end)}`;
   return { start, end, label };
 }
 

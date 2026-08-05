@@ -67,6 +67,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { cn, safeArray, safeText } from "@/lib/utils";
+import { formatDateTime } from "@/lib/format";
 
 // ━━ Types ━━
 
@@ -152,15 +153,6 @@ function govIdTypeLabel(type: string | null): string {
 
 function sortCodeLabel(country: string | null): string {
   return country === "INDIA" ? "IFSC Code" : "Sort Code";
-}
-
-function formatDateTime(iso: string | null): string {
-  if (!iso) return "—";
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
-    return "—";
-  }
 }
 
 function initials(name: string): string {

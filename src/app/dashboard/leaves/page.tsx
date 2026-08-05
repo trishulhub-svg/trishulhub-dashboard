@@ -5,6 +5,7 @@ import { useUrlState } from "@/hooks/use-url-state";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { safeParseDate, cn } from "@/lib/utils";
+import { formatDisplayDateRange } from "@/lib/format";
 import {
   Calendar, Plus, CheckCircle2, XCircle, Clock, AlertTriangle,
   ChevronLeft, ChevronRight, Trash2, Ban, AlertCircle,
@@ -646,7 +647,7 @@ function LeaveManagementPageInner() {
                           <TooltipContent>
                             <p className="font-medium">{leave.user?.name}</p>
                             <p className="text-xs">{leaveTypeLabels[leave.leaveType] || leave.leaveType}</p>
-                            <p className="text-xs">{safeParseDate(leave.startDate).toLocaleDateString()} - {safeParseDate(leave.endDate).toLocaleDateString()}</p>
+                            <p className="text-xs">{formatDisplayDateRange(leave.startDate, leave.endDate)}</p>
                             <Badge className={`text-[9px] mt-1 ${leaveStatusColors[leave.status]}`}>{leave.status}</Badge>
                           </TooltipContent>
                       </Tooltip>
@@ -681,7 +682,7 @@ function LeaveManagementPageInner() {
                     <Badge className={`text-[10px] ${leaveTypeColors[leave.leaveType] || ""}`}>{leaveTypeLabels[leave.leaveType] || leave.leaveType}</Badge>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {safeParseDate(leave.startDate).toLocaleDateString()} - {safeParseDate(leave.endDate).toLocaleDateString()}
+                    {formatDisplayDateRange(leave.startDate, leave.endDate)}
                     {" "} ({(() => { const s = safeParseDate(leave.startDate); const e = safeParseDate(leave.endDate); const diff = Math.ceil((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24)) + 1; return isNaN(diff) ? "?" : `${diff}`; })()} days)
                   </p>
                   {leave.reason && <p className="text-xs text-muted-foreground mt-1">Reason: {leave.reason}</p>}
@@ -764,7 +765,7 @@ function LeaveManagementPageInner() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-xs">
-                        {safeParseDate(leave.startDate).toLocaleDateString()} - {safeParseDate(leave.endDate).toLocaleDateString()}
+                        {formatDisplayDateRange(leave.startDate, leave.endDate)}
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">
                         {leave.reason || "-"}

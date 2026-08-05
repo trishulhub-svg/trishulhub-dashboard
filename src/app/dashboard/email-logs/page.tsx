@@ -32,6 +32,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { formatDisplayDate } from "@/lib/format";
 
 interface EmailLog {
   id: string;
@@ -67,7 +68,7 @@ function getRelativeTime(dateStr: string): string {
   if (diffMin < 60) return `${diffMin} minute${diffMin > 1 ? "s" : ""} ago`;
   if (diffHr < 24) return `${diffHr} hour${diffHr > 1 ? "s" : ""} ago`;
   if (diffDay < 30) return `${diffDay} day${diffDay > 1 ? "s" : ""} ago`;
-  return date.toLocaleDateString();
+  return formatDisplayDate(date);
 }
 
 export default function EmailLogsPage() {

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { unwrapResponse } from "@/lib/api-helpers";
+import { formatDate } from "@/lib/format";
 
 const invoiceStatusColors: Record<string, string> = {
   DRAFT: "bg-gray-200 text-gray-800",
@@ -102,7 +103,7 @@ export default function PortalInvoicesPage() {
                       <DollarSign className="h-5 w-5 text-muted-foreground" />
                       <div>
                         <p className="text-sm font-medium">{inv.invoiceNumber}</p>
-                        <p className="text-xs text-muted-foreground">Due: {inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : "N/A"}</p>
+                        <p className="text-xs text-muted-foreground">Due: {formatDate(inv.dueDate)}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-3">

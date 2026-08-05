@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
+import { formatDisplayDate, parseDisplayDate } from "@/lib/format"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -15,15 +16,16 @@ export function safeArray<T>(data: unknown): T[] {
 }
 
 /**
- * Safely format a Date object to a readable string.
- * Falls back to ISO date format if toLocaleDateString fails.
+ * Safely format a Date object to DD MMM YYYY (canonical UI date format).
  */
 export function safeDateStr(d: Date): string {
-  try {
-    return d.toLocaleDateString()
-  } catch {
-    return d.toISOString().split("T")[0]
-  }
+  return formatDisplayDate(d, (() => {
+    try {
+      return d.toISOString().split("T")[0]
+    } catch {
+      return ""
+    }
+  })())
 }
 
 /**
@@ -155,16 +157,22 @@ export function extractNum(obj: unknown, key: string, fallback = 0): number {
 }
 
 /**
- * Safe date formatting. Accepts any value and returns a formatted date string.
+ * Safe date formatting. Accepts any value and returns DD MMM YYYY.
  * Returns fallback if the value can't be parsed as a date.
  */
 export function safeDate(value: unknown, fallback: string = ""): string {
-  if (!value) return fallback;
+  if (!value) return fallback
   try {
-    const d = typeof value === "string" ? new Date(value) : (value instanceof Date ? value : new Date());
-    if (isNaN(d.getTime())) return fallback;
-    return d.toLocaleDateString();
+    if (value instanceof Date || typeof value === "string" || typeof value === "number") {
+      const formatted = formatDisplayDate(
+        value instanceof Date || typeof value === "string" ? value : new Date(value),
+        ""
+      )
+      return formatted || fallback
+    }
+    const d = parseDisplayDate(String(value))
+    return d ? formatDisplayDate(d, fallback) : fallback
   } catch {
-    return fallback;
+    return fallback
   }
 }
