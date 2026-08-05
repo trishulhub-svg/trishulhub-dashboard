@@ -22,7 +22,7 @@ function getErrMsg(err: unknown): string {
 
 // Bump when adding CRITICAL_COLUMNS / CRITICAL_TABLES so warm serverless
 // instances re-run migrations after deploy (stale syncDone otherwise skips ALTERs).
-const SCHEMA_REVISION = 202608032
+const SCHEMA_REVISION = 202608051
 const SCHEMA_REVISION_SETTING_KEY = "auto_migrate_schema_revision"
 const CRITICAL_REVISION_SETTING_KEY = "auto_migrate_critical_revision"
 
@@ -181,6 +181,7 @@ const CRITICAL_COLUMNS: Array<{ table: string; column: string; sql: string }> = 
   { table: "DocxAssignment", column: "signerTimeZone", sql: `ALTER TABLE "DocxAssignment" ADD COLUMN "signerTimeZone" TEXT` },
   { table: "SupportTicket", column: "ticketNumber", sql: `ALTER TABLE "SupportTicket" ADD COLUMN "ticketNumber" TEXT` },
   { table: "SupportTicket", column: "issueArea", sql: `ALTER TABLE "SupportTicket" ADD COLUMN "issueArea" TEXT` },
+  { table: "AvailabilityDateRange", column: "daysOfWeek", sql: `ALTER TABLE "AvailabilityDateRange" ADD COLUMN "daysOfWeek" TEXT` },
 ]
 
 /** Tables to create if missing (simplified CREATE TABLE IF NOT EXISTS) */
@@ -488,7 +489,7 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
   },
   {
     name: "AvailabilityDateRange",
-    sql: `CREATE TABLE IF NOT EXISTS "AvailabilityDateRange" ("id" TEXT NOT NULL PRIMARY KEY, "userId" TEXT NOT NULL, "startDate" DATETIME NOT NULL, "endDate" DATETIME NOT NULL, "startTime" TEXT, "endTime" TEXT, "isAvailable" BOOLEAN NOT NULL DEFAULT 1, "reason" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL, FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE)`
+    sql: `CREATE TABLE IF NOT EXISTS "AvailabilityDateRange" ("id" TEXT NOT NULL PRIMARY KEY, "userId" TEXT NOT NULL, "startDate" DATETIME NOT NULL, "endDate" DATETIME NOT NULL, "startTime" TEXT, "endTime" TEXT, "isAvailable" BOOLEAN NOT NULL DEFAULT 1, "reason" TEXT, "daysOfWeek" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL, FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE)`
   },
   // HR — Attendance
   {

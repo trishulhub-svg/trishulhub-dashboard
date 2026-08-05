@@ -70,6 +70,16 @@ import {
 } from "@/components/ui/table";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
+import {
+  ALL_WEEKDAYS,
+  WEEKDAY_SHORT,
+  WEEKDAY_TOGGLE_ORDER,
+  dateRangeAppliesOnDay,
+  formatDaysOfWeekLabel,
+  isAllWeekdays,
+  parseDaysOfWeek,
+  type DaysOfWeekValue,
+} from "@/lib/availability-days";
 
 // ─── Interfaces ────────────────────────────────────────────────────────────────
 
@@ -107,6 +117,8 @@ interface DateRangeEntry {
   endTime: string | null;
   isAvailable: boolean;
   reason: string | null;
+  /** null = all days; otherwise 0=Sun…6=Sat */
+  daysOfWeek?: DaysOfWeekValue;
   createdAt?: string;
   updatedAt?: string;
   user?: { id: string; name: string; email: string; avatar: string | null };
@@ -127,7 +139,7 @@ interface WeekDayData {
   dayName: string;
   availability: { id: string; startTime: string; endTime: string; isAvailable: boolean; hours: number; source?: string }[];
   override: { id: string; date: string; startTime: string | null; endTime: string | null; isAvailable: boolean; reason: string | null } | null;
-  dateRanges?: { id: string; startDate: string; endDate: string; startTime: string | null; endTime: string | null; isAvailable: boolean; reason: string | null }[];
+  dateRanges?: { id: string; startDate: string; endDate: string; startTime: string | null; endTime: string | null; isAvailable: boolean; reason: string | null; daysOfWeek?: DaysOfWeekValue }[];
   fromDateRange?: boolean;
   isOnLeave: boolean;
   isUnavailable?: boolean;
@@ -145,7 +157,7 @@ interface WeekSchedule {
   totalUsers?: number;
   warning?: string;
   users: WeekScheduleUser[];
-  dateRanges?: { id: string; userId: string; startDate: string; endDate: string; startTime: string | null; endTime: string | null; isAvailable: boolean; reason: string | null }[];
+  dateRanges?: { id: string; userId: string; startDate: string; endDate: string; startTime: string | null; endTime: string | null; isAvailable: boolean; reason: string | null; daysOfWeek?: DaysOfWeekValue }[];
 }
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
@@ -320,6 +332,8 @@ function AvailabilityPageInner() {
   const [formDateRangeEndTime, setFormDateRangeEndTime] = useState("");
   const [formDateRangeIsAvailable, setFormDateRangeIsAvailable] = useState(true);
   const [formDateRangeReason, setFormDateRangeReason] = useState("");
+  /** Selected weekdays (0=Sun…6=Sat); all seven = apply every day */
+  const [formDateRangeDays, setFormDateRangeDays] = useState<number[]>([...ALL_WEEKDAYS]);
 
   // ── Calendar popover state ──
   const [dateRangeStartCalOpen, setDateRangeStartCalOpen] = useState(false);
@@ -616,6 +630,7 @@ function AvailabilityPageInner() {
     setFormDateRangeEndTime("");
     setFormDateRangeIsAvailable(true);
     setFormDateRangeReason("");
+    setFormDateRangeDays([...ALL_WEEKDAYS]);
     setEditingDateRange(null);
   };
 
@@ -649,6 +664,8 @@ function AvailabilityPageInner() {
     setFormDateRangeEndTime(range.endTime || "");
     setFormDateRangeIsAvailable(range.isAvailable);
     setFormDateRangeReason(range.reason || "");
+    const parsed = parseDaysOfWeek(range.daysOfWeek);
+    setFormDateRangeDays(parsed == null ? [...ALL_WEEKDAYS] : [...parsed]);
     setDateRangeDialogOpen(true);
   };
 
@@ -829,9 +846,16 @@ function AvailabilityPageInner() {
       toast.error("Start time must be before end time");
       return;
     }
+    if (formDateRangeDays.length === 0) {
+      toast.error("Select at least one day, or choose All days");
+      return;
+    }
     setSubmitting(true);
     try {
       let res: Response;
+      const daysPayload = isAllWeekdays(formDateRangeDays)
+        ? null
+        : [...formDateRangeDays].sort((a, b) => a - b);
       const payload = {
         userId: formDateRangeUserId,
         startDate: formDateRangeStartDate,
@@ -840,6 +864,7 @@ function AvailabilityPageInner() {
         endTime: formDateRangeEndTime || null,
         isAvailable: formDateRangeIsAvailable,
         reason: formDateRangeReason || null,
+        daysOfWeek: daysPayload,
       };
       if (editingDateRange) {
         res = await fetch(`/api/availability/date-ranges/${editingDateRange.id}`, {
@@ -1236,9 +1261,11 @@ function AvailabilityPageInner() {
     if (dayData?.dateRanges && dayData.dateRanges.length > 0) {
       return dayData.dateRanges.map((dr) => ({ ...dr, userId }));
     }
+    const dow = new Date(dateStr + "T12:00:00").getDay();
     return (weekSchedule?.dateRanges || []).filter((dr) => {
       if (dr.userId !== userId) return false;
-      return dr.startDate <= dateStr && dr.endDate >= dateStr;
+      if (!(dr.startDate <= dateStr && dr.endDate >= dateStr)) return false;
+      return dateRangeAppliesOnDay(dr.daysOfWeek, dow);
     });
   };
 
@@ -2378,7 +2405,7 @@ function AvailabilityPageInner() {
                         ? ` · ${dr.startTime}–${dr.endTime}`
                         : " · All day"}
                       <span className="text-muted-foreground">
-                        {" "}({formatDisplayDateRange(dr.startDate, dr.endDate)})
+                        {" "}({formatDisplayDateRange(dr.startDate, dr.endDate)} · {formatDaysOfWeekLabel(dr.daysOfWeek)})
                       </span>
                       {dr.reason ? (
                         <div className="text-muted-foreground mt-0.5">{safeText(dr.reason)}</div>
@@ -2588,7 +2615,7 @@ function AvailabilityPageInner() {
           <DialogHeader>
             <DialogTitle>{editingDateRange ? "Edit Date Range" : "Add Availability Date Range"}</DialogTitle>
             <DialogDescription>
-              Set availability or unavailability for a span of consecutive dates. Times are optional — leave empty for all-day.
+              Set availability or unavailability for a span of dates. Optionally limit to specific weekdays (Mon, Tue…). Times are optional — leave empty for all-day.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -2677,6 +2704,54 @@ function AvailabilityPageInner() {
                   className="h-9"
                 />
               </div>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <Label>Applies on</Label>
+                <Button
+                  type="button"
+                  variant={isAllWeekdays(formDateRangeDays) ? "default" : "outline"}
+                  size="sm"
+                  className="h-7 px-2.5 text-xs"
+                  onClick={() => setFormDateRangeDays([...ALL_WEEKDAYS])}
+                >
+                  All days
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Choose weekdays this range applies to (e.g. Mon–Wed only).
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {WEEKDAY_TOGGLE_ORDER.map((dow) => {
+                  const selected = formDateRangeDays.includes(dow);
+                  return (
+                    <button
+                      key={dow}
+                      type="button"
+                      onClick={() => {
+                        setFormDateRangeDays((prev) => {
+                          if (prev.includes(dow)) {
+                            return prev.filter((d) => d !== dow);
+                          }
+                          return [...prev, dow].sort((a, b) => a - b);
+                        });
+                      }}
+                      className={cn(
+                        "h-8 min-w-[2.5rem] px-2 rounded-md border text-xs font-medium transition-colors",
+                        selected
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-background text-muted-foreground border-border hover:bg-muted"
+                      )}
+                      aria-pressed={selected}
+                    >
+                      {WEEKDAY_SHORT[dow]}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                {formatDaysOfWeekLabel(isAllWeekdays(formDateRangeDays) ? null : formDateRangeDays)}
+              </p>
             </div>
             <div className="flex items-center justify-between">
               <div>
@@ -3216,6 +3291,8 @@ function DateRangeList({
                       : formatDisplayDateRange(range.startDate, range.endDate)}
                   </div>
                   <div className="text-xs text-muted-foreground">
+                    {formatDaysOfWeekLabel(range.daysOfWeek)}
+                    {" · "}
                     {range.startTime && range.endTime
                       ? `${range.startTime} – ${range.endTime}`
                       : "All Day"}
@@ -3258,6 +3335,7 @@ function DateRangeList({
             <TableRow>
               <TableHead className="text-xs">Employee</TableHead>
               <TableHead className="text-xs">Date Range</TableHead>
+              <TableHead className="text-xs">Days</TableHead>
               <TableHead className="text-xs">Time</TableHead>
               <TableHead className="text-xs">Status</TableHead>
               <TableHead className="text-xs">Reason</TableHead>
@@ -3284,6 +3362,9 @@ function DateRangeList({
                     {isSingleDay
                       ? formatDisplayDateWithWeekday(range.startDate)
                       : formatDisplayDateRange(range.startDate, range.endDate)}
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {formatDaysOfWeekLabel(range.daysOfWeek)}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
                     {range.startTime && range.endTime
