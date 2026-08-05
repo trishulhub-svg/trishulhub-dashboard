@@ -2,6 +2,7 @@ import nodemailer from "nodemailer"
 import { randomBytes } from "crypto"
 import { db } from "@/lib/db"
 import { decryptSmtpPassword } from "@/lib/encryption"
+import { formatDisplayDate } from "@/lib/format"
 
 // ━━ Disposable Email Domain Blocklist ━━
 // Common temporary/disposable email providers - blocked to prevent spam
@@ -442,14 +443,7 @@ export async function sendInvoiceEmail(options: {
   const companyName = process.env.NEXT_PUBLIC_COMPANY_NAME || "TrishulHub"
   const companyTagline = process.env.NEXT_PUBLIC_COMPANY_TAGLINE || "AI-Powered Web Development"
   const fmt = (n: number) => `${currencySymbol}${new Intl.NumberFormat("en-IN").format(n)}`
-  const fmtDate = (d: Date | string | null | undefined): string => {
-    if (!d) return "—"
-    try {
-      return new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
-    } catch {
-      return "—"
-    }
-  }
+  const fmtDate = (d: Date | string | null | undefined): string => formatDisplayDate(d)
 
   const inv = options.invoice
   const sub = Number(inv.subtotal ?? 0)
