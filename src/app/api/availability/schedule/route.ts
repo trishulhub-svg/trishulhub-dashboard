@@ -224,8 +224,8 @@ async function handleDailyView(dateStr: string, dateObj: Date, userId: string) {
         createdAt: dr.createdAt,
         updatedAt: dr.updatedAt,
       })) as typeof availabilities
-    } else if (effectiveAvailabilities.length === 0) {
-      // All-day available range, no recurring slots
+    } else {
+      // All-day available range beats weekly template
       effectiveAvailabilities = [{
         id: availableDateRanges[0].id,
         startTime: "00:00",
@@ -508,6 +508,18 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
               source: "override",
             },
           ]
+        } else {
+          // Available override with no times = all-day (beats weekly template)
+          effectiveAvailabilities = [
+            {
+              id: userOverride.id,
+              startTime: "00:00",
+              endTime: "24:00",
+              isAvailable: true,
+              hours: 24,
+              source: "override",
+            },
+          ]
         }
       } else if (dayRanges.length > 0) {
         const unavailableRange = dayRanges.find((dr) => !dr.isAvailable)
@@ -532,20 +544,17 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
             }))
             appliedFromDateRange = true
           } else {
-            // All-day available range with no times — keep weekly slots if any,
-            // otherwise surface an all-day marker so the cell is not "Not Set"
-            if (effectiveAvailabilities.length === 0) {
-              effectiveAvailabilities = [
-                {
-                  id: availableRanges[0].id,
-                  startTime: "00:00",
-                  endTime: "24:00",
-                  isAvailable: true,
-                  hours: 24,
-                  source: "date-range",
-                },
-              ]
-            }
+            // All-day available range — always beats weekly template for covered dates
+            effectiveAvailabilities = [
+              {
+                id: availableRanges[0].id,
+                startTime: "00:00",
+                endTime: "24:00",
+                isAvailable: true,
+                hours: 24,
+                source: "date-range",
+              },
+            ]
             appliedFromDateRange = true
           }
         }
