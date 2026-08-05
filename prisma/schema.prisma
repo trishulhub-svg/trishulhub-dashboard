@@ -1061,6 +1061,8 @@ model AvailabilityDateRange {
   endTime     String?  // HH:mm format, null = all day
   isAvailable Boolean  @default(true) // true = available, false = unavailable (leave/vacation)
   reason      String?  // Optional reason/note
+  // JSON array of weekdays 0=Sun…6=Sat; null/empty = all days in the span
+  daysOfWeek  String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

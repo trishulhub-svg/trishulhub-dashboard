@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/table";
 import { cn, safeText } from "@/lib/utils";
 import { formatDisplayDate, formatDisplayDateShort } from "@/lib/format";
+import { dateRangeAppliesOnDay } from "@/lib/availability-days";
 import { toast } from "sonner";
 
 interface TeamUser {
@@ -39,6 +40,7 @@ interface DateRangeRow {
   endDate: string;
   isAvailable: boolean;
   reason?: string | null;
+  daysOfWeek?: number[] | null;
 }
 
 interface ProjectRow {
@@ -106,12 +108,28 @@ function isOffThisWeek(
   slots: AvailabilityRow[],
   dateRanges: DateRangeRow[]
 ): boolean {
-  const unavailableRange = dateRanges.find(
-    (r) =>
-      r.userId === userId &&
-      !r.isAvailable &&
-      rangesOverlap(new Date(r.startDate), new Date(r.endDate), weekStart, weekEnd)
-  );
+  const unavailableRange = dateRanges.find((r) => {
+    if (r.userId !== userId || r.isAvailable) return false;
+    if (!rangesOverlap(new Date(r.startDate), new Date(r.endDate), weekStart, weekEnd)) {
+      return false;
+    }
+    // Only count if the range applies to at least one day in this week
+    const cursor = new Date(weekStart);
+    while (cursor <= weekEnd) {
+      const dayStart = new Date(cursor);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(cursor);
+      dayEnd.setHours(23, 59, 59, 999);
+      if (
+        rangesOverlap(new Date(r.startDate), new Date(r.endDate), dayStart, dayEnd) &&
+        dateRangeAppliesOnDay(r.daysOfWeek, cursor.getDay())
+      ) {
+        return true;
+      }
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return false;
+  });
   if (unavailableRange) return true;
 
   const availableDays = new Set(

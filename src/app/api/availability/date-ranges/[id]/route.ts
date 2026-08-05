@@ -3,9 +3,14 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin } from "@/lib/rbac"
-import { ensureTable } from "@/lib/auto-migrate"
+import { ensureCriticalSchema } from "@/lib/auto-migrate"
 import { rateLimit } from "@/lib/rate-limit"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
+import {
+  parseDaysOfWeek,
+  serializeDaysOfWeek,
+  validateDaysOfWeekInput,
+} from "@/lib/availability-days"
 
 // W32: Standardized time validation regex (validates HH:MM with proper hour/minute ranges)
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/
@@ -17,13 +22,43 @@ function toYmd(d: Date): string {
   return `${year}-${month}-${day}`
 }
 
+function mapDateRange(r: {
+  id: string
+  userId: string
+  user?: { id: string; name: string; email: string; avatar: string | null }
+  startDate: Date | string
+  endDate: Date | string
+  startTime: string | null
+  endTime: string | null
+  isAvailable: boolean
+  reason: string | null
+  daysOfWeek?: string | null
+  createdAt: Date | string
+  updatedAt: Date | string
+}) {
+  return {
+    id: r.id,
+    userId: r.userId,
+    user: r.user,
+    startDate: toYmd(r.startDate instanceof Date ? r.startDate : new Date(r.startDate)),
+    endDate: toYmd(r.endDate instanceof Date ? r.endDate : new Date(r.endDate)),
+    startTime: r.startTime,
+    endTime: r.endTime,
+    isAvailable: r.isAvailable,
+    reason: r.reason,
+    daysOfWeek: parseDaysOfWeek(r.daysOfWeek),
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  }
+}
+
 // PATCH /api/availability/date-ranges/[id] — Update a date range
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    await ensureTable("AvailabilityDateRange")
+    await ensureCriticalSchema()
 
     const rl = rateLimit(`availability-date-ranges-${session.user.id}`, 30, 60000)
     if (!rl.success) {
@@ -93,6 +128,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (body.reason !== undefined) {
       data.reason = body.reason === null || body.reason === "" ? null : String(body.reason).slice(0, 300)
     }
+    if (body.daysOfWeek !== undefined) {
+      const daysCheck = validateDaysOfWeekInput(body.daysOfWeek)
+      if (!daysCheck.ok) {
+        return NextResponse.json({ error: daysCheck.error }, { status: 400 })
+      }
+      data.daysOfWeek = serializeDaysOfWeek(daysCheck.value)
+    }
 
     const updated = await db.$transaction(async (tx) => {
       const existing = await tx.availabilityDateRange.findUnique({ where: { id } })
@@ -143,21 +185,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
     })
 
-    const mapped = {
-      id: updated.id,
-      userId: updated.userId,
-      user: updated.user,
-      startDate: toYmd(updated.startDate instanceof Date ? updated.startDate : new Date(updated.startDate)),
-      endDate: toYmd(updated.endDate instanceof Date ? updated.endDate : new Date(updated.endDate)),
-      startTime: updated.startTime,
-      endTime: updated.endTime,
-      isAvailable: updated.isAvailable,
-      reason: updated.reason,
-      createdAt: updated.createdAt,
-      updatedAt: updated.updatedAt,
-    }
-
-    return NextResponse.json({ success: true, dateRange: mapped })
+    return NextResponse.json({ success: true, dateRange: mapDateRange(updated) })
   } catch (error: unknown) {
     console.error("[availability/date-ranges] PATCH error:", error instanceof Error ? error.message : String(error))
     if (error instanceof Error) {
@@ -187,7 +215,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    await ensureTable("AvailabilityDateRange")
+    await ensureCriticalSchema()
 
     const rl = rateLimit(`availability-date-ranges-${session.user.id}`, 30, 60000)
     if (!rl.success) {

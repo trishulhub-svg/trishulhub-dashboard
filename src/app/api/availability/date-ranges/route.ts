@@ -3,9 +3,15 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin, isAdminOrProjectManager } from "@/lib/rbac"
-import { ensureTable } from "@/lib/auto-migrate"
+import { ensureCriticalSchema } from "@/lib/auto-migrate"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
+import {
+  formatDaysOfWeekLabel,
+  parseDaysOfWeek,
+  serializeDaysOfWeek,
+  validateDaysOfWeekInput,
+} from "@/lib/availability-days"
 
 // W32: Standardized time validation regex (validates HH:MM with proper hour/minute ranges)
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/
@@ -17,6 +23,37 @@ function toYmd(d: Date): string {
   return `${year}-${month}-${day}`
 }
 
+function mapDateRange(r: {
+  id: string
+  userId: string
+  user?: { id: string; name: string; email: string; avatar: string | null }
+  startDate: Date | string
+  endDate: Date | string
+  startTime: string | null
+  endTime: string | null
+  isAvailable: boolean
+  reason: string | null
+  daysOfWeek?: string | null
+  createdAt: Date | string
+  updatedAt: Date | string
+}) {
+  const daysOfWeek = parseDaysOfWeek(r.daysOfWeek)
+  return {
+    id: r.id,
+    userId: r.userId,
+    user: r.user,
+    startDate: toYmd(r.startDate instanceof Date ? r.startDate : new Date(r.startDate)),
+    endDate: toYmd(r.endDate instanceof Date ? r.endDate : new Date(r.endDate)),
+    startTime: r.startTime,
+    endTime: r.endTime,
+    isAvailable: r.isAvailable,
+    reason: r.reason,
+    daysOfWeek,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  }
+}
+
 // GET /api/availability/date-ranges — List date ranges
 //   Non-admins: only their own date ranges
 //   Admins: all date ranges, or filtered by ?userId=X
@@ -25,7 +62,7 @@ export async function GET(req: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    await ensureTable("AvailabilityDateRange")
+    await ensureCriticalSchema()
 
     const rl = rateLimit(
       `availability-date-ranges-list-${session.user.id}`,
@@ -60,21 +97,7 @@ export async function GET(req: NextRequest) {
       orderBy: [{ startDate: "asc" }],
     })
 
-    const mapped = dateRanges.map((r) => ({
-      id: r.id,
-      userId: r.userId,
-      user: r.user,
-      startDate: toYmd(r.startDate instanceof Date ? r.startDate : new Date(r.startDate)),
-      endDate: toYmd(r.endDate instanceof Date ? r.endDate : new Date(r.endDate)),
-      startTime: r.startTime,
-      endTime: r.endTime,
-      isAvailable: r.isAvailable,
-      reason: r.reason,
-      createdAt: r.createdAt,
-      updatedAt: r.updatedAt,
-    }))
-
-    return NextResponse.json({ dateRanges: mapped })
+    return NextResponse.json({ dateRanges: dateRanges.map(mapDateRange) })
   } catch (error: unknown) {
     console.error("[availability/date-ranges] GET error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })
@@ -87,7 +110,7 @@ export async function POST(req: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    await ensureTable("AvailabilityDateRange")
+    await ensureCriticalSchema()
 
     const rl = rateLimit(`availability-date-ranges-${session.user.id}`, 30, 60000)
     if (!rl.success) {
@@ -104,7 +127,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
     }
 
-    const { userId: bodyUserId, startDate, endDate, startTime, endTime, isAvailable, reason } = body
+    const { userId: bodyUserId, startDate, endDate, startTime, endTime, isAvailable, reason, daysOfWeek: daysRaw } = body
 
     if (!startDate || !endDate) {
       return NextResponse.json({ error: "startDate and endDate are required" }, { status: 400 })
@@ -160,6 +183,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "isAvailable must be a boolean" }, { status: 400 })
     }
 
+    const daysCheck = validateDaysOfWeekInput(daysRaw === undefined ? null : daysRaw)
+    if (!daysCheck.ok) {
+      return NextResponse.json({ error: daysCheck.error }, { status: 400 })
+    }
+    const daysStored = serializeDaysOfWeek(daysCheck.value)
+
     const created = await db.availabilityDateRange.create({
       data: {
         userId: targetUserId,
@@ -169,36 +198,24 @@ export async function POST(req: NextRequest) {
         endTime: endTime || null,
         isAvailable: isAvailable !== undefined ? isAvailable : true,
         reason: reason ? String(reason).slice(0, 300) : null,
+        daysOfWeek: daysStored,
       },
       include: {
         user: { select: { id: true, name: true, email: true, avatar: true } },
       },
     })
 
+    const daysLabel = formatDaysOfWeekLabel(daysCheck.value)
     // Audit: log availability date range creation (fire-and-forget)
     void logAudit({
       userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
       department: "HR_PEOPLE", page: "availability", action: "CREATE",
       entityType: "AvailabilityDateRange", entityId: created.id,
-      description: `Created availability date range for user ${created.user?.name || targetUserId}: ${toYmd(start)} to ${toYmd(end)}${reason ? ` (${String(reason).slice(0, 80)})` : ""}`,
+      description: `Created availability date range for user ${created.user?.name || targetUserId}: ${toYmd(start)} to ${toYmd(end)} (${daysLabel})${reason ? ` (${String(reason).slice(0, 80)})` : ""}`,
       ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
     })
 
-    const mapped = {
-      id: created.id,
-      userId: created.userId,
-      user: created.user,
-      startDate: toYmd(created.startDate instanceof Date ? created.startDate : new Date(created.startDate)),
-      endDate: toYmd(created.endDate instanceof Date ? created.endDate : new Date(created.endDate)),
-      startTime: created.startTime,
-      endTime: created.endTime,
-      isAvailable: created.isAvailable,
-      reason: created.reason,
-      createdAt: created.createdAt,
-      updatedAt: created.updatedAt,
-    }
-
-    return NextResponse.json({ success: true, dateRange: mapped }, { status: 201 })
+    return NextResponse.json({ success: true, dateRange: mapDateRange(created) }, { status: 201 })
   } catch (error: unknown) {
     console.error("[availability/date-ranges] POST error:", error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: "An error occurred" }, { status: 500 })

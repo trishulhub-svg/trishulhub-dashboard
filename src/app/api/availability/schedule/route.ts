@@ -4,7 +4,8 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin, isAdminOrProjectManager } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { ensureTable } from "@/lib/auto-migrate"
+import { ensureCriticalSchema } from "@/lib/auto-migrate"
+import { dateRangeAppliesOnDay, parseDaysOfWeek } from "@/lib/availability-days"
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 
@@ -53,14 +54,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
 
-    // W35: Consolidate all ensureTable calls into a single batch (AFTER auth)
-    await Promise.all([
-      ensureTable("Availability"),
-      ensureTable("AvailabilityOverride"),
-      ensureTable("AvailabilityDateRange"),
-      ensureTable("TimeEntry"),
-      ensureTable("Leave"),
-    ])
+    await ensureCriticalSchema()
 
     // ── Rate limit ──
     const rl = rateLimit(
@@ -185,6 +179,14 @@ async function handleDailyView(dateStr: string, dateObj: Date, userId: string) {
     }),
   ])
 
+  // Apply weekday filter (daysOfWeek null/all = every day in the span)
+  const applicableDateRanges = dateRanges.filter((dr) =>
+    dateRangeAppliesOnDay(
+      (dr as { daysOfWeek?: string | null }).daysOfWeek,
+      dayOfWeek
+    )
+  )
+
   // Determine leave status
   const isOnLeave = leaves.length > 0
   const leaveInfo = leaves.length > 0
@@ -201,8 +203,8 @@ async function handleDailyView(dateStr: string, dateObj: Date, userId: string) {
 
   // If there's an override marking the user unavailable, treat as a type of leave
   const unavailableOverride = overrides.find(o => !o.isAvailable)
-  const unavailableDateRange = dateRanges.find(dr => !dr.isAvailable)
-  const availableDateRanges = dateRanges.filter(dr => dr.isAvailable)
+  const unavailableDateRange = applicableDateRanges.find(dr => !dr.isAvailable)
+  const availableDateRanges = applicableDateRanges.filter(dr => dr.isAvailable)
 
   // Calculate scheduled hours
   let totalScheduledHours = 0
@@ -283,7 +285,7 @@ async function handleDailyView(dateStr: string, dateObj: Date, userId: string) {
       isAvailable: o.isAvailable,
       reason: o.reason,
     })),
-    dateRanges: dateRanges.map(dr => ({
+    dateRanges: applicableDateRanges.map(dr => ({
       id: dr.id,
       startDate: formatDateOnly(dr.startDate instanceof Date ? dr.startDate : new Date(dr.startDate)),
       endDate: formatDateOnly(dr.endDate instanceof Date ? dr.endDate : new Date(dr.endDate)),
@@ -291,6 +293,7 @@ async function handleDailyView(dateStr: string, dateObj: Date, userId: string) {
       endTime: dr.endTime,
       isAvailable: dr.isAvailable,
       reason: dr.reason,
+      daysOfWeek: parseDaysOfWeek((dr as { daysOfWeek?: string | null }).daysOfWeek),
     })),
     isOnLeave: isOnLeave || !!unavailableOverride,
     leaveInfo: isOnLeave ? leaveInfo : unavailableOverride
@@ -468,7 +471,7 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
         return lStart <= dayEnd && lEnd >= dayStart
       })
 
-      // Date ranges that cover this calendar day only
+      // Date ranges that cover this calendar day and match weekday filter
       const dayRanges = userDateRanges.filter((dr) => {
         const rStart = dr.startDate instanceof Date ? dr.startDate : new Date(dr.startDate)
         const rEnd = dr.endDate instanceof Date ? dr.endDate : new Date(dr.endDate)
@@ -476,7 +479,11 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
         rStartDay.setHours(0, 0, 0, 0)
         const rEndDay = new Date(rEnd)
         rEndDay.setHours(23, 59, 59, 999)
-        return rStartDay <= dayEnd && rEndDay >= dayStart
+        if (!(rStartDay <= dayEnd && rEndDay >= dayStart)) return false
+        return dateRangeAppliesOnDay(
+          (dr as { daysOfWeek?: string | null }).daysOfWeek,
+          dow
+        )
       })
 
       // Determine effective availability
@@ -595,6 +602,7 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
           endTime: dr.endTime,
           isAvailable: dr.isAvailable,
           reason: dr.reason,
+          daysOfWeek: parseDaysOfWeek((dr as { daysOfWeek?: string | null }).daysOfWeek),
         })),
         fromDateRange: appliedFromDateRange,
         isOnLeave: onLeave || (isUnavailable && !appliedFromDateRange && !!userOverride),
@@ -633,6 +641,7 @@ async function handleWeekView(dateStr: string, dateObj: Date) {
       endTime: dr.endTime,
       isAvailable: dr.isAvailable,
       reason: dr.reason,
+      daysOfWeek: parseDaysOfWeek((dr as { daysOfWeek?: string | null }).daysOfWeek),
     })),
   }
 
