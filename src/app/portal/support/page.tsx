@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { unwrapResponse } from "@/lib/api-helpers";
+import { formatDisplayDate } from "@/lib/format";
 
 const ticketStatusColors: Record<string, string> = {
   OPEN: "bg-blue-100 text-blue-800",
@@ -226,7 +227,7 @@ export default function PortalSupportPage() {
                   </div>
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <Badge variant="secondary" className="text-[10px]">{ticket.priority}</Badge>
-                    <span>{new Date(ticket.createdAt).toLocaleDateString()}</span>
+                    <span>{formatDisplayDate(ticket.createdAt)}</span>
                   </div>
                 </CardContent>
               </Card>

@@ -6,6 +6,7 @@ import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 import { notifyRoles } from "@/lib/notify"
+import { formatDisplayDateRange } from "@/lib/format"
 
 const VALID_LEAVE_TYPES = [
   "SICK_LEAVE",
@@ -165,7 +166,7 @@ export async function POST(req: NextRequest) {
       userId: session.user.id, userName: session.user.name || "unknown", userRole,
       department: "HR_PEOPLE", page: "leaves", action: "CREATE",
       entityType: "Leave", entityId: leave.id,
-      description: `Created leave request (${leaveType}) for ${leave.user?.name || targetUserId} from ${new Date(startDate).toLocaleDateString()} to ${new Date(endDate).toLocaleDateString()}`,
+      description: `Created leave request (${leaveType}) for ${leave.user?.name || targetUserId} ${formatDisplayDateRange(startDate, endDate)}`,
       ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
     })
 
@@ -173,7 +174,7 @@ export async function POST(req: NextRequest) {
     try {
       void notifyRoles(["SUPER_ADMIN", "ADMIN"], {
         title: "New Leave Request",
-        message: `${leave.user?.name || "A team member"} requested ${leaveType.replace("_", " ").toLowerCase()} leave from ${new Date(startDate).toLocaleDateString()} to ${new Date(endDate).toLocaleDateString()}`,
+        message: `${leave.user?.name || "A team member"} requested ${leaveType.replace("_", " ").toLowerCase()} leave ${formatDisplayDateRange(startDate, endDate)}`,
         type: "APPROVAL",
         link: "/dashboard/approvals",
         metadata: { leaveId: leave.id },

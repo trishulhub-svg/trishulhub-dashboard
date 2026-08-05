@@ -36,6 +36,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { cn, safeArray, safeText } from "@/lib/utils";
+import { formatDisplayDateWithWeekday } from "@/lib/format";
 import { DEPARTMENTS } from "@/lib/types";
 import {
   CONTROLLABLE_PAGES,
@@ -147,16 +148,6 @@ const leaveStatusColors: Record<string, string> = {
 function getLeaveDays(start: string, end: string): number {
   const diff = Math.ceil((new Date(end).getTime() - new Date(start).getTime()) / (1000 * 60 * 60 * 24)) + 1;
   return diff > 0 ? diff : 1;
-}
-
-// Helper to format date from ISO string
-function formatDate(isoStr?: string | null): string {
-  if (!isoStr) return "N/A";
-  try {
-    return new Date(isoStr).toLocaleDateString([], { weekday: "short", year: "numeric", month: "short", day: "numeric" });
-  } catch {
-    return "N/A";
-  }
 }
 
 export default function TeamPage() {
@@ -903,7 +894,7 @@ function TeamPageInner() {
                         <div className="min-w-0">
                           <p className="text-sm font-medium leading-tight">{safeText(leave.user?.name)}</p>
                           <p className="text-xs text-muted-foreground">
-                            {formatLeaveTypeLabel(leave.leaveType)} · {formatDate(leave.startDate)} – {formatDate(leave.endDate)}
+                            {formatLeaveTypeLabel(leave.leaveType)} · {formatDisplayDateWithWeekday(leave.startDate, "N/A")} – {formatDisplayDateWithWeekday(leave.endDate, "N/A")}
                             <span className="ml-1 text-muted-foreground/70">({getLeaveDays(leave.startDate, leave.endDate)}d)</span>
                           </p>
                           {leave.reason && <p className="text-xs mt-0.5 truncate max-w-[240px] sm:max-w-[360px] text-muted-foreground">{safeText(leave.reason)}</p>}

@@ -43,6 +43,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { toast } from "sonner";
 import { Switch } from "@/components/ui/switch";
 import { safeText, safeNumber, safeDate, deepSanitize, cn, extractStr, extractNum, extractNestedStr } from "@/lib/utils";
+import { formatDisplayDateShort, formatDisplayDateWithWeekday } from "@/lib/format";
 import { BUILTIN_INFRA_GROUPS, toCustomInfraGroupKey } from "@/lib/infra-groups";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -141,8 +142,8 @@ function formatWeekLabel(mondayKey: string, todayKey: string): string {
   const mon = new Date(`${mondayKey}T00:00:00.000Z`);
   const sun = new Date(mon);
   sun.setUTCDate(sun.getUTCDate() + 6);
-  const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", timeZone: "UTC" };
-  const range = `${mon.toLocaleDateString(undefined, opts)} – ${sun.toLocaleDateString(undefined, opts)}`;
+  const sunKey = sun.toISOString().slice(0, 10);
+  const range = `${formatDisplayDateShort(mondayKey)} – ${formatDisplayDateShort(sunKey)}`;
   if (mondayKey < thisMonday) return `Earlier · ${range}`;
   return `Week of ${range}`;
 }
@@ -407,15 +408,7 @@ function MilestoneRow({
       ? mDescription
       : `${mDescription.slice(0, MILESTONE_DESC_PREVIEW_CHARS).trimEnd()}…`;
 
-  const dueLabel = mDue
-    ? new Date(mDue).toLocaleDateString(undefined, {
-        weekday: "short",
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-        timeZone: "UTC",
-      })
-    : "";
+  const dueLabel = mDue ? formatDisplayDateWithWeekday(mDue, "") : "";
 
   return (
     <div

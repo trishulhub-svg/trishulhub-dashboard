@@ -6,6 +6,7 @@ import { isAdmin, isAdminOrProjectManager } from "@/lib/rbac"
 import { ensureTable } from "@/lib/auto-migrate"
 import { rateLimit } from "@/lib/rate-limit"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
+import { formatDisplayDate } from "@/lib/format"
 
 // W32: Standardized time validation regex (validates HH:MM with proper hour/minute ranges)
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/
@@ -157,7 +158,7 @@ export async function POST(req: NextRequest) {
       userId: session.user.id, userName: session.user.name || "unknown", userRole,
       department: "HR_PEOPLE", page: "availability", action: "CREATE",
       entityType: "AvailabilityOverride", entityId: override.id,
-      description: `Created availability override for user ${override.user?.name || userId} on ${new Date(date).toLocaleDateString()}${reason ? ` (${reason})` : ""}`,
+      description: `Created availability override for user ${override.user?.name || userId} on ${formatDisplayDate(date)}${reason ? ` (${reason})` : ""}`,
       ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
     })
 
@@ -210,7 +211,7 @@ export async function DELETE(req: NextRequest) {
       userId: session.user.id, userName: session.user.name || "unknown", userRole,
       department: "HR_PEOPLE", page: "availability", action: "DELETE",
       entityType: "AvailabilityOverride", entityId: id,
-      description: `Deleted availability override for user ${existing.userId} on ${existing.date instanceof Date ? existing.date.toLocaleDateString() : String(existing.date)}`,
+      description: `Deleted availability override for user ${existing.userId} on ${formatDisplayDate(existing.date)}`,
       ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
     })
     return NextResponse.json({ success: true })

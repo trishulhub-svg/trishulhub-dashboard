@@ -8,6 +8,7 @@ import { isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { VALID_DEPARTMENT_VALUES } from "@/lib/types"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
+import { formatDisplayDate } from "@/lib/format"
 import {
   CONTROLLABLE_PAGES,
   normalizePageAccessMode,
@@ -437,7 +438,7 @@ export async function POST(req: NextRequest) {
         userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
         department: "HR_PEOPLE", page: "team", action: "CREATE",
         entityType: "Attendance", entityId: attendance.id,
-        description: `Created attendance record for user ${attUserId || session.user.id} on ${new Date(date as string).toLocaleDateString()}${attStatus ? ` (${attStatus})` : ""}`,
+        description: `Created attendance record for user ${attUserId || session.user.id} on ${formatDisplayDate(date as string)}${attStatus ? ` (${attStatus})` : ""}`,
         ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
       })
       return NextResponse.json(attendance, { status: 201 })
@@ -864,7 +865,7 @@ export async function DELETE(req: NextRequest) {
         userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
         department: "HR_PEOPLE", page: "team", action: "DELETE",
         entityType: "Attendance", entityId: id,
-        description: `Deleted attendance record for user ${record.userId} on ${record.date instanceof Date ? record.date.toLocaleDateString() : String(record.date)}`,
+        description: `Deleted attendance record for user ${record.userId} on ${formatDisplayDate(record.date)}`,
         ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
       })
       return NextResponse.json({ success: true })

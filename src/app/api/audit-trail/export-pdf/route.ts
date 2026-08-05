@@ -6,6 +6,7 @@ import { Prisma } from "@prisma/client"
 import { canExportAuditTrail, getAccessibleDepartments } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { AUDIT_DEPARTMENTS, type AuditDepartment } from "@/lib/audit-log"
+import { formatDisplayDate, formatDisplayDateRange } from "@/lib/format"
 
 // GET /api/audit-trail/export-pdf — Export as PDF
 export async function GET(req: NextRequest) {
@@ -81,8 +82,8 @@ export async function GET(req: NextRequest) {
     doc.fontSize(10).font("Helvetica")
     const deptLabel = department ? (AUDIT_DEPARTMENTS[department as AuditDepartment]?.label || department) : "All Departments"
     const dateLabel = startDate && endDate
-      ? `${new Date(startDate).toLocaleDateString()} to ${new Date(endDate).toLocaleDateString()}`
-      : new Date().toLocaleDateString()
+      ? formatDisplayDateRange(startDate, endDate)
+      : formatDisplayDate(new Date())
 
     doc.text(`Department: ${deptLabel}  |  Period: ${dateLabel}  |  Total: ${total.toLocaleString()} entries`, { align: "center" })
     doc.text(`Generated: ${new Date().toLocaleString()}  |  Exported by: ${session.user.name || session.user.email}`, { align: "center" })
@@ -157,7 +158,7 @@ export async function GET(req: NextRequest) {
       }
 
       let xPos = tableX
-      const dateStr = log.createdAt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+      const dateStr = formatDisplayDate(log.createdAt)
       const timeStr = log.createdAt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
 
       const rowCells = [

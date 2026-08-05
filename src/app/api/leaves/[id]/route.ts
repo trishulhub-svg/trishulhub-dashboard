@@ -7,6 +7,7 @@ import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { ensureTable } from "@/lib/auto-migrate"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 import { notifyUsers } from "@/lib/notify"
+import { formatDisplayDateRange } from "@/lib/format"
 
 // PATCH /api/leaves/[id] - Update leave status (approve/reject/cancel)
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -107,7 +108,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         void notifyUsers({
           userIds: leave.userId,
           title: `Leave ${status === "APPROVED" ? "Approved" : "Rejected"}`,
-          message: `Your ${leave.leaveType.replace(/_/g, " ").toLowerCase()} leave request from ${new Date(leave.startDate).toLocaleDateString()} to ${new Date(leave.endDate).toLocaleDateString()} has been ${status.toLowerCase()}${leave.feedback ? `. Feedback: ${leave.feedback}` : ""}.`,
+          message: `Your ${leave.leaveType.replace(/_/g, " ").toLowerCase()} leave request ${formatDisplayDateRange(leave.startDate, leave.endDate)} has been ${status.toLowerCase()}${leave.feedback ? `. Feedback: ${leave.feedback}` : ""}.`,
           type: status === "APPROVED" ? "SUCCESS" : "WARNING",
           link: "/dashboard/leaves",
           metadata: { leaveId: leave.id },

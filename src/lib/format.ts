@@ -1,5 +1,10 @@
 /**
- * Shared formatting utilities for Finance module
+ * Shared display formatting — dates, currency, URLs.
+ *
+ * Canonical date display across TrishulHub UI: **DD MMM YYYY**
+ * Example: 03 Aug 2026
+ *
+ * Keep YYYY-MM-DD only for <input type="date"> values and API payloads.
  */
 
 /** Currency symbols mapping */
@@ -24,34 +29,130 @@ export function formatCurrency(amount: number, currency: string = "INR"): string
   return `${symbol}${amount.toLocaleString("en-US", { maximumFractionDigits: 2 })}`
 }
 
-/** Format a date string or Date object for display */
+const MONTH_SHORT = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+] as const
+
+const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const
+
+/**
+ * Parse a date value for display without UTC day-shift on YYYY-MM-DD strings.
+ */
+export function parseDisplayDate(input: string | Date | null | undefined): Date | null {
+  if (input == null || input === "") return null
+  if (input instanceof Date) {
+    return Number.isNaN(input.getTime()) ? null : input
+  }
+  const raw = String(input).trim()
+  if (!raw) return null
+
+  // Date-only: YYYY-MM-DD or YYYY-MM-DDTHH:mm… → use calendar components
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (m) {
+    const y = Number(m[1])
+    const mo = Number(m[2]) - 1
+    const d = Number(m[3])
+    const local = new Date(y, mo, d)
+    return Number.isNaN(local.getTime()) ? null : local
+  }
+
+  const parsed = new Date(raw)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+/** Pad day to 2 digits */
+function pad2(n: number): string {
+  return String(n).padStart(2, "0")
+}
+
+/**
+ * Canonical UI date: DD MMM YYYY (e.g. 03 Aug 2026)
+ */
+export function formatDisplayDate(
+  input: string | Date | null | undefined,
+  fallback: string = "—"
+): string {
+  const d = parseDisplayDate(input)
+  if (!d) return fallback
+  return `${pad2(d.getDate())} ${MONTH_SHORT[d.getMonth()]} ${d.getFullYear()}`
+}
+
+/**
+ * Date with weekday: DDD DD MMM YYYY (e.g. Mon 03 Aug 2026)
+ */
+export function formatDisplayDateWithWeekday(
+  input: string | Date | null | undefined,
+  fallback: string = "—"
+): string {
+  const d = parseDisplayDate(input)
+  if (!d) return fallback
+  return `${WEEKDAY_SHORT[d.getDay()]} ${pad2(d.getDate())} ${MONTH_SHORT[d.getMonth()]} ${d.getFullYear()}`
+}
+
+/**
+ * Compact month+day (e.g. 03 Aug) — use in tight grids; still DD MMM order.
+ */
+export function formatDisplayDateShort(
+  input: string | Date | null | undefined,
+  fallback: string = "—"
+): string {
+  const d = parseDisplayDate(input)
+  if (!d) return fallback
+  return `${pad2(d.getDate())} ${MONTH_SHORT[d.getMonth()]}`
+}
+
+/**
+ * Inclusive range: 03 Aug 2026 → 31 Aug 2026 (single day collapses)
+ */
+export function formatDisplayDateRange(
+  start: string | Date | null | undefined,
+  end: string | Date | null | undefined,
+  fallback: string = "—"
+): string {
+  const a = formatDisplayDate(start, "")
+  const b = formatDisplayDate(end, "")
+  if (!a && !b) return fallback
+  if (!a) return b
+  if (!b || a === b) return a
+  return `${a} → ${b}`
+}
+
+/** Alias used across Finance / Training — same as formatDisplayDate */
 export function formatDate(d: string | Date | null | undefined): string {
+  return formatDisplayDate(d, "N/A")
+}
+
+/** Format a date with time (DD MMM YYYY, HH:mm) */
+export function formatDateTime(d: string | Date | null | undefined): string {
   if (!d) return "N/A"
   try {
-    return new Date(d).toLocaleDateString("en-IN", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    })
+    const date = typeof d === "string" || d instanceof Date ? parseDisplayDate(d) : null
+    const full = date || new Date(d as string | Date)
+    if (Number.isNaN(full.getTime())) return "Invalid date"
+    const hh = pad2(full.getHours())
+    const mm = pad2(full.getMinutes())
+    return `${formatDisplayDate(full)} · ${hh}:${mm}`
   } catch {
     return "Invalid date"
   }
 }
 
-/** Format a date with time */
-export function formatDateTime(d: string | Date | null | undefined): string {
-  if (!d) return "N/A"
-  try {
-    return new Date(d).toLocaleDateString("en-IN", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    })
-  } catch {
-    return "Invalid date"
-  }
+/** YYYY-MM-DD for form inputs / API keys (not for display) */
+export function toDateInputValue(d: Date | string | null | undefined): string {
+  const date = parseDisplayDate(d)
+  if (!date) return ""
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
 }
 
 /** Expense category badge colors */

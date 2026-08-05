@@ -33,6 +33,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { safeText } from "@/lib/utils";
+import { formatDisplayDateWithWeekday } from "@/lib/format";
 import type { Project, TeamUser, TimeActivityItem, TimeEntry, TrainingAssignment } from "./types";
 import { canEditWorkNotes, workNotesHoursLeft } from "./types";
 import { formatDate, formatDuration, formatHours, formatTime } from "./utils";
@@ -69,15 +70,7 @@ function formatSessionRole(role?: string | null) {
 }
 
 function MilestoneSessionDetails({ m }: { m: SessionMilestone }) {
-  const dueLabel = m.dueDate
-    ? new Date(m.dueDate).toLocaleDateString(undefined, {
-        weekday: "short",
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-        timeZone: "UTC",
-      })
-    : ""
+  const dueLabel = m.dueDate ? formatDisplayDateWithWeekday(m.dueDate, "") : ""
   const assignees = Array.isArray(m.assignees) ? m.assignees : []
   const description = (m.description || "").trim()
   return (

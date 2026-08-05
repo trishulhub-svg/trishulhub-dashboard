@@ -1,5 +1,7 @@
 /** Shared due-date helpers for Learning / training assignments */
 
+import { formatDisplayDate } from "@/lib/format"
+
 function startOfDay(d: Date): Date {
   const x = new Date(d)
   x.setHours(0, 0, 0, 0)
@@ -7,16 +9,7 @@ function startOfDay(d: Date): Date {
 }
 
 export function formatDueDate(dueDate: string | Date | null | undefined): string {
-  if (!dueDate) return "—"
-  try {
-    return new Date(dueDate).toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    })
-  } catch {
-    return "—"
-  }
+  return formatDisplayDate(dueDate, "—")
 }
 
 export type DueCountdown = {

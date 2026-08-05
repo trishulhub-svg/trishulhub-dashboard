@@ -6,6 +6,7 @@ import { isAdmin } from "@/lib/rbac"
 import { notifyRoles, notifyUsers } from "@/lib/notify"
 import { ensureTrainingAssignmentSchema } from "@/lib/training-assignment-migrate"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
+import { formatDisplayDate } from "@/lib/format"
 import { z } from "zod"
 import { randomBytes } from "crypto"
 
@@ -115,7 +116,7 @@ async function notifyOverdueIfNeeded() {
       const name = userMap.get(item.userId)?.name || "A team member"
       void notifyRoles(["SUPER_ADMIN", "ADMIN"], {
         title: "Training overdue",
-        message: `${name} has not completed "${item.title}" (due ${new Date(item.dueDate).toLocaleDateString()}).`,
+        message: `${name} has not completed "${item.title}" (due ${formatDisplayDate(item.dueDate)}).`,
         type: "WARNING",
         link: "/dashboard/training/assign",
         metadata: { kind: "training_overdue", assignmentId: item.id, userId: item.userId },
@@ -357,7 +358,7 @@ export async function POST(req: NextRequest) {
     void notifyUsers({
       userIds: targetIds,
       title: "New training assigned",
-      message: `You have been assigned "${title}" — due ${due.toLocaleDateString()}. Open Learning → My Training.`,
+      message: `You have been assigned "${title}" — due ${formatDisplayDate(due)}. Open Learning → My Training.`,
       type: "INFO",
       link: "/dashboard/training/my",
       metadata: {
@@ -375,7 +376,7 @@ export async function POST(req: NextRequest) {
       action: "ASSIGN",
       entityType: "TrainingAssignment",
       entityId: created[0]?.id,
-      description: `Assigned training "${title}" to ${created.length} member${created.length === 1 ? "" : "s"} (due ${due.toLocaleDateString()})`,
+      description: `Assigned training "${title}" to ${created.length} member${created.length === 1 ? "" : "s"} (due ${formatDisplayDate(due)})`,
       newValue: JSON.stringify({
         title,
         assigneeIds: targetIds,
@@ -572,7 +573,7 @@ export async function PATCH(req: NextRequest) {
       const notifyIds = new Set<string>([updated.userId])
       if (existing.userId !== updated.userId) notifyIds.add(existing.userId)
 
-      const dueLabel = new Date(updated.dueDate).toLocaleDateString()
+      const dueLabel = formatDisplayDate(updated.dueDate)
       void notifyUsers({
         userIds: [...notifyIds],
         title: "Training assignment updated",

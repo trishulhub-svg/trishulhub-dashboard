@@ -30,6 +30,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn, safeText, safeNumber } from "@/lib/utils";
+import { formatDate } from "@/lib/format";
 import { SearchableCombobox } from "@/components/searchable-combobox";
 
 // ━━ Configurable Constants ━━
@@ -78,19 +79,6 @@ const ITEMS_PER_PAGE = 8;
 
 const formatCurrency = (n: number) =>
   `${CURRENCY_SYMBOL}${new Intl.NumberFormat("en-IN").format(n)}`;
-
-const formatDate = (d: string | null | undefined) => {
-  if (!d) return "—";
-  try {
-    return new Date(d).toLocaleDateString("en-IN", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    });
-  } catch {
-    return "—";
-  }
-};
 
 // ━━ Line Item Type ━━
 interface LineItem {
