@@ -440,9 +440,11 @@ function AvailabilityPageInner() {
   // ── Data fetching ──
   const fetchCoreData = useCallback(async () => {
     try {
+      // Overrides tab only needs today+future; weekly overview loads overrides via schedule API.
+      const overrideUrl = `/api/availability/overrides?from=${encodeURIComponent(todayStr)}&limit=200`;
       const [availRes, overrideRes, dateRangeRes, teamRes] = await Promise.all([
         fetch("/api/availability", { credentials: "include" }),
-        fetch("/api/availability/overrides", { credentials: "include" }),
+        fetch(overrideUrl, { credentials: "include" }),
         fetch("/api/availability/date-ranges", { credentials: "include" }),
         fetch("/api/team?type=users", { credentials: "include" }),
       ]);
@@ -456,7 +458,14 @@ function AvailabilityPageInner() {
       }
       if (overrideRes.ok) {
         const json = await overrideRes.json();
-        setOverrides(safeArray<OverrideEntry>(json?.data ?? json));
+        const raw = safeArray<OverrideEntry>(json?.data ?? json);
+        // Normalize date to YYYY-MM-DD (API should already; keep client resilient)
+        setOverrides(
+          raw.map((o) => ({
+            ...o,
+            date: typeof o.date === "string" && o.date.length >= 10 ? o.date.slice(0, 10) : String(o.date || ""),
+          }))
+        );
       }
       if (dateRangeRes.ok) {
         const drJson = await dateRangeRes.json();
@@ -480,7 +489,7 @@ function AvailabilityPageInner() {
     } finally {
       setLoading(false);
     }
-  }, [router, schedUserId, session?.user?.id]);
+  }, [router, schedUserId, session?.user?.id, todayStr]);
 
   const fetchWeekSchedule = useCallback(async () => {
     setWeekLoading(true);
@@ -562,29 +571,17 @@ function AvailabilityPageInner() {
     });
   }, []);
 
-  // ── Filter upcoming / past overrides ──
+  // ── Active overrides (today + future). Past dates are excluded from this tab;
+  // they still appear historically in Weekly Overview via the schedule API.
   const upcomingOverrides = useMemo(
-    () => overrides
-      .filter((o) => {
-        const d = new Date(o.date + "T00:00:00");
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        return d >= today;
-      })
-      .sort((a, b) => a.date.localeCompare(b.date)),
-    [overrides]
-  );
-
-  const pastOverrides = useMemo(
-    () => overrides
-      .filter((o) => {
-        const d = new Date(o.date + "T00:00:00");
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        return d < today;
-      })
-      .sort((a, b) => b.date.localeCompare(a.date)),
-    [overrides]
+    () =>
+      overrides
+        .filter((o) => {
+          const d = typeof o.date === "string" ? o.date.slice(0, 10) : "";
+          return d >= todayStr;
+        })
+        .sort((a, b) => a.date.localeCompare(b.date)),
+    [overrides, todayStr]
   );
 
   // ── Active (current / future) date ranges ──
@@ -647,7 +644,11 @@ function AvailabilityPageInner() {
   const openEditOverride = (override: OverrideEntry) => {
     setEditingOverride(override);
     setFormOverrideUserId(override.userId);
-    setFormOverrideDate(override.date);
+    setFormOverrideDate(
+      typeof override.date === "string" && override.date.length >= 10
+        ? override.date.slice(0, 10)
+        : String(override.date || "")
+    );
     setFormOverrideStartTime(override.startTime || "");
     setFormOverrideEndTime(override.endTime || "");
     setFormOverrideIsAvailable(override.isAvailable);
@@ -803,6 +804,11 @@ function AvailabilityPageInner() {
   };
 
   const handleDeleteOverride = async (id: string) => {
+    if (!id) {
+      toast.error("Override id missing");
+      setDeleteOverrideId(null);
+      return;
+    }
     try {
       const res = await fetch(`/api/availability/overrides/${id}`, {
         method: "DELETE",
@@ -810,13 +816,16 @@ function AvailabilityPageInner() {
       });
       if (res.ok) {
         toast.success("Override deleted");
+        setOverrides((prev) => prev.filter((o) => o.id !== id));
+        setDayDetailDialogOpen(false);
         fetchCoreData();
         fetchWeekSchedule();
       } else {
-        toast.error("Failed to delete");
+        const err = await res.json().catch(() => ({}));
+        toast.error(safeText(err.error, "Failed to delete override"));
       }
     } catch {
-      toast.error("Failed to delete");
+      toast.error("Failed to delete override");
     } finally {
       setDeleteOverrideId(null);
     }
@@ -2223,7 +2232,7 @@ function AvailabilityPageInner() {
                     Overrides
                   </CardTitle>
                   <CardDescription>
-                    Single-day changes to recurring availability (sick day, extra hours, unexpected absence).
+                    Single-day changes for today and future dates. Past overrides leave this list automatically but still show in Weekly Overview.
                   </CardDescription>
                 </div>
                 {isUserAdmin && (
@@ -2234,11 +2243,13 @@ function AvailabilityPageInner() {
               </div>
             </CardHeader>
             <CardContent>
-              {overrides.length === 0 ? (
+              {upcomingOverrides.length === 0 ? (
                 <div className="flex flex-col items-center py-10 text-muted-foreground">
                   <CalendarClock className="h-12 w-12 opacity-30 mb-3" />
-                  <p className="text-sm">No overrides configured</p>
-                  <p className="text-xs mt-1 text-center max-w-md">Overrides apply to a single date only — perfect for sick days, extra hours, or unexpected changes.</p>
+                  <p className="text-sm">No active overrides</p>
+                  <p className="text-xs mt-1 text-center max-w-md">
+                    Overrides apply to a single date (today or future). Past overrides drop off this list automatically but remain visible in Weekly Overview for those days.
+                  </p>
                   {isUserAdmin && (
                     <Button variant="outline" size="sm" className="mt-3" onClick={() => { resetOverrideForm(); setOverrideDialogOpen(true); }}>
                       <Plus className="h-3 w-3 mr-1" /> Create Override
@@ -2247,33 +2258,15 @@ function AvailabilityPageInner() {
                 </div>
               ) : (
                 <>
-                  {upcomingOverrides.length > 0 && (
-                    <>
-                      <div className="text-xs font-medium text-muted-foreground mb-2">
-                        Upcoming &amp; Active ({upcomingOverrides.length})
-                      </div>
-                      <OverrideList
-                        overrides={upcomingOverrides}
-                        onEdit={openEditOverride}
-                        onDelete={(id) => setDeleteOverrideId(id)}
-                        canEdit={isUserAdmin}
-                      />
-                    </>
-                  )}
-                  {pastOverrides.length > 0 && (
-                    <>
-                      <div className="text-xs font-medium text-muted-foreground mt-5 mb-2">
-                        Past ({pastOverrides.length})
-                      </div>
-                      <OverrideList
-                        overrides={pastOverrides}
-                        onEdit={openEditOverride}
-                        onDelete={(id) => setDeleteOverrideId(id)}
-                        dimmed
-                        canEdit={isUserAdmin}
-                      />
-                    </>
-                  )}
+                  <div className="text-xs font-medium text-muted-foreground mb-2">
+                    Upcoming &amp; Active ({upcomingOverrides.length})
+                  </div>
+                  <OverrideList
+                    overrides={upcomingOverrides}
+                    onEdit={openEditOverride}
+                    onDelete={(id) => setDeleteOverrideId(id)}
+                    canEdit={isUserAdmin}
+                  />
                 </>
               )}
             </CardContent>
@@ -2364,15 +2357,50 @@ function AvailabilityPageInner() {
               {/* Override info */}
               {selectedDayDetail.dayData.override && (
                 <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-700">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <span className="text-xs font-semibold text-amber-800 dark:text-amber-200">Override Active</span>
                     {isUserAdmin && (
-                      <Button variant="ghost" size="sm" className="h-7 text-[10px] text-amber-700 dark:text-amber-300" onClick={() => {
-                        const ovr = overrides.find(o => o.id === selectedDayDetail.dayData.override!.id);
-                        if (ovr) { setDayDetailDialogOpen(false); openEditOverride(ovr); }
-                      }}>
-                        <Edit3 className="h-3 w-3 mr-1" /> Edit
-                      </Button>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-[10px] text-amber-700 dark:text-amber-300"
+                          onClick={() => {
+                            const ovr = selectedDayDetail.dayData.override!;
+                            const fromList = overrides.find((o) => o.id === ovr.id);
+                            setDayDetailDialogOpen(false);
+                            openEditOverride(
+                              fromList || {
+                                id: ovr.id,
+                                userId: selectedDayDetail.userId,
+                                date: ovr.date || selectedDayDetail.date,
+                                startTime: ovr.startTime,
+                                endTime: ovr.endTime,
+                                isAvailable: ovr.isAvailable,
+                                reason: ovr.reason,
+                              }
+                            );
+                          }}
+                        >
+                          <Edit3 className="h-3 w-3 mr-1" /> Edit
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-[10px] text-red-600 dark:text-red-400"
+                          onClick={() => {
+                            const oid = selectedDayDetail.dayData.override?.id;
+                            if (!oid) {
+                              toast.error("Override id missing");
+                              return;
+                            }
+                            setDayDetailDialogOpen(false);
+                            setDeleteOverrideId(oid);
+                          }}
+                        >
+                          <Trash2 className="h-3 w-3 mr-1" /> Delete
+                        </Button>
+                      </div>
                     )}
                   </div>
                   <div className="text-xs text-amber-700 dark:text-amber-300 mt-1">

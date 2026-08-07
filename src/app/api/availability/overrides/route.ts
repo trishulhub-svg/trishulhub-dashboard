@@ -3,13 +3,62 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isAdmin, isAdminOrProjectManager } from "@/lib/rbac"
-import { ensureTable } from "@/lib/auto-migrate"
+import { ensureCriticalSchema } from "@/lib/auto-migrate"
 import { rateLimit } from "@/lib/rate-limit"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 import { formatDisplayDate } from "@/lib/format"
 
 // W32: Standardized time validation regex (validates HH:MM with proper hour/minute ranges)
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/
+
+function toYmd(d: Date | string): string {
+  const date = d instanceof Date ? d : new Date(d)
+  if (Number.isNaN(date.getTime())) return ""
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+/** Parse YYYY-MM-DD (or ISO) to local calendar day bounds without UTC day-shift. */
+function parseLocalDate(input: string): Date | null {
+  const s = typeof input === "string" ? input.trim() : ""
+  if (!s) return null
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const d = new Date(`${s}T00:00:00`)
+    return Number.isNaN(d.getTime()) ? null : d
+  }
+  const d = new Date(s)
+  if (Number.isNaN(d.getTime())) return null
+  d.setHours(0, 0, 0, 0)
+  return d
+}
+
+function mapOverride(o: {
+  id: string
+  userId: string
+  date: Date | string
+  startTime: string | null
+  endTime: string | null
+  isAvailable: boolean
+  reason: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  user?: { id: string; name: string; email: string; avatar: string | null }
+}) {
+  return {
+    id: o.id,
+    userId: o.userId,
+    user: o.user,
+    date: toYmd(o.date),
+    startTime: o.startTime,
+    endTime: o.endTime,
+    isAvailable: o.isAvailable,
+    reason: o.reason,
+    createdAt: o.createdAt,
+    updatedAt: o.updatedAt,
+  }
+}
 
 // C26: Helper to check for Prisma unique constraint error (P2002)
 function isUniqueConstraintError(error: unknown): boolean {
@@ -33,7 +82,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
 
-    await ensureTable("AvailabilityOverride")
+    await ensureCriticalSchema()
 
     // Rate limit for GET
     const rl = rateLimit(`availability-overrides-list-${session.user.id}`, 30, 60000)
@@ -49,15 +98,26 @@ export async function GET(req: NextRequest) {
 
     const date = searchParams.get("date")
     if (date) {
-      const parsedDate = new Date(date)
-      if (isNaN(parsedDate.getTime())) {
+      const parsedDate = parseLocalDate(date)
+      if (!parsedDate) {
         return NextResponse.json({ error: "Invalid date format" }, { status: 400 })
       }
-      const startOfDay = new Date(date)
+      const startOfDay = new Date(parsedDate)
       startOfDay.setHours(0, 0, 0, 0)
-      const endOfDay = new Date(date)
+      const endOfDay = new Date(parsedDate)
       endOfDay.setHours(23, 59, 59, 999)
       where.date = { gte: startOfDay, lte: endOfDay }
+    }
+
+    // Optional: from=YYYY-MM-DD — only overrides on/after this day (Overrides tab uses today)
+    const from = searchParams.get("from")
+    if (from) {
+      const fromDate = parseLocalDate(from)
+      if (!fromDate) {
+        return NextResponse.json({ error: "Invalid from date format. Use YYYY-MM-DD" }, { status: 400 })
+      }
+      fromDate.setHours(0, 0, 0, 0)
+      where.date = { ...(typeof where.date === "object" && where.date ? (where.date as object) : {}), gte: fromDate }
     }
 
     // W42: Add skip/take pagination with query params
@@ -79,7 +139,7 @@ export async function GET(req: NextRequest) {
     })
 
     return NextResponse.json({
-      data: overrides,
+      data: overrides.map(mapOverride),
       pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
     })
   } catch (error: unknown) {
@@ -99,7 +159,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
 
-    await ensureTable("AvailabilityOverride")
+    await ensureCriticalSchema()
 
     // C10: Rate limit
     const rl = rateLimit(`availability-${session.user.id}`, 30, 60000)
@@ -121,10 +181,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
 
-    // Validate date
-    const parsedDate = new Date(date)
-    if (isNaN(parsedDate.getTime())) {
-      return NextResponse.json({ error: "Invalid date format" }, { status: 400 })
+    // Validate date (local calendar day — avoid UTC shift on YYYY-MM-DD)
+    const parsedDate = parseLocalDate(typeof date === "string" ? date : "")
+    if (!parsedDate) {
+      return NextResponse.json({ error: "Invalid date format. Use YYYY-MM-DD" }, { status: 400 })
     }
 
     // W37: Validate time format and startTime < endTime
@@ -138,11 +198,14 @@ export async function POST(req: NextRequest) {
     if (startTime && endTime && endTime !== "24:00" && startTime >= endTime) {
       return NextResponse.json({ error: "Start time must be before end time" }, { status: 400 })
     }
+    if ((startTime && !endTime) || (!startTime && endTime)) {
+      return NextResponse.json({ error: "Both startTime and endTime must be provided together, or neither" }, { status: 400 })
+    }
 
     const override = await db.availabilityOverride.create({
       data: {
         userId,
-        date: new Date(date),
+        date: parsedDate,
         startTime: startTime || null,
         endTime: endTime || null,
         isAvailable: isAvailable !== undefined ? isAvailable : false,
@@ -158,11 +221,11 @@ export async function POST(req: NextRequest) {
       userId: session.user.id, userName: session.user.name || "unknown", userRole,
       department: "HR_PEOPLE", page: "availability", action: "CREATE",
       entityType: "AvailabilityOverride", entityId: override.id,
-      description: `Created availability override for user ${override.user?.name || userId} on ${formatDisplayDate(date)}${reason ? ` (${reason})` : ""}`,
+      description: `Created availability override for user ${override.user?.name || userId} on ${formatDisplayDate(toYmd(parsedDate))}${reason ? ` (${reason})` : ""}`,
       ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
     })
 
-    return NextResponse.json(override, { status: 201 })
+    return NextResponse.json(mapOverride(override), { status: 201 })
   } catch (error: unknown) {
     // C26: Handle P2002 unique constraint violation (duplicate userId+date)
     if (isUniqueConstraintError(error)) {
@@ -184,7 +247,7 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
 
-    await ensureTable("AvailabilityOverride")
+    await ensureCriticalSchema()
 
     // C10: Rate limit
     const rl = rateLimit(`availability-${session.user.id}`, 30, 60000)
