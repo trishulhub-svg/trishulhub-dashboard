@@ -24,8 +24,10 @@ import {
   ArrowLeft, Plus, Bot, User, Clock, Trash2, Users, UserPlus, X, CalendarDays, Tag,
   CheckCircle2, ShieldCheck, Activity, Gauge, CircleDot, FolderKanban,
   ChevronRight, ChevronDown, ChevronUp, ExternalLink, Settings, Globe, Star, Pencil, Trash2 as Trash2Icon, Loader2,
-  Github, Database, Server, Eye, EyeOff, Copy, Save, Key, FlaskConical, GripVertical, CopyPlus,
+  Github, Database, Server, Eye, EyeOff, Copy, Save, Key, FlaskConical, GripVertical, CopyPlus, Layers,
 } from "lucide-react";
+import { ProjectCredentialsDialog } from "@/components/dashboard/projects/project-credentials-dialog";
+import { ProjectMethodsDialog } from "@/components/dashboard/projects/project-methods-dialog";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator, } from "@/components/ui/dropdown-menu";
 import { Card, CardContent } from "@/components/ui/card";
@@ -676,6 +678,8 @@ export default function ProjectDetailPage() {
   const [removeMemberUserId, setRemoveMemberUserId] = useState<string | null>(null);
   // Website management dialog state
   const [websiteMgmtOpen, setWebsiteMgmtOpen] = useState(false);
+  const [credentialsDialogOpen, setCredentialsDialogOpen] = useState(false);
+  const [methodsDialogOpen, setMethodsDialogOpen] = useState(false);
   const [deleteWebsiteId, setDeleteWebsiteId] = useState<string | null>(null);
   const [newWebsiteUrl, setNewWebsiteUrl] = useState("");
   const [newWebsiteLabel, setNewWebsiteLabel] = useState("");
@@ -1797,6 +1801,30 @@ export default function ProjectDetailPage() {
 
   const progressColorClass = projectProgress < 30 ? "text-red-600 dark:text-red-400" : projectProgress < 70 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400";
 
+  const manageIconBtnClass = "inline-flex items-center justify-center h-[26px] w-[26px] rounded-full text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/60 transition-colors";
+  const CredMethodsIcons = () => (
+    <>
+      <button
+        type="button"
+        className={manageIconBtnClass}
+        aria-label="Credentials"
+        title="Credentials"
+        onClick={() => setCredentialsDialogOpen(true)}
+      >
+        <Key className="h-3 w-3" />
+      </button>
+      <button
+        type="button"
+        className={manageIconBtnClass}
+        aria-label="Methods"
+        title="Methods"
+        onClick={() => setMethodsDialogOpen(true)}
+      >
+        <Layers className="h-3 w-3" />
+      </button>
+    </>
+  );
+
   return (
     <div className="space-y-5" style={{ animation: "fade-in 0.35s ease-out both", padding: isInIframe ? "8px" : undefined }}>
       {/* ═══════ DEMO PROJECT banner (shown only when isDemo is true) ═══════ */}
@@ -1937,14 +1965,17 @@ export default function ProjectDetailPage() {
                   <ExternalLink className="h-2.5 w-2.5 opacity-60" />
                 </a>
                 {canManageProject && (
-                  <button
-                    type="button"
-                    onClick={() => { setWebsiteMgmtOpen(true); setEditingWebsiteId(null); }}
-                    className="inline-flex items-center justify-center h-[26px] w-[26px] rounded-full text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/60 transition-colors"
-                    aria-label="Manage websites"
-                  >
-                    <Settings className="h-3 w-3" />
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => { setWebsiteMgmtOpen(true); setEditingWebsiteId(null); }}
+                      className={manageIconBtnClass}
+                      aria-label="Manage websites"
+                    >
+                      <Settings className="h-3 w-3" />
+                    </button>
+                    <CredMethodsIcons />
+                  </>
                 )}
               </>
             );
@@ -1987,14 +2018,17 @@ export default function ProjectDetailPage() {
                   </DropdownMenuContent>
                 </DropdownMenu>
                 {canManageProject && (
-                  <button
-                    type="button"
-                    onClick={() => { setWebsiteMgmtOpen(true); setEditingWebsiteId(null); }}
-                    className="inline-flex items-center justify-center h-[26px] w-[26px] rounded-full text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/60 transition-colors"
-                    aria-label="Manage websites"
-                  >
-                    <Settings className="h-3 w-3" />
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => { setWebsiteMgmtOpen(true); setEditingWebsiteId(null); }}
+                      className={manageIconBtnClass}
+                      aria-label="Manage websites"
+                    >
+                      <Settings className="h-3 w-3" />
+                    </button>
+                    <CredMethodsIcons />
+                  </>
                 )}
               </>
             );
@@ -2002,14 +2036,17 @@ export default function ProjectDetailPage() {
           // 0 websites
           if (canManageProject) {
             return (
-              <button
-                type="button"
-                onClick={() => { setWebsiteMgmtOpen(true); setEditingWebsiteId(null); }}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium text-muted-foreground/60 hover:text-foreground hover:bg-muted/40 border border-dashed border-muted-foreground/30 transition-colors"
-              >
-                <Globe className="h-3 w-3" />
-                Add Live URL
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => { setWebsiteMgmtOpen(true); setEditingWebsiteId(null); }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium text-muted-foreground/60 hover:text-foreground hover:bg-muted/40 border border-dashed border-muted-foreground/30 transition-colors"
+                >
+                  <Globe className="h-3 w-3" />
+                  Add Live URL
+                </button>
+                <CredMethodsIcons />
+              </>
             );
           }
           return null;
@@ -3059,6 +3096,22 @@ export default function ProjectDetailPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {projectId && (
+        <>
+          <ProjectCredentialsDialog
+            projectId={projectId}
+            open={credentialsDialogOpen}
+            onOpenChange={setCredentialsDialogOpen}
+          />
+          <ProjectMethodsDialog
+            projectId={projectId}
+            open={methodsDialogOpen}
+            onOpenChange={setMethodsDialogOpen}
+            canManageCatalog={canManageProject}
+          />
+        </>
       )}
     </div>
   );
