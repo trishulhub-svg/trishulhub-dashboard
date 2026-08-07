@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { ProjectCredentialsDialog } from "@/components/dashboard/projects/project-credentials-dialog";
 import { ProjectMethodsDialog } from "@/components/dashboard/projects/project-methods-dialog";
+import { WorkPriorityBadge } from "@/components/dashboard/projects/work-priority-badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator, } from "@/components/ui/dropdown-menu";
 import { Card, CardContent } from "@/components/ui/card";
@@ -1705,6 +1706,10 @@ export default function ProjectDetailPage() {
     milestoneTotal > 0 ? Math.round((milestoneDone / milestoneTotal) * 100) : 0;
   const projectBudget = project ? extractNum(project, "budget", 0) : 0;
   const projectDeadline = project ? extractStr(project, "deadline", "") : "";
+  const projectWorkPriority =
+    project && typeof (project as Record<string, unknown>).workPriority === "number"
+      ? ((project as Record<string, unknown>).workPriority as number)
+      : null;
 
   // Admin/SuperAdmin: group milestones by due-date week for easier planning
   const milestonesByWeek = useMemo(() => {
@@ -1865,6 +1870,7 @@ export default function ProjectDetailPage() {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2.5 flex-wrap">
             <h1 className="text-xl font-bold tracking-tight">{safeText(projectName, "Untitled")}</h1>
+            <WorkPriorityBadge priority={projectWorkPriority} className="h-5 min-w-5 text-[11px]" />
             {canManageProject ? (
               <select
                 className="h-6 text-[10px] border rounded-full px-2.5 bg-background/80 font-semibold focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer appearance-none pr-5"
@@ -1880,6 +1886,37 @@ export default function ProjectDetailPage() {
               <Badge className={`${projectStatusColors[safeText(projectStatus, "")] || ""} text-[10px] font-semibold px-2 py-0`}>
                 {safeText(projectStatus, "UNKNOWN").replace("_", " ")}
               </Badge>
+            )}
+            {canManageProject && (
+              <label className="inline-flex items-center gap-1.5 h-6 text-[10px] border rounded-full px-2.5 bg-background/80 font-semibold">
+                <span className="text-muted-foreground whitespace-nowrap">Priority</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={99}
+                  placeholder="—"
+                  className="w-10 bg-transparent border-0 p-0 text-[10px] font-bold tabular-nums focus:outline-none focus:ring-0"
+                  defaultValue={projectWorkPriority ?? ""}
+                  key={`wp-${projectId}-${projectWorkPriority ?? "none"}`}
+                  onBlur={(e) => {
+                    const raw = e.target.value.trim();
+                    const next = raw === "" ? null : parseInt(raw, 10);
+                    const normalized =
+                      next != null && Number.isInteger(next) && next >= 1 && next <= 99
+                        ? next
+                        : null;
+                    if (normalized === projectWorkPriority) return;
+                    if (raw !== "" && normalized == null) {
+                      e.target.value = projectWorkPriority != null ? String(projectWorkPriority) : "";
+                      toast.error("Priority must be 1–99 or blank");
+                      return;
+                    }
+                    handleUpdateProject({ workPriority: normalized });
+                  }}
+                  title="Clock-in priority (1 = highest). Clear to unset."
+                  aria-label="Work priority"
+                />
+              </label>
             )}
           </div>
           {projectDesc && (

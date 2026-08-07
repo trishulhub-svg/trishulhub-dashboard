@@ -22,7 +22,7 @@ function getErrMsg(err: unknown): string {
 
 // Bump when adding CRITICAL_COLUMNS / CRITICAL_TABLES so warm serverless
 // instances re-run migrations after deploy (stale syncDone otherwise skips ALTERs).
-const SCHEMA_REVISION = 202608051
+const SCHEMA_REVISION = 202608071
 const SCHEMA_REVISION_SETTING_KEY = "auto_migrate_schema_revision"
 const CRITICAL_REVISION_SETTING_KEY = "auto_migrate_critical_revision"
 
@@ -150,6 +150,8 @@ const CRITICAL_COLUMNS: Array<{ table: string; column: string; sql: string }> = 
   { table: "Project", column: "startDate", sql: "ALTER TABLE Project ADD COLUMN startDate DATETIME" },
   // Project isDemo flag — demo projects get their own page at /dashboard/demo with a DEMO badge
   { table: "Project", column: "isDemo", sql: "ALTER TABLE Project ADD COLUMN isDemo BOOLEAN NOT NULL DEFAULT 0" },
+  // Work priority (1 = highest) shown to assignees with open milestones
+  { table: "Project", column: "workPriority", sql: `ALTER TABLE "Project" ADD COLUMN "workPriority" INTEGER` },
   // Attendance — updatedAt column (added in schema but missing from older DBs)
   // Turso/libSQL rejects non-constant defaults on ALTER ADD COLUMN (CURRENT_TIMESTAMP).
   // Use a constant default, then backfill below.

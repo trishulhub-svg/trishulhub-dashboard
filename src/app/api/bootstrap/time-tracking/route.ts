@@ -78,7 +78,7 @@ export async function GET(req: NextRequest) {
         : Promise.resolve([]),
       db.project.findMany({
         where: projectWhere,
-        select: { id: true, name: true, status: true, progress: true, isDemo: true },
+        select: { id: true, name: true, status: true, progress: true, isDemo: true, workPriority: true },
         orderBy: { createdAt: "desc" },
         take: 300,
       }),
@@ -129,10 +129,19 @@ export async function GET(req: NextRequest) {
       page: 1,
       limit: 100,
       totalPages: 1,
-      projects: projects.map((p) => ({
-        ...p,
-        hasOpenAssignedMilestones: openAssigned.has(p.id),
-      })),
+      projects: [...projects]
+        .map((p) => ({
+          ...p,
+          hasOpenAssignedMilestones: openAssigned.has(p.id),
+        }))
+        .sort((a, b) => {
+          const pa = a.workPriority != null && a.workPriority >= 1 ? a.workPriority : null
+          const pb = b.workPriority != null && b.workPriority >= 1 ? b.workPriority : null
+          if (pa != null && pb != null && pa !== pb) return pa - pb
+          if (pa != null && pb == null) return -1
+          if (pa == null && pb != null) return 1
+          return String(a.name || "").localeCompare(String(b.name || ""))
+        }),
       teamUsers: teamUsers.map((u) => ({ id: u.id, name: u.name })),
       activityCatalog,
       activityVisible: activitiesVisibleForRole(activityCatalog, userRole),

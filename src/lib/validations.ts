@@ -23,6 +23,8 @@ export const createProjectSchema = z.object({
   status: z.enum(["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"]).optional(),
   progress: z.number().int().min(0).max(100).optional(),
   isDemo: z.boolean().optional(),
+  // 1 = highest priority for assignees; null clears
+  workPriority: z.number().int().min(1).max(99).optional().nullable(),
   // Lenient: accept null/empty string and let the API normalize to undefined.
   deadline: z.string().optional().nullable(),
   startDate: z.string().optional().nullable(),
@@ -49,6 +51,7 @@ export const updateProjectSchema = z.object({
   status: z.enum(["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"]).optional(),
   progress: z.number().int().min(0).max(100).optional(),
   isDemo: z.boolean().optional(),
+  workPriority: z.number().int().min(1).max(99).optional().nullable(),
   deadline: z.string().optional().nullable(),
   startDate: z.string().optional().nullable(),
   budget: z.number().min(0).optional().nullable(),
