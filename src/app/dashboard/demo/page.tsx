@@ -8,10 +8,10 @@
 //
 // Demo projects work exactly like regular projects — same infrastructure,
 // members, credentials, etc. — so the detail page at /dashboard/projects/[projectId]
-// is reused. Clicking a card navigates there directly.
+// is reused. Clicking a row navigates there directly.
 //
 // This is a thin wrapper around ProjectsBoard (see ../projects/page.tsx) so any
-// UX improvements made to the projects board automatically apply here too.
+// UX improvements made to the projects list automatically apply here too.
 
 import { Suspense } from "react";
 import { ProjectsBoard } from "@/app/dashboard/projects/page";

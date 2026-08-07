@@ -1,7 +1,7 @@
 import { Skeleton } from "@/components/ui/skeleton";
 
 // L-PRJ-1 FIX: Replaced animate-pulse divs with shadcn/ui Skeleton component
-// I3 FIX: Updated skeleton to match kanban board layout (stats row, filter bar, columns)
+// Updated skeleton to match list view layout (stats row, filter bar, list rows)
 export default function PageLoading() {
   return (
     <div className="space-y-6">
@@ -28,23 +28,10 @@ export default function PageLoading() {
           ))}
         </div>
       </div>
-      {/* 3 Kanban column placeholders */}
-      <div className="grid gap-4 grid-cols-1 md:grid-cols-3">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="space-y-3 rounded-xl border p-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Skeleton className="h-2.5 w-2.5 rounded-full" />
-                <Skeleton className="h-4 w-24" />
-              </div>
-              <Skeleton className="h-5 w-6 rounded-full" />
-            </div>
-            <div className="space-y-2">
-              {[1, 2].map((j) => (
-                <Skeleton key={j} className="h-24 rounded-lg" />
-              ))}
-            </div>
-          </div>
+      {/* List row placeholders */}
+      <div className="space-y-2">
+        {[1, 2, 3, 4, 5, 6].map((i) => (
+          <Skeleton key={i} className="h-16 w-full rounded-lg" />
         ))}
       </div>
     </div>
