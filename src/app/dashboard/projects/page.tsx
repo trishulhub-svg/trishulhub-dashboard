@@ -5,18 +5,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  DndContext, DragEndEvent, DragOverlay, DragStartEvent, PointerSensor,
-  useSensor, useSensors, useDroppable,
-} from "@dnd-kit/core";
-import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import {
-  Plus, Search, FolderKanban, Pencil, Trash2, MoreHorizontal,
+  Plus, Search, FolderKanban, Pencil, Trash2,
   Key, Eye, EyeOff, Copy, X, Activity, CheckCircle2,
-  LayoutGrid, List, ArrowUpDown, CircleDot, ExternalLink, Globe,
-  Settings, Check, ChevronDown, ChevronUp, GripVertical,
+  ArrowUpDown, CircleDot,
+  Settings, Check,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -31,29 +24,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
-  DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent,
-} from "@/components/ui/dropdown-menu";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { toast } from "sonner";
 import { cn, safeText, deepSanitize, safeNumber, safeDate } from "@/lib/utils";
-import { useIsMobile } from "@/hooks/use-mobile";
 import { useUrlState } from "@/hooks/use-url-state";
-import { kanbanCollisionDetection } from "@/lib/kanban-collision";
 
 // TODO: Make configurable per project/client
 const CURRENCY_SYMBOL = "₹";
-
-// URL sanitizer: blocks javascript: and data: schemes to prevent XSS
-const safeUrl = (url: string) => {
-  if (!url) return '#';
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return url;
-  } catch {}
-  return '#';
-};
 
 const statusColors: Record<string, string> = {
   PLANNING: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200",
@@ -74,16 +50,6 @@ const statusDotColors: Record<string, string> = {
 };
 
 const VALID_STATUSES = ["PLANNING", "IN_PROGRESS", "REVIEW", "APPROVAL", "DEPLOYED", "COMPLETED"];
-
-// ━━ Kanban column configuration ━━
-const KANBAN_COLUMNS = [
-  { key: "PLANNING",   label: "Planning",    dot: "bg-gray-400",    glowColor: "hover:shadow-gray-500/5 dark:hover:shadow-gray-400/10", accentBar: "bg-gray-400", accentRing: "ring-gray-400/20" },
-  { key: "IN_PROGRESS", label: "In Progress",  dot: "bg-blue-400",    glowColor: "hover:shadow-blue-500/5 dark:hover:shadow-blue-400/10", accentBar: "bg-blue-400", accentRing: "ring-blue-400/20" },
-  { key: "REVIEW",     label: "Review",      dot: "bg-yellow-400",  glowColor: "hover:shadow-yellow-500/5 dark:hover:shadow-yellow-400/10", accentBar: "bg-yellow-400", accentRing: "ring-yellow-400/20" },
-  { key: "APPROVAL",   label: "Approval",    dot: "bg-orange-400",  glowColor: "hover:shadow-orange-500/5 dark:hover:shadow-orange-400/10", accentBar: "bg-orange-400", accentRing: "ring-orange-400/20" },
-  { key: "DEPLOYED",   label: "Deployed",    dot: "bg-green-400",   glowColor: "hover:shadow-green-500/5 dark:hover:shadow-green-400/10", accentBar: "bg-green-400", accentRing: "ring-green-400/20" },
-  { key: "COMPLETED",  label: "Completed",   dot: "bg-emerald-400", glowColor: "hover:shadow-emerald-500/5 dark:hover:shadow-emerald-400/10", accentBar: "bg-emerald-400", accentRing: "ring-emerald-400/20" },
-] as const;
 
 // Column display order: IN_PROGRESS first, PLANNING middle, COMPLETED last
 const COLUMN_DISPLAY_ORDER: Record<string, number> = {
@@ -107,347 +73,6 @@ function getProgressColor(progress: number) {
   if (progress < 30) return "[&>div]:bg-red-500 [&>div]:shadow-red-500/30";
   if (progress < 70) return "[&>div]:bg-amber-500 [&>div]:shadow-amber-500/30";
   return "[&>div]:bg-emerald-500 [&>div]:shadow-emerald-500/30";
-}
-
-// ━━ Kanban Project Card (visual only — used in both sortable cards and DragOverlay) ━━
-function KanbanProjectCard({
-  project,
-  onClick,
-  isAdminUser,
-  onEdit,
-  onDelete,
-  isDragging,
-  onHover,
-}: {
-  project: Record<string, unknown>;
-  onClick: () => void;
-  isAdminUser: boolean;
-  onEdit?: (project: Record<string, unknown>, e: React.MouseEvent) => void;
-  onDelete?: (projectId: string, e: React.MouseEvent) => void;
-  isDragging?: boolean;
-  onHover?: () => void;
-}) {
-  const client = project.client as Record<string, unknown> | undefined;
-  const pName = safeText(project.name, "Untitled");
-  const pStatus = safeText(project.status, "");
-  const pClientName = client ? safeText(client.name, "Client") : "Client";
-  const pProgress = safeNumber(project.progress);
-  const pDeadline = project.deadline as string | null | undefined;
-  const pWebsites = Array.isArray(project.websites) ? project.websites as Record<string, unknown>[] : [];
-  const hasOpenAssigned = project.hasOpenAssignedMilestones === true;
-
-  return (
-    <div
-      className={cn(
-        "group/card relative rounded-lg border-l-[3px] p-3 cursor-pointer transition-all duration-200",
-        "bg-white/70 dark:bg-white/[0.05] backdrop-blur-sm",
-        "border border-gray-200/60 dark:border-gray-700/40 border-l-gray-300 dark:border-l-gray-600",
-        "hover:border-gray-300 dark:hover:border-gray-600",
-        "hover:shadow-md hover:shadow-black/[0.04] dark:hover:shadow-black/20",
-        !isDragging && "hover:-translate-y-0.5",
-        isDragging && "shadow-xl shadow-black/10 dark:shadow-black/40 ring-2 ring-primary/20 scale-105",
-        pStatus === "IN_PROGRESS" && "border-l-blue-400 dark:border-l-blue-500",
-        pStatus === "REVIEW" && "border-l-yellow-400 dark:border-l-yellow-500",
-        pStatus === "APPROVAL" && "border-l-orange-400 dark:border-l-orange-500",
-        pStatus === "DEPLOYED" && "border-l-green-400 dark:border-l-green-500",
-        pStatus === "COMPLETED" && "border-l-emerald-400 dark:border-l-emerald-500",
-        pStatus === "PLANNING" && "border-l-gray-400 dark:border-l-gray-500",
-      )}
-      onClick={onClick}
-      onMouseEnter={onHover}
-      style={isDragging ? { pointerEvents: "none" as const } : undefined}
-    >
-      {/* Admin: 3-dot menu — absolutely positioned to prevent overflow */}
-      {isAdminUser && onEdit && onDelete && !isDragging && (
-        <div
-          className="absolute top-2 right-2 z-10"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 opacity-0 group-hover/card:opacity-100 focus:opacity-100 transition-opacity"
-              >
-                <MoreHorizontal className="h-3.5 w-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-40">
-              <DropdownMenuItem onClick={(e) => onEdit(project, e)} className="gap-2 cursor-pointer">
-                <Pencil className="h-3.5 w-3.5" /> Edit Project
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={(e) => onDelete(safeText(project.id, ""), e)} className="gap-2 cursor-pointer text-red-600 focus:text-red-600">
-                <Trash2 className="h-3.5 w-3.5" /> Delete Project
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      )}
-
-      {/* Project Title + Status Dot (+ yellow blink when you have open assigned milestones) */}
-      <div className="flex items-start gap-2 pr-7">
-        <span className={cn("h-2 w-2 rounded-full shrink-0 mt-1.5 ring-2 ring-offset-1 ring-offset-white dark:ring-offset-gray-950", statusDotColors[pStatus] || "bg-gray-400", statusDotColors[pStatus] && statusDotColors[pStatus].replace("bg-", "ring-"))} />
-        <div className="flex-1 min-w-0">
-          <h4
-            className="text-[13px] font-semibold leading-snug line-clamp-2 inline-flex items-start gap-1.5"
-            title={hasOpenAssigned ? `${pName} — you have open milestones` : pName}
-          >
-            <span className="line-clamp-2">{pName}</span>
-            {hasOpenAssigned && (
-              <span className="relative mt-1.5 inline-flex h-2 w-2 shrink-0" title="You have open milestones on this project">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-400" />
-              </span>
-            )}
-          </h4>
-        </div>
-      </div>
-
-      {/* Status Badge + Client Name */}
-      <div className="mt-2 flex items-center gap-2 flex-wrap">
-        <Badge className={`text-[10px] px-1.5 py-0 leading-4 font-medium ${statusColors[pStatus] || ""}`}>
-          {pStatus.replace("_", " ")}
-        </Badge>
-        {/* Task 7 (Phase 4): demo projects no longer appear on this page, so
-            the per-card DEMO badge has been removed. Demo view still renders
-            its header-level DEMO badge via the isDemoView branch below. */}
-        <span className="text-[11px] text-muted-foreground truncate max-w-[140px]">
-          {pClientName}
-        </span>
-      </div>
-
-      {/* Method badges */}
-      {Array.isArray(project.methods) && (project.methods as Array<{name: string}>).length > 0 && (
-        <div className="mt-1.5 flex items-center gap-1 flex-wrap">
-          {(project.methods as Array<{name: string}>).map((m, i) => (
-            <Badge key={i} className="text-[9px] px-1.5 py-0 leading-3 bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300 border border-teal-200/50 dark:border-teal-800/40">
-              {m.name}
-            </Badge>
-          ))}
-        </div>
-      )}
-
-      {/* Progress Bar */}
-      <div className="mt-2.5 space-y-1">
-        <div className="flex justify-between text-[11px]">
-          <span className="text-muted-foreground">Progress</span>
-          <span className={cn("font-bold tabular-nums", pProgress < 30 ? "text-red-600 dark:text-red-400" : pProgress < 70 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400")}>{pProgress}%</span>
-        </div>
-        <Progress value={pProgress} className={cn("h-1.5 rounded-full shadow-sm", getProgressColor(pProgress))} />
-      </div>
-
-      {/* Deadline */}
-      {pDeadline && (
-        <p className="text-[11px] text-muted-foreground/70 mt-2 flex items-center gap-1">
-          <span className="font-medium text-muted-foreground">Deadline:</span>
-          {safeDate(pDeadline, "No date")}
-        </p>
-      )}
-
-      {/* Live button for admin when websites exist */}
-      {isAdminUser && pWebsites.length > 0 && !isDragging && (
-        <div
-          className="absolute bottom-2 left-2 z-10"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {pWebsites.length === 1 ? (
-            <a
-              href={safeUrl(safeText(pWebsites[0].url, ""))}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20 dark:border-emerald-500/10 shadow-sm transition-colors"
-            >
-              <Globe className="h-2.5 w-2.5" />
-              Live
-            </a>
-          ) : (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20 dark:border-emerald-500/10 shadow-sm transition-colors"
-                >
-                  <Globe className="h-2.5 w-2.5" />
-                  Live
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-48">
-                {pWebsites.map((w, i) => {
-                  const wUrl = safeText(w.url, "");
-                  const wLabel = safeText(w.label, "");
-                  return (
-                    <DropdownMenuItem key={safeText(w.id, String(i))} asChild>
-                      <a href={safeUrl(wUrl)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 cursor-pointer">
-                        <ExternalLink className="h-3 w-3 text-emerald-500 shrink-0" />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[11px] font-medium truncate">{wLabel || `Site ${i + 1}`}</p>
-                          <p className="text-[9px] text-muted-foreground truncate">{wUrl}</p>
-                        </div>
-                      </a>
-                    </DropdownMenuItem>
-                  );
-                })}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ━━ SortableProjectCard — wraps KanbanProjectCard with useSortable ━━
-function SortableProjectCard({
-  project,
-  onCardClick,
-  isAdminUser,
-  onEdit,
-  onDelete,
-  onHover,
-}: {
-  project: Record<string, unknown>;
-  onCardClick: () => void;
-  isAdminUser: boolean;
-  onEdit: (project: Record<string, unknown>, e: React.MouseEvent) => void;
-  onDelete: (projectId: string, e: React.MouseEvent) => void;
-  onHover?: () => void;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: safeText(project.id, ""),
-  });
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  };
-
-  // Drag handle only — card body click opens project detail (L5).
-  return (
-    <div ref={setNodeRef} style={style} className="relative">
-      <button
-        type="button"
-        className="absolute left-1 top-1 z-20 flex h-6 w-6 items-center justify-center rounded text-muted-foreground/70 hover:bg-muted hover:text-foreground cursor-grab active:cursor-grabbing"
-        aria-label="Drag to move"
-        {...attributes}
-        {...listeners}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <GripVertical className="h-3.5 w-3.5" />
-      </button>
-      <KanbanProjectCard
-        project={project}
-        onClick={onCardClick}
-        isAdminUser={isAdminUser}
-        onEdit={onEdit}
-        onDelete={onDelete}
-        isDragging={false}
-        onHover={onHover}
-      />
-    </div>
-  );
-}
-
-// ━━ DroppableKanbanColumn — wraps column card list with useDroppable + SortableContext ━━
-function DroppableKanbanColumn({
-  col,
-  projects,
-  isAdminUser,
-  onCardClick,
-  onEdit,
-  onDelete,
-  isDimmed,
-  activeId,
-  onHover,
-}: {
-  col: typeof KANBAN_COLUMNS[number];
-  projects: Record<string, unknown>[];
-  isAdminUser: boolean;
-  onCardClick: (project: Record<string, unknown>) => void;
-  onEdit: (project: Record<string, unknown>, e: React.MouseEvent) => void;
-  onDelete: (projectId: string, e: React.MouseEvent) => void;
-  isDimmed: boolean;
-  activeId: string | null;
-  onHover?: (pid: string) => void;
-}) {
-  const { setNodeRef, isOver } = useDroppable({ id: col.key });
-
-  return (
-    <div
-      ref={setNodeRef}
-      className={cn(
-        "flex-shrink-0 w-[260px] sm:w-[280px] rounded-xl border transition-all duration-300 snap-start relative overflow-hidden flex flex-col",
-        "bg-gradient-to-b from-white/80 to-white/50 dark:from-gray-900/60 dark:to-gray-900/30 backdrop-blur-xl",
-        "border-gray-200/80 dark:border-gray-700/50",
-        "hover:border-gray-300 dark:hover:border-gray-600",
-        col.glowColor,
-        isDimmed && "opacity-40 pointer-events-none",
-        isOver && !isDimmed && `ring-2 ${col.accentRing} border-primary/40 bg-primary/[0.04] dark:bg-primary/[0.08] shadow-lg`
-      )}
-      style={{ minHeight: "calc(100vh - 300px)" }}
-    >
-      {/* Left accent bar */}
-      <div className={cn("absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl", col.accentBar, isOver && !isDimmed ? "opacity-100" : "opacity-60")} />
-
-      {/* Column Header */}
-      <div className="px-3 py-2.5 border-b border-gray-200/50 dark:border-gray-700/40 pl-4 shrink-0">
-        <div className="flex items-center gap-2">
-          <span className={cn("h-2 w-2 rounded-full shrink-0 ring-2 ring-offset-1 ring-offset-white dark:ring-offset-gray-950", col.dot, col.dot.replace("bg-", "ring-"))} />
-          <h3 className="font-bold text-[12px] tracking-tight">{col.label}</h3>
-          <Badge
-            variant="secondary"
-            className="ml-auto h-5 min-w-[20px] px-1.5 text-[10px] font-bold justify-center bg-muted/80"
-          >
-            {projects.length}
-          </Badge>
-        </div>
-      </div>
-
-      {/* Card List — full column is droppable via outer ref */}
-      <div
-        className={cn(
-          "p-2 space-y-2 overflow-y-auto transition-all duration-300 pl-4 flex-1",
-          isOver && !isDimmed && "bg-primary/[0.03] dark:bg-primary/[0.05]"
-        )}
-        style={{ maxHeight: "calc(100vh - 380px)" }}
-      >
-        {projects.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-8 text-center min-h-[120px]">
-            <div className="h-8 w-8 rounded-full bg-muted/50 flex items-center justify-center mb-2">
-              <FolderKanban className="h-4 w-4 text-muted-foreground/30" />
-            </div>
-            <p className="text-[11px] text-muted-foreground/50 font-medium">Drop here</p>
-          </div>
-        )}
-        <SortableContext items={projects.map((p) => safeText(p.id, ""))} strategy={verticalListSortingStrategy}>
-          {projects.map((project) => {
-            const pId = safeText(project.id, "");
-            // Keep a placeholder so collision detection stays stable while dragging
-            if (activeId === pId) {
-              return (
-                <div
-                  key={pId}
-                  className="h-[72px] rounded-lg border border-dashed border-primary/30 bg-primary/[0.04]"
-                  aria-hidden
-                />
-              );
-            }
-            return (
-              <SortableProjectCard
-                key={pId}
-                project={project}
-                onCardClick={() => onCardClick(project)}
-                isAdminUser={isAdminUser}
-                onEdit={onEdit}
-                onDelete={onDelete}
-                onHover={() => onHover && onHover(pId)}
-              />
-            );
-          })}
-        </SortableContext>
-      </div>
-    </div>
-  );
 }
 
 // ━━ List View Row ━━
@@ -795,8 +420,8 @@ export default function ProjectsPage() {
   );
 }
 
-// ━━ ProjectsBoard ━━
-// Shared board implementation used by both /dashboard/projects (isDemoView=false)
+// ━━ Projects list — shared by /dashboard/projects and /dashboard/demo ━━
+// Shared list implementation used by both /dashboard/projects (isDemoView=false)
 // and /dashboard/demo (isDemoView=true). Demo view filters to isDemo projects,
 // shows a DEMO badge in the header, and defaults new projects to isDemo=true.
 export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) {
@@ -811,23 +436,6 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [filter, setFilter] = useUrlState("status", "ALL");
   const [search, setSearch] = useState("");
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const [updating, setUpdating] = useState(false);
-  const [viewMode, setViewMode] = useState<"board" | "list">("board");
-  const isMobile = useIsMobile();
-  // Force "list" view on mobile; respect user preference on desktop.
-  const effectiveView: "board" | "list" = isMobile ? "list" : viewMode;
-
-  // Read saved view mode from localStorage after hydration
-  useEffect(() => {
-    const saved = localStorage.getItem("project-view-mode");
-    if (saved === "board" || saved === "list") setViewMode(saved);
-  }, []);
-
-  const handleViewModeChange = useCallback((mode: "board" | "list") => {
-    setViewMode(mode);
-    localStorage.setItem("project-view-mode", mode);
-  }, []);
 
   // ━━ React Query — cached fetch with stale-while-revalidate ━━
   // Query key includes isDemoView so the two views maintain independent caches;
@@ -1054,11 +662,6 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
       fetchProjectMethods();
     }
   }, [sessionStatus, isAdminUser, fetchProjectMethods]);
-
-  // DnD sensors
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
-  );
 
   const handle401 = useCallback((res: Response) => {
     if (res.status === 401) {
@@ -1395,73 +998,6 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
     }
   };
 
-  // ━━ DnD handlers ━━
-  const handleDragStart = (event: DragStartEvent) => {
-    if (updating || !isAdminUser) return;
-    setActiveId(event.active.id as string);
-  };
-
-  const handleDragEnd = async (event: DragEndEvent) => {
-    setActiveId(null);
-    if (!isAdminUser) return;
-    const { active, over } = event;
-    if (!over) return;
-
-    const projectId = active.id as string;
-    const overId = String(over.id);
-    // Drop on column OR on another card in a column
-    let newStatus = VALID_STATUSES.includes(overId) ? overId : "";
-    if (!newStatus) {
-      const overProject = (projects as Record<string, unknown>[]).find(
-        (p) => safeText(p.id, "") === overId
-      );
-      newStatus = overProject ? safeText(overProject.status, "") : "";
-    }
-    if (!newStatus || !VALID_STATUSES.includes(newStatus)) return;
-
-    const project = (projects as Record<string, unknown>[]).find((p) => safeText(p.id, "") === projectId);
-    if (!project) return;
-
-    const currentStatus = safeText(project.status, "");
-    if (currentStatus === newStatus) return;
-
-    const prevProjects = projects;
-
-    setUpdating(true);
-    queryClient.setQueryData(projectsQueryKey, (old: unknown[]) =>
-      (old || []).map((p) =>
-        safeText((p as Record<string, unknown>).id, "") === projectId
-          ? { ...(p as Record<string, unknown>), status: newStatus }
-          : p
-      )
-    );
-
-    try {
-      const res = await fetch("/api/projects", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ id: projectId, status: newStatus }),
-      });
-      if (handle401(res)) {
-        queryClient.setQueryData(projectsQueryKey, prevProjects);
-        return;
-      }
-      if (!res.ok) {
-        queryClient.setQueryData(projectsQueryKey, prevProjects);
-        const data = await res.json().catch(() => ({}));
-        toast.error((data as Record<string, string>).error?.slice(0, 100) || "Failed to move project");
-      } else {
-        toast.success(`Project moved to ${newStatus.replace("_", " ")}`);
-      }
-    } catch {
-      queryClient.setQueryData(projectsQueryKey, prevProjects);
-      toast.error("Failed to move project");
-    } finally {
-      setUpdating(false);
-    }
-  };
-
   const filtered = (projects as Record<string, unknown>[]).filter((p) => {
     const pName = safeText(p.name, "");
     const pStatus = safeText(p.status, "");
@@ -1472,28 +1008,6 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
     const matchesSearch = !search || pName.toLowerCase().includes(searchLower) || pClientName.toLowerCase().includes(searchLower) || pStatus.toLowerCase().includes(searchLower);
     return matchesFilter && matchesSearch;
   });
-
-  // ━━ Group filtered projects into Kanban columns (reorder: IN_PROGRESS first, COMPLETED last) ━━
-  const kanbanColumns = useMemo(() => {
-    if (filter !== "ALL") {
-      // When a specific status is selected, show only that column
-      return KANBAN_COLUMNS.filter((col) => col.key === filter).map((col) => ({
-        ...col,
-        projects: (filtered as Record<string, unknown>[]).filter(
-          (p) => safeText(p.status, "") === col.key
-        ),
-      }));
-    }
-    // ALL: reorder columns — IN_PROGRESS first, PLANNING middle, COMPLETED last
-    return [...KANBAN_COLUMNS]
-      .sort((a, b) => (COLUMN_DISPLAY_ORDER[a.key] ?? 99) - (COLUMN_DISPLAY_ORDER[b.key] ?? 99))
-      .map((col) => ({
-        ...col,
-        projects: (filtered as Record<string, unknown>[]).filter(
-          (p) => safeText(p.status, "") === col.key
-        ),
-      }));
-  }, [filtered, filter]);
 
   // ━━ Stats computation ━━
   const totalProjects = projects.length;
@@ -1530,13 +1044,10 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
             <Skeleton key={i} className="h-7 w-20 rounded-full" />
           ))}
         </div>
-        <div className="flex gap-4 overflow-hidden">
-          {KANBAN_COLUMNS.slice(0, 4).map((col) => (
-            <div key={col.key} className="flex-shrink-0 w-[280px] space-y-3">
-              <Skeleton className="h-10 w-full rounded-xl" />
-              <Skeleton className="h-44 w-full rounded-lg animate-pulse" />
-              <Skeleton className="h-36 w-full rounded-lg animate-pulse" />
-            </div>
+        {/* List row skeletons */}
+        <div className="space-y-2">
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <Skeleton key={i} className="h-16 w-full rounded-lg" />
           ))}
         </div>
       </div>
@@ -1549,7 +1060,7 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
       <div className="flex items-center justify-between flex-wrap gap-2 sm:gap-3">
         <div className="flex items-center gap-2 sm:gap-3">
           <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
-            <LayoutGrid className="h-4.5 w-4.5 text-primary" />
+            <FolderKanban className="h-4.5 w-4.5 text-primary" />
           </div>
           <h1 className="text-lg sm:text-xl font-bold tracking-tight">
             {isDemoView ? "Demo Projects" : "Projects"}
@@ -1581,24 +1092,6 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
               </button>
             )}
           </div>
-          {/* View Toggle — only shown on desktop (>= 768px). Mobile always uses list view. */}
-          {!isMobile && (
-            <ToggleGroup
-              type="single"
-              value={viewMode}
-              onValueChange={(val) => { if (val) handleViewModeChange(val as "board" | "list"); }}
-              className="bg-white/60 dark:bg-white/[0.04] backdrop-blur-md border border-gray-200/80 dark:border-gray-700/50"
-            >
-              <ToggleGroupItem value="board" className="h-8 gap-1.5 text-xs px-3 data-[state=on]:bg-primary/10 data-[state=on]:text-primary" aria-label="Board view">
-                <LayoutGrid className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Board</span>
-              </ToggleGroupItem>
-              <ToggleGroupItem value="list" className="h-8 gap-1.5 text-xs px-3 data-[state=on]:bg-primary/10 data-[state=on]:text-primary" aria-label="List view">
-                <List className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">List</span>
-              </ToggleGroupItem>
-            </ToggleGroup>
-          )}
           {/* New Project */}
           {isAdminUser && (
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
@@ -1612,7 +1105,7 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
                 <DialogTitle>Create Project</DialogTitle>
                 <DialogDescription>
                   {isDemoView
-                    ? "Creating in Demo Projects — this project will appear on the Demo board."
+                    ? "Creating in Demo Projects — this project will appear on the Demo Projects page."
                     : "Create a new web development project for your client."}
                 </DialogDescription>
               </DialogHeader>
@@ -1704,54 +1197,6 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
             </Button>
           )}
         </div>
-      ) : effectiveView === "board" ? (
-        /* ━━ Kanban Board View ━━ */
-        <DndContext
-          sensors={sensors}
-          collisionDetection={kanbanCollisionDetection}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
-        >
-          <div className="flex gap-3 overflow-x-auto pb-4 -mx-1 px-1 snap-x snap-mandatory">
-            {kanbanColumns.map((col) => {
-              const isDimmed = filter !== "ALL" && filter !== col.key;
-              return (
-                <DroppableKanbanColumn
-                  key={col.key}
-                  col={col}
-                  projects={col.projects}
-                  isAdminUser={isAdminUser}
-                  onCardClick={(project) => {
-                    const pId = safeText(project.id, "");
-                    // Demo projects manage from /dashboard/demo, regular from /dashboard/projects
-                    router.push(isDemoView ? `/dashboard/demo/${pId}` : `/dashboard/projects/${pId}`);
-                  }}
-                  onEdit={openEditDialog}
-                  onDelete={openDeleteDialog}
-                  isDimmed={isDimmed}
-                  activeId={activeId}
-                  onHover={handlePrefetchProject}
-                />
-              );
-            })}
-          </div>
-          {/* DragOverlay — visual floating card during drag */}
-          <DragOverlay dropAnimation={null}>
-            {activeId ? (() => {
-              const project = (filtered as Record<string, unknown>[]).find(
-                (p) => safeText(p.id, "") === activeId
-              );
-              return project ? (
-                <KanbanProjectCard
-                  project={project}
-                  onClick={() => {}}
-                  isAdminUser={false}
-                  isDragging={true}
-                />
-              ) : null;
-            })() : null}
-          </DragOverlay>
-        </DndContext>
       ) : (
         /* ━━ List View ━━ */
         <div className="space-y-2 max-h-[calc(100vh-300px)] overflow-y-auto pr-1">
