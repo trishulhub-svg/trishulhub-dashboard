@@ -776,10 +776,10 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
     const form = new FormData(e.currentTarget);
     const nextIsDemo = form.get("isDemo") === "on";
     const wasDemo = editProject.isDemo === true;
-    // Confirm before moving a demo project back to the main Projects board
+    // Confirm before moving a demo project back to the main Projects list
     if (wasDemo && !nextIsDemo) {
       const ok = window.confirm(
-        "Remove Demo flag? This project will leave Demo Projects and appear on the main Projects board."
+        "Remove Demo flag? This project will leave Demo Projects and appear on the main Projects list."
       );
       if (!ok) return;
     }
