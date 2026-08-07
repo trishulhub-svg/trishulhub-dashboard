@@ -60,6 +60,8 @@ export interface Project {
   /** From Projects section — demo projects appear with the same project name (not editable here). */
   isDemo?: boolean;
   hasOpenAssignedMilestones?: boolean;
+  /** 1 = highest clock-in priority for assignees; null/undefined = unset */
+  workPriority?: number | null;
 }
 
 /** Non-project activity row from /api/time-tracking/activity-catalog */

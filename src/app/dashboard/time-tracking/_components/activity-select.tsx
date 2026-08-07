@@ -2,6 +2,10 @@
 
 import { SelectItem } from "@/components/ui/select";
 import { safeText, cn } from "@/lib/utils";
+import {
+  WorkPriorityBadge,
+  compareProjectsByWorkPriority,
+} from "@/components/dashboard/projects/work-priority-badge";
 import type { Project, TimeActivityItem } from "./types";
 
 /** Amber ping — assigned work that needs attention. */
@@ -18,27 +22,35 @@ export function WorkDot({ title }: { title?: string }) {
   );
 }
 
+function ProjectOptionLabel({ project }: { project: Project }) {
+  return (
+    <span className="inline-flex items-center gap-2">
+      {project.hasOpenAssignedMilestones && (
+        <WorkDot title="Open milestones assigned to you" />
+      )}
+      <WorkPriorityBadge priority={project.workPriority} />
+      <span>
+        {safeText(project.name)}
+        {project.status === "COMPLETED" ? " (completed)" : ""}
+        {project.isDemo ? " · demo" : ""}
+      </span>
+    </span>
+  );
+}
+
 /** Project options only (assigned projects / milestones unchanged). */
 export function ProjectSelectItems({ projects }: { projects: Project[] }) {
+  const sorted = [...projects].sort(compareProjectsByWorkPriority);
   return (
     <>
-      {projects.length === 0 ? (
+      {sorted.length === 0 ? (
         <SelectItem value="__no_projects__" disabled>
           No assigned projects
         </SelectItem>
       ) : (
-        projects.map((p) => (
+        sorted.map((p) => (
           <SelectItem key={p.id} value={p.id}>
-            <span className="inline-flex items-center gap-2">
-              {p.hasOpenAssignedMilestones && (
-                <WorkDot title="Open milestones assigned to you" />
-              )}
-              <span>
-                {safeText(p.name)}
-                {p.status === "COMPLETED" ? " (completed)" : ""}
-                {p.isDemo ? " · demo" : ""}
-              </span>
-            </span>
+            <ProjectOptionLabel project={p} />
           </SelectItem>
         ))
       )}
@@ -100,22 +112,14 @@ export function ActivitySelectItems({
   activities: TimeActivityItem[];
   badgeKeys?: Set<string> | string[];
 }) {
+  const sortedProjects = [...projects].sort(compareProjectsByWorkPriority);
   return (
     <>
       <SelectItem value="none">No activity</SelectItem>
       <NonProjectActivityItems activities={activities} badgeKeys={badgeKeys} />
-      {projects.map((p) => (
+      {sortedProjects.map((p) => (
         <SelectItem key={p.id} value={p.id}>
-          <span className="inline-flex items-center gap-2">
-            {p.hasOpenAssignedMilestones && (
-              <WorkDot title="Open milestones assigned to you" />
-            )}
-            <span>
-              {safeText(p.name)}
-              {p.status === "COMPLETED" ? " (completed)" : ""}
-              {p.isDemo ? " · demo" : ""}
-            </span>
-          </span>
+          <ProjectOptionLabel project={p} />
         </SelectItem>
       ))}
     </>

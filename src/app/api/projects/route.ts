@@ -35,6 +35,18 @@ function serializeProjects(projects: any[]): any[] {
   return projects.map((p) => serializeProjectDates(p))
 }
 
+/** 1 = highest; unset last; then name. */
+function sortByWorkPriority<T extends { workPriority?: number | null; name?: string | null }>(items: T[]): T[] {
+  return [...items].sort((a, b) => {
+    const pa = a.workPriority != null && a.workPriority >= 1 ? a.workPriority : null
+    const pb = b.workPriority != null && b.workPriority >= 1 ? b.workPriority : null
+    if (pa != null && pb != null && pa !== pb) return pa - pb
+    if (pa != null && pb == null) return -1
+    if (pa == null && pb != null) return 1
+    return String(a.name || "").localeCompare(String(b.name || ""))
+  })
+}
+
 export async function GET(req: NextRequest) {
   try {
     // Skip ensureAllTables entirely — it's too slow and tables are created on server start
@@ -111,7 +123,7 @@ export async function GET(req: NextRequest) {
     if (isMinimal && !projectId) {
       const projects = await db.project.findMany({
         where,
-        select: { id: true, name: true, status: true, progress: true },
+        select: { id: true, name: true, status: true, progress: true, workPriority: true },
         orderBy: { createdAt: "desc" },
         take: limit,
       })
@@ -138,12 +150,11 @@ export async function GET(req: NextRequest) {
         }
       }
 
-      return NextResponse.json(
-        projects.map((p) => ({
-          ...p,
-          hasOpenAssignedMilestones: openAssigned.has(p.id),
-        }))
-      )
+      const withFlags = projects.map((p) => ({
+        ...p,
+        hasOpenAssignedMilestones: openAssigned.has(p.id),
+      }))
+      return NextResponse.json(sortByWorkPriority(withFlags))
     }
 
     // DETAIL VIEW: When projectId is specified, return scalar fields + websites only
@@ -182,6 +193,7 @@ export async function GET(req: NextRequest) {
         description: true,
         status: true,
         progress: true,
+        workPriority: true,
         startDate: true,
         deadline: true,
         budget: true,
@@ -244,12 +256,14 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const serialized = serializeProjects(
-      projects.map((p) => ({
-        ...p,
-        methods: methodsByProject.get(p.id) || [],
-        hasOpenAssignedMilestones: openAssignedProjectIds.has(p.id),
-      })) as any[]
+    const serialized = sortByWorkPriority(
+      serializeProjects(
+        projects.map((p) => ({
+          ...p,
+          methods: methodsByProject.get(p.id) || [],
+          hasOpenAssignedMilestones: openAssignedProjectIds.has(p.id),
+        })) as any[]
+      )
     )
 
     // Hide budget from non-managers (DEVELOPER/VIEWER/CLIENT). Admin + PM see budget.
@@ -363,6 +377,10 @@ export async function POST(req: NextRequest) {
         // ignore invalid date
       }
     }
+    // Work priority: 1 = highest for assignees; omit when unset
+    if (typeof validated.workPriority === "number" && Number.isInteger(validated.workPriority)) {
+      createData.workPriority = validated.workPriority
+    }
 
     // Only add isDemo if the column exists in the DB
     // We'll try with it first, and if it fails, retry without it
@@ -382,6 +400,15 @@ export async function POST(req: NextRequest) {
         } catch { /* column already exists or other error */ }
         // Retry without isDemo (DB default will handle it)
         project = await db.project.create({ data: createData as any })
+      } else if (errMsg.includes("workPriority") || errMsg.includes("Unknown argument `workPriority`")) {
+        console.warn("[projects] POST: workPriority column may not exist, trying without it...")
+        try {
+          await db.$executeRawUnsafe(`ALTER TABLE "Project" ADD COLUMN "workPriority" INTEGER`)
+        } catch { /* column already exists or other error */ }
+        const { workPriority: _wp, ...withoutPriority } = createData
+        project = await db.project.create({
+          data: { ...withoutPriority, isDemo: validated.isDemo === true } as any,
+        })
       } else if (errMsg.includes("NOT NULL") && errMsg.includes("clientId")) {
         console.error("[projects] POST: clientId column is NOT NULL — running nullable migration…")
         try {
@@ -520,6 +547,10 @@ export async function PUT(req: NextRequest) {
     }
     if (validated.isDemo !== undefined) {
       sanitizedData.isDemo = validated.isDemo
+    }
+    if (validated.workPriority !== undefined) {
+      // null clears priority; 1–99 sets it
+      sanitizedData.workPriority = validated.workPriority
     }
 
     const project = await db.project.update({ where: { id: projectId }, data: sanitizedData })

@@ -25,6 +25,10 @@ import {
 import { toast } from "sonner";
 import { cn, safeText, deepSanitize, safeNumber, safeDate } from "@/lib/utils";
 import { useUrlState } from "@/hooks/use-url-state";
+import {
+  WorkPriorityBadge,
+  compareProjectsByWorkPriority,
+} from "@/components/dashboard/projects/work-priority-badge";
 
 // TODO: Make configurable per project/client
 const CURRENCY_SYMBOL = "₹";
@@ -87,6 +91,8 @@ function ListViewRow({
   const pProgress = safeNumber(project.progress);
   const pDeadline = project.deadline as string | null | undefined;
   const hasOpenAssigned = project.hasOpenAssignedMilestones === true;
+  const workPriority =
+    typeof project.workPriority === "number" ? project.workPriority : null;
 
   return (
     <div
@@ -112,6 +118,7 @@ function ListViewRow({
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-400" />
               </span>
             )}
+            <WorkPriorityBadge priority={workPriority} />
           </h4>
           <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
             <span className="text-[11px] text-muted-foreground">{pClientName}</span>
@@ -398,6 +405,12 @@ function CreateProjectForm({ onSubmit, clients, defaultClientId }: {
           <Input name="liveUrl" type="text" inputMode="url" placeholder="https://example.com" />
         </div>
       </div>
+      <div className="space-y-1">
+        <Label className="text-xs">
+          Work priority <span className="text-muted-foreground/60 font-normal">(1 = clock in first; blank = none)</span>
+        </Label>
+        <Input name="workPriority" type="number" min={1} max={99} placeholder="e.g. 1" />
+      </div>
       <Button type="submit" className="w-full">Create Project</Button>
     </form>
   );
@@ -503,6 +516,8 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
     // "No Client" / empty → null so API persists without a client
     const clientId = !rawClientId || rawClientId === "__none__" ? null : rawClientId;
 
+    const rawPriority = String(form.get("workPriority") || "").trim();
+    const parsedPriority = rawPriority ? parseInt(rawPriority, 10) : NaN;
     const data = {
       name: form.get("name") as string,
       description: (form.get("description") as string) || undefined,
@@ -510,6 +525,7 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
       budget: form.get("budget") ? parseFloat(form.get("budget") as string) || null : null,
       startDate: (form.get("startDate") as string) || null,
       deadline: (form.get("deadline") as string) || null,
+      workPriority: Number.isInteger(parsedPriority) && parsedPriority >= 1 ? parsedPriority : null,
       // Demo view: new projects default to isDemo=true so they appear on /dashboard/demo
       ...(isDemoView ? { isDemo: true } : {}),
     };
@@ -565,6 +581,8 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
       );
       if (!ok) return;
     }
+    const rawPriority = String(form.get("workPriority") || "").trim();
+    const parsedPriority = rawPriority ? parseInt(rawPriority, 10) : NaN;
     const data: Record<string, unknown> = {
       id: editProject.id,
       name: form.get("name") as string,
@@ -576,6 +594,7 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
       deadline: form.get("deadline") as string || null,
       progress: parseInt(form.get("progress") as string) || 0,
       isDemo: nextIsDemo,
+      workPriority: Number.isInteger(parsedPriority) && parsedPriority >= 1 ? parsedPriority : null,
     };
     const liveUrl = (form.get("liveUrl") as string)?.trim();
 
@@ -701,16 +720,29 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
     });
   }, [queryClient]);
 
-  const filtered = (projects as Record<string, unknown>[]).filter((p) => {
-    const pName = safeText(p.name, "");
-    const pStatus = safeText(p.status, "");
-    const pClient = p.client as Record<string, unknown> | undefined;
-    const pClientName = pClient ? safeText(pClient.name, "") : "";
-    const matchesFilter = filter === "ALL" || pStatus === filter;
-    const searchLower = search.toLowerCase();
-    const matchesSearch = !search || pName.toLowerCase().includes(searchLower) || pClientName.toLowerCase().includes(searchLower) || pStatus.toLowerCase().includes(searchLower);
-    return matchesFilter && matchesSearch;
-  });
+  const filtered = (projects as Record<string, unknown>[])
+    .filter((p) => {
+      const pName = safeText(p.name, "");
+      const pStatus = safeText(p.status, "");
+      const pClient = p.client as Record<string, unknown> | undefined;
+      const pClientName = pClient ? safeText(pClient.name, "") : "";
+      const matchesFilter = filter === "ALL" || pStatus === filter;
+      const searchLower = search.toLowerCase();
+      const matchesSearch = !search || pName.toLowerCase().includes(searchLower) || pClientName.toLowerCase().includes(searchLower) || pStatus.toLowerCase().includes(searchLower);
+      return matchesFilter && matchesSearch;
+    })
+    .sort((a, b) =>
+      compareProjectsByWorkPriority(
+        {
+          workPriority: typeof a.workPriority === "number" ? a.workPriority : null,
+          name: safeText(a.name, ""),
+        },
+        {
+          workPriority: typeof b.workPriority === "number" ? b.workPriority : null,
+          name: safeText(b.name, ""),
+        }
+      )
+    );
 
   // ━━ Stats computation ━━
   const totalProjects = projects.length;
@@ -965,6 +997,19 @@ export function ProjectsBoard({ isDemoView = false }: { isDemoView?: boolean }) 
                     <Label className="text-xs">Progress (%)</Label>
                     <Input name="progress" type="number" min={0} max={100} defaultValue={typeof editProject.progress === 'number' ? editProject.progress : 0} />
                   </div>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">
+                    Work priority <span className="text-muted-foreground/60 font-normal">(1 = clock in first; blank = none)</span>
+                  </Label>
+                  <Input
+                    name="workPriority"
+                    type="number"
+                    min={1}
+                    max={99}
+                    placeholder="e.g. 1"
+                    defaultValue={typeof editProject.workPriority === "number" ? editProject.workPriority : ""}
+                  />
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1">
