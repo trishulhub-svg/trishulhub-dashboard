@@ -123,9 +123,9 @@ export async function middleware(request: NextRequest) {
     ]
 
     // Admin / HR / Project Manager
+    // Projects open to all staff (API still scopes DEVELOPER to assigned projects)
     const adminOrPmRoutes = [
       "/dashboard/clients",
-      "/dashboard/projects",
       "/dashboard/demo",
       "/dashboard/approvals",
       "/dashboard/support",

@@ -207,7 +207,7 @@ function FinancePageInner() {
   const [subForm, setSubForm] = useState({
     service: "",
     amount: "",
-    currency: "INR",
+    currency: "GBP",
     exchangeRate: "1",
     frequency: "MONTHLY",
     status: "ACTIVE",
@@ -587,7 +587,7 @@ function FinancePageInner() {
     setSubForm({
       service: "",
       amount: "",
-      currency: "INR",
+      currency: "GBP",
       exchangeRate: "1",
       frequency: "MONTHLY",
       status: "ACTIVE",
@@ -1338,7 +1338,7 @@ function FinancePageInner() {
                         <TableHead>Project</TableHead>
                         <TableHead>Employee</TableHead>
                         <TableHead>Description</TableHead>
-                        <TableHead className="text-right">Amount (INR)</TableHead>
+                        <TableHead className="text-right">Amount</TableHead>
                         <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -1802,7 +1802,7 @@ function FinancePageInner() {
                 </Select>
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Amount (INR) *</Label>
+                <Label className="text-xs">Amount (GBP) *</Label>
                 <Input
                   type="number"
                   step="0.01"

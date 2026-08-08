@@ -14,6 +14,9 @@ import {
   ensureDriveFolder,
   isMobileUserAgent,
   getFileDriveConfigPublic,
+  moveDriveFile,
+  renameDriveFile,
+  shareDriveFolderWithEmail,
 } from "@/lib/file-drive"
 import { canManageFileReview } from "@/lib/rbac"
 
@@ -23,13 +26,55 @@ function newId() {
   return `fn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
 }
 
+function rejectMobile(req: NextRequest) {
+  if (isMobileUserAgent(req.headers.get("user-agent"))) {
+    return NextResponse.json(
+      { error: "Files are available on PC / desktop browser only" },
+      { status: 403 }
+    )
+  }
+  return null
+}
+
+async function collectAncestorIds(nodeId: string): Promise<Array<{ id: string; kind: string }>> {
+  const out: Array<{ id: string; kind: string }> = []
+  let current: string | null = nodeId
+  for (let i = 0; i < 40 && current; i++) {
+    const rows = (await db.$queryRawUnsafe(
+      `SELECT "id","kind","parentId" FROM "FileNode" WHERE "id" = ? LIMIT 1`,
+      current
+    )) as Array<{ id: string; kind: string; parentId: string | null }>
+    if (!rows[0]) break
+    out.push({ id: rows[0].id, kind: rows[0].kind })
+    current = rows[0].parentId
+  }
+  return out
+}
+
+/** Collect self + all descendants (BFS). */
+async function collectDescendantIds(rootId: string): Promise<string[]> {
+  const ids = [rootId]
+  const queue = [rootId]
+  while (queue.length) {
+    const parent = queue.shift()!
+    const kids = (await db.$queryRawUnsafe(
+      `SELECT "id" FROM "FileNode" WHERE "parentId" = ? AND "deletedAt" IS NULL`,
+      parent
+    )) as Array<{ id: string }>
+    for (const k of kids) {
+      ids.push(k.id)
+      queue.push(k.id)
+    }
+  }
+  return ids
+}
+
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (isMobileUserAgent(req.headers.get("user-agent"))) {
-      return NextResponse.json({ error: "Files are available on PC / desktop browser only" }, { status: 403 })
-    }
+    const mobile = rejectMobile(req)
+    if (mobile) return mobile
     if (!(await canAccessFileModule(session.user.id, session.user.role))) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
@@ -39,15 +84,27 @@ export async function GET(req: NextRequest) {
 
     let rows: Array<Record<string, unknown>>
     if (!parentId) {
-      // root departments
       rows = (await db.$queryRawUnsafe(
         `SELECT * FROM "FileNode" WHERE "kind" = 'DEPARTMENT' AND "deletedAt" IS NULL AND "parentId" IS NULL ORDER BY "sortOrder" ASC, "name" ASC`
       )) as Array<Record<string, unknown>>
       if (allowedDepts) {
         rows = rows.filter((r) => allowedDepts.includes(String(r.id)))
       }
+
+      // Auto-share department Drive folders with this user's Trishulhub email
+      const email = session.user.email
+      if (email && rows.length > 0) {
+        for (const r of rows) {
+          const driveId = r.driveFolderId ? String(r.driveFolderId) : ""
+          if (!driveId) continue
+          try {
+            await shareDriveFolderWithEmail(driveId, email, "writer")
+          } catch {
+            /* non-fatal — email may not be a Google identity yet */
+          }
+        }
+      }
     } else {
-      // ensure parent is visible
       if (allowedDepts) {
         const ancestors = await collectAncestorIds(parentId)
         const dept = ancestors.find((a) => a.kind === "DEPARTMENT")
@@ -69,28 +126,12 @@ export async function GET(req: NextRequest) {
   }
 }
 
-async function collectAncestorIds(nodeId: string): Promise<Array<{ id: string; kind: string }>> {
-  const out: Array<{ id: string; kind: string }> = []
-  let current: string | null = nodeId
-  for (let i = 0; i < 40 && current; i++) {
-    const rows = (await db.$queryRawUnsafe(
-      `SELECT "id","kind","parentId" FROM "FileNode" WHERE "id" = ? LIMIT 1`,
-      current
-    )) as Array<{ id: string; kind: string; parentId: string | null }>
-    if (!rows[0]) break
-    out.push({ id: rows[0].id, kind: rows[0].kind })
-    current = rows[0].parentId
-  }
-  return out
-}
-
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (isMobileUserAgent(req.headers.get("user-agent"))) {
-      return NextResponse.json({ error: "Files are available on PC / desktop browser only" }, { status: 403 })
-    }
+    const mobile = rejectMobile(req)
+    if (mobile) return mobile
     if (!(await canWriteFiles(session.user.id, session.user.role))) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
@@ -107,6 +148,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid kind" }, { status: 400 })
     }
 
+    let parentDrive: string | null = null
     if (kind === "DEPARTMENT") {
       if (!canManageFileReview(session.user.role)) {
         return NextResponse.json({ error: "Only Admin/Super Admin can create departments" }, { status: 403 })
@@ -125,23 +167,30 @@ export async function POST(req: NextRequest) {
       if (kind === "FOLDER" && !["CATEGORY", "FOLDER"].includes(parents[0].kind)) {
         return NextResponse.json({ error: "Folder must be under category or folder" }, { status: 400 })
       }
+      parentDrive = parents[0].driveFolderId
+      if (!parentDrive) {
+        return NextResponse.json(
+          { error: "Parent is not linked to Google Drive. Connect Drive and recreate the parent folder." },
+          { status: 400 }
+        )
+      }
     }
 
     let driveFolderId: string | null = null
     try {
       const { rootFolderId } = await ensureRootAndReview()
-      let parentDrive = rootFolderId
-      if (parentId) {
-        const p = (await db.$queryRawUnsafe(
-          `SELECT "driveFolderId" FROM "FileNode" WHERE "id" = ? LIMIT 1`,
-          parentId
-        )) as Array<{ driveFolderId: string | null }>
-        parentDrive = p[0]?.driveFolderId || rootFolderId
-      }
-      driveFolderId = await ensureDriveFolder(name, parentDrive)
+      driveFolderId = await ensureDriveFolder(name, parentDrive || rootFolderId)
     } catch (driveErr) {
-      // Allow offline metadata create when Drive not connected — surface warning
-      console.warn("[files/nodes] Drive folder create skipped:", driveErr)
+      console.warn("[files/nodes] Drive folder create failed:", driveErr)
+      return NextResponse.json(
+        {
+          error:
+            driveErr instanceof Error
+              ? `Google Drive error: ${driveErr.message.slice(0, 160)}`
+              : "Google Drive is not connected",
+        },
+        { status: 400 }
+      )
     }
 
     const id = newId()
@@ -186,6 +235,8 @@ export async function PATCH(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    const mobile = rejectMobile(req)
+    if (mobile) return mobile
     if (!(await canWriteFiles(session.user.id, session.user.role))) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
@@ -193,6 +244,20 @@ export async function PATCH(req: NextRequest) {
     const id = String(body.id || "")
     const name = String(body.name || "").trim().slice(0, 200)
     if (!id || !name) return NextResponse.json({ error: "id and name required" }, { status: 400 })
+
+    const existing = (await db.$queryRawUnsafe(
+      `SELECT "id","driveFolderId","name" FROM "FileNode" WHERE "id" = ? AND "deletedAt" IS NULL LIMIT 1`,
+      id
+    )) as Array<{ id: string; driveFolderId: string | null; name: string }>
+    if (!existing[0]) return NextResponse.json({ error: "Not found" }, { status: 404 })
+
+    if (existing[0].driveFolderId) {
+      try {
+        await renameDriveFile(existing[0].driveFolderId, name)
+      } catch (e) {
+        console.warn("[files/nodes] Drive rename failed:", e)
+      }
+    }
 
     await db.$executeRawUnsafe(
       `UPDATE "FileNode" SET "name" = ?, "updatedAt" = CURRENT_TIMESTAMP WHERE "id" = ? AND "deletedAt" IS NULL`,
@@ -223,23 +288,61 @@ export async function DELETE(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    const mobile = rejectMobile(req)
+    if (mobile) return mobile
     if (!(await canWriteFiles(session.user.id, session.user.role))) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
     const id = new URL(req.url).searchParams.get("id")
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 })
 
-    // Soft-delete node (and cascade mark children/files via app logic)
+    const nodeIds = await collectDescendantIds(id)
+    const placeholders = nodeIds.map(() => "?").join(",")
+
+    // Move Drive folders + files into Review
+    try {
+      const { reviewFolderId } = await ensureRootAndReview()
+      const nodes = (await db.$queryRawUnsafe(
+        `SELECT "id","driveFolderId" FROM "FileNode" WHERE "id" IN (${placeholders}) AND "deletedAt" IS NULL`,
+        ...nodeIds
+      )) as Array<{ id: string; driveFolderId: string | null }>
+      for (const n of nodes) {
+        if (n.driveFolderId) {
+          try {
+            await moveDriveFile(n.driveFolderId, reviewFolderId)
+          } catch (e) {
+            console.warn("[files/nodes] Drive folder move failed", n.id, e)
+          }
+        }
+      }
+      const files = (await db.$queryRawUnsafe(
+        `SELECT "id","driveFileId","nodeId" FROM "FileItem" WHERE "nodeId" IN (${placeholders}) AND "deletedAt" IS NULL`,
+        ...nodeIds
+      )) as Array<{ id: string; driveFileId: string | null; nodeId: string }>
+      for (const f of files) {
+        if (f.driveFileId) {
+          try {
+            await moveDriveFile(f.driveFileId, reviewFolderId)
+          } catch (e) {
+            console.warn("[files/nodes] Drive file move failed", f.id, e)
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("[files/nodes] Review move skipped:", e)
+    }
+
     await db.$executeRawUnsafe(
-      `UPDATE "FileNode" SET "deletedAt" = CURRENT_TIMESTAMP, "deletedById" = ?, "updatedAt" = CURRENT_TIMESTAMP WHERE "id" = ?`,
+      `UPDATE "FileNode" SET "deletedAt" = CURRENT_TIMESTAMP, "deletedById" = ?, "updatedAt" = CURRENT_TIMESTAMP
+       WHERE "id" IN (${placeholders}) AND "deletedAt" IS NULL`,
       session.user.id,
-      id
+      ...nodeIds
     )
     await db.$executeRawUnsafe(
       `UPDATE "FileItem" SET "deletedAt" = CURRENT_TIMESTAMP, "deletedById" = ?, "originalNodeId" = "nodeId", "updatedAt" = CURRENT_TIMESTAMP
-       WHERE "nodeId" = ? AND "deletedAt" IS NULL`,
+       WHERE "nodeId" IN (${placeholders}) AND "deletedAt" IS NULL`,
       session.user.id,
-      id
+      ...nodeIds
     )
 
     void logAudit({
@@ -251,11 +354,11 @@ export async function DELETE(req: NextRequest) {
       action: "DELETE",
       entityType: "FileNode",
       entityId: id,
-      description: "Soft-deleted folder/node (moved to review)",
+      description: `Soft-deleted folder tree (${nodeIds.length} nodes) → Review`,
       ipAddress: getIpAddress(req),
       userAgent: getUserAgent(req),
     })
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: true, deletedNodes: nodeIds.length })
   } catch (err) {
     console.error("[files/nodes] DELETE", err)
     return NextResponse.json({ error: "Failed to delete" }, { status: 500 })

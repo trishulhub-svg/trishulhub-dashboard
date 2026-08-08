@@ -121,7 +121,7 @@ const navGroups: NavGroup[] = [
   {
     label: "Work",
     items: [
-      { title: "Projects", href: "/dashboard/projects", icon: FolderKanban, roles: LEAD },
+      { title: "Projects", href: "/dashboard/projects", icon: FolderKanban, roles: STAFF },
       { title: "Clients", href: "/dashboard/clients", icon: Briefcase, roles: LEAD },
       { title: "CRM", href: "/dashboard/crm", icon: Crosshair, roles: ADMIN_HR },
       { title: "Demo Projects", href: "/dashboard/demo", icon: FlaskConical, roles: LEAD },

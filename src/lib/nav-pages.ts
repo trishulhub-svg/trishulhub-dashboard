@@ -145,7 +145,6 @@ export function isRoleAllowedDashboardHref(href: string, role: string | undefine
   ]
   const adminOrPm = [
     "/dashboard/clients",
-    "/dashboard/projects",
     "/dashboard/demo",
     "/dashboard/approvals",
     "/dashboard/support",

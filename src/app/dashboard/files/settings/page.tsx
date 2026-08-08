@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { DesktopOnlyGate } from "@/components/dashboard/files/desktop-only-gate";
 
 type RoleAccess = Record<string, boolean>;
 
@@ -32,6 +33,10 @@ export default function FilesSettingsPage() {
   const [overrideUserId, setOverrideUserId] = useState("");
   const [overrideMode, setOverrideMode] = useState<"ALLOW" | "DENY" | "CLEAR">("ALLOW");
   const [overrides, setOverrides] = useState<Array<Record<string, unknown>>>([]);
+  const [departments, setDepartments] = useState<Array<{ id: string; name: string }>>([]);
+  const [grantDeptId, setGrantDeptId] = useState("");
+  const [grantUserId, setGrantUserId] = useState("");
+  const [deptGrants, setDeptGrants] = useState<Array<Record<string, unknown>>>([]);
 
   useEffect(() => {
     if (status === "loading") return;
@@ -78,12 +83,39 @@ export default function FilesSettingsPage() {
             }))
         );
       }
+      const dr = await fetch("/api/files/nodes", { credentials: "include" });
+      if (dr.ok) {
+        const dd = await dr.json();
+        const nodes = Array.isArray(dd.nodes) ? dd.nodes : [];
+        setDepartments(
+          nodes
+            .filter((n: { kind?: string; id?: string; name?: string }) => n.kind === "DEPARTMENT" && n.id)
+            .map((n: { id: string; name: string }) => ({ id: n.id, name: n.name }))
+        );
+      }
     } catch {
       toast.error("Failed to load file settings");
     } finally {
       setLoading(false);
     }
   }, [router]);
+
+  const loadDeptGrants = useCallback(async (nodeId: string) => {
+    if (!nodeId) {
+      setDeptGrants([]);
+      return;
+    }
+    const res = await fetch(`/api/files/access?nodeId=${encodeURIComponent(nodeId)}`, {
+      credentials: "include",
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    setDeptGrants(Array.isArray(data.grants) ? data.grants : []);
+  }, []);
+
+  useEffect(() => {
+    void loadDeptGrants(grantDeptId);
+  }, [grantDeptId, loadDeptGrants]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -178,11 +210,55 @@ export default function FilesSettingsPage() {
     void load();
   };
 
+  const grantDepartmentUser = async () => {
+    if (!grantDeptId || !grantUserId) return;
+    const res = await fetch("/api/files/access", {
+      method: "PUT",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "NODE_USER",
+        nodeId: grantDeptId,
+        userId: grantUserId,
+        canRead: true,
+        canWrite: true,
+      }),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      toast.error(d.error || "Failed to grant department access");
+      return;
+    }
+    toast.success("Department access granted (Drive share attempted)");
+    void loadDeptGrants(grantDeptId);
+  };
+
+  const removeDeptGrant = async (removeId: string) => {
+    if (!grantDeptId) return;
+    const res = await fetch("/api/files/access", {
+      method: "PUT",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "NODE_USER",
+        nodeId: grantDeptId,
+        removeId,
+      }),
+    });
+    if (!res.ok) {
+      toast.error("Failed to remove grant");
+      return;
+    }
+    toast.success("Grant removed");
+    void loadDeptGrants(grantDeptId);
+  };
+
   if (loading) {
     return <div className="p-6 text-sm text-muted-foreground">Loading file settings…</div>;
   }
 
   return (
+    <DesktopOnlyGate>
     <div className="space-y-6 p-4 md:p-6 max-w-3xl mx-auto">
       <div className="flex items-center gap-2">
         <Button variant="ghost" size="icon" asChild>
@@ -358,6 +434,60 @@ export default function FilesSettingsPage() {
           </ul>
         )}
       </section>
+
+      {/* Per-department grants + Drive auto-share */}
+      <section className="rounded-xl border border-border/60 p-4 space-y-3">
+        <h2 className="text-sm font-semibold">Department access (Drive share)</h2>
+        <p className="text-xs text-muted-foreground">
+          Grant a person a department — their Trishulhub email is shared on that Drive folder automatically.
+        </p>
+        <div className="grid sm:grid-cols-3 gap-2">
+          <select
+            className="border rounded-md px-2 py-2 text-sm bg-background"
+            value={grantDeptId}
+            onChange={(e) => setGrantDeptId(e.target.value)}
+          >
+            <option value="">Department</option>
+            {departments.map((d) => (
+              <option key={d.id} value={d.id}>{d.name}</option>
+            ))}
+          </select>
+          <select
+            className="border rounded-md px-2 py-2 text-sm bg-background"
+            value={grantUserId}
+            onChange={(e) => setGrantUserId(e.target.value)}
+          >
+            <option value="">User</option>
+            {teamUsers.map((u) => (
+              <option key={u.id} value={u.id}>{u.name}</option>
+            ))}
+          </select>
+          <Button size="sm" className="h-9" onClick={() => void grantDepartmentUser()}>
+            Grant + share
+          </Button>
+        </div>
+        {deptGrants.length > 0 && (
+          <ul className="text-xs space-y-1.5">
+            {deptGrants.map((g) => (
+              <li key={String(g.id)} className="flex items-center justify-between gap-2 text-muted-foreground">
+                <span>
+                  {g.scope === "NODE_ROLE" ? `Role ${g.role}` : `User ${g.userId}`}
+                  {" · "}
+                  {g.canWrite ? "write" : "read"}
+                </span>
+                <button
+                  type="button"
+                  className="text-red-600 hover:underline"
+                  onClick={() => void removeDeptGrant(String(g.id))}
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
+    </DesktopOnlyGate>
   );
 }

@@ -316,6 +316,15 @@ export async function moveDriveFile(fileId: string, newParentId: string, oldPare
   })
 }
 
+export async function renameDriveFile(fileId: string, name: string) {
+  const drive = await getDriveClient()
+  await drive.files.update({
+    fileId,
+    requestBody: { name },
+    fields: "id,name",
+  })
+}
+
 export async function shareDriveFolderWithEmail(
   folderId: string,
   email: string,

@@ -6,6 +6,7 @@ import { ArchiveRestore, ArrowLeft, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { safeText } from "@/lib/utils";
+import { DesktopOnlyGate } from "@/components/dashboard/files/desktop-only-gate";
 
 type ReviewItem = {
   id: string;
@@ -55,6 +56,7 @@ export default function FilesReviewPage() {
   };
 
   return (
+    <DesktopOnlyGate>
     <div className="space-y-4 p-4 md:p-6 max-w-4xl mx-auto">
       <div className="flex items-center gap-2">
         <Button variant="ghost" size="icon" asChild>
@@ -97,5 +99,6 @@ export default function FilesReviewPage() {
         </div>
       )}
     </div>
+    </DesktopOnlyGate>
   );
 }

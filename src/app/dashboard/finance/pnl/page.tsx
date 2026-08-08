@@ -26,19 +26,24 @@ const FILTERS = [
   { key: "revenue", label: "Revenue" },
   { key: "expenses", label: "Expenses" },
   { key: "salary", label: "Salary" },
+  { key: "performance", label: "Employee performance" },
   { key: "projects", label: "Projects" },
   { key: "clients", label: "Clients" },
   { key: "crm", label: "CRM" },
   { key: "time", label: "Time tracking" },
+  { key: "audit", label: "Audit" },
 ] as const;
 
 type Tab = "normal" | "graph";
+type NormalMode = "month" | "year";
 
 export default function PnLPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("normal");
+  const [normalMode, setNormalMode] = useState<NormalMode>("month");
   const [months, setMonths] = useState<Array<Record<string, number | string>>>([]);
+  const [years, setYears] = useState<Array<Record<string, number | string>>>([]);
   const [graph, setGraph] = useState<Array<Record<string, number | string>>>([]);
   const [totals, setTotals] = useState<Record<string, number>>({});
   const [selected, setSelected] = useState<string[]>(["profit", "revenue", "expenses"]);
@@ -68,6 +73,7 @@ export default function PnLPage() {
       if (!res.ok) throw new Error("fail");
       const data = await res.json();
       setMonths(Array.isArray(data.months) ? data.months : []);
+      setYears(Array.isArray(data.years) ? data.years : []);
       setGraph(Array.isArray(data.graph) ? data.graph : []);
       setTotals(data.totals || {});
       setNote(data.note || "");
@@ -150,46 +156,63 @@ export default function PnLPage() {
       {loading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : tab === "normal" ? (
-        <div className="rounded-xl border overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
-              <tr>
-                <th className="px-3 py-2">Month</th>
-                <th className="px-3 py-2">Revenue</th>
-                <th className="px-3 py-2">Expenses</th>
-                <th className="px-3 py-2">Salary</th>
-                <th className="px-3 py-2">Profit / Loss</th>
-              </tr>
-            </thead>
-            <tbody>
-              {months.map((m) => {
-                const profit = Number(m.profitGBP || 0);
-                return (
-                  <tr key={String(m.key)} className="border-t border-border/50">
-                    <td className="px-3 py-2 font-medium">{String(m.key)}</td>
-                    <td className="px-3 py-2 tabular-nums">{fmt(Number(m.revenueGBP || 0))}</td>
-                    <td className="px-3 py-2 tabular-nums">{fmt(Number(m.expensesGBP || 0))}</td>
-                    <td className="px-3 py-2 tabular-nums">{fmt(Number(m.salaryGBP || 0))}</td>
-                    <td
-                      className={cn(
-                        "px-3 py-2 tabular-nums font-semibold",
-                        profit >= 0 ? "text-emerald-600" : "text-red-600"
-                      )}
-                    >
-                      {fmt(profit)}
+        <div className="space-y-3">
+          <div className="flex gap-1 rounded-lg border p-1 bg-muted/30 w-fit">
+            {(["month", "year"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setNormalMode(m)}
+                className={cn(
+                  "px-3 py-1.5 text-xs font-semibold rounded-md capitalize",
+                  normalMode === m ? "bg-background shadow-sm" : "text-muted-foreground"
+                )}
+              >
+                By {m}
+              </button>
+            ))}
+          </div>
+          <div className="rounded-xl border overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2">{normalMode === "month" ? "Month" : "Year"}</th>
+                  <th className="px-3 py-2">Revenue</th>
+                  <th className="px-3 py-2">Expenses</th>
+                  <th className="px-3 py-2">Salary</th>
+                  <th className="px-3 py-2">Profit / Loss</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(normalMode === "month" ? months : years).map((m) => {
+                  const profit = Number(m.profitGBP || 0);
+                  return (
+                    <tr key={String(m.key)} className="border-t border-border/50">
+                      <td className="px-3 py-2 font-medium">{String(m.key)}</td>
+                      <td className="px-3 py-2 tabular-nums">{fmt(Number(m.revenueGBP || 0))}</td>
+                      <td className="px-3 py-2 tabular-nums">{fmt(Number(m.expensesGBP || 0))}</td>
+                      <td className="px-3 py-2 tabular-nums">{fmt(Number(m.salaryGBP || 0))}</td>
+                      <td
+                        className={cn(
+                          "px-3 py-2 tabular-nums font-semibold",
+                          profit >= 0 ? "text-emerald-600" : "text-red-600"
+                        )}
+                      >
+                        {fmt(profit)}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!(normalMode === "month" ? months : years).length && (
+                  <tr>
+                    <td colSpan={5} className="px-3 py-8 text-center text-muted-foreground">
+                      No finance data yet.
                     </td>
                   </tr>
-                );
-              })}
-              {!months.length && (
-                <tr>
-                  <td colSpan={5} className="px-3 py-8 text-center text-muted-foreground">
-                    No finance data yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       ) : (
         <div className="space-y-3">
@@ -267,6 +290,12 @@ export default function PnLPage() {
                 )}
                 {selected.includes("time") && (
                   <Line type="monotone" dataKey="timeEntries" stroke="#64748b" strokeWidth={1.5} name="Time entries" />
+                )}
+                {selected.includes("audit") && (
+                  <Line type="monotone" dataKey="audit" stroke="#475569" strokeWidth={1.5} name="Audit events" />
+                )}
+                {selected.includes("performance") && (
+                  <Line type="monotone" dataKey="performance" stroke="#db2777" strokeWidth={2} name="Employee perf £" />
                 )}
               </ComposedChart>
             </ResponsiveContainer>

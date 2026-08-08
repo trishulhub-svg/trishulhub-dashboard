@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { cn, safeText } from "@/lib/utils";
+import { DesktopOnlyGate } from "@/components/dashboard/files/desktop-only-gate";
 
 type FileNode = {
   id: string;
@@ -169,7 +170,23 @@ export default function FilesPage() {
     }
   };
 
+  const softDeleteNode = async (id: string, name: string) => {
+    if (!confirm(`Move "${name}" and everything inside to Review?`)) return;
+    const res = await fetch(`/api/files/nodes?id=${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      toast.error(d.error || "Delete failed");
+      return;
+    }
+    toast.success("Moved to Review");
+    void load();
+  };
+
   return (
+    <DesktopOnlyGate>
     <div className="space-y-4 p-4 md:p-6 max-w-6xl mx-auto">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -323,19 +340,32 @@ export default function FilesPage() {
       ) : (
         <div className="space-y-2">
           {nodes.map((n) => (
-            <button
+            <div
               key={n.id}
-              type="button"
-              onClick={() => setPath([...path, n])}
-              className="w-full flex items-center gap-3 rounded-lg border border-border/50 bg-background/80 px-3 py-2.5 text-left hover:border-teal-500/40 hover:bg-teal-500/5 transition-colors"
+              className="flex items-center gap-2 rounded-lg border border-border/50 bg-background/80 px-2 py-1.5 hover:border-teal-500/40 hover:bg-teal-500/5 transition-colors"
             >
-              <FolderOpen className="h-4 w-4 text-teal-600 shrink-0" />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium truncate">{safeText(n.name)}</p>
-                <p className="text-[11px] text-muted-foreground uppercase tracking-wide">{n.kind}</p>
-              </div>
-              <ChevronRight className="h-4 w-4 text-muted-foreground" />
-            </button>
+              <button
+                type="button"
+                onClick={() => setPath([...path, n])}
+                className="flex-1 flex items-center gap-3 px-1 py-1.5 text-left min-w-0"
+              >
+                <FolderOpen className="h-4 w-4 text-teal-600 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium truncate">{safeText(n.name)}</p>
+                  <p className="text-[11px] text-muted-foreground uppercase tracking-wide">{n.kind}</p>
+                </div>
+                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              </button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 text-red-600 shrink-0"
+                onClick={() => void softDeleteNode(n.id, n.name)}
+                title="Move to Review"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
           ))}
 
           {items.map((f) => (
@@ -368,5 +398,6 @@ export default function FilesPage() {
         </div>
       )}
     </div>
+    </DesktopOnlyGate>
   );
 }
