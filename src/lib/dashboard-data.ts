@@ -308,11 +308,12 @@ export async function loadSelfEarnings(userId: string) {
     }),
   ])
 
-  const totalINR = totalAgg._sum.amount || 0
+  // Amounts shown as GBP as-stored (no auto FX). Legacy INR rows should be edited to GBP.
+  const total = Math.round((totalAgg._sum.amount || 0) * 100) / 100
   return {
     entries: salaryEntries,
-    totalINR: Math.round(totalINR * 100) / 100,
-    totalGBP: Math.round((totalINR / 105) * 100) / 100,
+    totalINR: total, // legacy field name — same as totalGBP
+    totalGBP: total,
   }
 }
 

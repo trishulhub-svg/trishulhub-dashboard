@@ -4,22 +4,65 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { canAccessFinance } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { currencySymbol, normalizeCurrency } from "@/lib/money"
+import { currencySymbol } from "@/lib/money"
 
-/** Rough reporting FX → GBP for mixed legacy rows (display helper only). */
-const TO_GBP: Record<string, number> = {
-  GBP: 1,
-  INR: 1 / 105,
-  USD: 0.79,
-  EUR: 0.86,
-}
+/**
+ * P&L reporting treats stored amounts as GBP for display.
+ * Historical INR/USD/EUR rows are NOT auto-converted — edit those entries
+ * to the correct GBP figure when ready. Showing £ everywhere keeps the UI consistent.
+ */
 
 function monthKey(d: Date) {
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`
+  // Local calendar month (avoid UTC day-shift near midnight)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
 }
 
 function yearKey(d: Date) {
-  return String(d.getUTCFullYear())
+  return String(d.getFullYear())
+}
+
+function parseMonthKey(key: string): { y: number; m: number } | null {
+  const m = /^(\d{4})-(\d{2})$/.exec(key)
+  if (!m) return null
+  const y = Number(m[1])
+  const mo = Number(m[2])
+  if (!Number.isFinite(y) || mo < 1 || mo > 12) return null
+  return { y, m: mo }
+}
+
+/** Inclusive continuous month keys from first → last (and at least current month). */
+function fillMonthKeys(existing: string[]): string[] {
+  const now = new Date()
+  const current = monthKey(now)
+  if (existing.length === 0) {
+    // Last 12 months empty journey so the chart still renders
+    const keys: string[] = []
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      keys.push(monthKey(d))
+    }
+    return keys
+  }
+  const sorted = [...existing].sort((a, b) => a.localeCompare(b))
+  const start = parseMonthKey(sorted[0])
+  const endParsed = parseMonthKey(sorted[sorted.length - 1] > current ? sorted[sorted.length - 1] : current)
+  if (!start || !endParsed) return sorted
+
+  const keys: string[] = []
+  let y = start.y
+  let m = start.m
+  // Cap span to 60 months to keep payload sane
+  for (let i = 0; i < 60; i++) {
+    const key = `${y}-${String(m).padStart(2, "0")}`
+    keys.push(key)
+    if (y === endParsed.y && m === endParsed.m) break
+    m += 1
+    if (m > 12) {
+      m = 1
+      y += 1
+    }
+  }
+  return keys
 }
 
 type MonthRow = {
@@ -29,8 +72,6 @@ type MonthRow = {
   salaryGBP: number
   profitGBP: number
   lossGBP: number
-  revenueNative: number
-  expensesNative: number
   invoiceCount: number
   expenseCount: number
   auditEvents: number
@@ -39,6 +80,25 @@ type MonthRow = {
   clientsCreated: number
   crmWon: number
   timeEntries: number
+}
+
+function emptyRow(key: string): MonthRow {
+  return {
+    key,
+    revenueGBP: 0,
+    expensesGBP: 0,
+    salaryGBP: 0,
+    profitGBP: 0,
+    lossGBP: 0,
+    invoiceCount: 0,
+    expenseCount: 0,
+    auditEvents: 0,
+    employeePerfGBP: 0,
+    projectsCreated: 0,
+    clientsCreated: 0,
+    crmWon: 0,
+    timeEntries: 0,
+  }
 }
 
 export async function GET(req: NextRequest) {
@@ -51,8 +111,9 @@ export async function GET(req: NextRequest) {
     const rl = rateLimit(`pnl-${session.user.id}`, RATE_LIMITS.crm.limit, RATE_LIMITS.crm.windowMs)
     if (!rl.success) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
 
+    // categories query kept for meta/compat; graph always returns full series
     const { searchParams } = new URL(req.url)
-    const categories = (searchParams.get("categories") || "profit,loss,revenue,expenses,salary")
+    const categories = (searchParams.get("categories") || "profit,revenue,expenses")
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean)
@@ -61,7 +122,8 @@ export async function GET(req: NextRequest) {
       db.invoice.findMany({
         where: { status: "PAID" },
         select: { total: true, currency: true, paidAt: true, createdAt: true },
-        take: 5000,
+        orderBy: { createdAt: "desc" },
+        take: 10000,
       }),
       db.expense.findMany({
         select: {
@@ -71,32 +133,37 @@ export async function GET(req: NextRequest) {
           category: true,
           employeeId: true,
         },
-        take: 10000,
+        orderBy: { date: "desc" },
+        take: 20000,
       }),
       db.project.findMany({
         select: { id: true, createdAt: true },
-        take: 2000,
+        orderBy: { createdAt: "desc" },
+        take: 5000,
       }),
       db.client.findMany({
         select: { id: true, createdAt: true },
-        take: 2000,
+        orderBy: { createdAt: "desc" },
+        take: 5000,
       }),
       db.timeEntry
         .findMany({
           select: { id: true, clockIn: true },
-          take: 20000,
+          orderBy: { clockIn: "desc" },
+          take: 30000,
         })
         .catch(() => [] as Array<{ id: string; clockIn: Date }>),
       db.deal
         .findMany({
-          select: { stage: true, createdAt: true },
-          take: 2000,
+          select: { stage: true, createdAt: true, actualCloseDate: true },
+          orderBy: { createdAt: "desc" },
+          take: 5000,
         })
-        .catch(() => [] as Array<{ stage: string; createdAt: Date }>),
+        .catch(() => [] as Array<{ stage: string; createdAt: Date; actualCloseDate: Date | null }>),
       db.auditLog
         .findMany({
           select: { id: true, createdAt: true },
-          take: 20000,
+          take: 30000,
           orderBy: { createdAt: "desc" },
         })
         .catch(() => [] as Array<{ id: string; createdAt: Date }>),
@@ -104,53 +171,28 @@ export async function GET(req: NextRequest) {
 
     const months = new Map<string, MonthRow>()
     const ensure = (key: string): MonthRow => {
-      if (!months.has(key)) {
-        months.set(key, {
-          key,
-          revenueGBP: 0,
-          expensesGBP: 0,
-          salaryGBP: 0,
-          profitGBP: 0,
-          lossGBP: 0,
-          revenueNative: 0,
-          expensesNative: 0,
-          invoiceCount: 0,
-          expenseCount: 0,
-          auditEvents: 0,
-          employeePerfGBP: 0,
-          projectsCreated: 0,
-          clientsCreated: 0,
-          crmWon: 0,
-          timeEntries: 0,
-        })
-      }
+      if (!months.has(key)) months.set(key, emptyRow(key))
       return months.get(key)!
     }
 
     for (const inv of invoices) {
       const when = inv.paidAt || inv.createdAt
       if (!when) continue
-      const key = monthKey(new Date(when))
-      const cur = normalizeCurrency(inv.currency)
-      const row = ensure(key)
-      const gbp = Number(inv.total || 0) * (TO_GBP[cur] ?? 1)
-      row.revenueGBP += gbp
-      row.revenueNative += Number(inv.total || 0)
+      const row = ensure(monthKey(new Date(when)))
+      // Amounts shown as GBP as-stored (no FX conversion)
+      row.revenueGBP += Number(inv.total || 0)
       row.invoiceCount += 1
     }
 
     for (const exp of expenses) {
       if (!exp.date) continue
-      const key = monthKey(new Date(exp.date))
-      const cur = normalizeCurrency(exp.currency)
-      const row = ensure(key)
-      const gbp = Number(exp.amount || 0) * (TO_GBP[cur] ?? 1)
-      row.expensesGBP += gbp
-      row.expensesNative += Number(exp.amount || 0)
+      const row = ensure(monthKey(new Date(exp.date)))
+      const amount = Number(exp.amount || 0)
+      row.expensesGBP += amount
       row.expenseCount += 1
       if (String(exp.category).toUpperCase() === "SALARY") {
-        row.salaryGBP += gbp
-        if (exp.employeeId) row.employeePerfGBP += gbp
+        row.salaryGBP += amount
+        if (exp.employeeId) row.employeePerfGBP += amount
       }
     }
 
@@ -167,52 +209,53 @@ export async function GET(req: NextRequest) {
       ensure(monthKey(new Date(t.clockIn))).timeEntries += 1
     }
     for (const d of deals) {
-      if (d.stage !== "CLOSED_WON" || !d.createdAt) continue
-      ensure(monthKey(new Date(d.createdAt))).crmWon += 1
+      if (d.stage !== "CLOSED_WON") continue
+      const when = d.actualCloseDate || d.createdAt
+      if (!when) continue
+      ensure(monthKey(new Date(when))).crmWon += 1
     }
     for (const a of auditLogs) {
       if (!a.createdAt) continue
       ensure(monthKey(new Date(a.createdAt))).auditEvents += 1
     }
 
-    const series = [...months.values()]
-      .map((m) => ({
-        ...m,
-        profitGBP: m.revenueGBP - m.expensesGBP,
-        lossGBP: Math.max(0, m.expensesGBP - m.revenueGBP),
-      }))
+    const continuousKeys = fillMonthKeys([...months.keys()])
+    const series = continuousKeys
+      .map((key) => {
+        const m = months.get(key) || emptyRow(key)
+        const profitGBP = m.revenueGBP - m.expensesGBP
+        return {
+          ...m,
+          revenueGBP: Math.round(m.revenueGBP * 100) / 100,
+          expensesGBP: Math.round(m.expensesGBP * 100) / 100,
+          salaryGBP: Math.round(m.salaryGBP * 100) / 100,
+          employeePerfGBP: Math.round(m.employeePerfGBP * 100) / 100,
+          profitGBP: Math.round(profitGBP * 100) / 100,
+          lossGBP: Math.round(Math.max(0, -profitGBP) * 100) / 100,
+        }
+      })
       .sort((a, b) => a.key.localeCompare(b.key))
 
-    // Year rollup
+    // Year rollup (skip empty zero-only years that have no activity)
     const yearsMap = new Map<string, MonthRow>()
     for (const m of series) {
+      const hasActivity =
+        m.revenueGBP ||
+        m.expensesGBP ||
+        m.invoiceCount ||
+        m.expenseCount ||
+        m.projectsCreated ||
+        m.clientsCreated ||
+        m.crmWon ||
+        m.timeEntries ||
+        m.auditEvents
+      if (!hasActivity) continue
       const y = m.key.slice(0, 4)
-      if (!yearsMap.has(y)) {
-        yearsMap.set(y, {
-          key: y,
-          revenueGBP: 0,
-          expensesGBP: 0,
-          salaryGBP: 0,
-          profitGBP: 0,
-          lossGBP: 0,
-          revenueNative: 0,
-          expensesNative: 0,
-          invoiceCount: 0,
-          expenseCount: 0,
-          auditEvents: 0,
-          employeePerfGBP: 0,
-          projectsCreated: 0,
-          clientsCreated: 0,
-          crmWon: 0,
-          timeEntries: 0,
-        })
-      }
+      if (!yearsMap.has(y)) yearsMap.set(y, emptyRow(y))
       const yrow = yearsMap.get(y)!
       yrow.revenueGBP += m.revenueGBP
       yrow.expensesGBP += m.expensesGBP
       yrow.salaryGBP += m.salaryGBP
-      yrow.revenueNative += m.revenueNative
-      yrow.expensesNative += m.expensesNative
       yrow.invoiceCount += m.invoiceCount
       yrow.expenseCount += m.expenseCount
       yrow.auditEvents += m.auditEvents
@@ -223,11 +266,18 @@ export async function GET(req: NextRequest) {
       yrow.timeEntries += m.timeEntries
     }
     const years = [...yearsMap.values()]
-      .map((y) => ({
-        ...y,
-        profitGBP: y.revenueGBP - y.expensesGBP,
-        lossGBP: Math.max(0, y.expensesGBP - y.revenueGBP),
-      }))
+      .map((y) => {
+        const profitGBP = y.revenueGBP - y.expensesGBP
+        return {
+          ...y,
+          revenueGBP: Math.round(y.revenueGBP * 100) / 100,
+          expensesGBP: Math.round(y.expensesGBP * 100) / 100,
+          salaryGBP: Math.round(y.salaryGBP * 100) / 100,
+          employeePerfGBP: Math.round(y.employeePerfGBP * 100) / 100,
+          profitGBP: Math.round(profitGBP * 100) / 100,
+          lossGBP: Math.round(Math.max(0, -profitGBP) * 100) / 100,
+        }
+      })
       .sort((a, b) => a.key.localeCompare(b.key))
 
     const totals = series.reduce(
@@ -240,44 +290,47 @@ export async function GET(req: NextRequest) {
       { revenueGBP: 0, expensesGBP: 0, salaryGBP: 0 }
     )
 
-    const graphPoints = series.map((m) => {
-      const point: Record<string, number | string> = { month: m.key }
-      if (categories.includes("revenue") || categories.includes("profit")) {
-        point.revenue = Math.round(m.revenueGBP * 100) / 100
-      }
-      if (categories.includes("expenses") || categories.includes("loss")) {
-        point.expenses = Math.round(m.expensesGBP * 100) / 100
-      }
-      if (categories.includes("salary")) point.salary = Math.round(m.salaryGBP * 100) / 100
-      if (categories.includes("profit")) point.profit = Math.round(m.profitGBP * 100) / 100
-      if (categories.includes("loss")) point.loss = Math.round(m.lossGBP * 100) / 100
-      if (categories.includes("projects")) point.projects = m.projectsCreated
-      if (categories.includes("clients")) point.clients = m.clientsCreated
-      if (categories.includes("crm")) point.crmWon = m.crmWon
-      if (categories.includes("time")) point.timeEntries = m.timeEntries
-      if (categories.includes("audit")) point.audit = m.auditEvents
-      if (categories.includes("performance") || categories.includes("employee")) {
-        point.performance = Math.round(m.employeePerfGBP * 100) / 100
-      }
-      return point
-    })
+    // Always return full graph keys so UI filter toggles never miss series data
+    const graph = series.map((m) => ({
+      month: m.key,
+      revenue: m.revenueGBP,
+      expenses: m.expensesGBP,
+      salary: m.salaryGBP,
+      profit: m.profitGBP,
+      loss: m.lossGBP,
+      projects: m.projectsCreated,
+      clients: m.clientsCreated,
+      crmWon: m.crmWon,
+      timeEntries: m.timeEntries,
+      audit: m.auditEvents,
+      performance: m.employeePerfGBP,
+    }))
 
     return NextResponse.json({
       currency: "GBP",
       symbol: currencySymbol("GBP"),
-      note: "Legacy INR/USD/EUR rows use approximate FX for the journey graph; new entries should be GBP. Employee performance uses SALARY expense totals linked to staff.",
-      months: series,
+      note: "All figures shown in GBP. Older INR/USD/EUR amounts were not auto-converted — edit those rows to the correct GBP value when ready.",
+      months: series.filter(
+        (m) =>
+          m.revenueGBP ||
+          m.expensesGBP ||
+          m.invoiceCount ||
+          m.expenseCount
+      ),
       years,
       totals: {
-        ...totals,
-        profitGBP: totals.revenueGBP - totals.expensesGBP,
+        revenueGBP: Math.round(totals.revenueGBP * 100) / 100,
+        expensesGBP: Math.round(totals.expensesGBP * 100) / 100,
+        salaryGBP: Math.round(totals.salaryGBP * 100) / 100,
+        profitGBP: Math.round((totals.revenueGBP - totals.expensesGBP) * 100) / 100,
       },
-      graph: graphPoints,
+      graph,
       meta: {
         projectCount: projects.length,
         clientCount: clients.length,
         categories,
         yearKeyHint: yearKey(new Date()),
+        graphPoints: graph.length,
       },
     })
   } catch (err) {

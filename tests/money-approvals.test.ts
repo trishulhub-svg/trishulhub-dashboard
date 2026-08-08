@@ -15,8 +15,9 @@ describe("money helpers", () => {
 
   it("normalizes currency to company defaults", () => {
     expect(normalizeCurrency("inr")).toBe("INR")
-    expect(normalizeCurrency("bogus")).toBe("INR")
+    expect(normalizeCurrency("bogus")).toBe("GBP")
     expect(normalizeCurrency("USD")).toBe("USD")
+    expect(normalizeCurrency(undefined)).toBe("GBP")
   })
 
   it("formats INR", () => {

@@ -67,10 +67,8 @@ export async function GET(req: NextRequest) {
       }),
     ])
 
-    // Calculate totals from the authoritative aggregate (not the limited list)
-    const totalINR = totalAgg._sum.amount || 0
-    // Approximate GBP conversion (1 GBP ≈ 105 INR)
-    const totalGBP = totalINR / 105
+    // Amounts shown as GBP as-stored (no auto FX). Legacy INR rows should be edited to GBP.
+    const total = Math.round((totalAgg._sum.amount || 0) * 100) / 100
 
     // Phase 7c: Audit log cross-user salary access (admin viewing another user's earnings)
     // Self-access is a routine read and not logged to avoid audit noise.
@@ -86,8 +84,8 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       entries: salaryEntries,
-      totalINR: Math.round(totalINR * 100) / 100,
-      totalGBP: Math.round(totalGBP * 100) / 100,
+      totalINR: total, // legacy field name — same as totalGBP
+      totalGBP: total,
     })
   } catch (error) {
     console.error("[earnings] GET error:", error)

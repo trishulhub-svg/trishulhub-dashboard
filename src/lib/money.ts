@@ -34,13 +34,14 @@ export function currencySymbol(code: string): string {
 
 export function formatMoney(amount: number, currency: string = COMPANY_DEFAULT_CURRENCY): string {
   const c = normalizeCurrency(currency)
+  const locale = c === "INR" ? "en-IN" : c === "GBP" ? "en-GB" : "en-US"
   try {
-    return new Intl.NumberFormat("en-IN", {
+    return new Intl.NumberFormat(locale, {
       style: "currency",
       currency: c,
       maximumFractionDigits: 2,
     }).format(roundMoney(amount))
   } catch {
-    return `${currencySymbol(c)}${roundMoney(amount).toLocaleString("en-IN")}`
+    return `${currencySymbol(c)}${roundMoney(amount).toLocaleString(locale)}`
   }
 }

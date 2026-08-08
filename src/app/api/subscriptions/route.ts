@@ -187,7 +187,7 @@ export async function POST(req: NextRequest) {
     }
 
     const data = validation.data
-    const currency = data.currency || "INR"
+    const currency = data.currency || "GBP"
     const exchangeRate = data.exchangeRate || DEFAULT_EXCHANGE_RATES[currency] || 1
 
     // FIX: Validate dates before creating (NaN check)

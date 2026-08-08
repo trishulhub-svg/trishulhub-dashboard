@@ -60,7 +60,10 @@ const OverviewCharts = React.memo(function OverviewCharts({ revenueData, expense
                       borderRadius: "8px",
                       color: "var(--foreground)",
                     }}
-                    formatter={(value: number) => [`₹${safeNumber(value).toLocaleString("en-IN")}`, "Revenue"]}
+                    formatter={(value: number) => [
+                      `£${safeNumber(value).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`,
+                      "Revenue",
+                    ]}
                   />
                   <Bar dataKey="revenue" fill={theme.chart1} radius={[4, 4, 0, 0]} />
                 </BarChart>
@@ -105,7 +108,9 @@ const OverviewCharts = React.memo(function OverviewCharts({ revenueData, expense
                       borderRadius: "8px",
                       color: "var(--foreground)",
                     }}
-                    formatter={(value: number) => [`₹${safeNumber(value).toLocaleString("en-IN")}`]}
+                    formatter={(value: number) => [
+                      `£${safeNumber(value).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`,
+                    ]}
                   />
                 </PieChart>
               </ResponsiveContainer>

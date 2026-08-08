@@ -1,41 +1,43 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import {
-  Area,
-  CartesianGrid,
-  ComposedChart,
-  Legend,
-  Line,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import dynamic from "next/dynamic";
 import { ArrowLeft, ChevronLeft, ChevronRight, LineChart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 const FILTERS = [
-  { key: "profit", label: "Profit" },
-  { key: "loss", label: "Loss" },
-  { key: "revenue", label: "Revenue" },
-  { key: "expenses", label: "Expenses" },
-  { key: "salary", label: "Salary" },
-  { key: "performance", label: "Employee performance" },
-  { key: "projects", label: "Projects" },
-  { key: "clients", label: "Clients" },
-  { key: "crm", label: "CRM" },
-  { key: "time", label: "Time tracking" },
-  { key: "audit", label: "Audit" },
+  { key: "profit", label: "Profit", axis: "money" as const },
+  { key: "loss", label: "Loss", axis: "money" as const },
+  { key: "revenue", label: "Revenue", axis: "money" as const },
+  { key: "expenses", label: "Expenses", axis: "money" as const },
+  { key: "salary", label: "Salary", axis: "money" as const },
+  { key: "performance", label: "Employee performance", axis: "money" as const },
+  { key: "projects", label: "Projects", axis: "count" as const },
+  { key: "clients", label: "Clients", axis: "count" as const },
+  { key: "crm", label: "CRM", axis: "count" as const },
+  { key: "time", label: "Time tracking", axis: "count" as const },
+  { key: "audit", label: "Audit", axis: "count" as const },
 ] as const;
 
 type Tab = "normal" | "graph";
 type NormalMode = "month" | "year";
+
+const MONEY_KEYS = new Set(["profit", "loss", "revenue", "expenses", "salary", "performance"]);
+const COUNT_KEYS = new Set(["projects", "clients", "crm", "time", "audit"]);
+
+const PnLChart = dynamic(() => import("./pnl-chart"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-[360px] w-full flex items-center justify-center text-sm text-muted-foreground">
+      Loading chart…
+    </div>
+  ),
+});
 
 export default function PnLPage() {
   const { data: session, status } = useSession();
@@ -50,6 +52,7 @@ export default function PnLPage() {
   const [windowStart, setWindowStart] = useState(0);
   const [loading, setLoading] = useState(true);
   const [note, setNote] = useState("");
+  const requestId = useRef(0);
 
   useEffect(() => {
     if (status === "loading") return;
@@ -59,12 +62,15 @@ export default function PnLPage() {
     }
   }, [session, status, router]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (signal?: AbortSignal) => {
+    const id = ++requestId.current;
     setLoading(true);
     try {
-      const qs = selected.join(",");
-      const res = await fetch(`/api/finance/pnl?categories=${encodeURIComponent(qs)}`, {
+      // Full series always — filter toggles are client-only (no stale graph keys)
+      const res = await fetch("/api/finance/pnl?categories=all", {
         credentials: "include",
+        cache: "no-store",
+        signal,
       });
       if (res.status === 403) {
         router.replace("/dashboard");
@@ -72,32 +78,44 @@ export default function PnLPage() {
       }
       if (!res.ok) throw new Error("fail");
       const data = await res.json();
+      if (id !== requestId.current) return;
+      const nextGraph = Array.isArray(data.graph) ? data.graph : [];
       setMonths(Array.isArray(data.months) ? data.months : []);
       setYears(Array.isArray(data.years) ? data.years : []);
-      setGraph(Array.isArray(data.graph) ? data.graph : []);
+      setGraph(nextGraph);
       setTotals(data.totals || {});
       setNote(data.note || "");
-      const len = Array.isArray(data.graph) ? data.graph.length : 0;
-      setWindowStart(Math.max(0, len - 12));
-    } catch {
+      setWindowStart(Math.max(0, nextGraph.length - 12));
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       toast.error("Failed to load P&L");
     } finally {
-      setLoading(false);
+      if (id === requestId.current) setLoading(false);
     }
-  }, [selected, router]);
+  }, [router]);
 
   useEffect(() => {
-    void load();
+    const controller = new AbortController();
+    void load(controller.signal);
+    return () => controller.abort();
   }, [load]);
 
   const windowed = useMemo(() => {
     return graph.slice(windowStart, windowStart + 12);
   }, [graph, windowStart]);
 
+  const hasMoneySeries = selected.some((k) => MONEY_KEYS.has(k));
+  const hasCountSeries = selected.some((k) => COUNT_KEYS.has(k));
+
   const toggle = (key: string) => {
-    setSelected((prev) =>
-      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
-    );
+    setSelected((prev) => {
+      if (prev.includes(key)) {
+        // Keep at least one filter selected
+        if (prev.length === 1) return prev;
+        return prev.filter((k) => k !== key);
+      }
+      return [...prev, key];
+    });
   };
 
   const fmt = (n: number) =>
@@ -233,12 +251,17 @@ export default function PnLPage() {
               </button>
             ))}
           </div>
+          {hasMoneySeries && hasCountSeries && (
+            <p className="text-[11px] text-muted-foreground">
+              Money (£) uses the left axis · counts use the right axis so lines stay readable.
+            </p>
+          )}
 
           <div className="flex items-center justify-between">
             <Button
               size="sm"
               variant="outline"
-              disabled={windowStart <= 0}
+              disabled={windowStart <= 0 || graph.length === 0}
               onClick={() => setWindowStart((s) => Math.max(0, s - 3))}
             >
               <ChevronLeft className="h-3.5 w-3.5 mr-1" /> Past
@@ -257,48 +280,18 @@ export default function PnLPage() {
           </div>
 
           <div className="h-[360px] w-full rounded-xl border bg-gradient-to-b from-emerald-50/40 to-background dark:from-emerald-950/20 p-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={windowed}>
-                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip />
-                <Legend />
-                {selected.includes("revenue") && (
-                  <Area type="monotone" dataKey="revenue" stroke="#059669" fill="#05966933" name="Revenue £" />
-                )}
-                {selected.includes("expenses") && (
-                  <Area type="monotone" dataKey="expenses" stroke="#dc2626" fill="#dc262622" name="Expenses £" />
-                )}
-                {selected.includes("salary") && (
-                  <Line type="monotone" dataKey="salary" stroke="#d97706" strokeWidth={2} name="Salary £" dot={false} />
-                )}
-                {selected.includes("profit") && (
-                  <Line type="monotone" dataKey="profit" stroke="#2563eb" strokeWidth={2.5} name="Profit £" />
-                )}
-                {selected.includes("loss") && (
-                  <Line type="monotone" dataKey="loss" stroke="#be123c" strokeWidth={2} name="Loss £" />
-                )}
-                {selected.includes("projects") && (
-                  <Line type="monotone" dataKey="projects" stroke="#7c3aed" strokeWidth={1.5} name="Projects" />
-                )}
-                {selected.includes("clients") && (
-                  <Line type="monotone" dataKey="clients" stroke="#0f766e" strokeWidth={1.5} name="Clients" />
-                )}
-                {selected.includes("crm") && (
-                  <Line type="monotone" dataKey="crmWon" stroke="#ea580c" strokeWidth={1.5} name="CRM won" />
-                )}
-                {selected.includes("time") && (
-                  <Line type="monotone" dataKey="timeEntries" stroke="#64748b" strokeWidth={1.5} name="Time entries" />
-                )}
-                {selected.includes("audit") && (
-                  <Line type="monotone" dataKey="audit" stroke="#475569" strokeWidth={1.5} name="Audit events" />
-                )}
-                {selected.includes("performance") && (
-                  <Line type="monotone" dataKey="performance" stroke="#db2777" strokeWidth={2} name="Employee perf £" />
-                )}
-              </ComposedChart>
-            </ResponsiveContainer>
+            {graph.length === 0 || windowed.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
+                No journey data yet — add paid invoices or expenses to see the graph.
+              </div>
+            ) : (
+              <PnLChart
+                data={windowed}
+                selected={selected}
+                hasMoneySeries={hasMoneySeries}
+                hasCountSeries={hasCountSeries}
+              />
+            )}
           </div>
         </div>
       )}

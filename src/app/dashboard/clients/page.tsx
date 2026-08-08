@@ -262,10 +262,8 @@ const dealStageLabels: Record<string, string> = {
   CLOSED_LOST: "Closed Lost",
 };
 
-// TODO: Replace hardcoded "₹" with user/session locale currency setting
-// CLI-013: TODO - Replace hardcoded "en-IN" locale with user/session locale context
 function formatCurrency(n: number) {
-  return `₹${n.toLocaleString("en-IN")}`;
+  return `£${n.toLocaleString("en-GB", { maximumFractionDigits: 0 })}`;
 }
 
 // CLI-032: Smart date search parser
