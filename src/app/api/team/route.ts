@@ -66,6 +66,7 @@ export async function GET(req: NextRequest) {
           id: true,
           name: true,
           email: true,
+          googleEditEmail: true,
           role: true,
           department: true,
           avatar: true,
@@ -94,6 +95,7 @@ export async function GET(req: NextRequest) {
           id: true,
           name: true,
           email: true,
+          googleEditEmail: true,
           role: true,
           department: true,
           isActive: true,
@@ -453,7 +455,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
       }
 
-      const { name, email, role, department, password } = data
+      const { name, email, role, department, password, googleEditEmail } = data
       if (!name || !email || !password) {
         return NextResponse.json({ error: "Name, email, and password are required" }, { status: 400 })
       }
@@ -470,6 +472,14 @@ export async function POST(req: NextRequest) {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(email as string)) {
         return NextResponse.json({ error: "Invalid email format" }, { status: 400 });
+      }
+
+      const googleEdit =
+        googleEditEmail === null || googleEditEmail === undefined || googleEditEmail === ""
+          ? null
+          : String(googleEditEmail).trim().toLowerCase()
+      if (googleEdit && !emailRegex.test(googleEdit)) {
+        return NextResponse.json({ error: "Invalid Google edit email" }, { status: 400 })
       }
 
       // [T4/T6] Validate role value (VIEWER is legacy — no longer assignable)
@@ -506,6 +516,7 @@ export async function POST(req: NextRequest) {
           password: hashedPassword,
           role: (role as string) || "DEVELOPER",
           department: (department as string) || null,
+          googleEditEmail: googleEdit,
           isActive: true,
         }
       })
@@ -515,11 +526,17 @@ export async function POST(req: NextRequest) {
         userId: session.user.id, userName: session.user.name || "unknown", userRole: session.user.role,
         department: "HR_PEOPLE", page: "team", action: "CREATE",
         entityType: "User", entityId: user.id,
-        description: `Created user: ${user.name} (${user.email}, role: ${user.role})`,
+        description: `Created user: ${user.name} (${user.email}, role: ${user.role}${googleEdit ? `, googleEdit: ${googleEdit}` : ""})`,
         ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
       })
 
-      return NextResponse.json({ id: user.id, name: user.name, email: user.email, role: user.role }, { status: 201 })
+      return NextResponse.json({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        googleEditEmail: user.googleEditEmail,
+        role: user.role,
+      }, { status: 201 })
     }
 
     return NextResponse.json({ error: "Invalid type" }, { status: 400 })
@@ -601,15 +618,14 @@ export async function PATCH(req: NextRequest) {
     const hasPageAccessUpdate =
       data.pageAccessMode !== undefined || data.pageAccessPages !== undefined
 
-    // SECURITY: For self-profile updates (name only, no role/isActive/pageAccess),
+    // SECURITY: For self-profile updates (name / avatar / googleEditEmail, no role/isActive/pageAccess),
     // always use the session user's ID — don't trust the body `id`.
     // This prevents IDOR where an ADMIN could modify another user's name.
-    // Avatar updates are also self-profile updates (no role/isActive).
     const isSelfProfileUpdate =
       !data.role &&
       data.isActive === undefined &&
       !hasPageAccessUpdate &&
-      (!!data.name || data.avatar !== undefined)
+      (!!data.name || data.avatar !== undefined || data.googleEditEmail !== undefined)
     const effectiveId = isSelfProfileUpdate ? sessionUserId : (id as string);
 
     if (effectiveId !== sessionUserId && sessionUserRole !== "SUPER_ADMIN" && sessionUserRole !== "ADMIN") {
@@ -671,6 +687,18 @@ export async function PATCH(req: NextRequest) {
     if (data.department) updateData.department = data.department
     if (data.role) updateData.role = data.role
     if (data.isActive !== undefined) updateData.isActive = data.isActive
+    if (data.googleEditEmail !== undefined) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+      if (data.googleEditEmail === null || data.googleEditEmail === "") {
+        updateData.googleEditEmail = null
+      } else {
+        const googleEdit = String(data.googleEditEmail).trim().toLowerCase()
+        if (!emailRegex.test(googleEdit)) {
+          return NextResponse.json({ error: "Invalid Google edit email" }, { status: 400 })
+        }
+        updateData.googleEditEmail = googleEdit
+      }
+    }
     // Avatar update: accept a data URL (image only) up to 2 MB.
     // Allows any authenticated user to update their own profile picture.
     if (data.avatar !== undefined) {
@@ -725,6 +753,7 @@ export async function PATCH(req: NextRequest) {
         id: true,
         name: true,
         email: true,
+        googleEditEmail: true,
         role: true,
         department: true,
         isActive: true,
