@@ -11,8 +11,10 @@ import {
   moveDriveFile,
   getDriveWebViewLink,
   isMobileUserAgent,
+  shareDriveFolderWithEmail,
 } from "@/lib/file-drive"
 import { canManageFileReview } from "@/lib/rbac"
+import { getGoogleEditEmailForUser } from "@/lib/file-google-email"
 
 function newId() {
   return `fi_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
@@ -90,6 +92,29 @@ export async function GET(req: NextRequest) {
           await db.$executeRawUnsafe(`UPDATE "FileItem" SET "webViewLink" = ? WHERE "id" = ?`, link, item.id)
         }
       }
+
+      // Share THIS file with the user's personal Gmail so they can edit in Google Docs.
+      // Browse/upload in Trishulhub never needs Google login (service account + info@).
+      let sharedWith: string | null = null
+      let shareWarning: string | null = null
+      if (item.driveFileId) {
+        const personalGmail = await getGoogleEditEmailForUser(session.user.id)
+        if (!personalGmail) {
+          shareWarning =
+            "No personal Gmail on your profile. Ask admin to set Google edit email (Team), or open while logged into a Google account that received a share invite."
+        } else {
+          try {
+            await shareDriveFolderWithEmail(item.driveFileId, personalGmail, "writer")
+            sharedWith = personalGmail
+          } catch (e) {
+            shareWarning =
+              e instanceof Error
+                ? `Could not auto-share to ${personalGmail}: ${e.message.slice(0, 120)}`
+                : `Could not auto-share to ${personalGmail}`
+          }
+        }
+      }
+
       void logAudit({
         userId: session.user.id,
         userName: session.user.name || "unknown",
@@ -99,11 +124,14 @@ export async function GET(req: NextRequest) {
         action: "ACCESS",
         entityType: "FileItem",
         entityId: item.id,
-        description: `Opened file in Google: ${item.name}`,
+        description: sharedWith
+          ? `Opened file in Google (shared edit to ${sharedWith}): ${item.name}`
+          : `Opened file in Google: ${item.name}`,
         ipAddress: getIpAddress(req),
         userAgent: getUserAgent(req),
+        metadata: JSON.stringify({ sharedWith, shareWarning }),
       })
-      return NextResponse.json({ webViewLink: link })
+      return NextResponse.json({ webViewLink: link, sharedWith, shareWarning })
     }
 
     if (review) {

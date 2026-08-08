@@ -33,6 +33,8 @@ model User {
   docxAuthorizedSignature String?
   // Docx Sign — saved acceptor signature (any user who signed a contract)
   docxAcceptorSignature String?
+  // Personal Gmail used only for Google Drive edit sharing (not Workspace login)
+  googleEditEmail String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

@@ -9,7 +9,8 @@ import {
   listDepartmentGrants,
   getUserModuleOverride,
 } from "@/lib/file-access"
-import { shareDriveFolderWithEmail, unshareDriveFolderFromEmail } from "@/lib/file-drive"
+import { unshareDriveFolderFromEmail } from "@/lib/file-drive"
+import { getGoogleEditEmailForUser } from "@/lib/file-google-email"
 
 function newId() {
   return `fag_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
@@ -103,13 +104,10 @@ export async function PUT(req: NextRequest) {
         )) as Array<{ id: string; userId: string | null; scope: string }>
         await db.$executeRawUnsafe(`DELETE FROM "FileAccessGrant" WHERE "id" = ?`, String(body.removeId))
         if (existing[0]?.userId && node[0].driveFolderId) {
-          const user = await db.user.findUnique({
-            where: { id: existing[0].userId },
-            select: { email: true },
-          })
-          if (user?.email) {
+          const personalGmail = await getGoogleEditEmailForUser(existing[0].userId)
+          if (personalGmail) {
             try {
-              await unshareDriveFolderFromEmail(node[0].driveFolderId, user.email)
+              await unshareDriveFolderFromEmail(node[0].driveFolderId, personalGmail)
             } catch (e) {
               console.warn("[files/access] unshare failed", e)
             }
@@ -150,21 +148,9 @@ export async function PUT(req: NextRequest) {
         canDelete ? 1 : 0
       )
 
-      // Auto-share department Drive folder with employee email
-      if (type === "NODE_USER" && userId && node[0].driveFolderId && canRead) {
-        const user = await db.user.findUnique({ where: { id: userId }, select: { email: true } })
-        if (user?.email) {
-          try {
-            await shareDriveFolderWithEmail(
-              node[0].driveFolderId,
-              user.email,
-              canWrite ? "writer" : "reader"
-            )
-          } catch (e) {
-            console.warn("[files/access] share failed — email may not be a Google account:", e)
-          }
-        }
-      }
+      // Do NOT share whole department folders with personal Gmail.
+      // Browse/upload stays in Trishulhub via service account (info@).
+      // Per-file writer share happens only when the user clicks Open/Edit.
 
       void logAudit({
         userId: session.user.id,

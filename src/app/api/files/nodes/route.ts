@@ -16,7 +16,6 @@ import {
   getFileDriveConfigPublic,
   moveDriveFile,
   renameDriveFile,
-  shareDriveFolderWithEmail,
 } from "@/lib/file-drive"
 import { canManageFileReview } from "@/lib/rbac"
 
@@ -90,20 +89,8 @@ export async function GET(req: NextRequest) {
       if (allowedDepts) {
         rows = rows.filter((r) => allowedDepts.includes(String(r.id)))
       }
-
-      // Auto-share department Drive folders with this user's Trishulhub email
-      const email = session.user.email
-      if (email && rows.length > 0) {
-        for (const r of rows) {
-          const driveId = r.driveFolderId ? String(r.driveFolderId) : ""
-          if (!driveId) continue
-          try {
-            await shareDriveFolderWithEmail(driveId, email, "writer")
-          } catch {
-            /* non-fatal — email may not be a Google identity yet */
-          }
-        }
-      }
+      // Note: we do NOT share whole departments on browse.
+      // Edit access is granted per-file to personal Gmail when user clicks Open.
     } else {
       if (allowedDepts) {
         const ancestors = await collectAncestorIds(parentId)

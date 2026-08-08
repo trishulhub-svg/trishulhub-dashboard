@@ -126,6 +126,11 @@ export default function FilesPage() {
       toast.error(data.error || "Could not open file in Google");
       return;
     }
+    if (data.shareWarning) {
+      toast.warning(String(data.shareWarning));
+    } else if (data.sharedWith) {
+      toast.success(`Edit access shared to ${String(data.sharedWith)} — open while signed into that Gmail`);
+    }
     window.open(data.webViewLink, "_blank", "noopener,noreferrer");
   };
 
@@ -195,7 +200,7 @@ export default function FilesPage() {
             Files
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Operate Google Drive from Trishulhub — departments → categories → folders → files.
+            Browse and upload here via company Drive (no Google login). Open a file to edit in your personal Gmail.
             {!driveConnected && (
               <span className="text-amber-600 dark:text-amber-400"> Drive not connected yet.</span>
             )}
@@ -324,7 +329,7 @@ export default function FilesPage() {
               onChange={(e) => void onUpload(e.target.files)}
             />
             <span className="text-[11px] text-muted-foreground">
-              Uploads only inside folders. Opens in Google Docs / Drive.
+              Browse &amp; upload here (no Google login). Open shares that file to your personal Gmail for edit.
             </span>
           </div>
         )}

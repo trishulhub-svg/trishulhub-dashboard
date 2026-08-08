@@ -96,6 +96,7 @@ interface TeamUser {
   id: string;
   name: string;
   email: string;
+  googleEditEmail?: string | null;
   role: string;
   department?: string | null;
   isActive: boolean;
@@ -204,6 +205,7 @@ function TeamPageInner() {
     name: "",
     role: "",
     department: "",
+    googleEditEmail: "",
     isActive: true,
     pageAccessMode: "OFF" as PageAccessMode,
     pageAccessPages: [] as string[],
@@ -232,7 +234,14 @@ function TeamPageInner() {
   const [leaveForm, setLeaveForm] = useState({ userId: "", leaveType: "CASUAL", startDate: "", endDate: "", reason: "" });
 
   // Add member form
-  const [memberForm, setMemberForm] = useState({ name: "", email: "", role: "DEVELOPER", department: "Engineering", password: "" });
+  const [memberForm, setMemberForm] = useState({
+    name: "",
+    email: "",
+    googleEditEmail: "",
+    role: "DEVELOPER",
+    department: "Engineering",
+    password: "",
+  });
 
   const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -287,6 +296,7 @@ function TeamPageInner() {
           name: editForm.name,
           role: editForm.role,
           department: editForm.department || null,
+          googleEditEmail: editForm.googleEditEmail.trim() || null,
           isActive: editForm.isActive,
           pageAccessMode: editForm.pageAccessMode,
           pageAccessPages: editForm.pageAccessPages,
@@ -315,6 +325,7 @@ function TeamPageInner() {
       name: user.name,
       role: user.role,
       department: user.department || "",
+      googleEditEmail: user.googleEditEmail || "",
       isActive: user.isActive,
       pageAccessMode: normalizePageAccessMode(user.pageAccessMode),
       pageAccessPages: parsePageAccessPages(user.pageAccessPages),
@@ -568,6 +579,7 @@ function TeamPageInner() {
           type: "user",
           name: memberForm.name,
           email: memberForm.email,
+          googleEditEmail: memberForm.googleEditEmail.trim() || null,
           role: memberForm.role,
           department: memberForm.department,
           password: memberForm.password,
@@ -577,7 +589,14 @@ function TeamPageInner() {
       if (res.ok) {
         toast.success(`${safeText(memberForm.name)} added to the team`);
         setAddMemberOpen(false);
-        setMemberForm({ name: "", email: "", role: "DEVELOPER", department: "Engineering", password: "" });
+        setMemberForm({
+          name: "",
+          email: "",
+          googleEditEmail: "",
+          role: "DEVELOPER",
+          department: "Engineering",
+          password: "",
+        });
         fetchData();
       } else {
         toast.error(data.error || "Failed to add member");
@@ -627,6 +646,7 @@ function TeamPageInner() {
           <p className="text-xs text-muted-foreground truncate">
             {safeText(user.email)}
             {user.department ? ` · ${safeText(user.department)}` : ""}
+            {user.googleEditEmail ? ` · edit: ${safeText(user.googleEditEmail)}` : ""}
           </p>
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0 w-full sm:w-auto justify-end pl-10 sm:pl-0">
@@ -1058,6 +1078,19 @@ function TeamPageInner() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-2">
+              <Label>Personal Gmail (file edit)</Label>
+              <Input
+                type="email"
+                placeholder="e.g. name@gmail.com"
+                value={editForm.googleEditEmail}
+                onChange={(e) => setEditForm((p) => ({ ...p, googleEditEmail: e.target.value }))}
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Used only when they click Open in Files — Drive shares that one file for edit. Browse/upload stays in Trishulhub (no Google login).
+                If empty, login email is used as fallback.
+              </p>
+            </div>
             {isSuperAdmin && (
               <div className="flex items-center gap-2">
                 <input
@@ -1154,6 +1187,18 @@ function TeamPageInner() {
             <div className="space-y-2">
               <Label>Email *</Label>
               <Input type="email" placeholder="e.g. john@trishulhub.com" value={memberForm.email} onChange={(e) => setMemberForm(p => ({ ...p, email: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>Personal Gmail (file edit)</Label>
+              <Input
+                type="email"
+                placeholder="e.g. name@gmail.com"
+                value={memberForm.googleEditEmail}
+                onChange={(e) => setMemberForm((p) => ({ ...p, googleEditEmail: e.target.value }))}
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Optional. Personal Gmail for Google Docs edit sharing. Leave blank to use login email.
+              </p>
             </div>
             <div className="space-y-2">
               <Label>Role *</Label>
