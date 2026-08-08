@@ -198,6 +198,7 @@ export default function ExpensesPage() {
       category: addForm.category,
       description: addForm.description,
       amount: parseFloat(addForm.amount) || 0,
+      currency: "GBP",
       date: addForm.date || new Date().toISOString().split("T")[0],
       projectId: (addForm.projectId && addForm.projectId !== "NONE") ? addForm.projectId : undefined,
       employeeId: (addForm.employeeId && addForm.employeeId !== "NONE") ? addForm.employeeId : undefined,
