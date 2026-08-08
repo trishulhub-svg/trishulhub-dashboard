@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
         stage: stage ?? "LEAD",
         clientId: clientId ?? null,
         leadId: leadId ?? null,
-        currency: currency ?? "INR",
+        currency: currency ?? "GBP",
         assignedToId: session.user.id,
       },
     })

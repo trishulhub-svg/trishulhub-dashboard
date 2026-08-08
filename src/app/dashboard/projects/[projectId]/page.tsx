@@ -1959,7 +1959,7 @@ export default function ProjectDetailPage() {
         {/* Budget pill (admin + PM) */}
         {canManageProject && (
           <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-sm">
-            <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 tabular-nums">₹</span>
+            <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 tabular-nums">£</span>
             <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 tabular-nums">
               {String(projectBudget || 0).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}
             </span>

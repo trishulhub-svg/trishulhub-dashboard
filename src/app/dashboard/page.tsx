@@ -272,10 +272,7 @@ function CompactEarnings({
           <div className="min-w-0">
             <p className="text-xs text-muted-foreground">My earnings</p>
             <p className="text-sm font-semibold tabular-nums">
-              ₹{earnings.totalINR.toLocaleString("en-IN")}
-              <span className="ml-2 text-[11px] font-normal text-muted-foreground">
-                ≈ £{earnings.totalGBP.toLocaleString("en-GB", { minimumFractionDigits: 2 })}
-              </span>
+              £{(earnings.totalGBP ?? earnings.totalINR ?? 0).toLocaleString("en-GB", { minimumFractionDigits: 2 })}
             </p>
           </div>
         </div>
@@ -301,7 +298,7 @@ function CompactEarnings({
                 </p>
               </div>
               <p className="shrink-0 text-xs font-semibold tabular-nums">
-                ₹{safeNumber(entry.amount).toLocaleString("en-IN")}
+                £{safeNumber(entry.amount).toLocaleString("en-GB", { maximumFractionDigits: 2 })}
               </p>
             </div>
           ))}

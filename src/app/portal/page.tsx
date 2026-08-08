@@ -87,7 +87,7 @@ export default function PortalDashboard() {
   const firstName = safeText(session?.user?.name, "there").split(/\s+/)[0] || "there";
   const nextAction =
     stats.pendingAmount > 0
-      ? { label: "Review pending invoices", path: "/portal/invoices", hint: `₹${stats.pendingAmount.toLocaleString("en-IN")} awaiting payment` }
+      ? { label: "Review pending invoices", path: "/portal/invoices", hint: `£${stats.pendingAmount.toLocaleString("en-GB")} awaiting payment` }
       : stats.tickets > 0
         ? { label: "Check support tickets", path: "/portal/support", hint: `${stats.tickets} ticket${stats.tickets === 1 ? "" : "s"} on file` }
         : stats.projects > 0
@@ -159,7 +159,7 @@ export default function PortalDashboard() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Pending Amount</p>
-                <p className="text-2xl font-bold tracking-tight">₹{stats.pendingAmount.toLocaleString("en-IN")}</p>
+                <p className="text-2xl font-bold tracking-tight">£{stats.pendingAmount.toLocaleString("en-GB")}</p>
               </div>
             </div>
           </CardContent>

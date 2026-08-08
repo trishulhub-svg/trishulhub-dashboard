@@ -464,7 +464,7 @@ model Invoice {
   subtotal      Float    @default(0)
   tax           Float    @default(0)
   total         Float    @default(0)
-  currency      String   @default("INR") // INR, USD, GBP, EUR — company default INR
+  currency      String   @default("GBP") // GBP default; legacy rows may still be INR/USD/EUR
   status        String   @default("DRAFT") // DRAFT, SENT, PAID, OVERDUE
   dueDate       DateTime?
   paidAt        DateTime?
@@ -535,7 +535,7 @@ model Deal {
   id                String    @id @default(cuid())
   title             String
   value             Float     @default(0)
-  currency          String    @default("INR") // USD, GBP, INR
+  currency          String    @default("GBP") // GBP default; legacy rows may still be INR/USD
   stage             String    @default("LEAD") // LEAD, QUALIFIED, PROPOSAL, NEGOTIATION, CLOSED_WON, CLOSED_LOST
   probability       Int       @default(0) // 0-100
   expectedCloseDate DateTime?
@@ -780,7 +780,7 @@ model Expense {
   description String
   // amount >= 0 enforced at application level; round via lib/money
   amount      Float    @default(0)
-  currency    String   @default("INR") // INR, USD, GBP, EUR
+  currency    String   @default("GBP") // GBP default; legacy rows may still be INR/USD/EUR
   date        DateTime
   receiptUrl  String?
   projectId   String?
@@ -805,8 +805,8 @@ model Subscription {
   id           String    @id @default(cuid())
   service      String    // Service name e.g., "ChatGPT Subscription"
   amount       Float     @default(0) // Actual cost in the selected currency
-  currency     String    @default("INR") // INR, GBP, USD
-  exchangeRate Float     @default(1) // Conversion rate to INR (1 for INR, ~105.5 for GBP, ~83.5 for USD)
+  currency     String    @default("GBP") // GBP default; legacy rows may still be INR/USD
+  exchangeRate Float     @default(1) // Optional FX helper (subscriptions); not used to rewrite history
   frequency    String    @default("MONTHLY") // MONTHLY, YEARLY, ONE_TIME
   status       String    @default("ACTIVE") // ACTIVE, STOPPED, COMPLETED
   category     String?   // Software, Hosting, etc.

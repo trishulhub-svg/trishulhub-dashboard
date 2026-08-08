@@ -31,7 +31,7 @@ import {
 } from "@/components/dashboard/projects/work-priority-badge";
 
 // TODO: Make configurable per project/client
-const CURRENCY_SYMBOL = "₹";
+const CURRENCY_SYMBOL = "£";
 
 const statusColors: Record<string, string> = {
   PLANNING: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200",

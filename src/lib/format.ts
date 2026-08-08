@@ -15,16 +15,22 @@ export const CURRENCY_SYMBOLS: Record<string, string> = {
   EUR: "€",
 }
 
+/** Company display default — new finance UI shows GBP (£). */
+export const DEFAULT_DISPLAY_CURRENCY = "GBP"
+
 /** Get currency symbol for a currency code */
-export function getCurrencySymbol(currency: string = "INR"): string {
+export function getCurrencySymbol(currency: string = DEFAULT_DISPLAY_CURRENCY): string {
   return CURRENCY_SYMBOLS[currency] || currency
 }
 
-/** Format a number as currency (defaults to INR) */
-export function formatCurrency(amount: number, currency: string = "INR"): string {
+/** Format a number as currency (defaults to GBP) */
+export function formatCurrency(amount: number, currency: string = DEFAULT_DISPLAY_CURRENCY): string {
   const symbol = getCurrencySymbol(currency)
   if (currency === "INR") {
     return `${symbol}${amount.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`
+  }
+  if (currency === "GBP") {
+    return `${symbol}${amount.toLocaleString("en-GB", { maximumFractionDigits: 2 })}`
   }
   return `${symbol}${amount.toLocaleString("en-US", { maximumFractionDigits: 2 })}`
 }
