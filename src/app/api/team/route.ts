@@ -22,7 +22,7 @@ function toLocalDateStr(d: Date): string {
 }
 
 // [T4/T6] Valid role values
-const VALID_ROLES = ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER", "CLIENT"] as const
+const VALID_ROLES = ["SUPER_ADMIN", "ADMIN", "HR", "PROJECT_MANAGER", "DEVELOPER", "CLIENT"] as const
 
 // [W15] Helper: verify user account is still active
 async function requireActiveUser(userId: string): Promise<NextResponse | null> {
@@ -488,7 +488,7 @@ export async function POST(req: NextRequest) {
       // Only SUPER_ADMIN can create other SUPER_ADMIN, ADMIN, or PROJECT_MANAGER users.
       // PROJECT_MANAGER is a privileged role with admin-like project/client/credential access,
       // so it must be restricted the same way as ADMIN.
-      if ((role === "SUPER_ADMIN" || role === "ADMIN" || role === "PROJECT_MANAGER") && userRole !== "SUPER_ADMIN") {
+      if ((role === "SUPER_ADMIN" || role === "ADMIN" || role === "HR" || role === "PROJECT_MANAGER") && userRole !== "SUPER_ADMIN") {
         return NextResponse.json({ error: "Only Super Admins can create Admin, Super Admin, or Project Manager users" }, { status: 403 });
       }
 

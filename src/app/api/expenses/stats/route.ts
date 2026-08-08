@@ -1,3 +1,4 @@
+import { canAccessFinance } from "@/lib/rbac"
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
@@ -32,7 +33,7 @@ export async function GET(req: NextRequest) {
     }
 
     const userRole = session.user.role
-    if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+    if (!canAccessFinance(userRole)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 

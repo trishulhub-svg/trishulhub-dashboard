@@ -36,7 +36,7 @@ import { SearchableCombobox } from "@/components/searchable-combobox";
 // ━━ Configurable Constants ━━
 const COMPANY_NAME = process.env.NEXT_PUBLIC_COMPANY_NAME || "TrishulHub";
 const COMPANY_TAGLINE = process.env.NEXT_PUBLIC_COMPANY_TAGLINE || "AI-Powered Web Development";
-const CURRENCY_SYMBOL = process.env.NEXT_PUBLIC_CURRENCY_SYMBOL || "₹";
+const CURRENCY_SYMBOL = process.env.NEXT_PUBLIC_CURRENCY_SYMBOL || "£";
 
 // TODO: Make default line item configurable via settings
 const PAYMENT_METHODS = [
@@ -469,6 +469,7 @@ function InvoicesPageInner() {
       // total === subtotal + tax + gst, so tax MUST be 0 here.
       tax: 0,
       total: totalAmount,
+      currency: "GBP",
       dueDate: (form.get("dueDate") as string) || null,
       gstPercent: effectiveGstPercent,
       gst: gstAmount,

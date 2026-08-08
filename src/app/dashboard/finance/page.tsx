@@ -930,6 +930,9 @@ function FinancePageInner() {
           <Button size="sm" variant="outline" onClick={() => setActiveTab("subscriptions")}>
             <CreditCard className="h-4 w-4 mr-1" /> Subscriptions
           </Button>
+          <Button size="sm" variant="outline" onClick={() => router.push("/dashboard/finance/pnl")}>
+            P &amp; L
+          </Button>
           <Button size="sm" variant="outline" onClick={() => router.push("/dashboard/finance/invoices")}>
             <FileText className="h-4 w-4 mr-1" /> Invoices
           </Button>

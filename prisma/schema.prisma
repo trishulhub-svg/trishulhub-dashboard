@@ -1196,6 +1196,79 @@ model AppSetting {
   updatedAt DateTime @updatedAt
 }
 
+// ━━ File Management (Google Drive–backed) ━━
+// Tree: DEPARTMENT → CATEGORY (nested) → FOLDER (nested). Uploads only on FOLDER.
+// Bytes live in info@ Drive; we store metadata + drive IDs only.
+model FileNode {
+  id            String   @id @default(cuid())
+  kind          String   // DEPARTMENT | CATEGORY | FOLDER
+  name          String
+  parentId      String?
+  driveFolderId String?
+  sortOrder     Int      @default(0)
+  createdById   String?
+  deletedAt     DateTime?
+  deletedById   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  parent   FileNode?  @relation("FileNodeTree", fields: [parentId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  children FileNode[] @relation("FileNodeTree")
+  files    FileItem[]
+  grants   FileAccessGrant[]
+
+  @@index([parentId])
+  @@index([kind])
+  @@index([deletedAt])
+  @@map("FileNode")
+}
+
+model FileItem {
+  id              String   @id @default(cuid())
+  nodeId          String   // must be a FOLDER node
+  name            String
+  mimeType        String?
+  sizeBytes       Int      @default(0)
+  driveFileId     String?
+  webViewLink     String?
+  createdById     String?
+  deletedAt       DateTime?
+  deletedById     String?
+  originalNodeId  String?  // folder before soft-delete (for restore)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  node FileNode @relation(fields: [nodeId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([nodeId])
+  @@index([deletedAt])
+  @@index([driveFileId])
+  @@map("FileItem")
+}
+
+// Role-wide or per-user module access, plus per-department grants
+model FileAccessGrant {
+  id        String   @id @default(cuid())
+  // ROLE_MODULE | USER_MODULE | NODE_ROLE | NODE_USER
+  scope     String
+  role      String?
+  userId    String?
+  nodeId    String?  // usually a DEPARTMENT
+  canRead   Boolean  @default(true)
+  canWrite  Boolean  @default(true)
+  canDelete Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  node FileNode? @relation(fields: [nodeId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([scope])
+  @@index([role])
+  @@index([userId])
+  @@index([nodeId])
+  @@map("FileAccessGrant")
+}
+
 // TODO: Phase 7 — Missing HR Models to implement:
 // - Department model (id, name, headId, budget, createdAt, updatedAt) with @@map("Department")
 // - LeaveBalance model (id, userId, leaveType, totalDays, usedDays, remainingDays, year, @@unique([userId, leaveType, year]))

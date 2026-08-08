@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
-import { isAdmin } from "@/lib/rbac"
+import { canAccessFinance, isAdmin } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { createInvoiceSchema, updateInvoiceSchema, validateRequest } from "@/lib/validations"
 // Note: deepSanitize is actually a deep clone, not XSS sanitization
@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
       })
     }
 
-    if (!isAdmin(userRole)) {
+    if (!canAccessFinance(userRole)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     const userRole = session.user.role
-    if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+    if (!canAccessFinance(userRole)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
@@ -204,7 +204,7 @@ export async function PATCH(req: NextRequest) {
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     const userRole = session.user.role
-    if (userRole !== "SUPER_ADMIN" && userRole !== "ADMIN") {
+    if (!canAccessFinance(userRole)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
@@ -379,7 +379,7 @@ export async function DELETE(req: NextRequest) {
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     const userRole = session.user.role
-    if (!isAdmin(userRole)) {
+    if (!canAccessFinance(userRole)) {
       return NextResponse.json({ error: "Only admins can delete invoices" }, { status: 403 })
     }
 

@@ -102,27 +102,27 @@ export async function middleware(request: NextRequest) {
     // Availability: PM has read-only access (UI + API mutations require ADMIN).
     // Access Hub: open to DEVELOPER for "My Credentials" (API scopes own rows).
     //
-    // Super admin only routes — strictly SUPER_ADMIN.
+    // Super admin only — SMTP, API keys, file access/Drive credentials
     const superAdminOnlyRoutes: string[] = [
       "/dashboard/email-logs",
       "/dashboard/smtp",
+      "/dashboard/api-keys",
+      "/dashboard/files/settings",
     ]
 
-    // Admin only routes — NOT accessible to PROJECT_MANAGER.
-    const adminOnlyRoutes = [
-      "/dashboard/finance",
+    // Finance — SUPER_ADMIN / ADMIN only (HR excluded)
+    const financeOnlyRoutes = ["/dashboard/finance"]
+
+    // Admin or HR (not PROJECT_MANAGER)
+    const adminOrHrRoutes = [
       "/dashboard/crm",
       "/dashboard/team",
       "/dashboard/audit-trail",
-      "/dashboard/api-keys",
-      // Assign training is Admin / Super Admin only (staff use /dashboard/training/my)
       "/dashboard/training/assign",
-      // Docx Sign manage is Admin / Super Admin only (staff use /dashboard/docx-sign/my)
       "/dashboard/docx-sign/manage",
     ]
 
-    // Admin OR Project Manager routes — Developers/viewers are redirected away
-    // (except Access Hub, which is open to DEVELOPER via nav + credentials API).
+    // Admin / HR / Project Manager
     const adminOrPmRoutes = [
       "/dashboard/clients",
       "/dashboard/projects",
@@ -130,25 +130,27 @@ export async function middleware(request: NextRequest) {
       "/dashboard/approvals",
       "/dashboard/support",
       "/dashboard/capacity",
-      "/dashboard/availability", // PM read-only — mutations require isAdmin in API
+      "/dashboard/availability",
     ]
 
     const isSuperAdmin = role === "SUPER_ADMIN"
-    const isAdminRole = role === "SUPER_ADMIN" || role === "ADMIN"
-    const isAdminOrPm = role === "SUPER_ADMIN" || role === "ADMIN" || role === "PROJECT_MANAGER"
+    const isFinanceAdmin = role === "SUPER_ADMIN" || role === "ADMIN"
+    const isAdminOrHr = role === "SUPER_ADMIN" || role === "ADMIN" || role === "HR"
+    const isAdminOrPm =
+      role === "SUPER_ADMIN" || role === "ADMIN" || role === "HR" || role === "PROJECT_MANAGER"
 
-    // Check super admin only routes
-    if (!isSuperAdmin && superAdminOnlyRoutes.some(route => pathname.startsWith(route))) {
+    if (!isSuperAdmin && superAdminOnlyRoutes.some((route) => pathname.startsWith(route))) {
       return addSecurityHeaders(request, NextResponse.redirect(new URL("/dashboard", request.url)))
     }
 
-    // Check admin only routes (excludes PROJECT_MANAGER)
-    if (!isAdminRole && adminOnlyRoutes.some(route => pathname.startsWith(route))) {
+    if (!isFinanceAdmin && financeOnlyRoutes.some((route) => pathname.startsWith(route))) {
       return addSecurityHeaders(request, NextResponse.redirect(new URL("/dashboard", request.url)))
     }
 
-    // Check admin or PM routes
-    // Support raise is available to all staff; inbox stays Admin/SA/PM only
+    if (!isAdminOrHr && adminOrHrRoutes.some((route) => pathname.startsWith(route))) {
+      return addSecurityHeaders(request, NextResponse.redirect(new URL("/dashboard", request.url)))
+    }
+
     if (
       !isAdminOrPm &&
       adminOrPmRoutes.some((route) => {

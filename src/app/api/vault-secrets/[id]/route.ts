@@ -27,7 +27,7 @@ function safeEncryptKey(plaintext: string): string {
 }
 
 function requireVaultAdmin(role: string | undefined): boolean {
-  return role === "SUPER_ADMIN" || role === "ADMIN"
+  return role === "SUPER_ADMIN"
 }
 
 function normalizeCategory(raw: unknown): string | null {

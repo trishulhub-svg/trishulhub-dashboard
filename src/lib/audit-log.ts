@@ -9,11 +9,12 @@ import { db } from "@/lib/db"
 
 // ── Department Mapping ──
 export const AUDIT_DEPARTMENTS = {
-  BUSINESS: { label: "Business", pages: ["invoices", "clients", "leads", "contacts", "deals", "contracts", "subscriptions", "expenses", "finance"] },
+  BUSINESS: { label: "Business", pages: ["invoices", "clients", "leads", "contacts", "deals", "contracts", "subscriptions", "expenses", "finance", "pnl"] },
   TEAM_WORK: { label: "Team & Work", pages: ["projects", "tasks", "time-tracking", "approvals", "milestones"] },
-  HR_PEOPLE: { label: "HR & People", pages: ["team", "leaves", "availability", "docx-sign"] },
+  HR_PEOPLE: { label: "HR & People", pages: ["team", "leaves", "availability", "docx-sign", "my-details", "capacity"] },
   LEARNING: { label: "Learning", pages: ["training", "my-training"] },
-  SYSTEM: { label: "System", pages: ["settings", "api-keys", "workspace", "access-hub", "credentials", "notifications", "support"] },
+  FILES: { label: "Files", pages: ["files", "files-review", "files-settings"] },
+  SYSTEM: { label: "System", pages: ["settings", "api-keys", "workspace", "access-hub", "credentials", "notifications", "support", "email-logs", "smtp", "audit-trail"] },
 } as const
 
 export type AuditDepartment = keyof typeof AUDIT_DEPARTMENTS
@@ -59,6 +60,7 @@ export const DEPARTMENT_ICONS: Record<string, string> = {
   TEAM_WORK: "FolderKanban",
   HR_PEOPLE: "Users",
   LEARNING: "GraduationCap",
+  FILES: "FolderOpen",
   SYSTEM: "Settings",
 }
 
@@ -68,6 +70,7 @@ export const DEPARTMENT_COLORS: Record<string, string> = {
   TEAM_WORK: "text-blue-600 dark:text-blue-400",
   HR_PEOPLE: "text-pink-600 dark:text-pink-400",
   LEARNING: "text-emerald-600 dark:text-emerald-400",
+  FILES: "text-teal-600 dark:text-teal-400",
   SYSTEM: "text-slate-600 dark:text-slate-400",
 }
 

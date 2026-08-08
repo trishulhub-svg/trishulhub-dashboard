@@ -74,7 +74,7 @@ export default function ApiKeysPage() {
   const { data: session, status } = useSession();
   const isSessionLoading = status === "loading";
   const userRole = session?.user?.role || "DEVELOPER";
-  const canAccess = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+  const canAccess = userRole === "SUPER_ADMIN";
 
   const [secrets, setSecrets] = useState<VaultSecret[]>([]);
   const [loading, setLoading] = useState(true);

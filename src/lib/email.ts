@@ -417,6 +417,7 @@ export async function sendInvoiceEmail(options: {
   invoice: {
     invoiceNumber: string
     status?: string
+    currency?: string | null
     subtotal?: number | null
     tax?: number | null
     gst?: number | null
@@ -439,10 +440,20 @@ export async function sendInvoiceEmail(options: {
   const esc = (s: unknown): string =>
     String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
 
-  const currencySymbol = process.env.NEXT_PUBLIC_CURRENCY_SYMBOL || "₹"
   const companyName = process.env.NEXT_PUBLIC_COMPANY_NAME || "TrishulHub"
-  const companyTagline = process.env.NEXT_PUBLIC_COMPANY_TAGLINE || "AI-Powered Web Development"
-  const fmt = (n: number) => `${currencySymbol}${new Intl.NumberFormat("en-IN").format(n)}`
+  const companyTagline = process.env.NEXT_PUBLIC_COMPANY_TAGLINE || "Official Workspace"
+  const appUrl = (process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "")
+  const logoUrl = appUrl ? `${appUrl}/logo.svg` : ""
+  const currencyCode = String(options.invoice.currency || "GBP").toUpperCase()
+  const locale = currencyCode === "GBP" ? "en-GB" : currencyCode === "INR" ? "en-IN" : "en-GB"
+  const fmt = (n: number) => {
+    try {
+      return new Intl.NumberFormat(locale, { style: "currency", currency: currencyCode }).format(n)
+    } catch {
+      const sym = currencyCode === "GBP" ? "£" : currencyCode === "INR" ? "₹" : currencyCode + " "
+      return `${sym}${new Intl.NumberFormat(locale).format(n)}`
+    }
+  }
   const fmtDate = (d: Date | string | null | undefined): string => formatDisplayDate(d)
 
   const inv = options.invoice
@@ -452,8 +463,6 @@ export async function sendInvoiceEmail(options: {
   const gstPct = Number(inv.gstPercent ?? 0)
   const total = Number(inv.total ?? sub + tax + gst)
 
-  // Build line-items table from notes (if JSON-encoded items aren't available
-  // we still render a clean summary). We use the totals block as the source of truth.
   const showGstRow = gst > 0 || gstPct > 0
   const showTaxRow = tax > 0
 
@@ -462,40 +471,42 @@ export async function sendInvoiceEmail(options: {
     : null
 
   const html = `
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 640px; margin: 0 auto; padding: 24px; background: #f9fafb; border-radius: 12px;">
-      <div style="text-align: center; margin-bottom: 24px;">
-        <h1 style="color: #1f2937; font-size: 24px; margin: 0;">${esc(companyName)}</h1>
-        <p style="color: #6b7280; margin: 4px 0 0;">${esc(companyTagline)}</p>
+    <div style="font-family: Georgia, 'Times New Roman', serif; max-width: 640px; margin: 0 auto; padding: 0; background: #0f172a;">
+      <div style="background: linear-gradient(135deg,#0f172a 0%,#134e4a 55%,#0f172a 100%); padding: 28px 24px; text-align: center;">
+        ${logoUrl ? `<img src="${esc(logoUrl)}" alt="${esc(companyName)}" width="48" height="48" style="display:inline-block;margin-bottom:12px;" />` : ""}
+        <h1 style="color: #f8fafc; font-size: 26px; margin: 0; letter-spacing: 0.04em;">${esc(companyName)}</h1>
+        <p style="color: #99f6e4; margin: 6px 0 0; font-size: 13px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">${esc(companyTagline)}</p>
       </div>
-      <div style="background: white; border-radius: 8px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 16px;">
+      <div style="background: #ffffff; padding: 28px 24px;">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 18px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
           <div>
-            <h2 style="color: #1f2937; font-size: 20px; margin: 0 0 4px;">Invoice ${esc(inv.invoiceNumber)}</h2>
-            ${inv.status ? `<p style="color: #6b7280; margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em;">${esc(inv.status)}</p>` : ""}
+            <p style="margin:0; color:#0f766e; font-size:11px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase;">Invoice</p>
+            <h2 style="color: #0f172a; font-size: 22px; margin: 4px 0 0;">${esc(inv.invoiceNumber)}</h2>
+            ${inv.status ? `<p style="color: #64748b; margin: 4px 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em;">${esc(inv.status)} · ${esc(currencyCode)}</p>` : ""}
           </div>
           <div style="text-align: right;">
-            <p style="margin: 0; color: #374151; font-size: 14px;"><strong>Due:</strong> ${esc(fmtDate(inv.dueDate))}</p>
-            ${paymentMethodLabel ? `<p style="margin: 4px 0 0; color: #6b7280; font-size: 13px;">Payment: ${esc(paymentMethodLabel)}</p>` : ""}
+            <p style="margin: 0; color: #334155; font-size: 13px;"><strong>Due</strong><br/>${esc(fmtDate(inv.dueDate))}</p>
+            ${paymentMethodLabel ? `<p style="margin: 8px 0 0; color: #64748b; font-size: 12px;">${esc(paymentMethodLabel)}</p>` : ""}
           </div>
         </div>
-        <div style="border-top: 1px solid #e5e7eb; padding-top: 16px; margin-bottom: 16px;">
-          <p style="margin: 0; color: #374151; font-size: 14px;"><strong>Bill To:</strong> ${esc(options.client.name)}${options.client.company ? ` (${esc(options.client.company)})` : ""}</p>
-          ${options.project?.name ? `<p style="margin: 4px 0 0; color: #6b7280; font-size: 13px;">Project: ${esc(options.project.name)}</p>` : ""}
+        <div style="border-top: 1px solid #e2e8f0; padding-top: 16px; margin-bottom: 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
+          <p style="margin: 0; color: #0f172a; font-size: 14px;"><strong>Bill To</strong><br/>${esc(options.client.name)}${options.client.company ? ` · ${esc(options.client.company)}` : ""}</p>
+          ${options.project?.name ? `<p style="margin: 8px 0 0; color: #64748b; font-size: 13px;">Project: ${esc(options.project.name)}</p>` : ""}
         </div>
-        <div style="border-top: 1px solid #e5e7eb; padding-top: 16px; margin-bottom: 16px;">
-          <div style="display:flex; justify-content:space-between; padding: 4px 0; color: #374151; font-size: 14px;">
+        <div style="border-top: 1px solid #e2e8f0; padding-top: 16px; margin-bottom: 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
+          <div style="display:flex; justify-content:space-between; padding: 6px 0; color: #334155; font-size: 14px;">
             <span>Subtotal</span><span>${esc(fmt(sub))}</span>
           </div>
-          ${showTaxRow ? `<div style="display:flex; justify-content:space-between; padding: 4px 0; color: #374151; font-size: 14px;"><span>Tax</span><span>${esc(fmt(tax))}</span></div>` : ""}
-          ${showGstRow ? `<div style="display:flex; justify-content:space-between; padding: 4px 0; color: #374151; font-size: 14px;"><span>GST${gstPct > 0 ? ` (${gstPct}%)` : ""}</span><span>${esc(fmt(gst))}</span></div>` : ""}
-          <div style="display:flex; justify-content:space-between; padding: 12px 0 4px; border-top: 1px solid #e5e7eb; margin-top: 8px; color: #1f2937; font-size: 18px; font-weight: 700;">
+          ${showTaxRow ? `<div style="display:flex; justify-content:space-between; padding: 6px 0; color: #334155; font-size: 14px;"><span>Tax</span><span>${esc(fmt(tax))}</span></div>` : ""}
+          ${showGstRow ? `<div style="display:flex; justify-content:space-between; padding: 6px 0; color: #334155; font-size: 14px;"><span>GST${gstPct > 0 ? ` (${gstPct}%)` : ""}</span><span>${esc(fmt(gst))}</span></div>` : ""}
+          <div style="display:flex; justify-content:space-between; padding: 14px 0 4px; border-top: 2px solid #0f766e; margin-top: 10px; color: #0f172a; font-size: 20px; font-weight: 700;">
             <span>Total</span><span>${esc(fmt(total))}</span>
           </div>
         </div>
-        ${inv.notes ? `<div style="border-top: 1px solid #e5e7eb; padding-top: 16px; margin-bottom: 16px;"><p style="margin: 0; color: #6b7280; font-size: 12px; font-weight: 600; text-transform: uppercase;">Notes</p><p style="margin: 4px 0 0; color: #374151; font-size: 14px; white-space: pre-wrap;">${esc(inv.notes)}</p></div>` : ""}
-        <p style="color: #6b7280; font-size: 13px; margin: 16px 0 0;">Please review this invoice and remit payment by the due date. If you have any questions, reply to this email.</p>
+        ${inv.notes ? `<div style="border-top: 1px solid #e2e8f0; padding-top: 16px; margin-bottom: 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;"><p style="margin: 0; color: #64748b; font-size: 11px; font-weight: 700; letter-spacing:0.08em; text-transform: uppercase;">Notes</p><p style="margin: 6px 0 0; color: #0f172a; font-size: 14px; white-space: pre-wrap;">${esc(inv.notes)}</p></div>` : ""}
+        <p style="color: #64748b; font-size: 13px; margin: 16px 0 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">Please remit payment by the due date. Questions? Reply to this email.</p>
       </div>
-      <p style="color: #9ca3af; font-size: 12px; text-align: center; margin-top: 16px;">This invoice was sent via ${esc(companyName)} Invoice Management. Do not reply directly to this automated message.</p>
+      <p style="color: #94a3b8; font-size: 11px; text-align: center; margin: 0; padding: 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">Sent by ${esc(companyName)} · Powered by Trishulhub</p>
     </div>
   `
 

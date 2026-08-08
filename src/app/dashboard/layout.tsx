@@ -47,6 +47,8 @@ import {
   Star,
   Plus,
   FilePenLine,
+  Archive,
+  FolderOpen,
 } from "lucide-react";
 import Image from "next/image";
 import LoadingScreen from "@/components/ui/loading-screen";
@@ -102,38 +104,38 @@ interface NavGroup {
   items: NavItem[];
 }
 
-// Navigation — Overview · Work · People · Finance · System
+// Navigation — Overview · Work · Files · Finance · Compliance · System
+const STAFF: UserRole[] = ["SUPER_ADMIN", "ADMIN", "HR", "PROJECT_MANAGER", "DEVELOPER"]
+const LEAD: UserRole[] = ["SUPER_ADMIN", "ADMIN", "HR", "PROJECT_MANAGER"]
+const ADMIN_HR: UserRole[] = ["SUPER_ADMIN", "ADMIN", "HR"]
+const FINANCE: UserRole[] = ["SUPER_ADMIN", "ADMIN"]
+
 const navGroups: NavGroup[] = [
   {
     label: "Overview",
     items: [
-      { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
-      { title: "Workspace", href: "/dashboard/workspace", icon: Rocket, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
-      { title: "Learning", href: "/dashboard/training", icon: BookOpen, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
-      { title: "Docx Sign", href: "/dashboard/docx-sign", icon: FilePenLine, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
+      { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: STAFF },
+      { title: "Workspace", href: "/dashboard/workspace", icon: Rocket, roles: STAFF },
     ],
   },
   {
     label: "Work",
     items: [
-      { title: "Projects", href: "/dashboard/projects", icon: FolderKanban, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER"] },
-      { title: "Clients", href: "/dashboard/clients", icon: Briefcase, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER"] },
-      { title: "CRM", href: "/dashboard/crm", icon: Crosshair, roles: ["SUPER_ADMIN", "ADMIN"] },
-      { title: "Demo Projects", href: "/dashboard/demo", icon: FlaskConical, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER"] },
-      { title: "Time Tracking", href: "/dashboard/time-tracking", icon: Clock, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
-      { title: "Support", href: "/dashboard/support", icon: LifeBuoy, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER"] },
-      { title: "Support", href: "/dashboard/support/raise", icon: LifeBuoy, roles: ["DEVELOPER"] },
+      { title: "Projects", href: "/dashboard/projects", icon: FolderKanban, roles: LEAD },
+      { title: "Clients", href: "/dashboard/clients", icon: Briefcase, roles: LEAD },
+      { title: "CRM", href: "/dashboard/crm", icon: Crosshair, roles: ADMIN_HR },
+      { title: "Demo Projects", href: "/dashboard/demo", icon: FlaskConical, roles: LEAD },
+      { title: "Approvals", href: "/dashboard/approvals", icon: Shield, roles: LEAD },
+      { title: "Capacity", href: "/dashboard/capacity", icon: BarChart3, roles: LEAD },
+      { title: "My Leaves", href: "/dashboard/leaves", icon: CalendarDays, roles: STAFF },
     ],
   },
   {
-    label: "People",
+    label: "Files",
     items: [
-      { title: "My Leaves", href: "/dashboard/leaves", icon: CalendarDays, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
-      { title: "My Details", href: "/dashboard/my-details", icon: IdCard, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
-      { title: "Team", href: "/dashboard/team", icon: Users, roles: ["SUPER_ADMIN", "ADMIN"] },
-      { title: "Availability", href: "/dashboard/availability", icon: Clock, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER"] },
-      { title: "Capacity", href: "/dashboard/capacity", icon: BarChart3, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER"] },
-      { title: "Approvals", href: "/dashboard/approvals", icon: Shield, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER"] },
+      { title: "Files", href: "/dashboard/files", icon: FolderOpen, roles: STAFF },
+      { title: "Review", href: "/dashboard/files/review", icon: Archive, roles: STAFF },
+      { title: "File Settings", href: "/dashboard/files/settings", icon: Settings, roles: ["SUPER_ADMIN"] },
     ],
   },
   {
@@ -143,23 +145,37 @@ const navGroups: NavGroup[] = [
         title: "Finance",
         href: "/dashboard/finance",
         icon: DollarSign,
-        roles: ["SUPER_ADMIN", "ADMIN"],
+        roles: FINANCE,
         children: [
-          { title: "Invoices", href: "/dashboard/finance/invoices", icon: Receipt, roles: ["SUPER_ADMIN", "ADMIN"] },
-          { title: "Expenses", href: "/dashboard/finance/expenses", icon: Wallet, roles: ["SUPER_ADMIN", "ADMIN"] },
+          { title: "Invoices", href: "/dashboard/finance/invoices", icon: Receipt, roles: FINANCE },
+          { title: "Expenses", href: "/dashboard/finance/expenses", icon: Wallet, roles: FINANCE },
+          { title: "P & L", href: "/dashboard/finance/pnl", icon: BarChart3, roles: FINANCE },
         ],
       },
     ],
   },
   {
+    label: "Compliance",
+    items: [
+      { title: "Team", href: "/dashboard/team", icon: Users, roles: ADMIN_HR },
+      { title: "Availability", href: "/dashboard/availability", icon: Clock, roles: LEAD },
+      { title: "My Details", href: "/dashboard/my-details", icon: IdCard, roles: STAFF },
+      { title: "Email Logs", href: "/dashboard/email-logs", icon: Mail, roles: ["SUPER_ADMIN"] },
+      { title: "Audit Trail", href: "/dashboard/audit-trail", icon: ScrollText, roles: ADMIN_HR },
+      { title: "Support", href: "/dashboard/support", icon: LifeBuoy, roles: LEAD },
+      { title: "Support", href: "/dashboard/support/raise", icon: LifeBuoy, roles: ["DEVELOPER"] },
+      { title: "Time Tracking", href: "/dashboard/time-tracking", icon: Clock, roles: STAFF },
+      { title: "Docx Sign", href: "/dashboard/docx-sign", icon: FilePenLine, roles: STAFF },
+      { title: "Learning", href: "/dashboard/training", icon: BookOpen, roles: STAFF },
+    ],
+  },
+  {
     label: "System",
     items: [
-      { title: "Access Hub", href: "/dashboard/access-hub", icon: KeyRound, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
-      { title: "API Keys", href: "/dashboard/api-keys", icon: Key, roles: ["SUPER_ADMIN", "ADMIN"] },
-      { title: "Audit Trail", href: "/dashboard/audit-trail", icon: ScrollText, roles: ["SUPER_ADMIN", "ADMIN"] },
-      { title: "Email Logs", href: "/dashboard/email-logs", icon: Mail, roles: ["SUPER_ADMIN"] },
+      { title: "Access Hub", href: "/dashboard/access-hub", icon: KeyRound, roles: STAFF },
+      { title: "API Keys", href: "/dashboard/api-keys", icon: Key, roles: ["SUPER_ADMIN"] },
       { title: "SMTP", href: "/dashboard/smtp", icon: Server, roles: ["SUPER_ADMIN"] },
-      { title: "Settings", href: "/dashboard/settings", icon: Settings, roles: ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"] },
+      { title: "Settings", href: "/dashboard/settings", icon: Settings, roles: STAFF },
     ],
   },
 ];

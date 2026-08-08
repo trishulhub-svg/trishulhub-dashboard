@@ -133,6 +133,7 @@ const roleColors: Record<string, string> = {
   SUPER_ADMIN: "bg-destructive/15 text-destructive",
   ADMIN: "bg-primary/15 text-primary",
   PROJECT_MANAGER: "bg-primary/10 text-primary",
+  HR: "bg-pink-100 text-pink-800 dark:bg-pink-900/30 dark:text-pink-300",
   DEVELOPER: "bg-muted text-foreground",
   CLIENT: "bg-success/15 text-success",
 };
@@ -167,7 +168,13 @@ function TeamPageInner() {
 
   const currentUserId = session?.user?.id || "";
   // [I11] useMemo to prevent unnecessary fetchData recomputation
-  const isAdminUser = useMemo(() => session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN", [session?.user?.role]);
+  const isAdminUser = useMemo(
+    () =>
+      session?.user?.role === "SUPER_ADMIN" ||
+      session?.user?.role === "ADMIN" ||
+      session?.user?.role === "HR",
+    [session?.user?.role]
+  );
   const isSuperAdmin = useMemo(() => session?.user?.role === "SUPER_ADMIN", [session?.user?.role]);
 
   // Persist tab; default to "team" for admins once session is ready (avoid false "leaves" flash)
@@ -1028,10 +1035,11 @@ function TeamPageInner() {
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="DEVELOPER">Developer</SelectItem>
-                  {/* [W17] Only SUPER_ADMIN can assign ADMIN, PROJECT_MANAGER, or SUPER_ADMIN roles */}
+                  {/* [W17] Only SUPER_ADMIN can assign ADMIN, HR, PROJECT_MANAGER, or SUPER_ADMIN roles */}
                   {session?.user?.role === "SUPER_ADMIN" && (
                     <>
                       <SelectItem value="PROJECT_MANAGER">Project Manager</SelectItem>
+                      <SelectItem value="HR">HR</SelectItem>
                       <SelectItem value="ADMIN">Admin</SelectItem>
                       <SelectItem value="SUPER_ADMIN">Super Admin</SelectItem>
                     </>
@@ -1153,10 +1161,11 @@ function TeamPageInner() {
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="DEVELOPER">Developer</SelectItem>
-                  {/* [W17] Only SUPER_ADMIN can assign ADMIN, PROJECT_MANAGER, or SUPER_ADMIN roles */}
+                  {/* [W17] Only SUPER_ADMIN can assign ADMIN, HR, PROJECT_MANAGER, or SUPER_ADMIN roles */}
                   {session?.user?.role === "SUPER_ADMIN" && (
                     <>
                       <SelectItem value="PROJECT_MANAGER">Project Manager</SelectItem>
+                      <SelectItem value="HR">HR</SelectItem>
                       <SelectItem value="ADMIN">Admin</SelectItem>
                       <SelectItem value="SUPER_ADMIN">Super Admin</SelectItem>
                     </>
