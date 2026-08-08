@@ -1,52 +1,57 @@
 
 import { db } from "@/lib/db"
 
-/** Check if a user is a super admin (only SUPER_ADMIN).
- * @param role - The user's role string.
- * @returns true if the user has SUPER_ADMIN role.
- */
+/** Check if a user is a super admin (only SUPER_ADMIN). */
 export function isSuperAdmin(role: string): boolean {
   return role === "SUPER_ADMIN"
 }
 
-/** Check if a user is an admin (SUPER_ADMIN or ADMIN).
- * NOTE: PROJECT_MANAGER is NOT an admin — it is a separate tier between
- * ADMIN and DEVELOPER. Use `isAdminOrProjectManager` when a feature should
- * also be available to project managers (e.g. project/client/credential
- * management, non-leave approvals).
- * @param role - The user's role string.
- * @returns true if the user has SUPER_ADMIN or ADMIN role.
+/**
+ * Staff admin tier: SUPER_ADMIN, ADMIN, or HR.
+ * HR matches ADMIN for people/ops (team, CRM, audit, leaves, etc.)
+ * but is excluded from finance and Super-Admin-only systems.
  */
 export function isAdmin(role: string): boolean {
+  return role === "SUPER_ADMIN" || role === "ADMIN" || role === "HR"
+}
+
+/** Classic company admin without HR — finance, billing, money. */
+export function canAccessFinance(role: string): boolean {
   return role === "SUPER_ADMIN" || role === "ADMIN"
 }
 
-/** Check if a user is an admin OR a project manager.
- * Use this for features that should be available to project managers as well
- * as admins — e.g. project, client, credential, and non-leave approval
- * management. PROJECT_MANAGER has the same capabilities as ADMIN for these
- * features but is excluded from finance, CRM, team management, training
- * assign, leave approvals, availability mutations, and API keys vault.
- * @param role - The user's role string.
- * @returns true if the user has SUPER_ADMIN, ADMIN, or PROJECT_MANAGER role.
- */
+/** API Keys vault — Super Admin only. */
+export function canManageApiKeys(role: string): boolean {
+  return role === "SUPER_ADMIN"
+}
+
+/** File module role-access + Drive credentials — Super Admin only. */
+export function canManageFileSettings(role: string): boolean {
+  return role === "SUPER_ADMIN"
+}
+
+/** Soft-delete Review folder managers. */
+export function canManageFileReview(role: string): boolean {
+  return role === "SUPER_ADMIN" || role === "ADMIN"
+}
+
+/** Check if a user is an admin OR a project manager. */
 export function isAdminOrProjectManager(role: string): boolean {
-  return role === "SUPER_ADMIN" || role === "ADMIN" || role === "PROJECT_MANAGER"
+  return (
+    role === "SUPER_ADMIN" ||
+    role === "ADMIN" ||
+    role === "HR" ||
+    role === "PROJECT_MANAGER"
+  )
 }
 
 /**
  * Get the list of project IDs that a user has access to.
- * SUPER_ADMIN, ADMIN, and PROJECT_MANAGER see all projects (returns null to indicate "no filter needed").
- * CLIENT users see projects belonging to their linked client record.
- * DEVELOPER sees only projects they are members of.
- *
- * @returns Array of project IDs the user has access to, or null if admin/pm (all access)
+ * SUPER_ADMIN, ADMIN, HR, and PROJECT_MANAGER see all projects (null = no filter).
  */
 export async function getAssignedProjectIds(userId: string, role: string): Promise<string[] | null> {
-  // SUPER_ADMIN, ADMIN, and PROJECT_MANAGER can see all projects
   if (isAdminOrProjectManager(role)) return null
 
-  // CLIENT users: find projects via their linked Client record
   if (role === "CLIENT") {
     const clientProjects: Array<{ id: string }> = await db.$queryRawUnsafe(
       'SELECT p.id FROM "Project" p JOIN "Client" c ON p."clientId" = c.id WHERE c."userId" = ?',
@@ -55,8 +60,6 @@ export async function getAssignedProjectIds(userId: string, role: string): Promi
     return clientProjects.map((cp) => cp.id)
   }
 
-  // DEVELOPER: project membership OR open milestone assignment
-  // (so members added on the project OR assigned via milestones can clock time)
   const memberships = await db.projectMember.findMany({
     where: { userId },
     select: { projectId: true },
@@ -75,22 +78,15 @@ export async function getAssignedProjectIds(userId: string, role: string): Promi
       if (row?.projectId) ids.add(row.projectId)
     }
   } catch {
-    /* non-fatal — membership alone still applies */
+    /* non-fatal */
   }
 
   return [...ids]
 }
 
-/**
- * Get the list of client IDs associated with a developer's assigned projects.
- * CLIENT users get their own linked client ID.
- * Useful for filtering clients, invoices, etc.
- */
 export async function getAssignedClientIds(userId: string, role: string): Promise<string[] | null> {
-  // SUPER_ADMIN, ADMIN, and PROJECT_MANAGER can see all clients
   if (isAdminOrProjectManager(role)) return null
 
-  // CLIENT users: return their own linked client ID
   if (role === "CLIENT") {
     const client = await db.client.findFirst({ where: { userId } })
     return client ? [client.id] : []
@@ -104,38 +100,24 @@ export async function getAssignedClientIds(userId: string, role: string): Promis
     select: { clientId: true },
   })
 
-  return [...new Set(projects.map(p => p.clientId).filter((id): id is string => !!id))]
+  return [...new Set(projects.map((p) => p.clientId).filter((id): id is string => !!id))]
 }
 
-/** Check if user can manage approvals (approve, reject, request improvements).
- * PROJECT_MANAGER is included so they can manage non-leave approvals.
- * Leave approvals are gated separately via /api/leaves + isAdmin. */
 export function canManageApprovals(role: string): boolean {
   return isAdminOrProjectManager(role)
 }
 
-// === Audit Trail RBAC ===
-
-/** Check if user can view the audit trail.
- * PROJECT_MANAGER is included so they can view audit logs (read-only —
- * export is gated by `canExportAuditTrail`). */
 export function canViewAuditTrail(role: string): boolean {
-  return ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "DEVELOPER"].includes(role)
+  return ["SUPER_ADMIN", "ADMIN", "HR", "PROJECT_MANAGER", "DEVELOPER"].includes(role)
 }
 
-/** Check if user can export audit trail data.
- * PROJECT_MANAGER is intentionally NOT included — export is admin-only. */
 export function canExportAuditTrail(role: string): boolean {
-  return ["SUPER_ADMIN", "ADMIN"].includes(role)
+  return ["SUPER_ADMIN", "ADMIN", "HR"].includes(role)
 }
 
-/** Get accessible departments for audit trail based on role.
- * PROJECT_MANAGER is treated like DEVELOPER — they only see their
- * own department. Only SUPER_ADMIN/ADMIN see all departments. */
 export function getAccessibleDepartments(role: string, userDepartment?: string): string[] {
-  const depts = ["BUSINESS", "TEAM_WORK", "HR_PEOPLE", "LEARNING", "SYSTEM"]
-  if (["SUPER_ADMIN", "ADMIN"].includes(role)) return depts
-  // DEVELOPER and PROJECT_MANAGER can only see their own department
+  const depts = ["BUSINESS", "TEAM_WORK", "HR_PEOPLE", "LEARNING", "SYSTEM", "FILES"]
+  if (["SUPER_ADMIN", "ADMIN", "HR"].includes(role)) return depts
   if (userDepartment) return [userDepartment]
   return []
 }

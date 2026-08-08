@@ -1,6 +1,7 @@
 /** Money helpers — round to paise (2dp) and normalize currency codes. */
 
-export const COMPANY_DEFAULT_CURRENCY = "INR" as const
+/** New finance entries default to GBP. Legacy rows may still be INR/USD/EUR. */
+export const COMPANY_DEFAULT_CURRENCY = "GBP" as const
 
 export type MoneyCurrency = "INR" | "USD" | "GBP" | "EUR"
 

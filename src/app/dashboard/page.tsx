@@ -72,7 +72,7 @@ const invoiceStatusColors: Record<string, string> = {
 const CLOSED_STATUSES = new Set(["COMPLETED", "DEPLOYED"]);
 
 function formatCurrency(n: number) {
-  return `₹${n.toLocaleString("en-IN")}`;
+  return `£${n.toLocaleString("en-GB")}`;
 }
 
 /** Scale tabular value text so full amounts fit without compact "1.3L" shorthand. */
@@ -104,10 +104,12 @@ function roleSubtitle(role: UserRole): string {
     case "SUPER_ADMIN":
     case "ADMIN":
       return "Command center — projects, pipeline, and cash flow.";
+    case "HR":
+      return "People ops — team, compliance, and delivery without finance.";
     case "PROJECT_MANAGER":
       return "Delivery focus — keep projects moving and the team unblocked.";
     case "DEVELOPER":
-      return "Work focus — track time, ship progress, stay on your projects.";
+      return "Work focus — projects, milestones, and time tracking.";
     default:
       return "Here's your workspace overview for today.";
   }
@@ -346,7 +348,10 @@ export default function DashboardPage() {
   );
 
   const userRole: UserRole = session?.user?.role || "DEVELOPER";
-  const isAdminUser = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+  const isFinanceAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+  const isHrUser = userRole === "HR";
+  /** Ops dashboard (projects/CRM/team) — not finance */
+  const isAdminUser = isFinanceAdmin || isHrUser;
   const isPm = userRole === "PROJECT_MANAGER";
   const isDeveloper = userRole === "DEVELOPER";
   const isAuthenticated = sessionStatus === "authenticated";
@@ -653,7 +658,7 @@ export default function DashboardPage() {
               <Rocket className="mr-1 h-4 w-4" /> Open Workspace
             </Button>
           )}
-          {isAdminUser && (
+          {isFinanceAdmin && (
             <Button size="sm" variant="outline" className="col-span-2 w-full sm:col-span-1 sm:w-auto" onClick={() => router.push("/dashboard/finance/invoices")}>
               <Send className="mr-1 h-4 w-4" /> Send Invoice
             </Button>
@@ -663,7 +668,7 @@ export default function DashboardPage() {
 
       {favoritesSection}
 
-      {/* ── ADMIN / SUPER_ADMIN ── */}
+      {/* ── ADMIN / SUPER_ADMIN / HR (HR hides finance tiles) ── */}
       {isAdminUser && (
         <>
           <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
@@ -687,22 +692,32 @@ export default function DashboardPage() {
               icon={TrendingUp}
               onClick={() => router.push("/dashboard/crm")}
             />
-            <StatTile
-              label="Revenue"
-              value={formatCurrency(stats.totalRevenue)}
-              hint={
-                <span className="flex flex-col gap-0.5">
-                  <span className="break-all">Pending {formatCurrency(stats.pendingAmount)}</span>
-                  {stats.overdueAmount > 0 && (
-                    <span className="break-all text-destructive">
-                      Overdue {formatCurrency(stats.overdueAmount)}
-                    </span>
-                  )}
-                </span>
-              }
-              icon={DollarSign}
-              onClick={() => router.push("/dashboard/finance")}
-            />
+            {isFinanceAdmin ? (
+              <StatTile
+                label="Revenue"
+                value={formatCurrency(stats.totalRevenue)}
+                hint={
+                  <span className="flex flex-col gap-0.5">
+                    <span className="break-all">Pending {formatCurrency(stats.pendingAmount)}</span>
+                    {stats.overdueAmount > 0 && (
+                      <span className="break-all text-destructive">
+                        Overdue {formatCurrency(stats.overdueAmount)}
+                      </span>
+                    )}
+                  </span>
+                }
+                icon={DollarSign}
+                onClick={() => router.push("/dashboard/finance")}
+              />
+            ) : (
+              <StatTile
+                label="Team"
+                value={stats.teamMembers}
+                hint="People ops"
+                icon={Users}
+                onClick={() => router.push("/dashboard/team")}
+              />
+            )}
             <StatTile
               label="Open Tickets"
               value={stats.openTickets}
@@ -867,18 +882,18 @@ export default function DashboardPage() {
         </>
       )}
 
-      {/* ── DEVELOPER ── */}
+      {/* ── DEVELOPER / EMPLOYEE — projects & milestones focus ── */}
       {isDeveloper && (
         <>
           <section className="rounded-xl border border-border bg-gradient-to-br from-primary/[0.07] via-card/40 to-transparent p-4 sm:p-5">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
-                <p className="text-xs font-medium uppercase tracking-wide text-primary/80">Today&apos;s work</p>
-                <h2 className="mt-1 text-lg font-semibold tracking-tight">Start tracking and ship progress</h2>
+                <p className="text-xs font-medium uppercase tracking-wide text-primary/80">Your projects &amp; milestones</p>
+                <h2 className="mt-1 text-lg font-semibold tracking-tight">Focus on assigned work</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {weekHours !== null
-                    ? `${weekHours.toFixed(1)} hrs logged this week · keep momentum going.`
-                    : "Log time on your assignments and open the AI workspace when you need focus."}
+                    ? `${weekHours.toFixed(1)} hrs logged this week · yellow dots on Time Tracking mark open milestones.`
+                    : "Open assigned projects, complete milestones, and clock in from Time Tracking."}
                 </p>
               </div>
               <div className="grid grid-cols-1 gap-2 min-[400px]:grid-cols-2 sm:flex sm:flex-wrap shrink-0">

@@ -99,6 +99,7 @@ export default function ExpensesPage() {
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("ALL");
+  const [section, setSection] = useState<"general" | "salaries">("general");
 
   // Edit expense dialog
   const [editExpenseOpen, setEditExpenseOpen] = useState(false);
@@ -310,6 +311,11 @@ export default function ExpensesPage() {
   // ━━ Filter & Search ━━
   const filtered = useMemo(() => {
     let result = expenses;
+    if (section === "salaries") {
+      result = result.filter((e) => String(e.category).toUpperCase() === "SALARY");
+    } else {
+      result = result.filter((e) => String(e.category).toUpperCase() !== "SALARY");
+    }
     if (categoryFilter !== "ALL") {
       result = result.filter((e) => e.category === categoryFilter);
     }
@@ -327,7 +333,7 @@ export default function ExpensesPage() {
       );
     }
     return result;
-  }, [expenses, categoryFilter, searchQuery]);
+  }, [expenses, categoryFilter, searchQuery, section]);
 
   // REMOVED: Empty useEffect that did nothing
 
@@ -442,7 +448,7 @@ export default function ExpensesPage() {
                   </Select>
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs font-medium">Amount (INR) *</Label>
+                  <Label className="text-xs font-medium">Amount (GBP) *</Label>
                   <Input
                     type="number"
                     step="0.01"
@@ -576,6 +582,31 @@ export default function ExpensesPage() {
           },
         ]}
       />
+
+      {/* ━━ Section: General vs Salaries ━━ */}
+      <div className="flex gap-1 rounded-xl border border-border/50 p-1 bg-muted/30 w-fit">
+        {(
+          [
+            { id: "general" as const, label: "General" },
+            { id: "salaries" as const, label: "Salaries" },
+          ] as const
+        ).map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => {
+              setSection(s.id);
+              setCategoryFilter("ALL");
+            }}
+            className={cn(
+              "px-4 py-1.5 text-xs font-semibold rounded-lg transition-colors",
+              section === s.id ? "bg-background shadow-sm" : "text-muted-foreground"
+            )}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
 
       {/* ━━ 2. Filter Bar ━━ */}
       <div className={cn("bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-4")}>

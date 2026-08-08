@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
-import { isAdmin } from "@/lib/rbac"
+import { canAccessFinance, isAdmin } from "@/lib/rbac"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 
 import { DEFAULT_EXPENSE_CATEGORIES } from "@/lib/expense-categories"
@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 })
     }
 
-    if (!isAdmin(session.user.role)) {
+    if (!canAccessFinance(session.user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
@@ -147,7 +147,7 @@ export async function POST(req: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    if (!isAdmin(session.user.role)) {
+    if (!canAccessFinance(session.user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
@@ -252,7 +252,7 @@ export async function PATCH(req: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    if (!isAdmin(session.user.role)) {
+    if (!canAccessFinance(session.user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
@@ -374,7 +374,7 @@ export async function PUT(req: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    if (!isAdmin(session.user.role)) {
+    if (!canAccessFinance(session.user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
@@ -483,7 +483,7 @@ export async function DELETE(req: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    if (!isAdmin(session.user.role)) {
+    if (!canAccessFinance(session.user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 

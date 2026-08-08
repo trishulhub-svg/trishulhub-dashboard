@@ -22,7 +22,7 @@ function getErrMsg(err: unknown): string {
 
 // Bump when adding CRITICAL_COLUMNS / CRITICAL_TABLES so warm serverless
 // instances re-run migrations after deploy (stale syncDone otherwise skips ALTERs).
-const SCHEMA_REVISION = 202608071
+const SCHEMA_REVISION = 202608082
 const SCHEMA_REVISION_SETTING_KEY = "auto_migrate_schema_revision"
 const CRITICAL_REVISION_SETTING_KEY = "auto_migrate_critical_revision"
 
@@ -668,6 +668,58 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
       "name" TEXT NOT NULL UNIQUE,
       "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`
+  },
+  {
+    name: "FileNode",
+    sql: `CREATE TABLE IF NOT EXISTS "FileNode" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "kind" TEXT NOT NULL,
+      "name" TEXT NOT NULL,
+      "parentId" TEXT,
+      "driveFolderId" TEXT,
+      "sortOrder" INTEGER NOT NULL DEFAULT 0,
+      "createdById" TEXT,
+      "deletedAt" DATETIME,
+      "deletedById" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("parentId") REFERENCES "FileNode"("id") ON DELETE CASCADE
+    )`
+  },
+  {
+    name: "FileItem",
+    sql: `CREATE TABLE IF NOT EXISTS "FileItem" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "nodeId" TEXT NOT NULL,
+      "name" TEXT NOT NULL,
+      "mimeType" TEXT,
+      "sizeBytes" INTEGER NOT NULL DEFAULT 0,
+      "driveFileId" TEXT,
+      "webViewLink" TEXT,
+      "createdById" TEXT,
+      "deletedAt" DATETIME,
+      "deletedById" TEXT,
+      "originalNodeId" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("nodeId") REFERENCES "FileNode"("id") ON DELETE CASCADE
+    )`
+  },
+  {
+    name: "FileAccessGrant",
+    sql: `CREATE TABLE IF NOT EXISTS "FileAccessGrant" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "scope" TEXT NOT NULL,
+      "role" TEXT,
+      "userId" TEXT,
+      "nodeId" TEXT,
+      "canRead" BOOLEAN NOT NULL DEFAULT 1,
+      "canWrite" BOOLEAN NOT NULL DEFAULT 1,
+      "canDelete" BOOLEAN NOT NULL DEFAULT 0,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("nodeId") REFERENCES "FileNode"("id") ON DELETE CASCADE
     )`
   },
 ]
