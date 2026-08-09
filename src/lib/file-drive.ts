@@ -171,19 +171,38 @@ export async function saveFileDriveConfig(input: {
   } else {
     // OAuth-only — service account JSON is not required
     if (input.oauthClientId && input.oauthClientId.trim()) {
-      const e = encField(input.oauthClientId.trim())
+      const clientId = input.oauthClientId.trim()
+      // Reject emails / autofill mistakes — must be a Google Web OAuth client id
+      if (!/\.apps\.googleusercontent\.com$/i.test(clientId) || clientId.includes("@")) {
+        throw new Error(
+          "OAuth Client ID looks wrong. Paste the Google Web client ID ending with .apps.googleusercontent.com (not an email address)."
+        )
+      }
+      const e = encField(clientId)
       next.oauthClientIdEnc = e.encrypted
       next.oauthClientIdIv = e.iv
       next.oauthClientIdTag = e.tag
     }
     if (input.oauthClientSecret && input.oauthClientSecret.trim()) {
-      const e = encField(input.oauthClientSecret.trim())
+      const secret = input.oauthClientSecret.trim()
+      if (secret.includes("@") || secret.length < 10) {
+        throw new Error(
+          "OAuth Client Secret looks wrong. Paste the secret from Google Cloud → Credentials (usually starts with GOCSPX-)."
+        )
+      }
+      const e = encField(secret)
       next.oauthClientSecretEnc = e.encrypted
       next.oauthClientSecretIv = e.iv
       next.oauthClientSecretTag = e.tag
     }
     if (input.refreshToken && input.refreshToken.trim()) {
-      const e = encField(input.refreshToken.trim())
+      const token = input.refreshToken.trim()
+      if (token.includes("@") || token.length < 20) {
+        throw new Error(
+          "Refresh token looks wrong. Get a new one from OAuth Playground (Authorize as info@trishulhub.in → Exchange → copy Refresh token)."
+        )
+      }
+      const e = encField(token)
       next.refreshTokenEnc = e.encrypted
       next.refreshTokenIv = e.iv
       next.refreshTokenTag = e.tag
@@ -331,7 +350,30 @@ export async function testDriveConnection(): Promise<{ ok: boolean; email?: stri
     await ensureRootAndReview()
     return { ok: true, email: about.data.user?.emailAddress || undefined }
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    const raw = err instanceof Error ? err.message : String(err)
+    const lower = raw.toLowerCase()
+    if (lower.includes("unauthorized_client")) {
+      return {
+        ok: false,
+        error:
+          "unauthorized_client — Client ID/Secret/Refresh token do not match. Use a Web OAuth client ID ending in .apps.googleusercontent.com (not an email), paste matching secret, then generate a NEW refresh token in OAuth Playground with those same credentials as info@trishulhub.in.",
+      }
+    }
+    if (lower.includes("invalid_grant")) {
+      return {
+        ok: false,
+        error:
+          "invalid_grant — Refresh token is expired or was made with an old secret. Generate a NEW refresh token in OAuth Playground with the current Client ID + Secret, signed in as info@trishulhub.in, then Save all three again.",
+      }
+    }
+    if (lower.includes("invalid_client")) {
+      return {
+        ok: false,
+        error:
+          "invalid_client — Client ID or Secret is wrong. Copy both from Google Cloud → APIs & Services → Credentials → your Web client.",
+      }
+    }
+    return { ok: false, error: raw.slice(0, 280) }
   }
 }
 
