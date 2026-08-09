@@ -121,29 +121,23 @@ export default function FilesSettingsPage() {
 
   const saveDrive = async () => {
     if (mode === "OAUTH") {
-      const needFresh =
-        !driveMeta?.hasOAuthClient ||
-        !driveMeta?.hasRefreshToken ||
-        Boolean(oauthClientId || oauthClientSecret || refreshToken);
-      if (needFresh) {
-        if (!oauthClientId.trim() && !driveMeta?.hasOAuthClient) {
-          toast.error("Paste OAuth Client ID");
+      const cid = oauthClientId.trim();
+      if (cid) {
+        if (cid.includes("@") || !/\.apps\.googleusercontent\.com$/i.test(cid)) {
+          toast.error(
+            "Client ID must end with .apps.googleusercontent.com — do not paste your email (browser autofill often fills this wrong)."
+          );
           return;
         }
-        if (!oauthClientSecret.trim() && !driveMeta?.hasOAuthClient) {
-          toast.error("Paste OAuth Client Secret");
+      }
+      // When rotating any OAuth field, require all three together
+      const rotating = Boolean(cid || oauthClientSecret.trim() || refreshToken.trim());
+      if (rotating || !driveMeta?.connected) {
+        if (!cid || !oauthClientSecret.trim() || !refreshToken.trim()) {
+          toast.error(
+            "Paste Client ID + Client Secret + NEW Refresh token together (all three from the same Google OAuth client)."
+          );
           return;
-        }
-        if (!refreshToken.trim() && !driveMeta?.hasRefreshToken) {
-          toast.error("Paste Refresh token (from OAuth Playground as info@trishulhub.in)");
-          return;
-        }
-        // First-time connect: all three required
-        if (!driveMeta?.connected) {
-          if (!oauthClientId.trim() || !oauthClientSecret.trim() || !refreshToken.trim()) {
-            toast.error("OAuth needs Client ID + Client Secret + Refresh token together");
-            return;
-          }
         }
       }
     } else if (!serviceAccountJson.trim() && !driveMeta?.hasServiceAccountJson) {
@@ -177,6 +171,7 @@ export default function FilesSettingsPage() {
         : "Saved (complete missing OAuth fields if status is still disconnected)"
     );
     setServiceAccountJson("");
+    setOauthClientId("");
     setOauthClientSecret("");
     setRefreshToken("");
     setDriveMeta(data.drive || null);
@@ -387,15 +382,28 @@ export default function FilesSettingsPage() {
             <div className="space-y-1">
               <Label className="text-xs">OAuth Client ID</Label>
               <Input
+                name="drive-oauth-client-id"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
                 value={oauthClientId}
                 onChange={(e) => setOauthClientId(e.target.value)}
-                placeholder={driveMeta?.hasOAuthClient ? "(saved — paste to replace)" : "xxxx.apps.googleusercontent.com"}
+                placeholder={
+                  driveMeta?.hasOAuthClient
+                    ? "(saved — paste to replace)"
+                    : "123456789-xxxx.apps.googleusercontent.com"
+                }
               />
+              <p className="text-[10px] text-muted-foreground">
+                Must look like <code>….apps.googleusercontent.com</code> — never your Gmail.
+              </p>
             </div>
             <div className="space-y-1">
               <Label className="text-xs">OAuth Client Secret</Label>
               <Input
+                name="drive-oauth-client-secret"
                 type="password"
+                autoComplete="new-password"
                 value={oauthClientSecret}
                 onChange={(e) => setOauthClientSecret(e.target.value)}
                 placeholder={driveMeta?.hasOAuthClient ? "(saved — paste to replace)" : "GOCSPX-…"}
@@ -404,7 +412,9 @@ export default function FilesSettingsPage() {
             <div className="space-y-1">
               <Label className="text-xs">Refresh token</Label>
               <Input
+                name="drive-oauth-refresh-token"
                 type="password"
+                autoComplete="new-password"
                 value={refreshToken}
                 onChange={(e) => setRefreshToken(e.target.value)}
                 placeholder={driveMeta?.hasRefreshToken ? "(saved — paste to replace)" : "1//…"}
