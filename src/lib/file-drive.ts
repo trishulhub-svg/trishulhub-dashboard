@@ -434,8 +434,20 @@ export async function getDriveWebViewLink(fileId: string): Promise<string | null
   return meta.data.webViewLink || null
 }
 
-/** Block typical mobile app UAs for Files APIs (PC / desktop browser only). */
+/** Detect typical mobile browser / app user-agents. */
 export function isMobileUserAgent(ua: string | null | undefined): boolean {
   if (!ua) return false
   return /Android|iPhone|iPad|iPod|Mobile|IEMobile|Opera Mini/i.test(ua)
+}
+
+/**
+ * Mobile Files access: allowed for SUPER_ADMIN / ADMIN only.
+ * Everyone else must use a PC / desktop browser.
+ */
+export function isFilesMobileBlocked(
+  ua: string | null | undefined,
+  role: string | null | undefined
+): boolean {
+  if (!isMobileUserAgent(ua)) return false
+  return role !== "SUPER_ADMIN" && role !== "ADMIN"
 }

@@ -12,7 +12,7 @@ import {
 import {
   ensureRootAndReview,
   ensureDriveFolder,
-  isMobileUserAgent,
+  isFilesMobileBlocked,
   getFileDriveConfigPublic,
   moveDriveFile,
   renameDriveFile,
@@ -25,10 +25,10 @@ function newId() {
   return `fn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
 }
 
-function rejectMobile(req: NextRequest) {
-  if (isMobileUserAgent(req.headers.get("user-agent"))) {
+function rejectMobile(req: NextRequest, role?: string | null) {
+  if (isFilesMobileBlocked(req.headers.get("user-agent"), role)) {
     return NextResponse.json(
-      { error: "Files are available on PC / desktop browser only" },
+      { error: "Files on mobile is limited to Admin and Super Admin. Use a PC / desktop browser." },
       { status: 403 }
     )
   }
@@ -72,7 +72,7 @@ export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    const mobile = rejectMobile(req)
+    const mobile = rejectMobile(req, session.user.role)
     if (mobile) return mobile
     if (!(await canAccessFileModule(session.user.id, session.user.role))) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
@@ -117,7 +117,7 @@ export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    const mobile = rejectMobile(req)
+    const mobile = rejectMobile(req, session.user.role)
     if (mobile) return mobile
     if (!(await canWriteFiles(session.user.id, session.user.role))) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
@@ -222,7 +222,7 @@ export async function PATCH(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    const mobile = rejectMobile(req)
+    const mobile = rejectMobile(req, session.user.role)
     if (mobile) return mobile
     if (!(await canWriteFiles(session.user.id, session.user.role))) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
@@ -275,7 +275,7 @@ export async function DELETE(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    const mobile = rejectMobile(req)
+    const mobile = rejectMobile(req, session.user.role)
     if (mobile) return mobile
     if (!(await canWriteFiles(session.user.id, session.user.role))) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })

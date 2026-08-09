@@ -35,6 +35,11 @@ export function canManageFileReview(role: string): boolean {
   return role === "SUPER_ADMIN" || role === "ADMIN"
 }
 
+/** Files on mobile browsers — Admin + Super Admin only (staff stay desktop-only). */
+export function canUseFilesOnMobile(role: string): boolean {
+  return role === "SUPER_ADMIN" || role === "ADMIN"
+}
+
 /** Check if a user is an admin OR a project manager. */
 export function isAdminOrProjectManager(role: string): boolean {
   return (

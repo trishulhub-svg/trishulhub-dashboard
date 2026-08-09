@@ -78,7 +78,7 @@ Only if your org allows downloading service account JSON keys.
 | Google Drive ACL | **Per file on Open only** — writer share to the user’s personal Gmail (`googleEditEmail` or login email). We do **not** share whole department trees for browsing. |
 | Soft delete | Deletes move to Drive **Review** folder; Super Admin / Admin manage Review; deleter can restore own items. |
 | Open / edit | Files open in Google Docs/Drive (`webViewLink`) after the auto-share step. |
-| Desktop / browser | Files UI + APIs reject typical mobile app user-agents; use PC browser only. |
+| Desktop / browser | Mobile Files allowed for **Admin + Super Admin** only; other roles must use PC / desktop browser. |
 | Secrets | Service account JSON / refresh token encrypted at rest (`ENCRYPTION_KEY`). Super Admin can edit or delete the connection anytime. |
 
 ### Important for employees
