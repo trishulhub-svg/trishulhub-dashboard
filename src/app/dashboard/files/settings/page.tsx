@@ -19,7 +19,7 @@ export default function FilesSettingsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [mode, setMode] = useState<"SERVICE_ACCOUNT" | "OAUTH">("SERVICE_ACCOUNT");
+  const [mode, setMode] = useState<"SERVICE_ACCOUNT" | "OAUTH">("OAUTH");
   const [impersonateEmail, setImpersonateEmail] = useState("info@trishulhub.in");
   const [rootFolderId, setRootFolderId] = useState("");
   const [serviceAccountJson, setServiceAccountJson] = useState("");
@@ -56,7 +56,7 @@ export default function FilesSettingsPage() {
       if (!res.ok) throw new Error("fail");
       const data = await res.json();
       setDriveMeta(data.drive || null);
-      setMode(data.drive?.mode === "OAUTH" ? "OAUTH" : "SERVICE_ACCOUNT");
+      setMode(data.drive?.mode === "SERVICE_ACCOUNT" ? "SERVICE_ACCOUNT" : "OAUTH");
       setImpersonateEmail(data.drive?.impersonateEmail || "info@trishulhub.in");
       setRootFolderId(data.drive?.rootFolderId || "");
       setRoleAccess(data.roleAccess || {});
@@ -120,6 +120,37 @@ export default function FilesSettingsPage() {
   useEffect(() => { void load(); }, [load]);
 
   const saveDrive = async () => {
+    if (mode === "OAUTH") {
+      const needFresh =
+        !driveMeta?.hasOAuthClient ||
+        !driveMeta?.hasRefreshToken ||
+        Boolean(oauthClientId || oauthClientSecret || refreshToken);
+      if (needFresh) {
+        if (!oauthClientId.trim() && !driveMeta?.hasOAuthClient) {
+          toast.error("Paste OAuth Client ID");
+          return;
+        }
+        if (!oauthClientSecret.trim() && !driveMeta?.hasOAuthClient) {
+          toast.error("Paste OAuth Client Secret");
+          return;
+        }
+        if (!refreshToken.trim() && !driveMeta?.hasRefreshToken) {
+          toast.error("Paste Refresh token (from OAuth Playground as info@trishulhub.in)");
+          return;
+        }
+        // First-time connect: all three required
+        if (!driveMeta?.connected) {
+          if (!oauthClientId.trim() || !oauthClientSecret.trim() || !refreshToken.trim()) {
+            toast.error("OAuth needs Client ID + Client Secret + Refresh token together");
+            return;
+          }
+        }
+      }
+    } else if (!serviceAccountJson.trim() && !driveMeta?.hasServiceAccountJson) {
+      toast.error("Paste service account JSON, or switch to OAuth mode");
+      return;
+    }
+
     const res = await fetch("/api/files/settings", {
       method: "PUT",
       credentials: "include",
@@ -129,10 +160,10 @@ export default function FilesSettingsPage() {
         mode,
         impersonateEmail,
         rootFolderId: rootFolderId || null,
-        serviceAccountJson: serviceAccountJson || null,
-        oauthClientId: oauthClientId || null,
-        oauthClientSecret: oauthClientSecret || null,
-        refreshToken: refreshToken || null,
+        serviceAccountJson: mode === "SERVICE_ACCOUNT" ? serviceAccountJson || null : null,
+        oauthClientId: mode === "OAUTH" ? oauthClientId || null : null,
+        oauthClientSecret: mode === "OAUTH" ? oauthClientSecret || null : null,
+        refreshToken: mode === "OAUTH" ? refreshToken || null : null,
       }),
     });
     const data = await res.json().catch(() => ({}));
@@ -140,7 +171,11 @@ export default function FilesSettingsPage() {
       toast.error(data.error || "Save failed");
       return;
     }
-    toast.success("Drive connection saved");
+    toast.success(
+      data.drive?.connected
+        ? "Drive connection saved — click Test connection"
+        : "Saved (complete missing OAuth fields if status is still disconnected)"
+    );
     setServiceAccountJson("");
     setOauthClientSecret("");
     setRefreshToken("");
@@ -148,6 +183,10 @@ export default function FilesSettingsPage() {
   };
 
   const testDrive = async () => {
+    if (!driveMeta?.connected) {
+      toast.error("Save OAuth (or service account) credentials first, then Test.");
+      return;
+    }
     const res = await fetch("/api/files/settings", {
       method: "PUT",
       credentials: "include",
@@ -278,20 +317,28 @@ export default function FilesSettingsPage() {
           <Plug className="h-4 w-4 text-teal-600" /> Google Drive connection
         </h2>
         <p className="text-xs text-muted-foreground leading-relaxed">
-          Recommended: Service account JSON + domain-wide delegation impersonating{" "}
-          <strong>info@trishulhub.in</strong>. Full steps:{" "}
-          <code className="text-[11px]">docs/FILE-DRIVE-SETUP.md</code>
+          <strong>OAuth works without a service account JSON key</strong> (use this if Google blocks SA keys).
+          Authorize once as <strong>info@trishulhub.in</strong>, then paste Client ID, Secret, and Refresh token.
+          Service account mode is optional when your org allows JSON keys + domain-wide delegation.
         </p>
         {driveMeta && (
           <p className={cn("text-xs", driveMeta.connected ? "text-emerald-600" : "text-amber-600")}>
             Status: {driveMeta.connected ? "Connected" : "Not connected"}
+            {driveMeta.mode ? ` · mode ${String(driveMeta.mode)}` : ""}
             {driveMeta.clientEmail ? ` · SA ${String(driveMeta.clientEmail)}` : ""}
             {driveMeta.rootFolderId ? ` · root ${String(driveMeta.rootFolderId)}` : ""}
+            {driveMeta.encryptionReady === false ? " · encryption not ready on server" : ""}
+          </p>
+        )}
+        {driveMeta?.encryptionReady === false && (
+          <p className="text-xs text-amber-700 dark:text-amber-300 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+            Server encryption is not ready. Set <code>ENCRYPTION_KEY</code> (64 hex chars) on Vercel and redeploy,
+            then Save again.
           </p>
         )}
 
         <div className="flex gap-2">
-          {(["SERVICE_ACCOUNT", "OAUTH"] as const).map((m) => (
+          {(["OAUTH", "SERVICE_ACCOUNT"] as const).map((m) => (
             <button
               key={m}
               type="button"
@@ -301,7 +348,7 @@ export default function FilesSettingsPage() {
                 mode === m ? "bg-teal-600 text-white border-teal-600" : "bg-background"
               )}
             >
-              {m === "SERVICE_ACCOUNT" ? "Service account" : "OAuth"}
+              {m === "SERVICE_ACCOUNT" ? "Service account" : "OAuth (no SA key)"}
             </button>
           ))}
         </div>
@@ -332,9 +379,18 @@ export default function FilesSettingsPage() {
           </div>
         ) : (
           <>
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              No service account JSON needed. Create a Web OAuth client in Google Cloud, get a refresh token
+              from OAuth Playground while signed in as <strong>info@trishulhub.in</strong>, paste all three below,
+              Save, then Test.
+            </p>
             <div className="space-y-1">
               <Label className="text-xs">OAuth Client ID</Label>
-              <Input value={oauthClientId} onChange={(e) => setOauthClientId(e.target.value)} />
+              <Input
+                value={oauthClientId}
+                onChange={(e) => setOauthClientId(e.target.value)}
+                placeholder={driveMeta?.hasOAuthClient ? "(saved — paste to replace)" : "xxxx.apps.googleusercontent.com"}
+              />
             </div>
             <div className="space-y-1">
               <Label className="text-xs">OAuth Client Secret</Label>
@@ -342,7 +398,7 @@ export default function FilesSettingsPage() {
                 type="password"
                 value={oauthClientSecret}
                 onChange={(e) => setOauthClientSecret(e.target.value)}
-                placeholder={driveMeta?.hasOAuthClient ? "(saved — paste to replace)" : ""}
+                placeholder={driveMeta?.hasOAuthClient ? "(saved — paste to replace)" : "GOCSPX-…"}
               />
             </div>
             <div className="space-y-1">
@@ -351,7 +407,7 @@ export default function FilesSettingsPage() {
                 type="password"
                 value={refreshToken}
                 onChange={(e) => setRefreshToken(e.target.value)}
-                placeholder={driveMeta?.hasRefreshToken ? "(saved — paste to replace)" : ""}
+                placeholder={driveMeta?.hasRefreshToken ? "(saved — paste to replace)" : "1//…"}
               />
             </div>
           </>

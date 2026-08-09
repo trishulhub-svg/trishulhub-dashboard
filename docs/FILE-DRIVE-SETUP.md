@@ -20,38 +20,55 @@ On **Team → Edit member**, set **Personal Gmail (file edit)** (`googleEditEmai
 - If blank, we fall back to their Trishulhub login email.
 - They must be signed into that same Google account in the browser when the Docs tab opens.
 
-## Recommended method: Service account + domain-wide delegation
+## Server requirement (both methods)
 
-Service accounts cannot store files in their own Drive quota. The app must **impersonate** `info@trishulhub.in` so files use that account’s 2TB.
+Drive credentials are encrypted in the database. Production needs a valid:
 
-### What to paste in Super Admin → Files → Drive connection
+```
+ENCRYPTION_KEY=<64 hex characters>
+```
 
-1. **Impersonate email** — `info@trishulhub.in`
-2. **Service account JSON** — full JSON key from Google Cloud
-3. **Root folder ID** (optional) — leave blank to auto-create `Trishulhub Files` in that Drive
+Generate: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`  
+Set it in **Vercel → Project → Settings → Environment Variables**, then **redeploy**.  
+If missing, Save connection fails and Test will say Drive is not connected.
 
-### One-time Google setup (you do this once)
+## Recommended when org blocks SA JSON keys: OAuth
 
-1. [Google Cloud Console](https://console.cloud.google.com/) → create/select a project (free).
+Use this if Google shows *“Organization Policy that blocks service account key creation”*.
+
+### What to paste in Super Admin → Files → Settings
+
+1. Mode: **OAuth (no SA key)**
+2. Impersonate email: `info@trishulhub.in` (label only; OAuth uses the Google user who authorized)
+3. OAuth Client ID
+4. OAuth Client Secret
+5. Refresh token
+6. Root folder ID: leave blank → Save → Test connection
+
+### One-time Google OAuth setup
+
+1. [Google Cloud Console](https://console.cloud.google.com/) → project **Trishulhub Files** (a **project**, not the organization).
 2. Enable **Google Drive API**.
-3. **IAM → Service Accounts** → Create → Keys → Add key → JSON → download.
-4. Copy the service account **Client ID** (numeric).
-5. [Google Workspace Admin](https://admin.google.com/) (as Workspace admin for trishulhub.in):
-   - Security → Access and data control → API controls → **Manage Domain Wide Delegation**
-   - Add new → Client ID = service account client ID
-   - OAuth scopes (exact):
-     `https://www.googleapis.com/auth/drive`
-6. In Trishulhub: Super Admin → Files → Settings → paste JSON + impersonate email → Save → Test connection.
+3. **APIs & Services → OAuth consent screen** → Internal → add scope  
+   `https://www.googleapis.com/auth/drive`
+4. **Credentials → Create credentials → OAuth client ID → Web application**
+   - Authorized redirect URI: `https://developers.google.com/oauthplayground`
+   - Copy **Client ID** + **Client Secret**
+5. Open [OAuth Playground](https://developers.google.com/oauthplayground) → gear → **Use your own OAuth credentials** → paste ID/Secret  
+   → Drive API v3 → select `https://www.googleapis.com/auth/drive` → Authorize as **`info@trishulhub.in`**  
+   → Exchange code → copy **Refresh token**
+6. Paste all three in Trishulhub → Save → Test.
 
-### Alternate method: OAuth refresh token
+Files still live in the info@ Drive quota. No service account JSON required.
 
-If you cannot enable domain-wide delegation, use OAuth:
+## Alternate method: Service account + domain-wide delegation
 
-1. Cloud Console → OAuth client (Web) → Client ID + Secret
-2. Authorize once as `info@trishulhub.in` (the settings page has a helper flow when mode = OAuth)
-3. Store refresh token (encrypted in AppSetting)
+Only if your org allows downloading service account JSON keys.
 
-Files still live in the info@ Drive quota.
+1. Cloud Console project → Service account → Keys → JSON
+2. Workspace Admin → Domain-wide delegation → SA Unique ID → scope  
+   `https://www.googleapis.com/auth/drive`
+3. Trishulhub mode **Service account** → paste JSON + impersonate `info@trishulhub.in` → Save → Test
 
 ## Security model (how we lock this down)
 
