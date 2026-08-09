@@ -6,7 +6,7 @@
 
 import { google, drive_v3 } from "googleapis"
 import { db } from "@/lib/db"
-import { encrypt, decrypt } from "@/lib/encryption"
+import { encrypt, decrypt, isEncryptionConfigured } from "@/lib/encryption"
 
 export const FILE_DRIVE_SETTING_KEY = "file_drive_config"
 export const FILE_ACCESS_ROLES_KEY = "file_access_roles"
@@ -25,6 +25,7 @@ export type FileDriveConfigPublic = {
   hasServiceAccountJson: boolean
   hasOAuthClient: boolean
   hasRefreshToken: boolean
+  encryptionReady: boolean
   updatedAt?: string | null
 }
 
@@ -74,17 +75,19 @@ async function readStored(): Promise<FileDriveConfigStored | null> {
 }
 
 export async function getFileDriveConfigPublic(): Promise<FileDriveConfigPublic> {
+  const encryptionReady = isEncryptionConfigured()
   const stored = await readStored()
   if (!stored) {
     return {
       connected: false,
-      mode: "SERVICE_ACCOUNT",
+      mode: "OAUTH",
       impersonateEmail: "info@trishulhub.in",
       rootFolderId: null,
       reviewFolderId: null,
       hasServiceAccountJson: false,
       hasOAuthClient: false,
       hasRefreshToken: false,
+      encryptionReady,
     }
   }
   const hasSa = Boolean(stored.serviceAccountJsonEnc)
@@ -92,14 +95,14 @@ export async function getFileDriveConfigPublic(): Promise<FileDriveConfigPublic>
     Boolean(stored.oauthClientIdEnc) && Boolean(stored.oauthClientSecretEnc)
   const hasRefresh = Boolean(stored.refreshTokenEnc)
   const connected =
-    stored.mode === "SERVICE_ACCOUNT"
-      ? hasSa && Boolean(stored.impersonateEmail)
-      : hasOauth && hasRefresh
+    stored.mode === "OAUTH"
+      ? hasOauth && hasRefresh
+      : hasSa && Boolean(stored.impersonateEmail)
 
   const row = await db.appSetting.findUnique({ where: { key: FILE_DRIVE_SETTING_KEY } })
   return {
     connected,
-    mode: stored.mode || "SERVICE_ACCOUNT",
+    mode: stored.mode || "OAUTH",
     impersonateEmail: stored.impersonateEmail || "info@trishulhub.in",
     rootFolderId: stored.rootFolderId || null,
     reviewFolderId: stored.reviewFolderId || null,
@@ -107,6 +110,7 @@ export async function getFileDriveConfigPublic(): Promise<FileDriveConfigPublic>
     hasServiceAccountJson: hasSa,
     hasOAuthClient: hasOauth,
     hasRefreshToken: hasRefresh,
+    encryptionReady,
     updatedAt: row?.updatedAt?.toISOString?.() || null,
   }
 }
@@ -126,8 +130,14 @@ export async function saveFileDriveConfig(input: {
     return getFileDriveConfigPublic()
   }
 
+  if (!isEncryptionConfigured()) {
+    throw new Error(
+      "Server encryption is not configured. Set ENCRYPTION_KEY (64-char hex) or NEXTAUTH_SECRET on Vercel, then redeploy."
+    )
+  }
+
   const prev = (await readStored()) || {
-    mode: "SERVICE_ACCOUNT" as const,
+    mode: "OAUTH" as const,
     impersonateEmail: "info@trishulhub.in",
     rootFolderId: null,
     reviewFolderId: null,
@@ -141,34 +151,48 @@ export async function saveFileDriveConfig(input: {
       input.rootFolderId !== undefined ? input.rootFolderId || null : prev.rootFolderId,
   }
 
-  if (input.serviceAccountJson && input.serviceAccountJson.trim()) {
-    const json = input.serviceAccountJson.trim()
-    JSON.parse(json) // validate
-    const parsed = JSON.parse(json) as { client_email?: string }
-    const e = encField(json)
-    next.serviceAccountJsonEnc = e.encrypted
-    next.serviceAccountJsonIv = e.iv
-    next.serviceAccountJsonTag = e.tag
-    next.clientEmail = parsed.client_email || null
-  }
-
-  if (input.oauthClientId && input.oauthClientId.trim()) {
-    const e = encField(input.oauthClientId.trim())
-    next.oauthClientIdEnc = e.encrypted
-    next.oauthClientIdIv = e.iv
-    next.oauthClientIdTag = e.tag
-  }
-  if (input.oauthClientSecret && input.oauthClientSecret.trim()) {
-    const e = encField(input.oauthClientSecret.trim())
-    next.oauthClientSecretEnc = e.encrypted
-    next.oauthClientSecretIv = e.iv
-    next.oauthClientSecretTag = e.tag
-  }
-  if (input.refreshToken && input.refreshToken.trim()) {
-    const e = encField(input.refreshToken.trim())
-    next.refreshTokenEnc = e.encrypted
-    next.refreshTokenIv = e.iv
-    next.refreshTokenTag = e.tag
+  if (input.mode === "SERVICE_ACCOUNT") {
+    if (input.serviceAccountJson && input.serviceAccountJson.trim()) {
+      const json = input.serviceAccountJson.trim()
+      JSON.parse(json) // validate
+      const parsed = JSON.parse(json) as { client_email?: string }
+      const e = encField(json)
+      next.serviceAccountJsonEnc = e.encrypted
+      next.serviceAccountJsonIv = e.iv
+      next.serviceAccountJsonTag = e.tag
+      next.clientEmail = parsed.client_email || null
+    }
+    if (!next.serviceAccountJsonEnc) {
+      throw new Error("Paste the full service account JSON key to save Service account mode.")
+    }
+    if (!next.impersonateEmail) {
+      throw new Error("Impersonate email is required (e.g. info@trishulhub.in).")
+    }
+  } else {
+    // OAuth-only — service account JSON is not required
+    if (input.oauthClientId && input.oauthClientId.trim()) {
+      const e = encField(input.oauthClientId.trim())
+      next.oauthClientIdEnc = e.encrypted
+      next.oauthClientIdIv = e.iv
+      next.oauthClientIdTag = e.tag
+    }
+    if (input.oauthClientSecret && input.oauthClientSecret.trim()) {
+      const e = encField(input.oauthClientSecret.trim())
+      next.oauthClientSecretEnc = e.encrypted
+      next.oauthClientSecretIv = e.iv
+      next.oauthClientSecretTag = e.tag
+    }
+    if (input.refreshToken && input.refreshToken.trim()) {
+      const e = encField(input.refreshToken.trim())
+      next.refreshTokenEnc = e.encrypted
+      next.refreshTokenIv = e.iv
+      next.refreshTokenTag = e.tag
+    }
+    if (!next.oauthClientIdEnc || !next.oauthClientSecretEnc || !next.refreshTokenEnc) {
+      throw new Error(
+        "OAuth mode needs Client ID, Client Secret, and Refresh token (all three). Get the refresh token while signed in as info@trishulhub.in."
+      )
+    }
   }
 
   await db.appSetting.upsert({
@@ -181,7 +205,11 @@ export async function saveFileDriveConfig(input: {
 
 async function getAuthClient() {
   const stored = await readStored()
-  if (!stored) throw new Error("Google Drive is not connected. Super Admin must save credentials in Files → Settings.")
+  if (!stored) {
+    throw new Error(
+      "Google Drive is not connected. Super Admin → Files → Settings → choose OAuth (or Service account) → Save → Test."
+    )
+  }
 
   if (stored.mode === "OAUTH") {
     const clientId = decField(stored.oauthClientIdEnc, stored.oauthClientIdIv, stored.oauthClientIdTag)
@@ -192,7 +220,9 @@ async function getAuthClient() {
     )
     const refreshToken = decField(stored.refreshTokenEnc, stored.refreshTokenIv, stored.refreshTokenTag)
     if (!clientId || !clientSecret || !refreshToken) {
-      throw new Error("OAuth Drive credentials incomplete")
+      throw new Error(
+        "OAuth Drive credentials incomplete or could not be decrypted. Re-paste Client ID, Client Secret, and Refresh token, then Save."
+      )
     }
     const oauth2 = new google.auth.OAuth2(clientId, clientSecret)
     oauth2.setCredentials({ refresh_token: refreshToken })
@@ -204,7 +234,11 @@ async function getAuthClient() {
     stored.serviceAccountJsonIv,
     stored.serviceAccountJsonTag
   )
-  if (!saJson) throw new Error("Service account JSON missing")
+  if (!saJson) {
+    throw new Error(
+      "Service account JSON missing or could not be decrypted. Paste the JSON key again, or switch to OAuth mode."
+    )
+  }
   const credentials = JSON.parse(saJson)
   const email = stored.impersonateEmail || "info@trishulhub.in"
   const auth = new google.auth.JWT({

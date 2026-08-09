@@ -1,19 +1,55 @@
 import crypto from "crypto";
 
 /** AES-256-GCM encryption utilities for storing sensitive data (passwords, credentials).
- * The encryption key must be a 32-byte hex string from process.env.ENCRYPTION_KEY.
+ * Preferred key: process.env.ENCRYPTION_KEY (64-char hex).
+ * Fallback: derive from NEXTAUTH_SECRET so Drive OAuth / vault can still save
+ * when ENCRYPTION_KEY is missing or invalid on the host.
  * @module encryption
  */
 
+let warnedDerivedKey = false
+
+function normalizeHexKey(raw: unknown): string | null {
+  if (typeof raw !== "string") return null
+  const key = raw.trim().replace(/^["']|["']$/g, "")
+  if (!/^[0-9a-fA-F]{64}$/.test(key)) return null
+  return key
+}
+
+/** True when ENCRYPTION_KEY is a valid 64-char hex string (preferred). */
+export function hasDedicatedEncryptionKey(): boolean {
+  return Boolean(normalizeHexKey(process.env.ENCRYPTION_KEY))
+}
+
+/** True when encrypt/decrypt can run (dedicated key or NEXTAUTH_SECRET fallback). */
+export function isEncryptionConfigured(): boolean {
+  if (hasDedicatedEncryptionKey()) return true
+  const secret = process.env.NEXTAUTH_SECRET?.trim()
+  return Boolean(secret && secret.length >= 16)
+}
+
 function getKey(): Buffer {
-  const key = process.env.ENCRYPTION_KEY;
-  if (!key || key.length !== 64) {
-    throw new Error(
-      "ENCRYPTION_KEY must be set as a 32-byte hex string (64 characters). " +
-      "Generate one with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\""
-    );
+  const dedicated = normalizeHexKey(process.env.ENCRYPTION_KEY)
+  if (dedicated) {
+    return Buffer.from(dedicated, "hex")
   }
-  return Buffer.from(key, "hex");
+
+  const secret = process.env.NEXTAUTH_SECRET?.trim()
+  if (secret && secret.length >= 16) {
+    if (!warnedDerivedKey) {
+      console.warn(
+        "[encryption] ENCRYPTION_KEY missing/invalid — deriving AES-256 key from NEXTAUTH_SECRET. " +
+          "Set ENCRYPTION_KEY to a 64-char hex string on Vercel for a dedicated key."
+      )
+      warnedDerivedKey = true
+    }
+    return crypto.createHash("sha256").update(`trishulhub:aes256:${secret}`).digest()
+  }
+
+  throw new Error(
+    "ENCRYPTION_KEY must be set as a 32-byte hex string (64 characters). " +
+      'Generate one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"'
+  )
 }
 
 /**
