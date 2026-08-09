@@ -10,7 +10,7 @@ import {
   uploadDriveFile,
   moveDriveFile,
   getDriveWebViewLink,
-  isMobileUserAgent,
+  isFilesMobileBlocked,
   shareDriveFolderWithEmail,
 } from "@/lib/file-drive"
 import { canManageFileReview } from "@/lib/rbac"
@@ -56,8 +56,11 @@ export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (isMobileUserAgent(req.headers.get("user-agent"))) {
-      return NextResponse.json({ error: "Files are available on PC / desktop browser only" }, { status: 403 })
+    if (isFilesMobileBlocked(req.headers.get("user-agent"), session.user.role)) {
+      return NextResponse.json(
+        { error: "Files on mobile is limited to Admin and Super Admin. Use a PC / desktop browser." },
+        { status: 403 }
+      )
     }
     if (!(await canAccessFileModule(session.user.id, session.user.role))) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
@@ -170,8 +173,11 @@ export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (isMobileUserAgent(req.headers.get("user-agent"))) {
-      return NextResponse.json({ error: "Files are available on PC / desktop browser only" }, { status: 403 })
+    if (isFilesMobileBlocked(req.headers.get("user-agent"), session.user.role)) {
+      return NextResponse.json(
+        { error: "Files on mobile is limited to Admin and Super Admin. Use a PC / desktop browser." },
+        { status: 403 }
+      )
     }
     if (!(await canWriteFiles(session.user.id, session.user.role))) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
@@ -252,8 +258,11 @@ export async function DELETE(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (isMobileUserAgent(req.headers.get("user-agent"))) {
-      return NextResponse.json({ error: "Files are available on PC / desktop browser only" }, { status: 403 })
+    if (isFilesMobileBlocked(req.headers.get("user-agent"), session.user.role)) {
+      return NextResponse.json(
+        { error: "Files on mobile is limited to Admin and Super Admin. Use a PC / desktop browser." },
+        { status: 403 }
+      )
     }
     if (!(await canWriteFiles(session.user.id, session.user.role))) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
@@ -316,8 +325,11 @@ export async function PUT(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (isMobileUserAgent(req.headers.get("user-agent"))) {
-      return NextResponse.json({ error: "Files are available on PC / desktop browser only" }, { status: 403 })
+    if (isFilesMobileBlocked(req.headers.get("user-agent"), session.user.role)) {
+      return NextResponse.json(
+        { error: "Files on mobile is limited to Admin and Super Admin. Use a PC / desktop browser." },
+        { status: 403 }
+      )
     }
     const body = await req.json().catch(() => ({}))
     const id = String(body.id || "")
