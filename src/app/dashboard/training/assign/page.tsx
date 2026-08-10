@@ -11,6 +11,7 @@ import {
   Clock,
   GraduationCap,
   Loader2,
+  Megaphone,
   Pencil,
   Plus,
   QrCode,
@@ -118,6 +119,8 @@ export default function AssignTrainingPage() {
   const [detail, setDetail] = useState<Assignment | null>(null)
   const [detailStartEdit, setDetailStartEdit] = useState(false)
   const [sectionsPrimed, setSectionsPrimed] = useState(false)
+  const [buzzingUserId, setBuzzingUserId] = useState<string | null>(null)
+  const [buzzingAll, setBuzzingAll] = useState(false)
 
   const openDetail = (a: Assignment, startEdit = false) => {
     setDetailStartEdit(startEdit)
@@ -193,6 +196,69 @@ export default function AssignTrainingPage() {
 
   const clearUsers = () => {
     setFormUserIds([])
+  }
+
+  const buzzUser = async (userId: string, name: string) => {
+    if (!confirm(`Send a training reminder email to ${name} with their open/due items listed?`)) return
+    setBuzzingUserId(userId)
+    try {
+      const res = await fetch("/api/training/assignments/buzz", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || "Buzz failed")
+      if (data.sent > 0) toast.success(data.message || `Reminder sent to ${name}`)
+      else toast.error(data.message || data.results?.[0]?.error || "No email sent")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Buzz failed")
+    } finally {
+      setBuzzingUserId(null)
+    }
+  }
+
+  const buzzAll = async () => {
+    const openUserIds = new Set(
+      assignments.filter((a) => a.status !== "DONE").map((a) => a.userId)
+    )
+    const peopleWithOpen = openUserIds.size
+    if (peopleWithOpen === 0) {
+      toast.message("No open trainings to buzz")
+      return
+    }
+    if (
+      !confirm(
+        `Send reminder emails to ${peopleWithOpen} people with their open/due trainings listed?`
+      )
+    ) {
+      return
+    }
+    setBuzzingAll(true)
+    try {
+      const res = await fetch("/api/training/assignments/buzz", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ all: true }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || "Buzz all failed")
+      if (data.sent > 0) {
+        toast.success(
+          data.failed > 0
+            ? `Sent ${data.sent}, failed ${data.failed}`
+            : data.message || `Sent ${data.sent} reminder emails`
+        )
+      } else {
+        toast.error(data.message || "No emails sent — check SMTP")
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Buzz all failed")
+    } finally {
+      setBuzzingAll(false)
+    }
   }
 
   const assign = async () => {
@@ -665,9 +731,29 @@ export default function AssignTrainingPage() {
                   </Badge>
                 </div>
                 <p className="text-sm text-muted-foreground mt-0.5">
-                  Incomplete training across the team — overdue first.
+                  Incomplete training across the team — overdue first. Use Buzz to email reminders.
                 </p>
               </div>
+              {needsAttention.length > 0 && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-8 shrink-0"
+                  disabled={buzzingAll || !!buzzingUserId}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    void buzzAll()
+                  }}
+                >
+                  {buzzingAll ? (
+                    <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                  ) : (
+                    <Megaphone className="h-3.5 w-3.5 mr-1" />
+                  )}
+                  Buzz all
+                </Button>
+              )}
               <ChevronDown
                 className={cn(
                   "h-5 w-5 shrink-0 text-muted-foreground mt-0.5 transition-transform",
@@ -733,7 +819,7 @@ export default function AssignTrainingPage() {
                           <p className="text-xs text-muted-foreground truncate">{g.email}</p>
                         ) : null}
                       </div>
-                      <div className="flex flex-wrap gap-1.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
                         {g.overdueCount > 0 && (
                           <Badge variant="destructive" className="text-xs">
                             {g.overdueCount} overdue
@@ -745,6 +831,24 @@ export default function AssignTrainingPage() {
                         <Badge className="bg-success/15 text-success border-0 text-xs">
                           {g.done.length} done
                         </Badge>
+                        {g.open.length > 0 && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2"
+                            disabled={buzzingAll || buzzingUserId === g.userId}
+                            onClick={() => void buzzUser(g.userId, g.name)}
+                            title="Email this person their open trainings"
+                          >
+                            {buzzingUserId === g.userId ? (
+                              <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                            ) : (
+                              <Megaphone className="h-3.5 w-3.5 mr-1" />
+                            )}
+                            Buzz
+                          </Button>
+                        )}
                       </div>
                     </div>
                     <div className="p-2.5 space-y-3">
