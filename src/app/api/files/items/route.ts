@@ -4,7 +4,13 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
-import { canAccessFileModule, canWriteFiles, getAllowedDepartmentIds } from "@/lib/file-access"
+import {
+  canAccessFileModule,
+  canWriteFiles,
+  canAccessFileItem,
+  canAccessFileNode,
+  listSharedFileItemsForUser,
+} from "@/lib/file-access"
 import {
   ensureRootAndReview,
   uploadDriveFile,
@@ -29,25 +35,8 @@ async function assertFolderAccess(folderId: string, userId: string, role: string
   if (folder[0].kind !== "FOLDER") {
     return { error: "Files can only be uploaded inside folders (not departments/categories)", status: 400 as const }
   }
-  const allowed = await getAllowedDepartmentIds(userId, role)
-  if (allowed) {
-    let current: string | null = folderId
-    let deptId: string | null = null
-    for (let i = 0; i < 40 && current; i++) {
-      const rows = (await db.$queryRawUnsafe(
-        `SELECT "id","kind","parentId" FROM "FileNode" WHERE "id" = ? LIMIT 1`,
-        current
-      )) as Array<{ id: string; kind: string; parentId: string | null }>
-      if (!rows[0]) break
-      if (rows[0].kind === "DEPARTMENT") {
-        deptId = rows[0].id
-        break
-      }
-      current = rows[0].parentId
-    }
-    if (deptId && !allowed.includes(deptId)) {
-      return { error: "Forbidden", status: 403 as const }
-    }
+  if (!(await canAccessFileNode(userId, role, folderId))) {
+    return { error: "Forbidden", status: 403 as const }
   }
   return { folder: folder[0] }
 }
@@ -86,6 +75,12 @@ export async function GET(req: NextRequest) {
       const item = rows[0]
       if (!item) return NextResponse.json({ error: "Not found" }, { status: 404 })
       if (item.deletedAt && !canManageFileReview(session.user.role) && item.deletedById !== session.user.id) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+      }
+      if (
+        !item.deletedAt &&
+        !(await canAccessFileItem(session.user.id, session.user.role, item.id))
+      ) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 })
       }
       let link = item.webViewLink
@@ -150,6 +145,18 @@ export async function GET(req: NextRequest) {
         `SELECT * FROM "FileItem" WHERE "deletedAt" IS NOT NULL ORDER BY "deletedAt" DESC LIMIT 500`
       )
       return NextResponse.json({ items: all })
+    }
+
+    // Per-file shares granted to this user (works without department browse access)
+    if (searchParams.get("shared") === "1") {
+      const shared = await listSharedFileItemsForUser(session.user.id)
+      const visible: typeof shared = []
+      for (const item of shared) {
+        if (await canAccessFileItem(session.user.id, session.user.role, item.id)) {
+          visible.push(item)
+        }
+      }
+      return NextResponse.json({ items: visible })
     }
 
     if (!nodeId) return NextResponse.json({ error: "nodeId required" }, { status: 400 })
@@ -281,6 +288,9 @@ export async function DELETE(req: NextRequest) {
     }>
     const item = rows[0]
     if (!item) return NextResponse.json({ error: "Not found" }, { status: 404 })
+    if (!(await canAccessFileNode(session.user.id, session.user.role, item.nodeId))) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
 
     try {
       const { reviewFolderId } = await ensureRootAndReview()

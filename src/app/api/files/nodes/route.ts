@@ -8,6 +8,8 @@ import {
   canAccessFileModule,
   canWriteFiles,
   getAllowedDepartmentIds,
+  ensurePrivateDepartment,
+  canAccessFileNode,
 } from "@/lib/file-access"
 import {
   ensureRootAndReview,
@@ -79,25 +81,30 @@ export async function GET(req: NextRequest) {
     }
 
     const parentId = new URL(req.url).searchParams.get("parentId")
+
+    // Ensure Admin/Super Admin private department exists
+    if (!parentId && canManageFileReview(session.user.role)) {
+      await ensurePrivateDepartment(session.user.id)
+    }
+
     const allowedDepts = await getAllowedDepartmentIds(session.user.id, session.user.role)
 
     let rows: Array<Record<string, unknown>>
     if (!parentId) {
       rows = (await db.$queryRawUnsafe(
-        `SELECT * FROM "FileNode" WHERE "kind" = 'DEPARTMENT' AND "deletedAt" IS NULL AND "parentId" IS NULL ORDER BY "sortOrder" ASC, "name" ASC`
+        `SELECT * FROM "FileNode" WHERE "kind" = 'DEPARTMENT' AND "deletedAt" IS NULL AND "parentId" IS NULL ORDER BY "isPrivate" DESC, "sortOrder" ASC, "name" ASC`
       )) as Array<Record<string, unknown>>
       if (allowedDepts) {
         rows = rows.filter((r) => allowedDepts.includes(String(r.id)))
+      } else if (!canManageFileReview(session.user.role)) {
+        // Belt: hide private even if allowedDepts is null for some edge path
+        rows = rows.filter((r) => !r.isPrivate)
       }
       // Note: we do NOT share whole departments on browse.
       // Edit access is granted per-file to personal Gmail when user clicks Open.
     } else {
-      if (allowedDepts) {
-        const ancestors = await collectAncestorIds(parentId)
-        const dept = ancestors.find((a) => a.kind === "DEPARTMENT")
-        if (dept && !allowedDepts.includes(dept.id)) {
-          return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-        }
+      if (!(await canAccessFileNode(session.user.id, session.user.role, parentId))) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 })
       }
       rows = (await db.$queryRawUnsafe(
         `SELECT * FROM "FileNode" WHERE "parentId" = ? AND "deletedAt" IS NULL ORDER BY "sortOrder" ASC, "name" ASC`,
@@ -129,6 +136,7 @@ export async function POST(req: NextRequest) {
     const name = String(body.name || "").trim().slice(0, 200)
     const kind = String(body.kind || "").toUpperCase() as NodeKind
     const parentId = body.parentId ? String(body.parentId) : null
+    const wantPrivate = body.isPrivate === true || body.isPrivate === 1 || body.isPrivate === "1"
 
     if (!name) return NextResponse.json({ error: "Name is required" }, { status: 400 })
     if (!["DEPARTMENT", "CATEGORY", "FOLDER"].includes(kind)) {
@@ -136,13 +144,18 @@ export async function POST(req: NextRequest) {
     }
 
     let parentDrive: string | null = null
+    let isPrivate = 0
     if (kind === "DEPARTMENT") {
       if (!canManageFileReview(session.user.role)) {
         return NextResponse.json({ error: "Only Admin/Super Admin can create departments" }, { status: 403 })
       }
       if (parentId) return NextResponse.json({ error: "Departments cannot have a parent" }, { status: 400 })
+      if (wantPrivate) isPrivate = 1
     } else {
       if (!parentId) return NextResponse.json({ error: "parentId is required" }, { status: 400 })
+      if (!(await canAccessFileNode(session.user.id, session.user.role, parentId))) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+      }
       const parents = (await db.$queryRawUnsafe(
         `SELECT "id","kind","driveFolderId" FROM "FileNode" WHERE "id" = ? AND "deletedAt" IS NULL LIMIT 1`,
         parentId
@@ -182,13 +195,14 @@ export async function POST(req: NextRequest) {
 
     const id = newId()
     await db.$executeRawUnsafe(
-      `INSERT INTO "FileNode" ("id","kind","name","parentId","driveFolderId","sortOrder","createdById","createdAt","updatedAt")
-       VALUES (?,?,?,?,?,0,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`,
+      `INSERT INTO "FileNode" ("id","kind","name","parentId","driveFolderId","isPrivate","sortOrder","createdById","createdAt","updatedAt")
+       VALUES (?,?,?,?,?,?,0,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`,
       id,
       kind,
       name,
       parentId,
       driveFolderId,
+      isPrivate,
       session.user.id
     )
 
@@ -237,6 +251,9 @@ export async function PATCH(req: NextRequest) {
       id
     )) as Array<{ id: string; driveFolderId: string | null; name: string }>
     if (!existing[0]) return NextResponse.json({ error: "Not found" }, { status: 404 })
+    if (!(await canAccessFileNode(session.user.id, session.user.role, id))) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
 
     if (existing[0].driveFolderId) {
       try {
@@ -282,6 +299,9 @@ export async function DELETE(req: NextRequest) {
     }
     const id = new URL(req.url).searchParams.get("id")
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 })
+    if (!(await canAccessFileNode(session.user.id, session.user.role, id))) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
 
     const nodeIds = await collectDescendantIds(id)
     const placeholders = nodeIds.map(() => "?").join(",")

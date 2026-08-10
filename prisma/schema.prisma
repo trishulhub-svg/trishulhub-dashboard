@@ -1207,6 +1207,8 @@ model FileNode {
   name          String
   parentId      String?
   driveFolderId String?
+  // Private departments: SUPER_ADMIN + ADMIN only (never grantable to staff)
+  isPrivate     Boolean  @default(false)
   sortOrder     Int      @default(0)
   createdById   String?
   deletedAt     DateTime?
@@ -1222,6 +1224,7 @@ model FileNode {
   @@index([parentId])
   @@index([kind])
   @@index([deletedAt])
+  @@index([isPrivate])
   @@map("FileNode")
 }
 
@@ -1248,14 +1251,15 @@ model FileItem {
   @@map("FileItem")
 }
 
-// Role-wide or per-user module access, plus per-department grants
+// Role-wide or per-user module access, plus per-department / per-file grants
 model FileAccessGrant {
   id        String   @id @default(cuid())
-  // ROLE_MODULE | USER_MODULE | NODE_ROLE | NODE_USER
+  // ROLE_MODULE | USER_MODULE | NODE_ROLE | NODE_USER | ITEM_USER
   scope     String
   role      String?
   userId    String?
   nodeId    String?  // usually a DEPARTMENT
+  itemId    String?  // FileItem id for ITEM_USER grants
   canRead   Boolean  @default(true)
   canWrite  Boolean  @default(true)
   canDelete Boolean  @default(false)
@@ -1268,6 +1272,7 @@ model FileAccessGrant {
   @@index([role])
   @@index([userId])
   @@index([nodeId])
+  @@index([itemId])
   @@map("FileAccessGrant")
 }
 

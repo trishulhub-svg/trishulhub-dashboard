@@ -7,7 +7,10 @@ import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 import {
   setUserModuleOverride,
   listDepartmentGrants,
+  listItemGrants,
   getUserModuleOverride,
+  getDepartmentIdForItem,
+  isDepartmentPrivate,
 } from "@/lib/file-access"
 import { unshareDriveFolderFromEmail } from "@/lib/file-drive"
 import { getGoogleEditEmailForUser } from "@/lib/file-google-email"
@@ -23,11 +26,17 @@ export async function GET(req: NextRequest) {
     if (!canManageFileSettings(session.user.role) && !canManageFileReview(session.user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
-    const nodeId = new URL(req.url).searchParams.get("nodeId")
-    const userId = new URL(req.url).searchParams.get("userId")
+    const { searchParams } = new URL(req.url)
+    const nodeId = searchParams.get("nodeId")
+    const userId = searchParams.get("userId")
+    const itemId = searchParams.get("itemId")
     if (userId) {
       const mode = await getUserModuleOverride(userId)
       return NextResponse.json({ userId, mode })
+    }
+    if (itemId) {
+      const grants = await listItemGrants(itemId)
+      return NextResponse.json({ grants })
     }
     if (nodeId) {
       const grants = await listDepartmentGrants(nodeId)
@@ -52,13 +61,15 @@ export async function PUT(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (!canManageFileSettings(session.user.role)) {
-      return NextResponse.json({ error: "Forbidden — Super Admin only" }, { status: 403 })
-    }
+
     const body = await req.json().catch(() => ({}))
     const type = String(body.type || "")
 
+    // Module overrides + role settings: Super Admin only
     if (type === "USER_MODULE") {
+      if (!canManageFileSettings(session.user.role)) {
+        return NextResponse.json({ error: "Forbidden — Super Admin only" }, { status: 403 })
+      }
       const userId = String(body.userId || "")
       const mode = String(body.mode || "CLEAR") as "ALLOW" | "DENY" | "CLEAR"
       if (!userId) return NextResponse.json({ error: "userId required" }, { status: 400 })
@@ -82,6 +93,96 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
+    // Department + per-file grants: Admin or Super Admin
+    if (!canManageFileReview(session.user.role)) {
+      return NextResponse.json({ error: "Forbidden — Admin or Super Admin only" }, { status: 403 })
+    }
+
+    if (type === "ITEM_USER") {
+      const itemId = String(body.itemId || "")
+      const userId = String(body.userId || "")
+      if (!itemId) return NextResponse.json({ error: "itemId required" }, { status: 400 })
+
+      const items = (await db.$queryRawUnsafe(
+        `SELECT "id","name","driveFileId" FROM "FileItem" WHERE "id" = ? AND "deletedAt" IS NULL LIMIT 1`,
+        itemId
+      )) as Array<{ id: string; name: string; driveFileId: string | null }>
+      if (!items[0]) return NextResponse.json({ error: "File not found" }, { status: 404 })
+
+      if (body.removeId) {
+        const existing = (await db.$queryRawUnsafe(
+          `SELECT * FROM "FileAccessGrant" WHERE "id" = ? AND "scope" = 'ITEM_USER' LIMIT 1`,
+          String(body.removeId)
+        )) as Array<{ id: string; userId: string | null }>
+        await db.$executeRawUnsafe(`DELETE FROM "FileAccessGrant" WHERE "id" = ?`, String(body.removeId))
+        if (existing[0]?.userId && items[0].driveFileId) {
+          const personalGmail = await getGoogleEditEmailForUser(existing[0].userId)
+          if (personalGmail) {
+            try {
+              await unshareDriveFolderFromEmail(items[0].driveFileId, personalGmail)
+            } catch (e) {
+              console.warn("[files/access] item unshare failed", e)
+            }
+          }
+        }
+        void logAudit({
+          userId: session.user.id,
+          userName: session.user.name || "unknown",
+          userRole: session.user.role,
+          department: "FILES",
+          page: "files",
+          action: "DELETE",
+          entityType: "FileAccessGrant",
+          entityId: String(body.removeId),
+          description: `Removed file grant on ${items[0].name}`,
+          ipAddress: getIpAddress(req),
+          userAgent: getUserAgent(req),
+        })
+        return NextResponse.json({ ok: true })
+      }
+
+      if (!userId) return NextResponse.json({ error: "userId required" }, { status: 400 })
+
+      const deptId = await getDepartmentIdForItem(itemId)
+      if (await isDepartmentPrivate(deptId)) {
+        return NextResponse.json(
+          { error: "Private department files cannot be shared. Admin / Super Admin only." },
+          { status: 400 }
+        )
+      }
+
+      // Upsert: one grant per user+item
+      await db.$executeRawUnsafe(
+        `DELETE FROM "FileAccessGrant" WHERE "scope" = 'ITEM_USER' AND "userId" = ? AND "itemId" = ?`,
+        userId,
+        itemId
+      )
+      const id = newId()
+      await db.$executeRawUnsafe(
+        `INSERT INTO "FileAccessGrant" ("id","scope","userId","itemId","canRead","canWrite","canDelete","createdAt","updatedAt")
+         VALUES (?,?,?,?,1,1,0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`,
+        id,
+        "ITEM_USER",
+        userId,
+        itemId
+      )
+
+      void logAudit({
+        userId: session.user.id,
+        userName: session.user.name || "unknown",
+        userRole: session.user.role,
+        department: "FILES",
+        page: "files",
+        action: "ASSIGN",
+        entityType: "FileAccessGrant",
+        entityId: id,
+        description: `Granted file access on ${items[0].name} to user ${userId}`,
+        ipAddress: getIpAddress(req),
+        userAgent: getUserAgent(req),
+      })
+      return NextResponse.json({ ok: true, id })
+    }
+
     if (type === "NODE_USER" || type === "NODE_ROLE") {
       const nodeId = String(body.nodeId || "")
       const canRead = body.canRead !== false
@@ -90,11 +191,23 @@ export async function PUT(req: NextRequest) {
       if (!nodeId) return NextResponse.json({ error: "nodeId required" }, { status: 400 })
 
       const node = (await db.$queryRawUnsafe(
-        `SELECT "id","kind","driveFolderId","name" FROM "FileNode" WHERE "id" = ? LIMIT 1`,
+        `SELECT "id","kind","driveFolderId","name","isPrivate" FROM "FileNode" WHERE "id" = ? LIMIT 1`,
         nodeId
-      )) as Array<{ id: string; kind: string; driveFolderId: string | null; name: string }>
+      )) as Array<{
+        id: string
+        kind: string
+        driveFolderId: string | null
+        name: string
+        isPrivate: number | boolean | null
+      }>
       if (!node[0] || node[0].kind !== "DEPARTMENT") {
         return NextResponse.json({ error: "Grants attach to DEPARTMENT nodes only" }, { status: 400 })
+      }
+      if (node[0].isPrivate === true || node[0].isPrivate === 1) {
+        return NextResponse.json(
+          { error: "Private department cannot be shared. It stays Admin / Super Admin only." },
+          { status: 400 }
+        )
       }
 
       if (body.removeId) {
@@ -147,10 +260,6 @@ export async function PUT(req: NextRequest) {
         canWrite ? 1 : 0,
         canDelete ? 1 : 0
       )
-
-      // Do NOT share whole department folders with personal Gmail.
-      // Browse/upload stays in Trishulhub via service account (info@).
-      // Per-file writer share happens only when the user clicks Open/Edit.
 
       void logAudit({
         userId: session.user.id,
