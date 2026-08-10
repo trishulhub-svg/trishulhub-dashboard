@@ -74,7 +74,9 @@ Only if your org allows downloading service account JSON keys.
 
 | Layer | Behavior |
 |---|---|
-| Trishulhub RBAC | Role toggles + custom user access + per-department grants. Restricted nodes are hidden inside the app. |
+| Trishulhub RBAC | Role toggles + custom user access + per-department grants + per-file (`ITEM_USER`) grants. Restricted nodes are hidden inside the app. |
+| **Private department** | Auto-created **Private** dept (or mark a department Private). Visible/usable **only by Admin + Super Admin**. Cannot be granted via department share or per-file Share. |
+| Per-file Share | Admin / Super Admin → **Share** on a file → grant that one file to a user. Recipient sees it under **Shared with you** (needs Files module access). |
 | Google Drive ACL | **Per file on Open only** — writer share to the user’s personal Gmail (`googleEditEmail` or login email). We do **not** share whole department trees for browsing. |
 | Soft delete | Deletes move to Drive **Review** folder; Super Admin / Admin manage Review; deleter can restore own items. |
 | Open / edit | Files open in Google Docs/Drive (`webViewLink`) after the auto-share step. |
@@ -85,7 +87,7 @@ Only if your org allows downloading service account JSON keys.
 
 - Keep **Personal Gmail (file edit)** accurate on each Team profile.
 - They should use that Gmail in Chrome/Google when editing — not `info@trishulhub.in`.
-- Department grants control what they see **inside Trishulhub**; Google only receives the specific file they open.
+- Department grants / per-file Share control what they see **inside Trishulhub**; Google only receives the specific file they open.
 
 ## What we do **not** need
 

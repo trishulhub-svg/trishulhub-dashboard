@@ -89,7 +89,13 @@ export default function FilesSettingsPage() {
         const nodes = Array.isArray(dd.nodes) ? dd.nodes : [];
         setDepartments(
           nodes
-            .filter((n: { kind?: string; id?: string; name?: string }) => n.kind === "DEPARTMENT" && n.id)
+            .filter(
+              (n: { kind?: string; id?: string; name?: string; isPrivate?: boolean | number | null }) =>
+                n.kind === "DEPARTMENT" &&
+                n.id &&
+                n.isPrivate !== true &&
+                n.isPrivate !== 1
+            )
             .map((n: { id: string; name: string }) => ({ id: n.id, name: n.name }))
         );
       }
@@ -263,7 +269,7 @@ export default function FilesSettingsPage() {
       toast.error(d.error || "Failed to grant department access");
       return;
     }
-    toast.success("Department access granted (Drive share attempted)");
+    toast.success("Department access granted in Trishulhub");
     void loadDeptGrants(grantDeptId);
   };
 
@@ -501,11 +507,12 @@ export default function FilesSettingsPage() {
         )}
       </section>
 
-      {/* Per-department grants + Drive auto-share */}
+      {/* Per-department grants (Private depts excluded — Admin only) */}
       <section className="rounded-xl border border-border/60 p-4 space-y-3">
-        <h2 className="text-sm font-semibold">Department access (Drive share)</h2>
+        <h2 className="text-sm font-semibold">Department access</h2>
         <p className="text-xs text-muted-foreground">
-          Grant a person a department — their Trishulhub email is shared on that Drive folder automatically.
+          Grant a person a whole department inside Trishulhub. Private departments never appear here.
+          For one file only, open Files → Share on that file.
         </p>
         <div className="grid sm:grid-cols-3 gap-2">
           <select
@@ -529,7 +536,7 @@ export default function FilesSettingsPage() {
             ))}
           </select>
           <Button size="sm" className="h-9" onClick={() => void grantDepartmentUser()}>
-            Grant + share
+            Grant access
           </Button>
         </div>
         {deptGrants.length > 0 && (

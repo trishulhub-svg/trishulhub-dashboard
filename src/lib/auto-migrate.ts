@@ -22,7 +22,7 @@ function getErrMsg(err: unknown): string {
 
 // Bump when adding CRITICAL_COLUMNS / CRITICAL_TABLES so warm serverless
 // instances re-run migrations after deploy (stale syncDone otherwise skips ALTERs).
-const SCHEMA_REVISION = 202608083
+const SCHEMA_REVISION = 202608091
 const SCHEMA_REVISION_SETTING_KEY = "auto_migrate_schema_revision"
 const CRITICAL_REVISION_SETTING_KEY = "auto_migrate_critical_revision"
 
@@ -154,6 +154,9 @@ const CRITICAL_COLUMNS: Array<{ table: string; column: string; sql: string }> = 
   { table: "Project", column: "workPriority", sql: `ALTER TABLE "Project" ADD COLUMN "workPriority" INTEGER` },
   // Personal Gmail for Drive edit share (separate from Trishulhub login / Workspace)
   { table: "User", column: "googleEditEmail", sql: `ALTER TABLE "User" ADD COLUMN "googleEditEmail" TEXT` },
+  // Files: private departments (Admin/Super Admin only) + per-file grants
+  { table: "FileNode", column: "isPrivate", sql: `ALTER TABLE "FileNode" ADD COLUMN "isPrivate" BOOLEAN NOT NULL DEFAULT 0` },
+  { table: "FileAccessGrant", column: "itemId", sql: `ALTER TABLE "FileAccessGrant" ADD COLUMN "itemId" TEXT` },
   // Attendance — updatedAt column (added in schema but missing from older DBs)
   // Turso/libSQL rejects non-constant defaults on ALTER ADD COLUMN (CURRENT_TIMESTAMP).
   // Use a constant default, then backfill below.
@@ -680,6 +683,7 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
       "name" TEXT NOT NULL,
       "parentId" TEXT,
       "driveFolderId" TEXT,
+      "isPrivate" BOOLEAN NOT NULL DEFAULT 0,
       "sortOrder" INTEGER NOT NULL DEFAULT 0,
       "createdById" TEXT,
       "deletedAt" DATETIME,
@@ -716,6 +720,7 @@ const CRITICAL_TABLES: Array<{ name: string; sql: string }> = [
       "role" TEXT,
       "userId" TEXT,
       "nodeId" TEXT,
+      "itemId" TEXT,
       "canRead" BOOLEAN NOT NULL DEFAULT 1,
       "canWrite" BOOLEAN NOT NULL DEFAULT 1,
       "canDelete" BOOLEAN NOT NULL DEFAULT 0,
