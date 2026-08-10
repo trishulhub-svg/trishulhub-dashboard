@@ -35,6 +35,7 @@ type FileNode = {
   name: string;
   parentId?: string | null;
   driveFolderId?: string | null;
+  driveFolderUrl?: string | null;
   isPrivate?: boolean | number | null;
 };
 
@@ -44,6 +45,7 @@ type FileItem = {
   mimeType?: string | null;
   sizeBytes?: number;
   webViewLink?: string | null;
+  driveFileId?: string | null;
 };
 
 type TeamUser = { id: string; name: string; email: string };
@@ -59,6 +61,7 @@ export default function FilesPage() {
   const [items, setItems] = useState<FileItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [driveConnected, setDriveConnected] = useState(false);
+  const [driveRootUrl, setDriveRootUrl] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -103,6 +106,7 @@ export default function FilesPage() {
       const data = await res.json();
       setNodes(Array.isArray(data.nodes) ? data.nodes : []);
       setDriveConnected(!!data.driveConnected);
+      setDriveRootUrl(typeof data.driveRootFolderUrl === "string" ? data.driveRootFolderUrl : null);
 
       if (parentId && current?.kind === "FOLDER") {
         const ir = await fetch(`/api/files/items?nodeId=${encodeURIComponent(parentId)}`, {
@@ -155,9 +159,17 @@ export default function FilesPage() {
       }
       toast.success(
         kind === "DEPARTMENT" && createPrivate
-          ? "Private department created (Admin / Super Admin only)"
-          : `${kind.toLowerCase()} created`
+          ? "Private department created on Drive (Admin / Super Admin only)"
+          : `${kind.toLowerCase()} created on Google Drive`
       );
+      if (data.driveFolderUrl) {
+        toast.message("Open the same folder in Drive", {
+          action: {
+            label: "Open Drive",
+            onClick: () => window.open(String(data.driveFolderUrl), "_blank", "noopener,noreferrer"),
+          },
+        });
+      }
       setNewName("");
       setCreatePrivate(false);
       void load();
@@ -215,7 +227,16 @@ export default function FilesPage() {
         if (!res.ok) {
           toast.error(data.error || `Failed: ${file.name}`);
         } else {
-          toast.success(`Uploaded ${file.name}`);
+          toast.success(`Uploaded ${file.name} to Google Drive`);
+          const folderUrl = data.drive?.folderUrl;
+          if (folderUrl) {
+            toast.message("File is on info@ Drive in this folder path", {
+              action: {
+                label: "Open folder",
+                onClick: () => window.open(String(folderUrl), "_blank", "noopener,noreferrer"),
+              },
+            });
+          }
         }
       }
       void load();
@@ -332,7 +353,9 @@ export default function FilesPage() {
             Files
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Browse and upload here via company Drive (no Google login). Open a file to edit in your personal Gmail.
+            Every department / category / folder / file is created on the connected Drive
+            under <span className="font-medium text-foreground">Trishulhub Files</span>
+            {driveConnected ? " (info@)." : "."} Open a file to edit in your personal Gmail.
             {canReview && (
               <span className="block text-[11px] mt-0.5">
                 Private department is Admin / Super Admin only. Use Share on a file to grant one user access.
@@ -342,6 +365,17 @@ export default function FilesPage() {
               <span className="text-amber-600 dark:text-amber-400"> Drive not connected yet.</span>
             )}
           </p>
+          {driveRootUrl && (
+            <a
+              href={driveRootUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-teal-700 dark:text-teal-300 hover:underline mt-1"
+            >
+              <ExternalLink className="h-3 w-3" />
+              Open Trishulhub Files in Google Drive
+            </a>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={() => void load()}>
@@ -395,6 +429,28 @@ export default function FilesPage() {
         <p className="text-xs rounded-md border border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200 px-3 py-2 flex items-center gap-2">
           <Lock className="h-3.5 w-3.5 shrink-0" />
           You are in the Private department — visible only to Admin and Super Admin.
+        </p>
+      )}
+
+      {path.length > 0 && (
+        <p className="text-[11px] text-muted-foreground">
+          Drive path:{" "}
+          <span className="text-foreground/80">
+            Trishulhub Files / {path.map((p) => p.name).join(" / ")}
+          </span>
+          {current?.driveFolderUrl && (
+            <>
+              {" · "}
+              <a
+                href={current.driveFolderUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-teal-700 dark:text-teal-300 hover:underline"
+              >
+                Open this folder in Drive
+              </a>
+            </>
+          )}
         </p>
       )}
 
@@ -538,6 +594,19 @@ export default function FilesPage() {
                   </div>
                   <ChevronRight className="h-4 w-4 text-muted-foreground" />
                 </button>
+                {n.driveFolderUrl && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 shrink-0"
+                    asChild
+                    title="Open this folder in Google Drive"
+                  >
+                    <a href={n.driveFolderUrl} target="_blank" rel="noopener noreferrer">
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="ghost"
@@ -562,6 +631,7 @@ export default function FilesPage() {
                 <p className="text-[11px] text-muted-foreground">
                   {f.mimeType || "file"}
                   {typeof f.sizeBytes === "number" ? ` · ${(f.sizeBytes / 1024).toFixed(1)} KB` : ""}
+                  {" · on Drive"}
                 </p>
               </div>
               <Button size="sm" variant="outline" className="h-8" onClick={() => void openFile(f.id)}>

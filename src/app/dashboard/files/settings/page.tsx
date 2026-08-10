@@ -195,8 +195,51 @@ export default function FilesSettingsPage() {
       body: JSON.stringify({ action: "test" }),
     });
     const data = await res.json().catch(() => ({}));
-    if (data.ok) toast.success(`Connected as ${data.email || "Drive"}`);
-    else toast.error(data.error || "Connection failed");
+    if (data.ok) {
+      toast.success(`Connected as ${data.email || "Drive"}`);
+      if (data.rootFolderUrl) {
+        toast.message('Look under Drive folder “Trishulhub Files”', {
+          action: {
+            label: "Open root",
+            onClick: () => window.open(String(data.rootFolderUrl), "_blank", "noopener,noreferrer"),
+          },
+        });
+      }
+    } else toast.error(data.error || "Connection failed");
+    void load();
+  };
+
+  const repairDrive = async () => {
+    if (!driveMeta?.connected) {
+      toast.error("Connect Drive first, then Repair.");
+      return;
+    }
+    if (
+      !confirm(
+        "Repair will recreate any missing Drive folders so Trishulhub paths match Google Drive under “Trishulhub Files”. Continue?"
+      )
+    ) {
+      return;
+    }
+    const res = await fetch("/api/files/settings", {
+      method: "PUT",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "repair" }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      toast.error(data.error || "Repair failed");
+      return;
+    }
+    toast.success(
+      `Drive folders checked ${data.checked || 0} · repaired ${data.repaired || 0}${
+        data.failed ? ` · failed ${data.failed}` : ""
+      }`
+    );
+    if (data.rootFolderUrl) {
+      window.open(String(data.rootFolderUrl), "_blank", "noopener,noreferrer");
+    }
     void load();
   };
 
@@ -429,12 +472,30 @@ export default function FilesSettingsPage() {
           </>
         )}
 
+        {typeof driveMeta?.rootFolderUrl === "string" && driveMeta.rootFolderUrl && (
+          <p className="text-xs text-muted-foreground">
+            All Files content mirrors under{" "}
+            <a
+              href={String(driveMeta.rootFolderUrl)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-teal-700 dark:text-teal-300 hover:underline font-medium"
+            >
+              Trishulhub Files
+            </a>{" "}
+            in the connected Drive (should be info@trishulhub.in) — same department → category → folder path.
+          </p>
+        )}
+
         <div className="flex flex-wrap gap-2 pt-1">
           <Button size="sm" onClick={() => void saveDrive()}>
             <Save className="h-3.5 w-3.5 mr-1" /> Save connection
           </Button>
           <Button size="sm" variant="outline" onClick={() => void testDrive()}>
             Test connection
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => void repairDrive()}>
+            Repair Drive folders
           </Button>
           <Button size="sm" variant="ghost" className="text-red-600" onClick={() => void deleteDrive()}>
             <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete credentials

@@ -14,8 +14,10 @@ import {
 import {
   ensureRootAndReview,
   ensureDriveFolder,
+  ensureNodeDriveFolder,
   isFilesMobileBlocked,
   getFileDriveConfigPublic,
+  getDriveFolderLink,
   moveDriveFile,
   renameDriveFile,
 } from "@/lib/file-drive"
@@ -113,7 +115,19 @@ export async function GET(req: NextRequest) {
     }
 
     const drive = await getFileDriveConfigPublic()
-    return NextResponse.json({ nodes: rows, driveConnected: drive.connected })
+    const nodes = rows.map((r) => ({
+      ...r,
+      driveFolderUrl: getDriveFolderLink(
+        typeof r.driveFolderId === "string" ? r.driveFolderId : null
+      ),
+    }))
+    return NextResponse.json({
+      nodes,
+      driveConnected: drive.connected,
+      driveRootFolderId: drive.rootFolderId,
+      driveRootFolderUrl: drive.rootFolderUrl,
+      driveRootName: "Trishulhub Files",
+    })
   } catch (err) {
     console.error("[files/nodes] GET", err)
     return NextResponse.json({ error: "Failed to load folders" }, { status: 500 })
@@ -179,7 +193,12 @@ export async function POST(req: NextRequest) {
     let driveFolderId: string | null = null
     try {
       const { rootFolderId } = await ensureRootAndReview()
-      driveFolderId = await ensureDriveFolder(name, parentDrive || rootFolderId)
+      // Repair parent Drive link first so new folder lands in the real mirrored path
+      let parentDriveResolved = parentDrive || rootFolderId
+      if (parentId) {
+        parentDriveResolved = await ensureNodeDriveFolder(parentId)
+      }
+      driveFolderId = await ensureDriveFolder(name, parentDriveResolved)
     } catch (driveErr) {
       console.warn("[files/nodes] Drive folder create failed:", driveErr)
       return NextResponse.json(
@@ -225,7 +244,16 @@ export async function POST(req: NextRequest) {
       id
     )) as Array<Record<string, unknown>>
 
-    return NextResponse.json({ node: created[0] }, { status: 201 })
+    return NextResponse.json(
+      {
+        node: {
+          ...created[0],
+          driveFolderUrl: getDriveFolderLink(driveFolderId),
+        },
+        driveFolderUrl: getDriveFolderLink(driveFolderId),
+      },
+      { status: 201 }
+    )
   } catch (err) {
     console.error("[files/nodes] POST", err)
     return NextResponse.json({ error: "Failed to create" }, { status: 500 })

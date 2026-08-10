@@ -18,6 +18,10 @@ import {
   getDriveWebViewLink,
   isFilesMobileBlocked,
   shareDriveFolderWithEmail,
+  ensureNodeDriveFolder,
+  getDriveFileLink,
+  getDriveFolderLink,
+  getDriveFileMeta,
 } from "@/lib/file-drive"
 import { canManageFileReview } from "@/lib/rbac"
 import { getGoogleEditEmailForUser } from "@/lib/file-google-email"
@@ -206,10 +210,18 @@ export async function POST(req: NextRequest) {
     if ("error" in access && access.error) {
       return NextResponse.json({ error: access.error }, { status: access.status })
     }
-    const folder = access.folder!
-    if (!folder.driveFolderId) {
+    // Ensure this folder (and parents) exist on the connected Drive with the same path
+    let parentDriveId: string
+    try {
+      parentDriveId = await ensureNodeDriveFolder(nodeId)
+    } catch (e) {
       return NextResponse.json(
-        { error: "Folder is not linked to Google Drive yet. Connect Drive in Files → Settings." },
+        {
+          error:
+            e instanceof Error
+              ? e.message.slice(0, 200)
+              : "Folder is not linked to Google Drive. Connect Drive in Files → Settings.",
+        },
         { status: 400 }
       )
     }
@@ -218,9 +230,21 @@ export async function POST(req: NextRequest) {
     const uploaded = await uploadDriveFile({
       name: file.name.slice(0, 240),
       mimeType: file.type || "application/octet-stream",
-      parentId: folder.driveFolderId,
+      parentId: parentDriveId,
       body: buf,
     })
+
+    // Confirm the file is actually in Drive under that folder
+    const verified = await getDriveFileMeta(uploaded.id)
+    if (!verified || !verified.parents.includes(parentDriveId)) {
+      return NextResponse.json(
+        {
+          error:
+            "Upload did not land in the expected Drive folder. Check Files → Settings → Test connection (must be info@trishulhub.in), then Repair Drive folders.",
+        },
+        { status: 500 }
+      )
+    }
 
     const id = newId()
     await db.$executeRawUnsafe(
@@ -232,7 +256,7 @@ export async function POST(req: NextRequest) {
       file.type || "application/octet-stream",
       file.size,
       uploaded.id,
-      uploaded.webViewLink || null,
+      uploaded.webViewLink || verified.webViewLink || null,
       session.user.id
     )
 
@@ -251,7 +275,19 @@ export async function POST(req: NextRequest) {
     })
 
     const rows = await db.$queryRawUnsafe(`SELECT * FROM "FileItem" WHERE "id" = ? LIMIT 1`, id)
-    return NextResponse.json({ item: (rows as unknown[])[0] }, { status: 201 })
+    return NextResponse.json(
+      {
+        item: (rows as unknown[])[0],
+        drive: {
+          fileId: uploaded.id,
+          fileUrl: getDriveFileLink(uploaded.id),
+          folderId: parentDriveId,
+          folderUrl: getDriveFolderLink(parentDriveId),
+          verified: true,
+        },
+      },
+      { status: 201 }
+    )
   } catch (err) {
     console.error("[files/items] POST", err)
     return NextResponse.json(

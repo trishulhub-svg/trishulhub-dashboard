@@ -12,6 +12,23 @@ Use only your existing Workspace seat **info@trishulhub.in** (2TB). No extra clo
 
 Employees do **not** need a Workspace/`info@` login for day-to-day Files use. They stay signed into Trishulhub. Only when they click **Open** do we invite their personal Gmail as a writer on that file.
 
+### Where files appear in Google Drive
+
+Everything is mirrored under one root folder on the connected account (`info@trishulhub.in`):
+
+```
+My Drive /
+  Trishulhub Files /          ← created automatically on Test connection
+    Review /                  ← soft-deleted items
+    {Department} /
+      {Category} /
+        {Folder} /
+          your-file.pdf
+```
+
+If a folder is missing in Drive, Super Admin → Files → Settings → **Repair Drive folders**.
+Do **not** look for departments at the top level of My Drive — open **Trishulhub Files** first.
+
 ### Personal Gmail field
 
 On **Team → Edit member**, set **Personal Gmail (file edit)** (`googleEditEmail`).

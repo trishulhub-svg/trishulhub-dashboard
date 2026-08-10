@@ -21,12 +21,25 @@ export type FileDriveConfigPublic = {
   impersonateEmail: string
   rootFolderId: string | null
   reviewFolderId: string | null
+  /** Open this in Drive — all Trishulhub folders live under here */
+  rootFolderUrl: string | null
   clientEmail?: string | null
   hasServiceAccountJson: boolean
   hasOAuthClient: boolean
   hasRefreshToken: boolean
   encryptionReady: boolean
   updatedAt?: string | null
+}
+
+/** Public Drive folder/file URL for a Drive id */
+export function getDriveFolderLink(driveId: string | null | undefined): string | null {
+  if (!driveId) return null
+  return `https://drive.google.com/drive/folders/${driveId}`
+}
+
+export function getDriveFileLink(driveId: string | null | undefined): string | null {
+  if (!driveId) return null
+  return `https://drive.google.com/file/d/${driveId}/view`
 }
 
 type FileDriveConfigStored = {
@@ -84,6 +97,7 @@ export async function getFileDriveConfigPublic(): Promise<FileDriveConfigPublic>
       impersonateEmail: "info@trishulhub.in",
       rootFolderId: null,
       reviewFolderId: null,
+      rootFolderUrl: null,
       hasServiceAccountJson: false,
       hasOAuthClient: false,
       hasRefreshToken: false,
@@ -100,12 +114,14 @@ export async function getFileDriveConfigPublic(): Promise<FileDriveConfigPublic>
       : hasSa && Boolean(stored.impersonateEmail)
 
   const row = await db.appSetting.findUnique({ where: { key: FILE_DRIVE_SETTING_KEY } })
+  const rootFolderId = stored.rootFolderId || null
   return {
     connected,
     mode: stored.mode || "OAUTH",
     impersonateEmail: stored.impersonateEmail || "info@trishulhub.in",
-    rootFolderId: stored.rootFolderId || null,
+    rootFolderId,
     reviewFolderId: stored.reviewFolderId || null,
+    rootFolderUrl: getDriveFolderLink(rootFolderId),
     clientEmail: stored.clientEmail || null,
     hasServiceAccountJson: hasSa,
     hasOAuthClient: hasOauth,
@@ -274,6 +290,41 @@ export async function getDriveClient(): Promise<drive_v3.Drive> {
   return google.drive({ version: "v3", auth })
 }
 
+const DRIVE_FLAGS = {
+  supportsAllDrives: true,
+  includeItemsFromAllDrives: true,
+} as const
+
+/** Returns folder/file meta if it still exists in the connected Drive; else null. */
+export async function getDriveFileMeta(fileId: string): Promise<{
+  id: string
+  name: string
+  mimeType: string | null
+  parents: string[]
+  trashed: boolean
+  webViewLink: string | null
+} | null> {
+  try {
+    const drive = await getDriveClient()
+    const meta = await drive.files.get({
+      fileId,
+      fields: "id,name,mimeType,parents,trashed,webViewLink",
+      supportsAllDrives: true,
+    })
+    if (!meta.data.id || meta.data.trashed) return null
+    return {
+      id: meta.data.id,
+      name: meta.data.name || "",
+      mimeType: meta.data.mimeType || null,
+      parents: meta.data.parents || [],
+      trashed: Boolean(meta.data.trashed),
+      webViewLink: meta.data.webViewLink || null,
+    }
+  } catch {
+    return null
+  }
+}
+
 async function findChildFolder(
   drive: drive_v3.Drive,
   parentId: string,
@@ -290,6 +341,7 @@ async function findChildFolder(
     fields: "files(id,name)",
     spaces: "drive",
     pageSize: 5,
+    ...DRIVE_FLAGS,
   })
   return res.data.files?.[0]?.id || null
 }
@@ -300,8 +352,31 @@ export async function ensureDriveFolder(
 ): Promise<string> {
   const drive = await getDriveClient()
   if (parentId) {
+    // Parent must still exist; otherwise create would orphan under wrong place / fail
+    const parentMeta = await getDriveFileMeta(parentId)
+    if (!parentMeta) {
+      throw new Error(
+        `Parent Drive folder is missing (${parentId.slice(0, 12)}…). Re-open Files or run Repair Drive folders in Settings.`
+      )
+    }
     const existing = await findChildFolder(drive, parentId, name)
     if (existing) return existing
+  } else {
+    // Root-level: reuse existing "Trishulhub Files" in My Drive if present
+    const q = [
+      `name = '${name.replace(/'/g, "\\'")}'`,
+      `mimeType = 'application/vnd.google-apps.folder'`,
+      `trashed = false`,
+      `'root' in parents`,
+    ].join(" and ")
+    const res = await drive.files.list({
+      q,
+      fields: "files(id,name)",
+      spaces: "drive",
+      pageSize: 5,
+      ...DRIVE_FLAGS,
+    })
+    if (res.data.files?.[0]?.id) return res.data.files[0].id
   }
   const created = await drive.files.create({
     requestBody: {
@@ -309,13 +384,14 @@ export async function ensureDriveFolder(
       mimeType: "application/vnd.google-apps.folder",
       parents: parentId ? [parentId] : undefined,
     },
-    fields: "id",
+    fields: "id,webViewLink",
+    supportsAllDrives: true,
   })
   if (!created.data.id) throw new Error("Failed to create Drive folder")
   return created.data.id
 }
 
-/** Ensure root + Review folders; persist IDs. */
+/** Ensure root + Review folders; persist IDs. Recreates if stored IDs are gone. */
 export async function ensureRootAndReview(): Promise<{
   rootFolderId: string
   reviewFolderId: string
@@ -324,10 +400,19 @@ export async function ensureRootAndReview(): Promise<{
   if (!stored) throw new Error("Drive not connected")
 
   let rootFolderId = stored.rootFolderId
+  if (rootFolderId) {
+    const meta = await getDriveFileMeta(rootFolderId)
+    if (!meta) rootFolderId = null
+  }
   if (!rootFolderId) {
     rootFolderId = await ensureDriveFolder(DRIVE_ROOT_NAME, null)
   }
+
   let reviewFolderId = stored.reviewFolderId
+  if (reviewFolderId) {
+    const meta = await getDriveFileMeta(reviewFolderId)
+    if (!meta || !meta.parents.includes(rootFolderId)) reviewFolderId = null
+  }
   if (!reviewFolderId) {
     reviewFolderId = await ensureDriveFolder(DRIVE_REVIEW_NAME, rootFolderId)
   }
@@ -341,6 +426,100 @@ export async function ensureRootAndReview(): Promise<{
     })
   }
   return { rootFolderId: rootFolderId!, reviewFolderId: reviewFolderId! }
+}
+
+/**
+ * Ensure a FileNode has a live Drive folder under the correct parent path.
+ * Mirrors: Trishulhub Files / Department / Category / Folder…
+ * Updates DB when a missing/orphan driveFolderId is repaired.
+ */
+export async function ensureNodeDriveFolder(nodeId: string): Promise<string> {
+  const rows = (await db.$queryRawUnsafe(
+    `SELECT "id","name","kind","parentId","driveFolderId" FROM "FileNode"
+     WHERE "id" = ? AND "deletedAt" IS NULL LIMIT 1`,
+    nodeId
+  )) as Array<{
+    id: string
+    name: string
+    kind: string
+    parentId: string | null
+    driveFolderId: string | null
+  }>
+  const node = rows[0]
+  if (!node) throw new Error("Folder not found")
+
+  const { rootFolderId } = await ensureRootAndReview()
+  let parentDriveId = rootFolderId
+  if (node.parentId) {
+    parentDriveId = await ensureNodeDriveFolder(node.parentId)
+  } else if (node.kind !== "DEPARTMENT") {
+    // Non-department without parent shouldn't happen; park under root
+    parentDriveId = rootFolderId
+  }
+
+  if (node.driveFolderId) {
+    const meta = await getDriveFileMeta(node.driveFolderId)
+    if (meta && meta.parents.includes(parentDriveId)) {
+      return node.driveFolderId
+    }
+    // Exists but wrong parent → move under correct parent
+    if (meta) {
+      try {
+        await moveDriveFile(node.driveFolderId, parentDriveId, meta.parents[0] || null)
+        return node.driveFolderId
+      } catch (e) {
+        console.warn("[file-drive] move repaired folder failed, will recreate:", e)
+      }
+    }
+  }
+
+  const driveFolderId = await ensureDriveFolder(node.name, parentDriveId)
+  await db.$executeRawUnsafe(
+    `UPDATE "FileNode" SET "driveFolderId" = ?, "updatedAt" = CURRENT_TIMESTAMP WHERE "id" = ?`,
+    driveFolderId,
+    node.id
+  )
+  return driveFolderId
+}
+
+/** Repair Drive folder links for all active nodes (dept → category → folder order). */
+export async function repairAllNodeDriveFolders(): Promise<{
+  checked: number
+  repaired: number
+  failed: number
+  rootFolderId: string
+  rootFolderUrl: string | null
+}> {
+  const { rootFolderId } = await ensureRootAndReview()
+  const nodes = (await db.$queryRawUnsafe(
+    `SELECT "id","parentId" FROM "FileNode" WHERE "deletedAt" IS NULL ORDER BY
+      CASE "kind" WHEN 'DEPARTMENT' THEN 0 WHEN 'CATEGORY' THEN 1 ELSE 2 END,
+      "createdAt" ASC`
+  )) as Array<{ id: string; parentId: string | null }>
+
+  let repaired = 0
+  let failed = 0
+  for (const n of nodes) {
+    try {
+      const before = (await db.$queryRawUnsafe(
+        `SELECT "driveFolderId" FROM "FileNode" WHERE "id" = ? LIMIT 1`,
+        n.id
+      )) as Array<{ driveFolderId: string | null }>
+      const beforeId = before[0]?.driveFolderId || null
+      const afterId = await ensureNodeDriveFolder(n.id)
+      if (beforeId !== afterId) repaired += 1
+    } catch (e) {
+      failed += 1
+      console.warn("[file-drive] repair node failed", n.id, e)
+    }
+  }
+  return {
+    checked: nodes.length,
+    repaired,
+    failed,
+    rootFolderId,
+    rootFolderUrl: getDriveFolderLink(rootFolderId),
+  }
 }
 
 export async function testDriveConnection(): Promise<{ ok: boolean; email?: string; error?: string }> {
@@ -381,7 +560,11 @@ export async function moveDriveFile(fileId: string, newParentId: string, oldPare
   const drive = await getDriveClient()
   let removeParents = oldParentId || undefined
   if (!removeParents) {
-    const meta = await drive.files.get({ fileId, fields: "parents" })
+    const meta = await drive.files.get({
+      fileId,
+      fields: "parents",
+      supportsAllDrives: true,
+    })
     removeParents = meta.data.parents?.[0]
   }
   await drive.files.update({
@@ -389,6 +572,7 @@ export async function moveDriveFile(fileId: string, newParentId: string, oldPare
     addParents: newParentId,
     removeParents: removeParents || undefined,
     fields: "id,parents",
+    supportsAllDrives: true,
   })
 }
 
@@ -398,6 +582,7 @@ export async function renameDriveFile(fileId: string, name: string) {
     fileId,
     requestBody: { name },
     fields: "id,name",
+    supportsAllDrives: true,
   })
 }
 
@@ -411,6 +596,7 @@ export async function shareDriveFolderWithEmail(
     await drive.permissions.create({
       fileId: folderId,
       sendNotificationEmail: false,
+      supportsAllDrives: true,
       requestBody: {
         type: "user",
         role,
@@ -429,12 +615,17 @@ export async function unshareDriveFolderFromEmail(folderId: string, email: strin
   const perms = await drive.permissions.list({
     fileId: folderId,
     fields: "permissions(id,emailAddress)",
+    supportsAllDrives: true,
   })
   const match = perms.data.permissions?.find(
     (p) => (p.emailAddress || "").toLowerCase() === email.toLowerCase()
   )
   if (match?.id) {
-    await drive.permissions.delete({ fileId: folderId, permissionId: match.id })
+    await drive.permissions.delete({
+      fileId: folderId,
+      permissionId: match.id,
+      supportsAllDrives: true,
+    })
   }
 }
 
@@ -443,8 +634,15 @@ export async function uploadDriveFile(opts: {
   mimeType: string
   parentId: string
   body: Buffer
-}): Promise<{ id: string; webViewLink?: string | null }> {
+}): Promise<{ id: string; webViewLink?: string | null; parents?: string[] }> {
   const drive = await getDriveClient()
+  // Fail fast if parent folder vanished from Drive
+  const parentMeta = await getDriveFileMeta(opts.parentId)
+  if (!parentMeta) {
+    throw new Error(
+      "Upload folder is missing in Google Drive. Open the folder again in Trishulhub (or run Repair Drive folders) then retry."
+    )
+  }
   const { Readable } = await import("stream")
   const created = await drive.files.create({
     requestBody: {
@@ -455,7 +653,8 @@ export async function uploadDriveFile(opts: {
       mimeType: opts.mimeType,
       body: Readable.from(opts.body),
     },
-    fields: "id,webViewLink",
+    fields: "id,webViewLink,parents",
+    supportsAllDrives: true,
   })
   if (!created.data.id) throw new Error("Upload failed")
   // Fetch webViewLink if missing
@@ -463,16 +662,25 @@ export async function uploadDriveFile(opts: {
   if (!webViewLink) {
     const meta = await drive.files.get({
       fileId: created.data.id,
-      fields: "webViewLink",
+      fields: "webViewLink,parents",
+      supportsAllDrives: true,
     })
     webViewLink = meta.data.webViewLink
   }
-  return { id: created.data.id, webViewLink }
+  return {
+    id: created.data.id,
+    webViewLink,
+    parents: created.data.parents || [opts.parentId],
+  }
 }
 
 export async function getDriveWebViewLink(fileId: string): Promise<string | null> {
   const drive = await getDriveClient()
-  const meta = await drive.files.get({ fileId, fields: "webViewLink" })
+  const meta = await drive.files.get({
+    fileId,
+    fields: "webViewLink",
+    supportsAllDrives: true,
+  })
   return meta.data.webViewLink || null
 }
 

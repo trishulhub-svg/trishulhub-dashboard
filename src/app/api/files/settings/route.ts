@@ -8,6 +8,7 @@ import {
   getFileDriveConfigPublic,
   saveFileDriveConfig,
   testDriveConnection,
+  repairAllNodeDriveFolders,
   type FileDriveAuthMode,
 } from "@/lib/file-drive"
 import { getFileRoleAccessMap, saveFileRoleAccessMap, FILE_STAFF_ROLES } from "@/lib/file-access"
@@ -45,6 +46,7 @@ export async function PUT(req: NextRequest) {
 
     if (action === "test") {
       const result = await testDriveConnection()
+      const drive = await getFileDriveConfigPublic()
       void logAudit({
         userId: session.user.id,
         userName: session.user.name || "unknown",
@@ -60,7 +62,31 @@ export async function PUT(req: NextRequest) {
         ipAddress: getIpAddress(req),
         userAgent: getUserAgent(req),
       })
-      return NextResponse.json(result)
+      return NextResponse.json({
+        ...result,
+        rootFolderId: drive.rootFolderId,
+        rootFolderUrl: drive.rootFolderUrl,
+        hint: result.ok
+          ? `All Trishulhub folders/files live under Drive → “Trishulhub Files” for ${result.email || "the connected account"}.`
+          : undefined,
+      })
+    }
+
+    if (action === "repair") {
+      const result = await repairAllNodeDriveFolders()
+      void logAudit({
+        userId: session.user.id,
+        userName: session.user.name || "unknown",
+        userRole: session.user.role,
+        department: "FILES",
+        page: "files-settings",
+        action: "CONFIG_CHANGE",
+        entityType: "FileDriveConfig",
+        description: `Repaired Drive folder tree (checked ${result.checked}, repaired ${result.repaired}, failed ${result.failed})`,
+        ipAddress: getIpAddress(req),
+        userAgent: getUserAgent(req),
+      })
+      return NextResponse.json({ ok: result.failed === 0, ...result })
     }
 
     if (action === "roles") {
