@@ -536,3 +536,120 @@ export async function sendInvoiceEmail(options: {
     triggeredBy: options.triggeredBy,
   })
 }
+
+/**
+ * Training "Buzz" reminder — lists all open/overdue assignments for one person.
+ * Uses Trishulhub branded layout (same family as invoice emails).
+ */
+export async function sendTrainingBuzzEmail(options: {
+  to: string
+  userName: string
+  items: Array<{
+    title: string
+    dueDate: Date | string
+    status: string
+    notes?: string | null
+  }>
+  triggeredBy?: string
+}): Promise<{ success: boolean; method?: string; error?: string }> {
+  const esc = (s: unknown): string =>
+    String(s ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+
+  const companyName = process.env.NEXT_PUBLIC_COMPANY_NAME || "TrishulHub"
+  const companyTagline = process.env.NEXT_PUBLIC_COMPANY_TAGLINE || "Official Workspace"
+  const appUrl = (process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "")
+  const logoUrl = appUrl ? `${appUrl}/logo.svg` : ""
+  const myTrainingUrl = appUrl ? `${appUrl}/dashboard/training/my` : "/dashboard/training/my"
+  const safeName = esc(options.userName || "Team member")
+
+  const rows = options.items
+    .map((item, i) => {
+      const overdue = String(item.status).toUpperCase() === "OVERDUE"
+      const statusLabel = overdue ? "OVERDUE" : "DUE"
+      const statusColor = overdue ? "#b91c1c" : "#0f766e"
+      const notes = item.notes?.trim()
+        ? `<p style="margin:4px 0 0;color:#64748b;font-size:12px;">${esc(item.notes.trim())}</p>`
+        : ""
+      return `
+        <tr>
+          <td style="padding:12px 0;border-bottom:1px solid #e2e8f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;vertical-align:top;">
+            <p style="margin:0;color:#0f172a;font-size:14px;font-weight:600;">${i + 1}. ${esc(item.title)}</p>
+            ${notes}
+          </td>
+          <td style="padding:12px 0 12px 12px;border-bottom:1px solid #e2e8f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:right;white-space:nowrap;vertical-align:top;">
+            <p style="margin:0;color:#334155;font-size:13px;">${esc(formatDisplayDate(item.dueDate))}</p>
+            <p style="margin:4px 0 0;color:${statusColor};font-size:11px;font-weight:700;letter-spacing:0.06em;">${statusLabel}</p>
+          </td>
+        </tr>`
+    })
+    .join("")
+
+  const html = `
+    <div style="font-family: Georgia, 'Times New Roman', serif; max-width: 640px; margin: 0 auto; padding: 0; background: #0f172a;">
+      <div style="background: linear-gradient(135deg,#0f172a 0%,#134e4a 55%,#0f172a 100%); padding: 28px 24px; text-align: center;">
+        ${logoUrl ? `<img src="${esc(logoUrl)}" alt="${esc(companyName)}" width="48" height="48" style="display:inline-block;margin-bottom:12px;" />` : ""}
+        <h1 style="color: #f8fafc; font-size: 26px; margin: 0; letter-spacing: 0.04em;">${esc(companyName)}</h1>
+        <p style="color: #99f6e4; margin: 6px 0 0; font-size: 13px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">${esc(companyTagline)}</p>
+      </div>
+      <div style="background: #ffffff; padding: 28px 24px;">
+        <p style="margin:0; color:#0f766e; font-size:11px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">Training reminder</p>
+        <h2 style="color: #0f172a; font-size: 22px; margin: 6px 0 0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">Action required — complete your training</h2>
+        <p style="color: #334155; font-size: 15px; margin: 16px 0 0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; line-height:1.55;">
+          Hello ${safeName}, this is an official reminder from ${esc(companyName)}. The following training item${options.items.length === 1 ? " is" : "s are"} still incomplete and require your attention:
+        </p>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:20px 0 8px; border-collapse:collapse;">
+          ${rows}
+        </table>
+        <div style="text-align:center; margin: 24px 0;">
+          <a href="${esc(myTrainingUrl)}" style="background:#0f766e;color:#ffffff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px;display:inline-block;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">Open My Training</a>
+        </div>
+        <div style="background:#fff7ed;border:1px solid #fdba74;border-radius:10px;padding:14px 16px;margin-top:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+          <p style="margin:0;color:#9a3412;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">Important notice</p>
+          <p style="margin:8px 0 0;color:#7c2d12;font-size:13px;line-height:1.55;">
+            If the training listed above is not completed after this warning, it may have a negative effect on your performance review.
+            A penalty may also be charged accordingly and the matter will be discussed in supervision.
+            Please complete your training promptly to avoid further action.
+          </p>
+        </div>
+        <p style="color: #64748b; font-size: 13px; margin: 18px 0 0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; line-height:1.5;">
+          Go to Learning → My Training in Trishulhub to mark items complete when finished.
+        </p>
+      </div>
+      <p style="color: #94a3b8; font-size: 11px; text-align: center; margin: 0; padding: 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">Sent by ${esc(companyName)} · Powered by Trishulhub · Do not reply to this email</p>
+    </div>
+  `
+
+  const textLines = [
+    `Hello ${options.userName || "Team member"},`,
+    "",
+    `This is an official training reminder from ${companyName}.`,
+    "The following training is still incomplete:",
+    "",
+    ...options.items.map(
+      (item, i) =>
+        `${i + 1}. ${item.title} — due ${formatDisplayDate(item.dueDate)} (${String(item.status).toUpperCase() === "OVERDUE" ? "OVERDUE" : "DUE"})`
+    ),
+    "",
+    `Open My Training: ${myTrainingUrl}`,
+    "",
+    "IMPORTANT: If the training listed above is not completed after this warning, it may have a negative effect on your performance review. A penalty may also be charged accordingly and the matter will be discussed in supervision.",
+    "",
+    `— ${companyName}`,
+  ]
+
+  return sendEmailWithFailover({
+    to: options.to,
+    subject:
+      options.items.length === 1
+        ? `${companyName} — Training due: ${options.items[0].title}`
+        : `${companyName} — ${options.items.length} trainings require your attention`,
+    html,
+    text: textLines.join("\n"),
+    type: "TRAINING_BUZZ",
+    triggeredBy: options.triggeredBy,
+  })
+}
