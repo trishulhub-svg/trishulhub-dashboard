@@ -355,35 +355,35 @@ export default function ExpensesPage() {
   // ━━ Auth guard ━━
   if (status === "loading") {
     return (
-      <div className="space-y-6">
+      <div className="space-y-4">
         <div className="flex items-center justify-between">
           <Skeleton className="h-8 w-48" />
           <Skeleton className="h-10 w-36" />
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-5 animate-pulse">
+            <div key={i} className="bg-card/50 backdrop-blur-sm border border-border/50 rounded-xl p-3.5 animate-pulse">
               <div className="flex items-center justify-between">
                 <div className="space-y-2">
                   <Skeleton className="h-3 w-20" />
-                  <Skeleton className="h-7 w-28" />
+                  <Skeleton className="h-6 w-24" />
                 </div>
-                <Skeleton className="h-10 w-10 rounded-full" />
+                <Skeleton className="h-8 w-8 rounded-full" />
               </div>
             </div>
           ))}
         </div>
-        <div className="bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-4 animate-pulse">
-          <div className="flex gap-3">
-            <Skeleton className="h-10 flex-1 rounded-xl" />
-            <Skeleton className="h-10 w-44 rounded-xl" />
+        <div className="bg-card/50 backdrop-blur-sm border border-border/50 rounded-xl px-3 py-2.5 animate-pulse">
+          <div className="flex gap-2">
+            <Skeleton className="h-9 flex-1 rounded-lg" />
+            <Skeleton className="h-9 w-44 rounded-lg" />
           </div>
         </div>
-        <div className="space-y-3">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-5 animate-pulse">
-              <Skeleton className="h-5 w-full" />
-              <Skeleton className="h-4 w-3/4 mt-3" />
+        <div className="space-y-1.5">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="bg-card/50 backdrop-blur-sm border border-border/50 rounded-xl px-3 py-2.5 animate-pulse">
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-3 w-2/3 mt-2" />
             </div>
           ))}
         </div>
@@ -411,7 +411,7 @@ export default function ExpensesPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* ━━ Page Header ━━ */}
       <PageHeader title="Expenses" description="Track and manage all business expenses">
         <div className="flex flex-wrap gap-2">
@@ -610,20 +610,20 @@ export default function ExpensesPage() {
       </div>
 
       {/* ━━ 2. Filter Bar ━━ */}
-      <div className={cn("bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-4")}>
-        <div className="flex flex-col sm:flex-row gap-3">
+      <div className={cn("bg-card/50 backdrop-blur-sm border border-border/50 rounded-xl px-3 py-2.5")}>
+        <div className="flex flex-col sm:flex-row gap-2">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
               placeholder="Search by description, employee, project, ref..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 rounded-xl"
+              className="pl-8 h-9 text-sm rounded-lg"
             />
           </div>
           <div className="flex w-full gap-2 sm:w-auto">
             <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-              <SelectTrigger className="w-full sm:w-52 rounded-xl">
+              <SelectTrigger className="w-full sm:w-52 h-9 text-sm rounded-lg">
                 <SelectValue placeholder="Filter by category" />
               </SelectTrigger>
               <SelectContent>
@@ -636,7 +636,7 @@ export default function ExpensesPage() {
             <Button
               type="button"
               variant="outline"
-              className="shrink-0 rounded-xl px-3"
+              className="shrink-0 rounded-lg h-9 px-3"
               onClick={() => setManageCatsOpen(true)}
             >
               <Pencil className="h-3.5 w-3.5 mr-1.5" />
@@ -649,15 +649,15 @@ export default function ExpensesPage() {
       {/* ━━ 3. Expense Cards ━━ */}
       {filtered.length === 0 && !loading ? (
         <div className={cn(
-          "bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-12",
-          "flex flex-col items-center justify-center gap-3"
+          "bg-card/50 backdrop-blur-sm border border-border/50 rounded-xl p-8",
+          "flex flex-col items-center justify-center gap-2"
         )}>
-          <div className="h-14 w-14 rounded-full bg-muted flex items-center justify-center">
-            <Receipt className="h-7 w-7 text-muted-foreground" />
+          <div className="h-11 w-11 rounded-full bg-muted flex items-center justify-center">
+            <Receipt className="h-5 w-5 text-muted-foreground" />
           </div>
-          <div className="text-center space-y-1">
-            <p className="font-medium text-muted-foreground">No expenses found</p>
-            <p className="text-sm text-muted-foreground">
+          <div className="text-center space-y-0.5">
+            <p className="text-sm font-medium text-muted-foreground">No expenses found</p>
+            <p className="text-xs text-muted-foreground">
               {searchQuery || categoryFilter !== "ALL"
                 ? "Try adjusting your search or filters"
                 : "Create your first expense to get started"}
@@ -665,13 +665,13 @@ export default function ExpensesPage() {
           </div>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-1.5">
           {filtered.map((exp) => (
             <div
               key={safeText(exp.id)}
               className={cn(
-                "bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-5",
-                "hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200",
+                "bg-card/50 backdrop-blur-sm border border-border/50 rounded-xl px-3 py-2.5",
+                "hover:shadow-md hover:border-primary/20 transition-all duration-150",
                 "cursor-pointer group",
                 categoryBorderColors[exp.category] ? `border-l-4 ${categoryBorderColors[exp.category]}` : ""
               )}
@@ -682,32 +682,32 @@ export default function ExpensesPage() {
                 if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setPreviewExpense(exp); }
               }}
             >
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 {/* Left: Category badge + Details */}
-                <div className="flex items-start gap-4">
-                  <div className="h-11 w-11 rounded-xl flex items-center justify-center shrink-0 bg-muted/60">
-                    <Receipt className="h-5 w-5 text-muted-foreground" />
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="h-8 w-8 rounded-lg flex items-center justify-center shrink-0 bg-muted/60">
+                    <Receipt className="h-4 w-4 text-muted-foreground" />
                   </div>
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Badge className={cn("text-[10px] px-2 py-0.5", CATEGORY_BADGE_COLORS[exp.category] || "")}>
+                  <div className="min-w-0 space-y-0.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <p className="text-sm font-semibold truncate">{safeText(exp.description, "—")}</p>
+                      <Badge className={cn("text-[10px] px-1.5 py-0 h-5", CATEGORY_BADGE_COLORS[exp.category] || "")}>
                         {safeText(exp.category, "").replace(/_/g, " ")}
                       </Badge>
                       {exp.employee && (
-                        <Badge className="text-[10px] px-2 py-0.5 bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">
+                        <Badge className="text-[10px] px-1.5 py-0 h-5 bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">
                           <User className="h-2.5 w-2.5 mr-0.5" />
                           {safeText(exp.employee.name)}
                         </Badge>
                       )}
                       {exp.project && (
-                        <Badge className="text-[10px] px-2 py-0.5 bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+                        <Badge className="text-[10px] px-1.5 py-0 h-5 bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
                           <FolderOpen className="h-2.5 w-2.5 mr-0.5" />
                           {safeText(exp.project.name)}
                         </Badge>
                       )}
                     </div>
-                    <p className="text-sm font-medium">{safeText(exp.description, "—")}</p>
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
                       <span className="flex items-center gap-1">
                         <Calendar className="h-3 w-3" />
                         {formatDate(exp.date)}
@@ -723,22 +723,22 @@ export default function ExpensesPage() {
                 </div>
 
                 {/* Right: Amount + Actions */}
-                <div className="flex items-center gap-3 sm:gap-4 flex-wrap sm:flex-nowrap">
-                  <div className="text-right sm:min-w-[100px]">
-                    <p className="text-xl font-bold">{formatCurrency(safeNumber(exp.amount))}</p>
+                <div className="flex items-center gap-2 sm:gap-3 flex-wrap sm:flex-nowrap pl-10 sm:pl-0">
+                  <div className="text-right sm:min-w-[88px]">
+                    <p className="text-base font-semibold tabular-nums tracking-tight">{formatCurrency(safeNumber(exp.amount))}</p>
                   </div>
                   <div
-                    className="flex items-center gap-1 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity duration-200"
+                    className="flex items-center gap-0.5 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity duration-150"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setPreviewExpense(exp)} aria-label="View expense" title="View">
-                      <Eye className="h-4 w-4" />
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setPreviewExpense(exp)} aria-label="View expense" title="View">
+                      <Eye className="h-3.5 w-3.5" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { if (isExpenseDetail(exp)) { setEditingExpense(exp); setEditExpenseOpen(true); } }} aria-label="Edit expense" title="Edit">
-                      <Pencil className="h-4 w-4" />
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { if (isExpenseDetail(exp)) { setEditingExpense(exp); setEditExpenseOpen(true); } }} aria-label="Edit expense" title="Edit">
+                      <Pencil className="h-3.5 w-3.5" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => setPendingDelete(exp.id)} aria-label="Delete expense" title="Delete">
-                      <Trash2 className="h-4 w-4" />
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => setPendingDelete(exp.id)} aria-label="Delete expense" title="Delete">
+                      <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                   </div>
                 </div>
