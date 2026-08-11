@@ -380,8 +380,96 @@ export async function PUT(req: NextRequest) {
     const body = await req.json().catch(() => ({}))
     const id = String(body.id || "")
     const action = String(body.action || "")
-    if (!id || action !== "restore") {
-      return NextResponse.json({ error: "id and action=restore required" }, { status: 400 })
+    if (!id || !["restore", "move"].includes(action)) {
+      return NextResponse.json({ error: "id and action=restore|move required" }, { status: 400 })
+    }
+
+    if (action === "move") {
+      if (!(await canWriteFiles(session.user.id, session.user.role))) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+      }
+      const targetNodeId = String(body.targetNodeId || "")
+      if (!targetNodeId) {
+        return NextResponse.json({ error: "targetNodeId required" }, { status: 400 })
+      }
+
+      const rows = (await db.$queryRawUnsafe(
+        `SELECT * FROM "FileItem" WHERE "id" = ? AND "deletedAt" IS NULL LIMIT 1`,
+        id
+      )) as Array<{
+        id: string
+        name: string
+        driveFileId: string | null
+        nodeId: string
+      }>
+      const item = rows[0]
+      if (!item) return NextResponse.json({ error: "Not found" }, { status: 404 })
+      if (!(await canAccessFileItem(session.user.id, session.user.role, item.id))) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+      }
+      if (item.nodeId === targetNodeId) {
+        return NextResponse.json({ ok: true, moved: false })
+      }
+
+      const access = await assertFolderAccess(targetNodeId, session.user.id, session.user.role)
+      if ("error" in access) {
+        return NextResponse.json({ error: access.error }, { status: access.status })
+      }
+
+      const oldFolder = (await db.$queryRawUnsafe(
+        `SELECT "driveFolderId" FROM "FileNode" WHERE "id" = ? LIMIT 1`,
+        item.nodeId
+      )) as Array<{ driveFolderId: string | null }>
+
+      let targetDriveId = access.folder.driveFolderId
+      try {
+        targetDriveId = await ensureNodeDriveFolder(targetNodeId)
+      } catch (e) {
+        console.warn("[files/items] ensure target folder failed:", e)
+      }
+      if (!targetDriveId) {
+        return NextResponse.json({ error: "Target folder is not linked to Google Drive" }, { status: 400 })
+      }
+
+      try {
+        if (item.driveFileId) {
+          await moveDriveFile(item.driveFileId, targetDriveId, oldFolder[0]?.driveFolderId || null)
+        }
+      } catch (e) {
+        console.error("[files/items] Drive move failed:", e)
+        return NextResponse.json(
+          {
+            error:
+              e instanceof Error
+                ? `Google Drive move failed: ${e.message.slice(0, 140)}`
+                : "Google Drive move failed",
+          },
+          { status: 400 }
+        )
+      }
+
+      await db.$executeRawUnsafe(
+        `UPDATE "FileItem" SET "nodeId" = ?, "updatedAt" = CURRENT_TIMESTAMP WHERE "id" = ? AND "deletedAt" IS NULL`,
+        targetNodeId,
+        id
+      )
+
+      void logAudit({
+        userId: session.user.id,
+        userName: session.user.name || "unknown",
+        userRole: session.user.role,
+        department: "FILES",
+        page: "files",
+        action: "UPDATE",
+        entityType: "FileItem",
+        entityId: id,
+        description: `Moved file ${item.name} to folder ${targetNodeId}`,
+        oldValue: item.nodeId,
+        newValue: targetNodeId,
+        ipAddress: getIpAddress(req),
+        userAgent: getUserAgent(req),
+      })
+      return NextResponse.json({ ok: true, moved: true })
     }
 
     const rows = (await db.$queryRawUnsafe(
@@ -440,6 +528,6 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ ok: true })
   } catch (err) {
     console.error("[files/items] PUT", err)
-    return NextResponse.json({ error: "Failed to restore" }, { status: 500 })
+    return NextResponse.json({ error: "Failed to update file" }, { status: 500 })
   }
 }

@@ -271,21 +271,144 @@ export async function PATCH(req: NextRequest) {
     }
     const body = await req.json().catch(() => ({}))
     const id = String(body.id || "")
-    const name = String(body.name || "").trim().slice(0, 200)
-    if (!id || !name) return NextResponse.json({ error: "id and name required" }, { status: 400 })
+    const nameRaw = body.name != null ? String(body.name).trim().slice(0, 200) : ""
+    const wantsMove = Object.prototype.hasOwnProperty.call(body, "parentId")
+    const newParentId = wantsMove
+      ? body.parentId == null || body.parentId === ""
+        ? null
+        : String(body.parentId)
+      : undefined
+
+    if (!id) return NextResponse.json({ error: "id required" }, { status: 400 })
+    if (!nameRaw && !wantsMove) {
+      return NextResponse.json({ error: "name or parentId required" }, { status: 400 })
+    }
 
     const existing = (await db.$queryRawUnsafe(
-      `SELECT "id","driveFolderId","name" FROM "FileNode" WHERE "id" = ? AND "deletedAt" IS NULL LIMIT 1`,
+      `SELECT "id","kind","parentId","driveFolderId","name" FROM "FileNode" WHERE "id" = ? AND "deletedAt" IS NULL LIMIT 1`,
       id
-    )) as Array<{ id: string; driveFolderId: string | null; name: string }>
+    )) as Array<{
+      id: string
+      kind: string
+      parentId: string | null
+      driveFolderId: string | null
+      name: string
+    }>
     if (!existing[0]) return NextResponse.json({ error: "Not found" }, { status: 404 })
     if (!(await canAccessFileNode(session.user.id, session.user.role, id))) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
-    if (existing[0].driveFolderId) {
+    const node = existing[0]
+    const nextName = nameRaw || node.name
+
+    if (wantsMove) {
+      if (node.kind === "DEPARTMENT") {
+        return NextResponse.json({ error: "Departments cannot be moved" }, { status: 400 })
+      }
+      if (!newParentId) {
+        return NextResponse.json({ error: "parentId is required to move this item" }, { status: 400 })
+      }
+      if (newParentId === id) {
+        return NextResponse.json({ error: "Cannot move a folder into itself" }, { status: 400 })
+      }
+      if (!(await canAccessFileNode(session.user.id, session.user.role, newParentId))) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+      }
+
+      // Prevent moving into own descendant
+      let walk: string | null = newParentId
+      while (walk) {
+        if (walk === id) {
+          return NextResponse.json({ error: "Cannot move a folder into its own subfolder" }, { status: 400 })
+        }
+        const parents = (await db.$queryRawUnsafe(
+          `SELECT "parentId" FROM "FileNode" WHERE "id" = ? LIMIT 1`,
+          walk
+        )) as Array<{ parentId: string | null }>
+        walk = parents[0]?.parentId ?? null
+      }
+
+      const parents = (await db.$queryRawUnsafe(
+        `SELECT "id","kind","driveFolderId" FROM "FileNode" WHERE "id" = ? AND "deletedAt" IS NULL LIMIT 1`,
+        newParentId
+      )) as Array<{ id: string; kind: string; driveFolderId: string | null }>
+      if (!parents[0]) return NextResponse.json({ error: "Parent not found" }, { status: 404 })
+      if (node.kind === "CATEGORY" && !["DEPARTMENT", "CATEGORY"].includes(parents[0].kind)) {
+        return NextResponse.json({ error: "Category must be under department or category" }, { status: 400 })
+      }
+      if (node.kind === "FOLDER" && !["CATEGORY", "FOLDER"].includes(parents[0].kind)) {
+        return NextResponse.json({ error: "Folder must be under category or folder" }, { status: 400 })
+      }
+
+      let targetDriveId: string
       try {
-        await renameDriveFile(existing[0].driveFolderId, name)
+        targetDriveId = await ensureNodeDriveFolder(newParentId)
+      } catch (e) {
+        return NextResponse.json(
+          {
+            error:
+              e instanceof Error
+                ? `Google Drive error: ${e.message.slice(0, 140)}`
+                : "Target folder is not linked to Google Drive",
+          },
+          { status: 400 }
+        )
+      }
+
+      if (node.driveFolderId) {
+        try {
+          await moveDriveFile(node.driveFolderId, targetDriveId, null)
+        } catch (e) {
+          console.error("[files/nodes] Drive folder move failed:", e)
+          return NextResponse.json(
+            {
+              error:
+                e instanceof Error
+                  ? `Google Drive move failed: ${e.message.slice(0, 140)}`
+                  : "Google Drive move failed",
+            },
+            { status: 400 }
+          )
+        }
+      }
+
+      await db.$executeRawUnsafe(
+        `UPDATE "FileNode" SET "parentId" = ?, "name" = ?, "updatedAt" = CURRENT_TIMESTAMP WHERE "id" = ? AND "deletedAt" IS NULL`,
+        newParentId,
+        nextName,
+        id
+      )
+
+      if (node.driveFolderId && nextName !== node.name) {
+        try {
+          await renameDriveFile(node.driveFolderId, nextName)
+        } catch (e) {
+          console.warn("[files/nodes] Drive rename after move failed:", e)
+        }
+      }
+
+      void logAudit({
+        userId: session.user.id,
+        userName: session.user.name || "unknown",
+        userRole: session.user.role,
+        department: "FILES",
+        page: "files",
+        action: "UPDATE",
+        entityType: "FileNode",
+        entityId: id,
+        description: `Moved ${node.kind.toLowerCase()} ${nextName}`,
+        oldValue: node.parentId || "",
+        newValue: newParentId,
+        ipAddress: getIpAddress(req),
+        userAgent: getUserAgent(req),
+      })
+      return NextResponse.json({ ok: true, moved: true })
+    }
+
+    if (node.driveFolderId && nextName !== node.name) {
+      try {
+        await renameDriveFile(node.driveFolderId, nextName)
       } catch (e) {
         console.warn("[files/nodes] Drive rename failed:", e)
       }
@@ -293,7 +416,7 @@ export async function PATCH(req: NextRequest) {
 
     await db.$executeRawUnsafe(
       `UPDATE "FileNode" SET "name" = ?, "updatedAt" = CURRENT_TIMESTAMP WHERE "id" = ? AND "deletedAt" IS NULL`,
-      name,
+      nextName,
       id
     )
     void logAudit({
@@ -305,7 +428,7 @@ export async function PATCH(req: NextRequest) {
       action: "UPDATE",
       entityType: "FileNode",
       entityId: id,
-      description: `Renamed folder/node to ${name}`,
+      description: `Renamed folder/node to ${nextName}`,
       ipAddress: getIpAddress(req),
       userAgent: getUserAgent(req),
     })
