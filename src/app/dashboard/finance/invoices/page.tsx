@@ -75,7 +75,7 @@ const statusIconMap: Record<string, { icon: typeof FileText; color: string }> = 
   OVERDUE: { icon: AlertCircle, color: "text-red-500" },
 };
 
-const ITEMS_PER_PAGE = 8;
+const ITEMS_PER_PAGE = 12;
 
 const formatCurrency = (n: number) =>
   `${CURRENCY_SYMBOL}${new Intl.NumberFormat("en-IN").format(n)}`;
@@ -813,42 +813,42 @@ function InvoicesPageInner() {
   // ━━ Auth guard ━━
   if (status === "loading") {
     return (
-      <div className="space-y-6">
+      <div className="space-y-4">
         {/* Loading skeletons matching final layout */}
         <div className="flex items-center justify-between">
           <Skeleton className="h-8 w-48" />
           <Skeleton className="h-10 w-36" />
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {[1, 2, 3, 4].map((i) => (
             <div
               key={i}
-              className="bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-5 animate-pulse"
+              className="bg-card/50 backdrop-blur-sm border border-border/50 rounded-xl p-3.5 animate-pulse"
             >
               <div className="flex items-center justify-between">
                 <div className="space-y-2">
                   <Skeleton className="h-3 w-20" />
-                  <Skeleton className="h-7 w-28" />
+                  <Skeleton className="h-6 w-24" />
                 </div>
-                <Skeleton className="h-10 w-10 rounded-full" />
+                <Skeleton className="h-8 w-8 rounded-full" />
               </div>
             </div>
           ))}
         </div>
-        <div className="bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-4 animate-pulse">
-          <div className="flex gap-3">
-            <Skeleton className="h-10 flex-1 rounded-xl" />
-            <Skeleton className="h-10 w-40 rounded-xl" />
+        <div className="bg-card/50 backdrop-blur-sm border border-border/50 rounded-xl px-3 py-2.5 animate-pulse">
+          <div className="flex gap-2">
+            <Skeleton className="h-9 flex-1 rounded-lg" />
+            <Skeleton className="h-9 w-40 rounded-lg" />
           </div>
         </div>
-        <div className="space-y-3">
-          {[1, 2, 3].map((i) => (
+        <div className="space-y-1.5">
+          {[1, 2, 3, 4, 5].map((i) => (
             <div
               key={i}
-              className="bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-5 animate-pulse"
+              className="bg-card/50 backdrop-blur-sm border border-border/50 rounded-xl px-3 py-2.5 animate-pulse"
             >
-              <Skeleton className="h-5 w-full" />
-              <Skeleton className="h-4 w-3/4 mt-3" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-3 w-2/3 mt-2" />
             </div>
           ))}
         </div>
@@ -882,7 +882,7 @@ function InvoicesPageInner() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* ━━ Page Header ━━ */}
       <PageHeader title="Invoices" description="Create and manage invoices">
         <Dialog
@@ -1076,21 +1076,21 @@ function InvoicesPageInner() {
       {/* ━━ 2. Filter Bar ━━ */}
       <div
         className={cn(
-          "bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-4"
+          "bg-card/50 backdrop-blur-sm border border-border/50 rounded-xl px-3 py-2.5"
         )}
       >
-        <div className="flex flex-col sm:flex-row gap-3">
+        <div className="flex flex-col sm:flex-row gap-2">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
               placeholder="Search invoices by number, client, or project..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 rounded-xl"
+              className="pl-8 h-9 text-sm rounded-lg"
             />
           </div>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-full sm:w-44 rounded-xl">
+            <SelectTrigger className="w-full sm:w-44 h-9 text-sm rounded-lg">
               <SelectValue placeholder="Filter by status" />
             </SelectTrigger>
             <SelectContent>
@@ -1108,16 +1108,16 @@ function InvoicesPageInner() {
       {paginatedInvoices.length === 0 && !loading ? (
         <div
           className={cn(
-            "bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-12",
-            "flex flex-col items-center justify-center gap-3"
+            "bg-card/50 backdrop-blur-sm border border-border/50 rounded-xl p-8",
+            "flex flex-col items-center justify-center gap-2"
           )}
         >
-          <div className="h-14 w-14 rounded-full bg-muted flex items-center justify-center">
-            <FileText className="h-7 w-7 text-muted-foreground" />
+          <div className="h-11 w-11 rounded-full bg-muted flex items-center justify-center">
+            <FileText className="h-5 w-5 text-muted-foreground" />
           </div>
-          <div className="text-center space-y-1">
-            <p className="font-medium text-muted-foreground">No invoices found</p>
-            <p className="text-sm text-muted-foreground">
+          <div className="text-center space-y-0.5">
+            <p className="text-sm font-medium text-muted-foreground">No invoices found</p>
+            <p className="text-xs text-muted-foreground">
               {searchQuery || statusFilter !== "ALL"
                 ? "Try adjusting your search or filters"
                 : "Create your first invoice to get started"}
@@ -1125,7 +1125,7 @@ function InvoicesPageInner() {
           </div>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-1.5">
           {paginatedInvoices.map((inv) => {
             const statusInfo = statusIconMap[inv.status] || {
               icon: FileText,
@@ -1137,8 +1137,8 @@ function InvoicesPageInner() {
               <div
                 key={safeText(inv.id)}
                 className={cn(
-                  "bg-card/50 backdrop-blur-sm border rounded-2xl p-5",
-                  "hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200",
+                  "bg-card/50 backdrop-blur-sm border rounded-xl px-3 py-2.5",
+                  "hover:shadow-md hover:border-primary/20 transition-all duration-150",
                   "cursor-pointer group",
                   inv.status === "OVERDUE"
                     ? "border-red-200 dark:border-red-900/40"
@@ -1154,12 +1154,12 @@ function InvoicesPageInner() {
                   }
                 }}
               >
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   {/* Left: Icon + Details */}
-                  <div className="flex items-start gap-4">
+                  <div className="flex items-center gap-2.5 min-w-0">
                     <div
                       className={cn(
-                        "h-11 w-11 rounded-xl flex items-center justify-center shrink-0",
+                        "h-8 w-8 rounded-lg flex items-center justify-center shrink-0",
                         inv.status === "OVERDUE"
                           ? "bg-red-100 dark:bg-red-900/30"
                           : inv.status === "PAID"
@@ -1171,19 +1171,19 @@ function InvoicesPageInner() {
                     >
                       <StatusIcon
                         className={cn(
-                          "h-5 w-5",
+                          "h-4 w-4",
                           statusInfo.color
                         )}
                       />
                     </div>
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-sm font-semibold">
+                    <div className="min-w-0 space-y-0.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <p className="text-sm font-semibold truncate">
                           {safeText(inv.invoiceNumber, "—")}
                         </p>
                         <Badge
                           className={cn(
-                            "text-[10px] px-2 py-0.5",
+                            "text-[10px] px-1.5 py-0 h-5",
                             invoiceStatusColors[inv.status] || ""
                           )}
                         >
@@ -1192,7 +1192,7 @@ function InvoicesPageInner() {
                         {inv.paymentStatus && (
                           <Badge
                             className={cn(
-                              "text-[10px] px-2 py-0.5",
+                              "text-[10px] px-1.5 py-0 h-5",
                               paymentStatusColors[inv.paymentStatus] || ""
                             )}
                           >
@@ -1206,81 +1206,81 @@ function InvoicesPageInner() {
                           </Badge>
                         )}
                       </div>
-                      <p className="text-sm text-muted-foreground">
-                        {safeText(inv.client?.name, "Unknown Client")}
+                      <p className="text-xs text-muted-foreground truncate">
+                        <span className="font-medium text-foreground/70">
+                          {safeText(inv.client?.name, "Unknown Client")}
+                        </span>
                         {inv.project
                           ? ` · ${safeText(inv.project.name, "")}`
                           : ""}
+                        <span className="text-muted-foreground/50"> · </span>
+                        Due {formatDate(inv.dueDate)}
                       </p>
-                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                        <span>Created: {formatDate(inv.createdAt)}</span>
-                        <span>Due: {formatDate(inv.dueDate)}</span>
-                      </div>
                     </div>
                   </div>
 
                   {/* Right: Amount + Actions */}
-                  <div className="flex items-center gap-3 sm:gap-4 flex-wrap sm:flex-nowrap">
-                    <div className="text-right sm:min-w-[100px]">
-                      <p className="text-xl font-bold">
+                  <div className="flex items-center gap-2 sm:gap-3 flex-wrap sm:flex-nowrap pl-10 sm:pl-0">
+                    <div className="text-right sm:min-w-[88px]">
+                      <p className="text-base font-semibold tabular-nums tracking-tight">
                         {formatCurrency(safeNumber(inv.total))}
                       </p>
                     </div>
                     <div
-                      className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                      className="flex items-center gap-0.5 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity duration-150"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8"
+                        className="h-7 w-7"
                         onClick={() => setPreviewInvoice(inv)}
                         aria-label="Preview invoice"
                         title="Preview"
                       >
-                        <Eye className="h-4 w-4" />
+                        <Eye className="h-3.5 w-3.5" />
                       </Button>
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8"
+                        className="h-7 w-7"
                         onClick={() => openEditDialog(inv)}
                         aria-label="Edit invoice"
                         title="Edit"
                       >
-                        <Pencil className="h-4 w-4" />
+                        <Pencil className="h-3.5 w-3.5" />
                       </Button>
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 text-red-500 hover:text-red-600"
+                        className="h-7 w-7 text-red-500 hover:text-red-600"
                         onClick={() => handleDeleteInvoice(inv.id)}
                         aria-label="Delete invoice"
                         title="Delete"
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-8"
+                        className="h-7 px-2 text-xs"
                         disabled={sendingInvoiceId === inv.id}
                         onClick={() => handleSendInvoiceEmail(inv)}
                         title="Email this invoice to the client"
                       >
-                        <Send className="h-3.5 w-3.5 mr-1" />
+                        <Send className="h-3 w-3 mr-1" />
                         {sendingInvoiceId === inv.id ? "Sending…" : "Send"}
                       </Button>
                       {inv.status !== "PAID" && (
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-8 text-green-600"
+                          className="h-7 px-2 text-xs text-green-600"
                           onClick={() =>
                             handleUpdateStatus(inv.id, "PAID")
                           }
                         >
-                          <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Mark
+                          <CheckCircle2 className="h-3 w-3 mr-1" /> Mark
                           Paid
                         </Button>
                       )}
@@ -1288,18 +1288,18 @@ function InvoicesPageInner() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-8"
+                          className="h-7 px-2 text-xs"
                           onClick={() => openPaymentDialog(inv)}
                           title="Record a partial or full payment"
                         >
-                          <DollarSign className="h-3.5 w-3.5 mr-1" /> Record payment
+                          <DollarSign className="h-3 w-3 mr-1" /> Pay
                         </Button>
                       )}
                       {(inv.status === "SENT" || inv.status === "PAID") && (
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-8"
+                          className="h-7 px-2"
                           onClick={() => {
                             const newPaymentStatus =
                               inv.paymentStatus === "UNPAID"
@@ -1334,16 +1334,16 @@ function InvoicesPageInner() {
 
       {/* ━━ 4. Pagination ━━ */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2 pt-2">
+        <div className="flex items-center justify-center gap-1.5 pt-1">
           <Button
             variant="outline"
             size="sm"
-            className="h-8 w-8 p-0"
+            className="h-7 w-7 p-0"
             disabled={safeCurrentPage <= 1}
             onClick={() => setCurrentPage((p) => p - 1)}
             aria-label="Previous page"
           >
-            <ChevronLeft className="h-4 w-4" />
+            <ChevronLeft className="h-3.5 w-3.5" />
           </Button>
           <div className="flex items-center gap-1">
             {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
@@ -1351,7 +1351,7 @@ function InvoicesPageInner() {
                 key={page}
                 variant={page === safeCurrentPage ? "default" : "outline"}
                 size="sm"
-                className="h-8 w-8 p-0"
+                className="h-7 w-7 p-0 text-xs"
                 onClick={() => setCurrentPage(page)}
                 aria-label={`Page ${page}`}
               >
@@ -1362,12 +1362,12 @@ function InvoicesPageInner() {
           <Button
             variant="outline"
             size="sm"
-            className="h-8 w-8 p-0"
+            className="h-7 w-7 p-0"
             disabled={safeCurrentPage >= totalPages}
             onClick={() => setCurrentPage((p) => p + 1)}
             aria-label="Next page"
           >
-            <ChevronRight className="h-4 w-4" />
+            <ChevronRight className="h-3.5 w-3.5" />
           </Button>
           <span className="text-xs text-muted-foreground ml-2">
             {filtered.length} invoice(s)
