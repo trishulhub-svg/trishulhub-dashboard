@@ -14,7 +14,7 @@ import { useUrlState } from "@/hooks/use-url-state";
 import {
   Clock, Plus, Trash2, CalendarDays, AlertCircle, ChevronLeft, ChevronRight,
   CalendarClock, Edit3, RefreshCw, Users, CalendarRange, Copy, Filter,
-  LayoutGrid, Info,
+  LayoutGrid, Info, History,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -263,6 +263,7 @@ function AvailabilityPageInner() {
   const { data: session, status } = useSession();
   const userRole = session?.user?.role || "DEVELOPER";
   const isUserAdmin = userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+  const isSuperAdmin = userRole === "SUPER_ADMIN";
   // canViewAvailability: SUPER_ADMIN, ADMIN, PROJECT_MANAGER can all VIEW the page.
   // PROJECT_MANAGER gets read-only access (mutation buttons hidden via isUserAdmin).
   const canViewAvailability = userRole === "SUPER_ADMIN" || userRole === "ADMIN" || userRole === "PROJECT_MANAGER";
@@ -308,6 +309,23 @@ function AvailabilityPageInner() {
   const [deleteAvailId, setDeleteAvailId] = useState<string | null>(null);
   const [deleteOverrideId, setDeleteOverrideId] = useState<string | null>(null);
   const [deleteDateRangeId, setDeleteDateRangeId] = useState<string | null>(null);
+  const [excludeDayTarget, setExcludeDayTarget] = useState<{
+    rangeId: string
+    date: string
+    label?: string
+  } | null>(null);
+  const [excludingDay, setExcludingDay] = useState(false);
+  const [historyLogs, setHistoryLogs] = useState<
+    Array<{
+      id: string
+      userName: string
+      action: string
+      entityType: string | null
+      description: string
+      createdAt: string
+    }>
+  >([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   // ── Availability form state ──
   const [formUserId, setFormUserId] = useState("");
@@ -794,7 +812,8 @@ function AvailabilityPageInner() {
         fetchCoreData();
         fetchWeekSchedule();
       } else {
-        toast.error("Failed to delete");
+        const err = await res.json().catch(() => ({}));
+        toast.error(safeText(err.error, "Failed to delete"));
       }
     } catch {
       toast.error("Failed to delete");
@@ -802,6 +821,84 @@ function AvailabilityPageInner() {
       setDeleteAvailId(null);
     }
   };
+
+  /** Remove one calendar day from a multi-day date range (Super Admin only). */
+  const handleExcludeDayFromRange = async (rangeId: string, date: string) => {
+    if (!isSuperAdmin) {
+      toast.error("Contact Super Admin to remove a single day from a date range");
+      setExcludeDayTarget(null);
+      return;
+    }
+    setExcludingDay(true);
+    try {
+      const res = await fetch(`/api/availability/date-ranges/${rangeId}/exclude-day`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(safeText(data.error, "Failed to remove day"));
+        return;
+      }
+      toast.success(safeText(data.message, `Removed ${date} from date range`));
+      setDayDetailDialogOpen(false);
+      setExcludeDayTarget(null);
+      fetchCoreData();
+      fetchWeekSchedule();
+    } catch {
+      toast.error("Failed to remove day");
+    } finally {
+      setExcludingDay(false);
+    }
+  };
+
+  const requestExcludeDay = (rangeId: string, date: string, label?: string) => {
+    if (!isSuperAdmin) {
+      toast.error("Contact Super Admin to remove a single day from a date range");
+      return;
+    }
+    setExcludeDayTarget({ rangeId, date, label });
+  };
+
+  const fetchHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const res = await fetch(
+        "/api/audit-trail?page=availability&department=HR_PEOPLE&limit=80",
+        { credentials: "include", cache: "no-store" }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(safeText(data.error, "Failed to load availability history"));
+        setHistoryLogs([]);
+        return;
+      }
+      const rows = Array.isArray(data.logs) ? data.logs : Array.isArray(data.data) ? data.data : [];
+      setHistoryLogs(
+        rows.map((r: Record<string, unknown>) => ({
+          id: String(r.id || ""),
+          userName: String(r.userName || "Unknown"),
+          action: String(r.action || ""),
+          entityType: r.entityType ? String(r.entityType) : null,
+          description: String(r.description || ""),
+          createdAt: String(r.createdAt || ""),
+        }))
+      );
+    } catch {
+      toast.error("Failed to load availability history");
+      setHistoryLogs([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "history" && canViewAvailability) {
+      void fetchHistory();
+    }
+  }, [activeTab, canViewAvailability, fetchHistory]);
 
   const handleDeleteOverride = async (id: string) => {
     if (!id) {
@@ -1366,6 +1463,9 @@ function AvailabilityPageInner() {
           </TabsTrigger>
           <TabsTrigger value="overrides" className="text-xs sm:text-sm">
             <CalendarClock className="h-4 w-4 mr-1 sm:mr-1.5" /> Overrides ({upcomingOverrides.length})
+          </TabsTrigger>
+          <TabsTrigger value="history" className="text-xs sm:text-sm">
+            <History className="h-4 w-4 mr-1 sm:mr-1.5" /> History
           </TabsTrigger>
         </TabsList>
 
@@ -2272,6 +2372,73 @@ function AvailabilityPageInner() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* ═══════════════════════════════════════════════════════════════════════
+            TAB: Availability history (audit trail)
+        ═══════════════════════════════════════════════════════════════════════ */}
+        <TabsContent value="history" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <History className="h-5 w-5" />
+                    Availability history
+                  </CardTitle>
+                  <CardDescription>
+                    Audit trail of adds, edits, deletes, and single-day removals from date ranges.
+                  </CardDescription>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8"
+                  onClick={() => void fetchHistory()}
+                  disabled={historyLoading}
+                >
+                  <RefreshCw className={cn("h-3.5 w-3.5 mr-1", historyLoading && "animate-spin")} />
+                  Refresh
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {historyLoading ? (
+                <div className="space-y-2 py-4">
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                </div>
+              ) : historyLogs.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-10">
+                  No availability history yet.
+                </p>
+              ) : (
+                <ul className="space-y-2 max-h-[70vh] overflow-y-auto">
+                  {historyLogs.map((log) => (
+                    <li
+                      key={log.id}
+                      className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5 space-y-1"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="secondary" className="text-[10px]">
+                          {log.action}
+                        </Badge>
+                        {log.entityType && (
+                          <span className="text-[10px] text-muted-foreground">{log.entityType}</span>
+                        )}
+                        <span className="text-[10px] text-muted-foreground ml-auto">
+                          {log.createdAt ? formatDisplayDateWithWeekday(log.createdAt) : ""}
+                        </span>
+                      </div>
+                      <p className="text-sm text-foreground/90">{safeText(log.description)}</p>
+                      <p className="text-[11px] text-muted-foreground">by {safeText(log.userName)}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
 
       {/* Day Detail Popup Dialog */}
@@ -2319,23 +2486,54 @@ function AvailabilityPageInner() {
                 {selectedDayDetail.dayData.availability.length > 0 ? (
                   <div className="space-y-1.5">
                     {selectedDayDetail.dayData.availability.map((slot) => {
+                      const fromRange = slot.source === "date-range" || selectedDayDetail.dayData.fromDateRange;
                       const entry = findAvailEntry(slot.id) || makeEntryFromSlot(slot, selectedDayDetail.userId, selectedDayDetail.dayData.dayOfWeek);
                       return (
                         <div key={slot.id} className="flex items-center gap-2 p-2.5 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors">
                           <div className={`h-2.5 w-2.5 rounded-full shrink-0 ${slot.isAvailable ? "bg-green-500" : "bg-red-400"}`} />
                           <button
                             className="flex-1 min-w-0 text-left"
-                            onClick={() => { setDayDetailDialogOpen(false); openEditAvailability(entry); }}
+                            onClick={() => {
+                              if (fromRange) return;
+                              setDayDetailDialogOpen(false);
+                              openEditAvailability(entry);
+                            }}
                           >
                             <span className="text-sm font-medium">{slot.startTime} – {slot.endTime}</span>
                             <span className="text-xs text-muted-foreground ml-1.5">({slot.hours}h)</span>
+                            {fromRange && (
+                              <Badge className="ml-1.5 text-[8px] px-1 py-0 bg-violet-100 text-violet-800 dark:bg-violet-900/50 dark:text-violet-200 border-0">
+                                RANGE
+                              </Badge>
+                            )}
                           </button>
                           {isUserAdmin && (
                             <div className="flex items-center gap-1 shrink-0">
-                              <Button variant="outline" size="sm" className="h-7 px-2 text-[10px]" onClick={() => { setDayDetailDialogOpen(false); openEditAvailability(entry); }}>
-                                <Edit3 className="h-3 w-3" />
-                              </Button>
-                              <Button variant="outline" size="sm" className="h-7 px-2 text-[10px] text-red-600 border-red-200 dark:border-red-800" onClick={() => { setDeleteAvailId(slot.id); setDayDetailDialogOpen(false); }}>
+                              {!fromRange && (
+                                <Button variant="outline" size="sm" className="h-7 px-2 text-[10px]" onClick={() => { setDayDetailDialogOpen(false); openEditAvailability(entry); }}>
+                                  <Edit3 className="h-3 w-3" />
+                                </Button>
+                              )}
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-[10px] text-red-600 border-red-200 dark:border-red-800"
+                                onClick={() => {
+                                  if (fromRange) {
+                                    requestExcludeDay(slot.id, selectedDayDetail.date, `${slot.startTime}–${slot.endTime}`);
+                                  } else {
+                                    setDeleteAvailId(slot.id);
+                                    setDayDetailDialogOpen(false);
+                                  }
+                                }}
+                                title={
+                                  fromRange
+                                    ? isSuperAdmin
+                                      ? "Remove this day from the date range"
+                                      : "Contact Super Admin to remove a single day"
+                                    : "Delete slot"
+                                }
+                              >
                                 <Trash2 className="h-3 w-3" />
                               </Button>
                             </div>
@@ -2425,19 +2623,38 @@ function AvailabilityPageInner() {
                     </span>
                   </div>
                   {dateRangesForDay(selectedDayDetail.userId, selectedDayDetail.date, selectedDayDetail.dayData).map((dr) => (
-                    <div key={dr.id} className="text-xs text-violet-800 dark:text-violet-200">
-                      <span className="font-medium">
-                        {dr.isAvailable ? "Available" : "Unavailable"}
-                      </span>
-                      {dr.startTime && dr.endTime
-                        ? ` · ${dr.startTime}–${dr.endTime}`
-                        : " · All day"}
-                      <span className="text-muted-foreground">
-                        {" "}({formatDisplayDateRange(dr.startDate, dr.endDate)} · {formatDaysOfWeekLabel(dr.daysOfWeek)})
-                      </span>
-                      {dr.reason ? (
-                        <div className="text-muted-foreground mt-0.5">{safeText(dr.reason)}</div>
-                      ) : null}
+                    <div key={dr.id} className="text-xs text-violet-800 dark:text-violet-200 space-y-1.5">
+                      <div>
+                        <span className="font-medium">
+                          {dr.isAvailable ? "Available" : "Unavailable"}
+                        </span>
+                        {dr.startTime && dr.endTime
+                          ? ` · ${dr.startTime}–${dr.endTime}`
+                          : " · All day"}
+                        <span className="text-muted-foreground">
+                          {" "}({formatDisplayDateRange(dr.startDate, dr.endDate)} · {formatDaysOfWeekLabel(dr.daysOfWeek)})
+                        </span>
+                        {dr.reason ? (
+                          <div className="text-muted-foreground mt-0.5">{safeText(dr.reason)}</div>
+                        ) : null}
+                      </div>
+                      {isUserAdmin && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-[10px] text-red-600 border-red-200 dark:border-red-800"
+                          onClick={() =>
+                            requestExcludeDay(
+                              dr.id,
+                              selectedDayDetail.date,
+                              formatDisplayDate(selectedDayDetail.date)
+                            )
+                          }
+                        >
+                          <Trash2 className="h-3 w-3 mr-1" />
+                          {isSuperAdmin ? "Remove this day only" : "Contact Super Admin"}
+                        </Button>
+                      )}
                     </div>
                   ))}
                   {isUserAdmin && (
@@ -2450,7 +2667,7 @@ function AvailabilityPageInner() {
                         setActiveTab("date-ranges");
                       }}
                     >
-                      Manage date ranges
+                      Manage full date ranges
                     </Button>
                   )}
                 </div>
@@ -2859,6 +3076,35 @@ function AvailabilityPageInner() {
             <AlertDialogAction onClick={() => deleteDateRangeId && handleDeleteDateRange(deleteDateRangeId)} className="bg-red-600 hover:bg-red-700" disabled={!isUserAdmin}>
               Delete
             </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Remove single day from date range (Super Admin) */}
+      <AlertDialog open={!!excludeDayTarget} onOpenChange={(open) => { if (!open) setExcludeDayTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove this day from date range?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {isSuperAdmin
+                ? `This removes only ${excludeDayTarget?.date || "this day"} from the multi-day date range. Other days stay. This is logged in Availability history.`
+                : "Only Super Admin can remove a single day from a date range. Contact Super Admin, or edit/delete the full range in Date Ranges."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={excludingDay}>Cancel</AlertDialogCancel>
+            {isSuperAdmin && (
+              <AlertDialogAction
+                className="bg-red-600 hover:bg-red-700"
+                disabled={excludingDay || !excludeDayTarget}
+                onClick={() =>
+                  excludeDayTarget &&
+                  void handleExcludeDayFromRange(excludeDayTarget.rangeId, excludeDayTarget.date)
+                }
+              >
+                {excludingDay ? "Removing…" : "Remove day"}
+              </AlertDialogAction>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

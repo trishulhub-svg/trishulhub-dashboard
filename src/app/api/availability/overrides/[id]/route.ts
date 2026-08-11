@@ -157,6 +157,20 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       })
     })
 
+    void logAudit({
+      userId: session.user.id,
+      userName: session.user.name || "unknown",
+      userRole,
+      department: "HR_PEOPLE",
+      page: "availability",
+      action: "UPDATE",
+      entityType: "AvailabilityOverride",
+      entityId: id,
+      description: `Updated availability override for user ${override.user?.name || override.userId} on ${formatDisplayDate(toYmd(override.date))} (fields: ${Object.keys(data).join(", ") || "none"})`,
+      ipAddress: getIpAddress(req),
+      userAgent: getUserAgent(req),
+    })
+
     return NextResponse.json(mapOverride(override))
   } catch (error: unknown) {
     console.error("[availability/overrides] PATCH error:", error instanceof Error ? error.message : String(error))
