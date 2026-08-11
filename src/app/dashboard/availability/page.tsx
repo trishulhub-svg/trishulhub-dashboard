@@ -309,11 +309,6 @@ function AvailabilityPageInner() {
   const [deleteAvailId, setDeleteAvailId] = useState<string | null>(null);
   const [deleteOverrideId, setDeleteOverrideId] = useState<string | null>(null);
   const [deleteDateRangeId, setDeleteDateRangeId] = useState<string | null>(null);
-  const [excludeDayTarget, setExcludeDayTarget] = useState<{
-    rangeId: string
-    date: string
-    label?: string
-  } | null>(null);
   const [excludingDay, setExcludingDay] = useState(false);
   const [historyLogs, setHistoryLogs] = useState<
     Array<{
@@ -825,42 +820,55 @@ function AvailabilityPageInner() {
   /** Remove one calendar day from a multi-day date range (Super Admin only). */
   const handleExcludeDayFromRange = async (rangeId: string, date: string) => {
     if (!isSuperAdmin) {
-      toast.error("Contact Super Admin to remove a single day from a date range");
-      setExcludeDayTarget(null);
-      return;
+      toast.error(
+        "Contact Super Admin to remove a single day from a date range. Or delete the full range in Date Ranges."
+      )
+      return
     }
-    setExcludingDay(true);
+    setExcludingDay(true)
     try {
-      const res = await fetch(`/api/availability/date-ranges/${rangeId}/exclude-day`, {
+      const res = await fetch(`/api/availability/date-ranges/${encodeURIComponent(rangeId)}/exclude-day`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ date }),
-      });
-      const data = await res.json().catch(() => ({}));
+      })
+      const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        toast.error(safeText(data.error, "Failed to remove day"));
-        return;
+        toast.error(safeText(data.error, "Failed to remove day"))
+        return
       }
-      toast.success(safeText(data.message, `Removed ${date} from date range`));
-      setDayDetailDialogOpen(false);
-      setExcludeDayTarget(null);
-      fetchCoreData();
-      fetchWeekSchedule();
+      toast.success(safeText(data.message, `Removed ${date} from date range`))
+      await Promise.all([fetchCoreData(), fetchWeekSchedule()])
     } catch {
-      toast.error("Failed to remove day");
+      toast.error("Failed to remove day")
     } finally {
-      setExcludingDay(false);
+      setExcludingDay(false)
     }
-  };
+  }
 
   const requestExcludeDay = (rangeId: string, date: string, label?: string) => {
-    if (!isSuperAdmin) {
-      toast.error("Contact Super Admin to remove a single day from a date range");
-      return;
+    if (!rangeId || !date) {
+      toast.error("Missing date range or date")
+      return
     }
-    setExcludeDayTarget({ rangeId, date, label });
-  };
+    if (!isSuperAdmin) {
+      toast.error(
+        "Contact Super Admin to remove a single day from a date range. Or delete the full range in Date Ranges."
+      )
+      return
+    }
+    // Close day-detail dialog first — nested AlertDialog fails on mobile
+    setDayDetailDialogOpen(false)
+    setSelectedDayDetail(null)
+    const dayLabel = label || date
+    // Use native confirm — reliable on mobile, no nested dialog issues
+    const ok = window.confirm(
+      `Remove ${dayLabel} (${date}) from this date range?\n\nOther days stay. This is logged in Availability history.`
+    )
+    if (!ok) return
+    void handleExcludeDayFromRange(rangeId, date)
+  }
 
   const fetchHistory = useCallback(async () => {
     setHistoryLoading(true);
@@ -2643,6 +2651,7 @@ function AvailabilityPageInner() {
                           variant="outline"
                           size="sm"
                           className="h-7 text-[10px] text-red-600 border-red-200 dark:border-red-800"
+                          disabled={excludingDay}
                           onClick={() =>
                             requestExcludeDay(
                               dr.id,
@@ -2652,7 +2661,11 @@ function AvailabilityPageInner() {
                           }
                         >
                           <Trash2 className="h-3 w-3 mr-1" />
-                          {isSuperAdmin ? "Remove this day only" : "Contact Super Admin"}
+                          {excludingDay
+                            ? "Removing…"
+                            : isSuperAdmin
+                              ? "Remove this day only"
+                              : "Contact Super Admin"}
                         </Button>
                       )}
                     </div>
@@ -3076,35 +3089,6 @@ function AvailabilityPageInner() {
             <AlertDialogAction onClick={() => deleteDateRangeId && handleDeleteDateRange(deleteDateRangeId)} className="bg-red-600 hover:bg-red-700" disabled={!isUserAdmin}>
               Delete
             </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Remove single day from date range (Super Admin) */}
-      <AlertDialog open={!!excludeDayTarget} onOpenChange={(open) => { if (!open) setExcludeDayTarget(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove this day from date range?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {isSuperAdmin
-                ? `This removes only ${excludeDayTarget?.date || "this day"} from the multi-day date range. Other days stay. This is logged in Availability history.`
-                : "Only Super Admin can remove a single day from a date range. Contact Super Admin, or edit/delete the full range in Date Ranges."}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={excludingDay}>Cancel</AlertDialogCancel>
-            {isSuperAdmin && (
-              <AlertDialogAction
-                className="bg-red-600 hover:bg-red-700"
-                disabled={excludingDay || !excludeDayTarget}
-                onClick={() =>
-                  excludeDayTarget &&
-                  void handleExcludeDayFromRange(excludeDayTarget.rangeId, excludeDayTarget.date)
-                }
-              >
-                {excludingDay ? "Removing…" : "Remove day"}
-              </AlertDialogAction>
-            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
