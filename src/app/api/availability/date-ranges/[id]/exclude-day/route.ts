@@ -8,44 +8,44 @@ import { rateLimit } from "@/lib/rate-limit"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 import { parseDaysOfWeek, dateRangeAppliesOnDay } from "@/lib/availability-days"
 
-function toYmd(d: Date): string {
-  const year = d.getFullYear()
-  const month = String(d.getMonth() + 1).padStart(2, "0")
-  const day = String(d.getDate()).padStart(2, "0")
-  return `${year}-${month}-${day}`
-}
-
-function parseLocalDate(input: string): Date | null {
-  const s = typeof input === "string" ? input.trim() : ""
-  if (!s) return null
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-    const d = new Date(`${s}T00:00:00`)
-    return Number.isNaN(d.getTime()) ? null : d
+/** Calendar YYYY-MM-DD from Date/string without local TZ day-shift surprises on Vercel. */
+function toYmdSafe(d: Date | string): string {
+  if (typeof d === "string") {
+    const s = d.trim()
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10)
   }
-  const d = new Date(s)
-  if (Number.isNaN(d.getTime())) return null
-  d.setHours(0, 0, 0, 0)
-  return d
+  const dt = d instanceof Date ? d : new Date(d)
+  if (Number.isNaN(dt.getTime())) return ""
+  return dt.toISOString().slice(0, 10)
 }
 
-function addDays(d: Date, n: number): Date {
-  const x = new Date(d)
-  x.setDate(x.getDate() + n)
-  x.setHours(0, 0, 0, 0)
-  return x
+function parseYmd(input: string): { ymd: string; dow: number } | null {
+  const s = typeof input === "string" ? input.trim() : ""
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null
+  // Parse as UTC noon to avoid DST/edge midnight issues when reading getUTCDay
+  const dt = new Date(`${s}T12:00:00.000Z`)
+  if (Number.isNaN(dt.getTime())) return null
+  return { ymd: s, dow: dt.getUTCDay() }
 }
 
-function endOfDay(d: Date): Date {
-  const x = new Date(d)
-  x.setHours(23, 59, 59, 999)
-  return x
+function addDaysYmd(ymd: string, n: number): string {
+  const dt = new Date(`${ymd}T12:00:00.000Z`)
+  dt.setUTCDate(dt.getUTCDate() + n)
+  return dt.toISOString().slice(0, 10)
+}
+
+function startOfYmd(ymd: string): Date {
+  return new Date(`${ymd}T00:00:00.000Z`)
+}
+
+function endOfYmd(ymd: string): Date {
+  return new Date(`${ymd}T23:59:59.999Z`)
 }
 
 /**
  * POST /api/availability/date-ranges/[id]/exclude-day
  * Body: { date: "YYYY-MM-DD" }
- * Super Admin only — carves one calendar day out of a multi-day range
- * (shrink start/end, split into two ranges, or delete if single-day).
+ * Super Admin only — carves one calendar day out of a multi-day range.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -59,7 +59,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: "Too many requests" }, { status: 429 })
     }
 
-    // Admins can manage ranges, but single-day carve-out is Super Admin only
     if (!isAdmin(session.user.role)) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
@@ -67,7 +66,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json(
         {
           error:
-            "Contact Super Admin to remove a single day from a date range. Admins can edit or delete the full range instead.",
+            "Contact Super Admin to remove a single day from a date range. Admins can edit or delete the full range in the Date Ranges tab.",
           code: "SUPER_ADMIN_REQUIRED",
         },
         { status: 403 }
@@ -80,12 +79,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     const body = await req.json().catch(() => ({}))
-    const dateStr = typeof body.date === "string" ? body.date.trim() : ""
-    const day = parseLocalDate(dateStr)
-    if (!day) {
+    const parsedDay = parseYmd(typeof body.date === "string" ? body.date : "")
+    if (!parsedDay) {
       return NextResponse.json({ error: "date is required (YYYY-MM-DD)" }, { status: 400 })
     }
-    const dayYmd = toYmd(day)
+    const dayYmd = parsedDay.ymd
 
     const existing = await db.availabilityDateRange.findUnique({
       where: { id },
@@ -95,19 +93,23 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: "Date range not found" }, { status: 404 })
     }
 
-    const start = new Date(existing.startDate)
-    start.setHours(0, 0, 0, 0)
-    const end = new Date(existing.endDate)
-    end.setHours(0, 0, 0, 0)
-    const startYmd = toYmd(start)
-    const endYmd = toYmd(end)
+    const startYmd = toYmdSafe(existing.startDate)
+    const endYmd = toYmdSafe(existing.endDate)
+    if (!startYmd || !endYmd) {
+      return NextResponse.json({ error: "Date range has invalid dates" }, { status: 400 })
+    }
 
     if (dayYmd < startYmd || dayYmd > endYmd) {
-      return NextResponse.json({ error: "That date is not inside this date range" }, { status: 400 })
+      return NextResponse.json(
+        {
+          error: `That date (${dayYmd}) is not inside this date range (${startYmd} → ${endYmd})`,
+        },
+        { status: 400 }
+      )
     }
 
     const daysOfWeek = parseDaysOfWeek(existing.daysOfWeek)
-    if (!dateRangeAppliesOnDay(daysOfWeek, day.getDay())) {
+    if (!dateRangeAppliesOnDay(daysOfWeek, parsedDay.dow)) {
       return NextResponse.json(
         { error: "That weekday is not included in this date range filter" },
         { status: 400 }
@@ -118,36 +120,34 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     let mode: "deleted" | "shrunk_start" | "shrunk_end" | "split" = "deleted"
 
     if (startYmd === endYmd) {
-      // Only this one day — delete the whole range
       await db.availabilityDateRange.delete({ where: { id } })
       mode = "deleted"
     } else if (dayYmd === startYmd) {
-      const newStart = addDays(day, 1)
+      const newStart = addDaysYmd(dayYmd, 1)
       await db.availabilityDateRange.update({
         where: { id },
-        data: { startDate: newStart, updatedAt: new Date() },
+        data: { startDate: startOfYmd(newStart) },
       })
       mode = "shrunk_start"
     } else if (dayYmd === endYmd) {
-      const newEnd = endOfDay(addDays(day, -1))
+      const newEnd = addDaysYmd(dayYmd, -1)
       await db.availabilityDateRange.update({
         where: { id },
-        data: { endDate: newEnd, updatedAt: new Date() },
+        data: { endDate: endOfYmd(newEnd) },
       })
       mode = "shrunk_end"
     } else {
-      // Middle day — keep left half on original, create right half
-      const leftEnd = endOfDay(addDays(day, -1))
-      const rightStart = addDays(day, 1)
+      const leftEnd = addDaysYmd(dayYmd, -1)
+      const rightStart = addDaysYmd(dayYmd, 1)
       await db.$transaction(async (tx) => {
         await tx.availabilityDateRange.update({
           where: { id },
-          data: { endDate: leftEnd, updatedAt: new Date() },
+          data: { endDate: endOfYmd(leftEnd) },
         })
         await tx.availabilityDateRange.create({
           data: {
             userId: existing.userId,
-            startDate: rightStart,
+            startDate: startOfYmd(rightStart),
             endDate: existing.endDate,
             startTime: existing.startTime,
             endTime: existing.endTime,
@@ -195,6 +195,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       "[availability/date-ranges/exclude-day]",
       error instanceof Error ? error.message : String(error)
     )
-    return NextResponse.json({ error: "Failed to remove day from date range" }, { status: 500 })
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? `Failed to remove day: ${error.message.slice(0, 160)}`
+            : "Failed to remove day from date range",
+      },
+      { status: 500 }
+    )
   }
 }
