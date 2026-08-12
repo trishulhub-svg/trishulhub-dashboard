@@ -346,9 +346,22 @@ export async function GET(req: NextRequest) {
     // TODO: Add cursor-based pagination for large datasets
     // Default team roster for Team manage UI (includes deactivated so admins can reactivate).
     // Assignment pickers should use ?type=users (active-only) or filter isActive client-side.
+    // Never return password hashes — ADMIN/HR must not be able to offline-crack SUPER_ADMIN.
     const users = await db.user.findMany({
       where: { role: { not: "CLIENT" } },
-      include: {
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        googleEditEmail: true,
+        role: true,
+        department: true,
+        isActive: true,
+        avatar: true,
+        pageAccessMode: true,
+        pageAccessPages: true,
+        createdAt: true,
+        updatedAt: true,
         _count: { select: { leaves: true } },
       },
       orderBy: { name: "asc" },
@@ -785,14 +798,15 @@ export async function PATCH(req: NextRequest) {
       },
     })
 
-    // Deactivate → instantly revoke all device sessions (JWT multi-device tokens)
-    if (data.isActive === false) {
+    // Deactivate OR role change → instantly revoke sessions so stale JWT privileges die
+    const roleChangedForSession = Boolean(data.role && data.role !== beforeUser.role)
+    if (data.isActive === false || roleChangedForSession) {
       try {
         const { invalidateSession } = await import("@/lib/session-manager")
         await invalidateSession(effectiveId)
       } catch (err) {
         console.warn(
-          "[team] Failed to revoke sessions on deactivate:",
+          "[team] Failed to revoke sessions on deactivate/role change:",
           err instanceof Error ? err.message : err
         )
       }

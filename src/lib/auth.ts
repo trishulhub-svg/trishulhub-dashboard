@@ -275,19 +275,25 @@ export const authOptions: NextAuthOptions = {
         }
       }
 
-      // Refresh page-access ACL + active flag from DB (throttled) so admin changes apply without re-login
+      // Refresh role + page-access ACL + active flag from DB (throttled)
+      // so demotion / ACL changes apply without waiting for full re-login.
       const lastAccessAt = typeof token.pageAccessAt === "number" ? token.pageAccessAt : 0
       if (userId && trigger !== "update" && Date.now() - lastAccessAt > 60_000) {
         try {
           const access = await db.user.findUnique({
             where: { id: userId },
-            select: { pageAccessMode: true, pageAccessPages: true, isActive: true },
+            select: { pageAccessMode: true, pageAccessPages: true, isActive: true, role: true },
           })
           if (access) {
             if (!access.isActive) {
               log("[auth] User deactivated:", userId, "— ending session")
               token.error = "SessionKicked"
               return token
+            }
+            // Keep JWT role in sync with DB (blocks stale elevated privileges after demotion)
+            if (access.role && access.role !== token.role) {
+              log("[auth] Role changed in DB for user:", userId, token.role, "→", access.role)
+              token.role = access.role as UserRole
             }
             token.pageAccessMode = normalizePageAccessMode(access.pageAccessMode)
             token.pageAccessPages = parsePageAccessPages(access.pageAccessPages)

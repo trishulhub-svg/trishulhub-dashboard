@@ -7,6 +7,7 @@ import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 import {
   canAccessFileModule,
   canWriteFiles,
+  canWriteFileNode,
   canAccessFileItem,
   canAccessFileNode,
   listSharedFileItemsForUser,
@@ -39,6 +40,9 @@ async function assertFolderAccess(folderId: string, userId: string, role: string
   }
   if (!(await canAccessFileNode(userId, role, folderId))) {
     return { error: "Forbidden", status: 403 as const }
+  }
+  if (!(await canWriteFileNode(userId, role, folderId))) {
+    return { error: "Forbidden — write access required", status: 403 as const }
   }
   return { folder: folder[0] }
 }
@@ -304,6 +308,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Max file size is 50MB" }, { status: 400 })
     }
 
+    // Block dangerous executable / script uploads (Drive is company-shared)
+    const blockedExt =
+      /\.(exe|dll|bat|cmd|com|msi|scr|ps1|vbs|js|jse|wsf|wsh|scf|lnk|reg|jar|apk|sh|bash|zsh|php|phtml|asp|aspx|cgi|pl)$/i
+    if (blockedExt.test(file.name)) {
+      return NextResponse.json(
+        { error: "This file type is not allowed for security reasons" },
+        { status: 400 }
+      )
+    }
+
     const access = await assertFolderAccess(nodeId, session.user.id, session.user.role)
     if ("error" in access && access.error) {
       return NextResponse.json({ error: access.error }, { status: access.status })
@@ -422,8 +436,8 @@ export async function DELETE(req: NextRequest) {
     }>
     const item = rows[0]
     if (!item) return NextResponse.json({ error: "Not found" }, { status: 404 })
-    if (!(await canAccessFileNode(session.user.id, session.user.role, item.nodeId))) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    if (!(await canWriteFileNode(session.user.id, session.user.role, item.nodeId))) {
+      return NextResponse.json({ error: "Forbidden — write access required" }, { status: 403 })
     }
 
     try {

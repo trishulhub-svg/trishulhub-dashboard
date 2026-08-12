@@ -36,8 +36,8 @@ export async function canAccessProject(
 
 /**
  * True if user may reveal/manage project secrets (credentials + infra tokens).
- * Restricted to Admin / PROJECT_MANAGER (not regular members).
+ * SUPER_ADMIN / ADMIN / PROJECT_MANAGER only — HR is excluded (people ops ≠ secret access).
  */
 export function canManageProjectSecrets(role: string): boolean {
-  return isAdminOrProjectManager(role)
+  return role === "SUPER_ADMIN" || role === "ADMIN" || role === "PROJECT_MANAGER"
 }

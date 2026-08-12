@@ -168,23 +168,83 @@ export async function getAllowedDepartmentIds(
     }
     return [...ids]
   } catch {
-    // Fail closed for non-admins: only non-private if we can list them
-    try {
-      const all = (await db.$queryRawUnsafe(
-        `SELECT "id" FROM "FileNode"
-         WHERE "kind" = 'DEPARTMENT' AND "deletedAt" IS NULL AND ("isPrivate" = 0 OR "isPrivate" IS NULL)`
-      )) as Array<{ id: string }>
-      return all.map((r) => r.id)
-    } catch {
-      return []
-    }
+    // Fail closed — never expand access on query errors
+    return []
   }
+}
+
+/** True when NODE_ROLE / NODE_USER grants exist in the system. */
+async function hasAnyNodeGrants(): Promise<boolean> {
+  try {
+    const any = (await db.$queryRawUnsafe(
+      `SELECT COUNT(*) as c FROM "FileAccessGrant" WHERE "scope" IN ('NODE_ROLE','NODE_USER')`
+    )) as Array<{ c: number }>
+    return Boolean(any[0] && Number(any[0].c) > 0)
+  } catch {
+    return true // fail closed: assume grants exist so we require write checks
+  }
+}
+
+/** Department-level write grant for role or user. */
+export async function canWriteDepartment(
+  userId: string,
+  role: string,
+  deptId: string
+): Promise<boolean> {
+  if (isSuperAdmin(role) || canManageFileReview(role)) return true
+  try {
+    const rows = (await db.$queryRawUnsafe(
+      `SELECT "id" FROM "FileAccessGrant"
+       WHERE "canWrite" = 1 AND "nodeId" = ? AND (
+         ("scope" = 'NODE_USER' AND "userId" = ?)
+         OR ("scope" = 'NODE_ROLE' AND "role" = ?)
+       )
+       LIMIT 1`,
+      deptId,
+      userId,
+      role
+    )) as Array<{ id: string }>
+    if (rows[0]) return true
+    // Bootstrap (no grants configured yet): allow write inside departments the user can see
+    if (!(await hasAnyNodeGrants())) return true
+    return false
+  } catch {
+    return false
+  }
+}
+
+export async function canWriteFileNode(
+  userId: string,
+  role: string,
+  nodeId: string
+): Promise<boolean> {
+  if (!(await canAccessFileModule(userId, role))) return false
+  if (isSuperAdmin(role) || canManageFileReview(role)) return true
+  if (!(await canAccessFileNode(userId, role, nodeId))) return false
+  const deptId = await getDepartmentIdForNode(nodeId)
+  if (!deptId) return false
+  return canWriteDepartment(userId, role, deptId)
 }
 
 export async function canWriteFiles(userId: string, role: string): Promise<boolean> {
   if (!(await canAccessFileModule(userId, role))) return false
   if (isSuperAdmin(role) || canManageFileReview(role)) return true
-  return true
+  try {
+    if (!(await hasAnyNodeGrants())) return true
+    const rows = (await db.$queryRawUnsafe(
+      `SELECT "id" FROM "FileAccessGrant"
+       WHERE "canWrite" = 1 AND (
+         ("scope" = 'NODE_USER' AND "userId" = ?)
+         OR ("scope" = 'NODE_ROLE' AND "role" = ?)
+       )
+       LIMIT 1`,
+      userId,
+      role
+    )) as Array<{ id: string }>
+    return Boolean(rows[0])
+  } catch {
+    return false
+  }
 }
 
 export async function listDepartmentGrants(nodeId: string) {

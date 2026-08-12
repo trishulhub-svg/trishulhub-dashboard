@@ -222,8 +222,13 @@ export async function removeSessionToken(
     const tokens = parseTokens(existing.sessionToken).filter(t => t !== token)
 
     if (tokens.length === 0) {
-      await db.activeSession.deleteMany({ where: { userId } })
-      sessionCache.delete(userId)
+      // Keep a tombstone row so a leftover JWT cannot self-heal after last logout.
+      const tombstone = `revoked_${generateSessionToken()}`
+      await db.activeSession.update({
+        where: { userId },
+        data: { sessionToken: serializeTokens([tombstone]), updatedAt: new Date() },
+      })
+      sessionCache.set(userId, { tokens: [tombstone], checkedAt: Date.now() })
     } else {
       await db.activeSession.update({
         where: { userId },

@@ -295,6 +295,31 @@ export async function POST(req: NextRequest) {
     }
     const primaryWebsite = websitesData.find((w) => w.isPrimary) || websitesData[0]
 
+    // Portal link: only active CLIENT users, and not already linked to another client
+    let portalUserId: string | null = data.userId || null
+    if (portalUserId) {
+      const portalUser = await db.user.findUnique({
+        where: { id: portalUserId },
+        select: { id: true, role: true, isActive: true },
+      })
+      if (!portalUser || portalUser.role !== "CLIENT" || !portalUser.isActive) {
+        return NextResponse.json(
+          { error: "Portal user must be an active CLIENT account" },
+          { status: 400 }
+        )
+      }
+      const linked = await db.client.findFirst({
+        where: { userId: portalUserId },
+        select: { id: true },
+      })
+      if (linked) {
+        return NextResponse.json(
+          { error: "That CLIENT account is already linked to another client" },
+          { status: 409 }
+        )
+      }
+    }
+
     const createData = {
       name: data.name,
       email: data.email,
@@ -302,7 +327,7 @@ export async function POST(req: NextRequest) {
       company: data.company || null,
       website: primaryWebsite?.url || data.website || null, // keep legacy field in sync
       status: data.status || "ACTIVE",
-      userId: data.userId || null,
+      userId: portalUserId,
       notes: data.notes || null,
       projectType: data.projectType || null,
       projectMethodId: data.projectMethodId || null,

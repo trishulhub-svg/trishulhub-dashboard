@@ -7,6 +7,7 @@ import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 import {
   canAccessFileModule,
   canWriteFiles,
+  canWriteFileNode,
   getAllowedDepartmentIds,
   ensurePrivateDepartment,
   canAccessFileNode,
@@ -167,8 +168,8 @@ export async function POST(req: NextRequest) {
       if (wantPrivate) isPrivate = 1
     } else {
       if (!parentId) return NextResponse.json({ error: "parentId is required" }, { status: 400 })
-      if (!(await canAccessFileNode(session.user.id, session.user.role, parentId))) {
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+      if (!(await canWriteFileNode(session.user.id, session.user.role, parentId))) {
+        return NextResponse.json({ error: "Forbidden — write access required" }, { status: 403 })
       }
       const parents = (await db.$queryRawUnsafe(
         `SELECT "id","kind","driveFolderId" FROM "FileNode" WHERE "id" = ? AND "deletedAt" IS NULL LIMIT 1`,
@@ -305,8 +306,8 @@ export async function PATCH(req: NextRequest) {
       name: string
     }>
     if (!existing[0]) return NextResponse.json({ error: "Not found" }, { status: 404 })
-    if (!(await canAccessFileNode(session.user.id, session.user.role, id))) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    if (!(await canWriteFileNode(session.user.id, session.user.role, id))) {
+      return NextResponse.json({ error: "Forbidden — write access required" }, { status: 403 })
     }
 
     const node = existing[0]
@@ -322,8 +323,8 @@ export async function PATCH(req: NextRequest) {
       if (newParentId === id) {
         return NextResponse.json({ error: "Cannot move a folder into itself" }, { status: 400 })
       }
-      if (!(await canAccessFileNode(session.user.id, session.user.role, newParentId))) {
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+      if (!(await canWriteFileNode(session.user.id, session.user.role, newParentId))) {
+        return NextResponse.json({ error: "Forbidden — write access required on destination" }, { status: 403 })
       }
 
       // Prevent moving into own descendant
@@ -460,8 +461,8 @@ export async function DELETE(req: NextRequest) {
     }
     const id = new URL(req.url).searchParams.get("id")
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 })
-    if (!(await canAccessFileNode(session.user.id, session.user.role, id))) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    if (!(await canWriteFileNode(session.user.id, session.user.role, id))) {
+      return NextResponse.json({ error: "Forbidden — write access required" }, { status: 403 })
     }
 
     const nodeIds = await collectDescendantIds(id)

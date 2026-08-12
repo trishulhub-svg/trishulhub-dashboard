@@ -297,13 +297,19 @@ export async function POST(req: NextRequest) {
 
     logs.push("SETUP COMPLETE!")
 
+    // Never put the seed password in the HTTP response (proxies/logs/browser history).
+    // Operator must read it from the server console once, then force password changes.
+    console.info(
+      "[setup] ONE-TIME shared seed password (change on first login for every user):",
+      generatedPassword
+    )
+
     return NextResponse.json({
       status: "success",
       message: "Database set up and seeded successfully!",
-      // SECURITY: Generated password is returned ONCE. Save this — it will not be shown again.
-      // All users share this initial password and MUST change it on first login.
-      _warning: "Save this password now. It will NOT be shown again. Force password change on first login.",
-      generatedPassword,
+      _warning:
+        "Initial password was printed once to the server console — it is not returned in this response. Change passwords immediately after first login.",
+      passwordDelivery: "server_console",
       created: { users: 4, clients: 2, projects: 2, leads: 3, expenses: 3 },
       logs
     })

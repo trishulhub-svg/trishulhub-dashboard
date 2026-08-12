@@ -180,6 +180,13 @@ function toResponse(
     }
   }
 
+  const sortCode =
+    !detail.bankSortCode
+      ? detail.bankSortCode
+      : decryptSensitive
+        ? detail.bankSortCode
+        : "••••••"
+
   return {
     id: detail.id,
     userId: detail.userId,
@@ -190,7 +197,7 @@ function toResponse(
     govIdNumberMasked: govIdMasked,
     bankAccountName: detail.bankAccountName,
     bankAccountNumberMasked: bankAccountMasked,
-    bankSortCode: detail.bankSortCode,
+    bankSortCode: sortCode,
     bankName: detail.bankName,
     bankBranch: detail.bankBranch,
     status: detail.status,
