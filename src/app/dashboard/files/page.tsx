@@ -575,93 +575,133 @@ export default function FilesPage() {
     list,
     crumbs,
     depth = 0,
+    size = "compact",
   }: {
     list: FileNode[];
     crumbs: FileNode[];
     depth?: number;
-  }) => (
-    <ul className="space-y-0.5">
-      {list.map((n) => {
-        const active = path.some((p) => p.id === n.id) && path[path.length - 1]?.id === n.id;
-        const expanded = !!treeExpanded[n.id];
-        const kids = treeChildren[n.id];
-        const priv = isPrivateNode(n);
-        return (
-          <li key={n.id}>
-            <div
-              className={cn(
-                "group flex items-center gap-0.5 rounded-md pr-1",
-                active && "bg-teal-500/10 text-teal-800 dark:text-teal-200"
+    size?: "compact" | "comfortable";
+  }) => {
+    const roomy = size === "comfortable";
+    return (
+      <ul className={cn(roomy ? "space-y-1" : "space-y-0.5")}>
+        {list.map((n) => {
+          const active = path.some((p) => p.id === n.id) && path[path.length - 1]?.id === n.id;
+          const expanded = !!treeExpanded[n.id];
+          const kids = treeChildren[n.id];
+          const priv = isPrivateNode(n);
+          return (
+            <li key={n.id}>
+              <div
+                className={cn(
+                  "group flex items-center gap-0.5 rounded-lg pr-1",
+                  active && "bg-teal-500/10 text-teal-800 dark:text-teal-200"
+                )}
+                style={{ paddingLeft: Math.min(depth, 6) * (roomy ? 12 : 10) }}
+              >
+                <button
+                  type="button"
+                  className={cn(
+                    "shrink-0 inline-flex items-center justify-center rounded-md hover:bg-muted/60",
+                    roomy ? "h-9 w-9" : "h-6 w-6"
+                  )}
+                  onClick={() => void expandTreeNode(n)}
+                  aria-label={expanded ? "Collapse" : "Expand"}
+                >
+                  {expanded ? (
+                    <ChevronDown className={cn(roomy ? "h-4 w-4" : "h-3.5 w-3.5", "text-muted-foreground")} />
+                  ) : (
+                    <ChevronRight className={cn(roomy ? "h-4 w-4" : "h-3.5 w-3.5", "text-muted-foreground")} />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  className={cn(
+                    "min-w-0 flex-1 flex items-center text-left truncate hover:bg-muted/40 rounded-md",
+                    roomy ? "gap-2.5 py-2.5 px-2 text-[15px] font-semibold" : "gap-1.5 py-1 px-1 text-xs font-medium"
+                  )}
+                  onClick={() => navigateToNode([...crumbs, n])}
+                  title={safeText(n.name)}
+                >
+                  <span
+                    className={cn(
+                      "shrink-0 rounded-lg flex items-center justify-center",
+                      roomy ? "h-9 w-9" : "h-6 w-6",
+                      priv ? "bg-amber-500/15" : "bg-teal-500/10"
+                    )}
+                  >
+                    {priv ? (
+                      <Lock className={cn(roomy ? "h-4 w-4" : "h-3.5 w-3.5", "text-amber-600")} />
+                    ) : (
+                      <FolderOpen className={cn(roomy ? "h-4 w-4" : "h-3.5 w-3.5", "text-teal-600")} />
+                    )}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate">{safeText(n.name)}</span>
+                    {roomy && (
+                      <span className="block text-[11px] font-medium text-muted-foreground uppercase tracking-wide mt-0.5">
+                        {n.kind}
+                        {priv ? " · Private" : ""}
+                      </span>
+                    )}
+                  </span>
+                </button>
+              </div>
+              {expanded && kids && kids.length > 0 && (
+                <TreeBranch list={kids} crumbs={[...crumbs, n]} depth={depth + 1} size={size} />
               )}
-              style={{ paddingLeft: Math.min(depth, 6) * 10 }}
-            >
-              <button
-                type="button"
-                className="h-6 w-6 shrink-0 inline-flex items-center justify-center rounded hover:bg-muted/60"
-                onClick={() => void expandTreeNode(n)}
-                aria-label={expanded ? "Collapse" : "Expand"}
-              >
-                {expanded ? (
-                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                ) : (
-                  <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-                )}
-              </button>
-              <button
-                type="button"
-                className="min-w-0 flex-1 flex items-center gap-1.5 py-1 px-1 text-left text-xs font-medium truncate hover:bg-muted/40 rounded"
-                onClick={() => navigateToNode([...crumbs, n])}
-                title={safeText(n.name)}
-              >
-                {priv ? (
-                  <Lock className="h-3.5 w-3.5 shrink-0 text-amber-600" />
-                ) : (
-                  <FolderOpen className="h-3.5 w-3.5 shrink-0 text-teal-600" />
-                )}
-                <span className="truncate">{safeText(n.name)}</span>
-              </button>
-            </div>
-            {expanded && kids && kids.length > 0 && (
-              <TreeBranch list={kids} crumbs={[...crumbs, n]} depth={depth + 1} />
-            )}
-            {expanded && kids && kids.length === 0 && (
-              <p
-                className="text-[10px] text-muted-foreground py-0.5"
-                style={{ paddingLeft: (Math.min(depth, 6) + 1) * 10 + 24 }}
-              >
-                Empty
-              </p>
-            )}
-          </li>
-        );
-      })}
-    </ul>
-  );
+              {expanded && kids && kids.length === 0 && (
+                <p
+                  className={cn("text-muted-foreground", roomy ? "text-xs py-1" : "text-[10px] py-0.5")}
+                  style={{ paddingLeft: (Math.min(depth, 6) + 1) * (roomy ? 12 : 10) + (roomy ? 36 : 24) }}
+                >
+                  Empty
+                </p>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    );
+  };
 
-  const SidebarNav = (
-    <div className="flex flex-col h-full min-h-0">
-      <div className="px-2.5 py-2 border-b border-border/50 shrink-0">
-        <button
-          type="button"
-          onClick={() => navigateToNode([])}
-          className={cn(
-            "w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-xs font-semibold hover:bg-muted/50",
-            path.length === 0 && "bg-teal-500/10 text-teal-800 dark:text-teal-200"
+  const SidebarNav = ({ size = "compact" }: { size?: "compact" | "comfortable" }) => {
+    const roomy = size === "comfortable";
+    return (
+      <div className="flex flex-col h-full min-h-0">
+        <div className={cn("border-b border-border/50 shrink-0", roomy ? "px-3 py-3" : "px-2.5 py-2")}>
+          <button
+            type="button"
+            onClick={() => navigateToNode([])}
+            className={cn(
+              "w-full flex items-center rounded-lg hover:bg-muted/50",
+              roomy ? "gap-2.5 px-2.5 py-2.5 text-sm font-semibold" : "gap-2 px-2 py-1.5 text-xs font-semibold",
+              path.length === 0 && "bg-teal-500/10 text-teal-800 dark:text-teal-200"
+            )}
+          >
+            <span
+              className={cn(
+                "shrink-0 rounded-lg bg-teal-500/10 flex items-center justify-center",
+                roomy ? "h-9 w-9" : "h-6 w-6"
+              )}
+            >
+              <Home className={cn(roomy ? "h-4 w-4" : "h-3.5 w-3.5", "text-teal-700 dark:text-teal-300")} />
+            </span>
+            All departments
+          </button>
+        </div>
+        <div className={cn("flex-1 overflow-y-auto", roomy ? "px-2 py-2.5" : "px-1.5 py-2")}>
+          {treeRoots.length === 0 ? (
+            <p className={cn("text-muted-foreground px-2 py-3", roomy ? "text-sm" : "text-[11px]")}>
+              No departments yet
+            </p>
+          ) : (
+            <TreeBranch list={treeRoots} crumbs={[]} size={size} />
           )}
-        >
-          <Home className="h-3.5 w-3.5" />
-          All departments
-        </button>
+        </div>
       </div>
-      <div className="flex-1 overflow-y-auto px-1.5 py-2">
-        {treeRoots.length === 0 ? (
-          <p className="text-[11px] text-muted-foreground px-2 py-3">No departments yet</p>
-        ) : (
-          <TreeBranch list={treeRoots} crumbs={[]} />
-        )}
-      </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <DesktopOnlyGate>
@@ -671,19 +711,19 @@ export default function FilesPage() {
           <div className="flex items-center gap-2 min-w-0">
             <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
               <SheetTrigger asChild>
-                <Button variant="outline" size="icon" className="h-8 w-8 md:hidden shrink-0" aria-label="Folders">
-                  <PanelLeft className="h-4 w-4" />
+                <Button variant="outline" size="icon" className="h-10 w-10 md:hidden shrink-0" aria-label="Folders">
+                  <PanelLeft className="h-5 w-5" />
                 </Button>
               </SheetTrigger>
-              <SheetContent side="left" className="w-[280px] p-0">
-                <SheetHeader className="px-3 py-3 border-b">
-                  <SheetTitle className="text-sm">Folders</SheetTitle>
+              <SheetContent side="left" className="w-[min(100vw-1.5rem,340px)] p-0">
+                <SheetHeader className="px-4 py-3.5 border-b">
+                  <SheetTitle className="text-base">Folders</SheetTitle>
                 </SheetHeader>
-                {SidebarNav}
+                <SidebarNav size="comfortable" />
               </SheetContent>
             </Sheet>
-            <FolderOpen className="h-5 w-5 text-teal-600 shrink-0" />
-            <h1 className="text-lg sm:text-xl font-semibold tracking-tight truncate">Files</h1>
+            <FolderOpen className="h-6 w-6 sm:h-5 sm:w-5 text-teal-600 shrink-0" />
+            <h1 className="text-xl sm:text-xl font-semibold tracking-tight truncate">Files</h1>
             {!driveConnected && (
               <span className="text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded px-1.5 py-0.5">
                 Drive offline
@@ -769,33 +809,33 @@ export default function FilesPage() {
         <div className="flex-1 min-h-0 rounded-xl border border-border/60 bg-card/30 overflow-hidden flex">
           {/* Desktop sidebar */}
           <aside className="hidden md:flex w-[240px] lg:w-[260px] shrink-0 border-r border-border/50 bg-muted/15 flex-col min-h-0">
-            {SidebarNav}
+            <SidebarNav size="compact" />
           </aside>
 
           {/* Main pane */}
           <div className="flex-1 min-w-0 flex flex-col min-h-0">
             {/* Address / breadcrumb bar */}
-            <div className="shrink-0 border-b border-border/50 bg-muted/20 px-2.5 py-1.5 flex flex-wrap items-center gap-1 text-xs">
+            <div className="shrink-0 border-b border-border/50 bg-muted/20 px-2.5 py-2 sm:py-1.5 flex flex-wrap items-center gap-1 text-sm sm:text-xs">
               <button
                 type="button"
-                className="inline-flex items-center gap-1 rounded px-1.5 py-1 font-medium text-teal-700 dark:text-teal-300 hover:bg-teal-500/10"
+                className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 sm:px-1.5 sm:py-1 font-medium text-teal-700 dark:text-teal-300 hover:bg-teal-500/10"
                 onClick={() => setPath([])}
               >
-                <Home className="h-3 w-3" />
+                <Home className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
                 Root
               </button>
               {path.map((p, i) => (
                 <span key={p.id} className="inline-flex items-center gap-0.5 min-w-0">
-                  <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
+                  <ChevronRight className="h-3.5 w-3.5 sm:h-3 sm:w-3 text-muted-foreground shrink-0" />
                   <button
                     type="button"
                     className={cn(
-                      "truncate max-w-[140px] sm:max-w-[200px] rounded px-1.5 py-1 hover:bg-muted/60 inline-flex items-center gap-1",
+                      "truncate max-w-[160px] sm:max-w-[200px] rounded-md px-2 py-1.5 sm:px-1.5 sm:py-1 hover:bg-muted/60 inline-flex items-center gap-1",
                       i === path.length - 1 ? "font-semibold text-foreground" : "text-muted-foreground"
                     )}
                     onClick={() => setPath(path.slice(0, i + 1))}
                   >
-                    {isPrivateNode(p) && <Lock className="h-3 w-3 text-amber-600 shrink-0" />}
+                    {isPrivateNode(p) && <Lock className="h-3.5 w-3.5 sm:h-3 sm:w-3 text-amber-600 shrink-0" />}
                     {safeText(p.name)}
                   </button>
                 </span>
@@ -805,9 +845,9 @@ export default function FilesPage() {
                   href={current.driveFolderUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="ml-auto inline-flex items-center gap-1 text-[11px] text-teal-700 dark:text-teal-300 hover:underline px-1"
+                  className="ml-auto inline-flex items-center gap-1 text-xs sm:text-[11px] text-teal-700 dark:text-teal-300 hover:underline px-1 py-1"
                 >
-                  <ExternalLink className="h-3 w-3" />
+                  <ExternalLink className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
                   Open in Drive
                 </a>
               )}
@@ -822,10 +862,10 @@ export default function FilesPage() {
 
             {/* Create / upload toolbar — compact, collapsible */}
             <Collapsible open={createOpen} onOpenChange={setCreateOpen} className="shrink-0 border-b border-border/40">
-              <div className="flex items-center gap-2 px-2.5 py-1.5 bg-background/40">
+              <div className="flex items-center gap-2 px-2.5 py-2 sm:py-1.5 bg-background/40">
                 <CollapsibleTrigger asChild>
-                  <Button variant="ghost" size="sm" className="h-7 px-2 text-xs">
-                    <FolderPlus className="h-3.5 w-3.5 mr-1" />
+                  <Button variant="ghost" size="sm" className="h-9 sm:h-7 px-2.5 sm:px-2 text-sm sm:text-xs">
+                    <FolderPlus className="h-4 w-4 sm:h-3.5 sm:w-3.5 mr-1" />
                     New
                     <ChevronDown className={cn("h-3.5 w-3.5 ml-1 transition-transform", createOpen && "rotate-180")} />
                   </Button>
@@ -835,11 +875,11 @@ export default function FilesPage() {
                     <Label
                       htmlFor="file-upload"
                       className={cn(
-                        "inline-flex items-center gap-1 h-7 px-2.5 rounded-md border text-xs font-medium cursor-pointer",
+                        "inline-flex items-center gap-1.5 h-9 sm:h-7 px-3 sm:px-2.5 rounded-md border text-sm sm:text-xs font-medium cursor-pointer",
                         uploading ? "opacity-50 pointer-events-none" : "hover:bg-muted"
                       )}
                     >
-                      <Upload className="h-3.5 w-3.5" />
+                      <Upload className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
                       {uploading ? "Uploading…" : "Upload"}
                     </Label>
                     <input
@@ -966,7 +1006,7 @@ export default function FilesPage() {
                       <div
                         key={n.id}
                         className={cn(
-                          "group grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_110px_100px_44px] gap-1 sm:gap-2 items-center px-2.5 py-1.5 hover:bg-teal-500/[0.06] transition-colors",
+                          "group grid grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[minmax(0,1fr)_110px_100px_44px] gap-2 sm:gap-2 items-center px-3 sm:px-2.5 py-3 sm:py-1.5 hover:bg-teal-500/[0.06] transition-colors",
                           priv && "bg-amber-500/[0.04]"
                         )}
                       >
@@ -974,20 +1014,34 @@ export default function FilesPage() {
                           type="button"
                           onDoubleClick={() => setPath([...path, n])}
                           onClick={() => setPath([...path, n])}
-                          className="min-w-0 flex items-center gap-2.5 text-left px-0.5 py-0.5"
+                          className="min-w-0 flex items-center gap-3 sm:gap-2.5 text-left px-0.5 py-0.5"
                         >
-                          {priv ? (
-                            <Lock className="h-4 w-4 text-amber-600 shrink-0" />
-                          ) : (
-                            <FolderOpen className="h-4 w-4 text-teal-600 shrink-0" />
-                          )}
-                          <span className="text-sm font-medium truncate">
-                            {safeText(n.name)}
-                            {priv && (
-                              <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
-                                Private
-                              </span>
+                          <span
+                            className={cn(
+                              "shrink-0 rounded-xl sm:rounded-lg flex items-center justify-center",
+                              "h-11 w-11 sm:h-8 sm:w-8",
+                              priv ? "bg-amber-500/15" : "bg-teal-500/10"
                             )}
+                          >
+                            {priv ? (
+                              <Lock className="h-5 w-5 sm:h-4 sm:w-4 text-amber-600" />
+                            ) : (
+                              <FolderOpen className="h-5 w-5 sm:h-4 sm:w-4 text-teal-600" />
+                            )}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-[15px] sm:text-sm font-semibold sm:font-medium truncate">
+                              {safeText(n.name)}
+                              {priv && (
+                                <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+                                  Private
+                                </span>
+                              )}
+                            </span>
+                            <span className="sm:hidden block text-xs text-muted-foreground mt-0.5 uppercase tracking-wide">
+                              {n.kind}
+                              <ChevronRight className="inline h-3 w-3 ml-0.5 align-[-1px] opacity-60" />
+                            </span>
                           </span>
                         </button>
                         <span className="hidden sm:block text-[11px] text-muted-foreground uppercase tracking-wide px-0.5">
@@ -1000,12 +1054,12 @@ export default function FilesPage() {
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-7 w-7 opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                                className="h-10 w-10 sm:h-7 sm:w-7 opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
                               >
-                                <MoreHorizontal className="h-4 w-4" />
+                                <MoreHorizontal className="h-5 w-5 sm:h-4 sm:w-4" />
                               </Button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-44">
+                            <DropdownMenuContent align="end" className="w-48">
                               <DropdownMenuItem onClick={() => setPath([...path, n])}>
                                 <FolderOpen className="h-3.5 w-3.5 mr-2" /> Open
                               </DropdownMenuItem>
@@ -1038,16 +1092,26 @@ export default function FilesPage() {
                   {items.map((f) => (
                     <div
                       key={f.id}
-                      className="group grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_110px_100px_44px] gap-1 sm:gap-2 items-center px-2.5 py-1.5 hover:bg-sky-500/[0.05] transition-colors"
+                      className="group grid grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[minmax(0,1fr)_110px_100px_44px] gap-2 sm:gap-2 items-center px-3 sm:px-2.5 py-3 sm:py-1.5 hover:bg-sky-500/[0.05] transition-colors"
                     >
                       <button
                         type="button"
                         onDoubleClick={() => void openFile(f.id)}
                         onClick={() => void openFile(f.id)}
-                        className="min-w-0 flex items-center gap-2.5 text-left px-0.5 py-0.5"
+                        className="min-w-0 flex items-center gap-3 sm:gap-2.5 text-left px-0.5 py-0.5"
                       >
-                        <File className="h-4 w-4 text-sky-600 shrink-0" />
-                        <span className="text-sm font-medium truncate">{safeText(f.name)}</span>
+                        <span className="shrink-0 h-11 w-11 sm:h-8 sm:w-8 rounded-xl sm:rounded-lg bg-sky-500/10 flex items-center justify-center">
+                          <File className="h-5 w-5 sm:h-4 sm:w-4 text-sky-600" />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[15px] sm:text-sm font-semibold sm:font-medium truncate">
+                            {safeText(f.name)}
+                          </span>
+                          <span className="sm:hidden block text-xs text-muted-foreground mt-0.5 truncate">
+                            {f.mimeType?.split("/").pop() || "file"}
+                            {typeof f.sizeBytes === "number" ? ` · ${formatSize(f.sizeBytes)}` : ""}
+                          </span>
+                        </span>
                       </button>
                       <span className="hidden sm:block text-[11px] text-muted-foreground truncate px-0.5">
                         {f.mimeType?.split("/").pop() || "file"}
@@ -1061,12 +1125,12 @@ export default function FilesPage() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-7 w-7 opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                              className="h-10 w-10 sm:h-7 sm:w-7 opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
                             >
-                              <MoreHorizontal className="h-4 w-4" />
+                              <MoreHorizontal className="h-5 w-5 sm:h-4 sm:w-4" />
                             </Button>
                           </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-44">
+                          <DropdownMenuContent align="end" className="w-48">
                             <DropdownMenuItem onClick={() => void openFile(f.id)}>
                               <ExternalLink className="h-3.5 w-3.5 mr-2" /> Open
                             </DropdownMenuItem>
@@ -1093,21 +1157,28 @@ export default function FilesPage() {
 
                   {!parentId && sharedWithMe.length > 0 && (
                     <div className="pt-3 pb-1">
-                      <div className="px-3 py-1.5 text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">
+                      <div className="px-3 py-2 sm:py-1.5 text-xs sm:text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">
                         Shared with you
                       </div>
                       {sharedWithMe.map((f) => (
                         <div
                           key={`shared-${f.id}`}
-                          className="group grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_110px_100px_44px] gap-1 sm:gap-2 items-center px-2.5 py-1.5 bg-sky-500/[0.04] hover:bg-sky-500/[0.08]"
+                          className="group grid grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[minmax(0,1fr)_110px_100px_44px] gap-2 sm:gap-2 items-center px-3 sm:px-2.5 py-3 sm:py-1.5 bg-sky-500/[0.04] hover:bg-sky-500/[0.08]"
                         >
                           <button
                             type="button"
                             onClick={() => void openFile(f.id)}
-                            className="min-w-0 flex items-center gap-2.5 text-left px-0.5 py-0.5"
+                            className="min-w-0 flex items-center gap-3 sm:gap-2.5 text-left px-0.5 py-0.5"
                           >
-                            <FilePlus2 className="h-4 w-4 text-sky-600 shrink-0" />
-                            <span className="text-sm font-medium truncate">{safeText(f.name)}</span>
+                            <span className="shrink-0 h-11 w-11 sm:h-8 sm:w-8 rounded-xl sm:rounded-lg bg-sky-500/10 flex items-center justify-center">
+                              <FilePlus2 className="h-5 w-5 sm:h-4 sm:w-4 text-sky-600" />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-[15px] sm:text-sm font-semibold sm:font-medium truncate">
+                                {safeText(f.name)}
+                              </span>
+                              <span className="sm:hidden block text-xs text-muted-foreground mt-0.5">shared file</span>
+                            </span>
                           </button>
                           <span className="hidden sm:block text-[11px] text-muted-foreground px-0.5">shared</span>
                           <span className="hidden sm:block text-[11px] text-muted-foreground text-right px-0.5">—</span>
@@ -1115,10 +1186,10 @@ export default function FilesPage() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-7 w-7"
+                              className="h-10 w-10 sm:h-7 sm:w-7"
                               onClick={() => void openFile(f.id)}
                             >
-                              <ExternalLink className="h-3.5 w-3.5" />
+                              <ExternalLink className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
                             </Button>
                           </div>
                         </div>
