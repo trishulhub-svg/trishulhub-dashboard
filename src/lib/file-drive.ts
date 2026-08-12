@@ -674,6 +674,47 @@ export async function uploadDriveFile(opts: {
   }
 }
 
+/** Create a native Google Doc / Sheet / Slide in a Drive folder (no upload bytes). */
+export const GOOGLE_NATIVE_MIME: Record<"doc" | "sheet" | "slide", string> = {
+  doc: "application/vnd.google-apps.document",
+  sheet: "application/vnd.google-apps.spreadsheet",
+  slide: "application/vnd.google-apps.presentation",
+}
+
+export async function createGoogleNativeFile(opts: {
+  name: string
+  type: "doc" | "sheet" | "slide"
+  parentId: string
+}): Promise<{ id: string; webViewLink?: string | null; mimeType: string }> {
+  const drive = await getDriveClient()
+  const parentMeta = await getDriveFileMeta(opts.parentId)
+  if (!parentMeta) {
+    throw new Error(
+      "Folder is missing in Google Drive. Open it again in Trishulhub (or Repair Drive folders) then retry."
+    )
+  }
+  const mimeType = GOOGLE_NATIVE_MIME[opts.type]
+  const created = await drive.files.create({
+    requestBody: {
+      name: opts.name.slice(0, 240) || `Untitled ${opts.type}`,
+      mimeType,
+      parents: [opts.parentId],
+    },
+    fields: "id,webViewLink,mimeType",
+    supportsAllDrives: true,
+  })
+  if (!created.data.id) throw new Error("Failed to create Google file")
+  let webViewLink = created.data.webViewLink
+  if (!webViewLink) {
+    webViewLink = (await getDriveWebViewLink(created.data.id)) || undefined
+  }
+  return {
+    id: created.data.id,
+    webViewLink,
+    mimeType: created.data.mimeType || mimeType,
+  }
+}
+
 export async function getDriveWebViewLink(fileId: string): Promise<string | null> {
   const drive = await getDriveClient()
   const meta = await drive.files.get({

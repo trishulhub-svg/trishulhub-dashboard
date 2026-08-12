@@ -11,8 +11,18 @@ import {
   getUserModuleOverride,
   getDepartmentIdForItem,
   isDepartmentPrivate,
+  FILE_STAFF_ROLES,
 } from "@/lib/file-access"
-import { unshareDriveFolderFromEmail } from "@/lib/file-drive"
+import {
+  getRoleDepartmentMap,
+  setRoleDepartmentAccess,
+  shareDepartmentWithUser,
+  unshareDepartmentFromUser,
+  shareDriveTargetWithUser,
+  unshareDriveTargetFromUser,
+  shareDepartmentWithRoleUsers,
+  unshareDepartmentFromRoleUsers,
+} from "@/lib/file-drive-acl"
 import { getGoogleEditEmailForUser } from "@/lib/file-google-email"
 
 function newId() {
@@ -30,6 +40,39 @@ export async function GET(req: NextRequest) {
     const nodeId = searchParams.get("nodeId")
     const userId = searchParams.get("userId")
     const itemId = searchParams.get("itemId")
+    const roleDepts = searchParams.get("roleDepts") === "1"
+    const departments = searchParams.get("departments") === "1"
+
+    if (roleDepts) {
+      if (!canManageFileSettings(session.user.role)) {
+        return NextResponse.json({ error: "Forbidden — Super Admin only" }, { status: 403 })
+      }
+      const map = await getRoleDepartmentMap()
+      return NextResponse.json({ roleDepartments: map, roles: FILE_STAFF_ROLES })
+    }
+
+    if (departments) {
+      // All departments for access UI (including private — marked, not grantable)
+      const rows = (await db.$queryRawUnsafe(
+        `SELECT "id","name","isPrivate","driveFolderId" FROM "FileNode"
+         WHERE "kind" = 'DEPARTMENT' AND "deletedAt" IS NULL
+         ORDER BY "isPrivate" DESC, "name" ASC`
+      )) as Array<{
+        id: string
+        name: string
+        isPrivate: number | boolean | null
+        driveFolderId: string | null
+      }>
+      return NextResponse.json({
+        departments: rows.map((r) => ({
+          id: r.id,
+          name: r.name,
+          isPrivate: r.isPrivate === true || r.isPrivate === 1,
+          hasDrive: Boolean(r.driveFolderId),
+        })),
+      })
+    }
+
     if (userId) {
       const mode = await getUserModuleOverride(userId)
       return NextResponse.json({ userId, mode })
@@ -40,7 +83,40 @@ export async function GET(req: NextRequest) {
     }
     if (nodeId) {
       const grants = await listDepartmentGrants(nodeId)
-      return NextResponse.json({ grants })
+      // Enrich with user names
+      const enriched: Array<{
+        id: string
+        scope: string
+        role: string | null
+        userId: string | null
+        canRead: boolean
+        canWrite: boolean
+        canDelete: boolean
+        name: string | null
+        email: string | null
+      }> = []
+      for (const g of grants as Array<{
+        id: string
+        scope: string
+        role: string | null
+        userId: string | null
+        canRead: boolean
+        canWrite: boolean
+        canDelete: boolean
+      }>) {
+        let name: string | null = null
+        let email: string | null = null
+        if (g.userId) {
+          const u = await db.user.findUnique({
+            where: { id: g.userId },
+            select: { name: true, email: true },
+          })
+          name = u?.name || null
+          email = u?.email || null
+        }
+        enriched.push({ ...g, name, email })
+      }
+      return NextResponse.json({ grants: enriched })
     }
     // list custom user overrides
     const overrides = await db.$queryRawUnsafe(
@@ -64,6 +140,38 @@ export async function PUT(req: NextRequest) {
 
     const body = await req.json().catch(() => ({}))
     const type = String(body.type || "")
+
+    // Set departments for an entire role (all current + future users of that role)
+    if (type === "ROLE_DEPARTMENTS") {
+      if (!canManageFileSettings(session.user.role)) {
+        return NextResponse.json({ error: "Forbidden — Super Admin only" }, { status: 403 })
+      }
+      const role = String(body.role || "")
+      const nodeIds = Array.isArray(body.nodeIds) ? body.nodeIds.map(String) : []
+      if (!role) return NextResponse.json({ error: "role required" }, { status: 400 })
+      try {
+        const result = await setRoleDepartmentAccess(role, nodeIds)
+        void logAudit({
+          userId: session.user.id,
+          userName: session.user.name || "unknown",
+          userRole: session.user.role,
+          department: "FILES",
+          page: "files-settings",
+          action: "CONFIG_CHANGE",
+          entityType: "FileAccessGrant",
+          entityId: role,
+          description: `Set role ${role} department access (+${result.added}/-${result.removed}) + Drive sync`,
+          ipAddress: getIpAddress(req),
+          userAgent: getUserAgent(req),
+        })
+        return NextResponse.json({ ok: true, ...result })
+      } catch (e) {
+        return NextResponse.json(
+          { error: e instanceof Error ? e.message : "Failed to save role departments" },
+          { status: 400 }
+        )
+      }
+    }
 
     // Module overrides + role settings: Super Admin only
     if (type === "USER_MODULE") {
@@ -116,14 +224,7 @@ export async function PUT(req: NextRequest) {
         )) as Array<{ id: string; userId: string | null }>
         await db.$executeRawUnsafe(`DELETE FROM "FileAccessGrant" WHERE "id" = ?`, String(body.removeId))
         if (existing[0]?.userId && items[0].driveFileId) {
-          const personalGmail = await getGoogleEditEmailForUser(existing[0].userId)
-          if (personalGmail) {
-            try {
-              await unshareDriveFolderFromEmail(items[0].driveFileId, personalGmail)
-            } catch (e) {
-              console.warn("[files/access] item unshare failed", e)
-            }
-          }
+          await unshareDriveTargetFromUser(items[0].driveFileId, existing[0].userId)
         }
         void logAudit({
           userId: session.user.id,
@@ -151,7 +252,6 @@ export async function PUT(req: NextRequest) {
         )
       }
 
-      // Upsert: one grant per user+item
       await db.$executeRawUnsafe(
         `DELETE FROM "FileAccessGrant" WHERE "scope" = 'ITEM_USER' AND "userId" = ? AND "itemId" = ?`,
         userId,
@@ -167,6 +267,11 @@ export async function PUT(req: NextRequest) {
         itemId
       )
 
+      let driveShare: { ok: boolean; email?: string; error?: string } | null = null
+      if (items[0].driveFileId) {
+        driveShare = await shareDriveTargetWithUser(items[0].driveFileId, userId, "writer")
+      }
+
       void logAudit({
         userId: session.user.id,
         userName: session.user.name || "unknown",
@@ -176,11 +281,18 @@ export async function PUT(req: NextRequest) {
         action: "ASSIGN",
         entityType: "FileAccessGrant",
         entityId: id,
-        description: `Granted file access on ${items[0].name} to user ${userId}`,
+        description: `Granted file access on ${items[0].name} to user ${userId}${
+          driveShare?.email ? ` + Drive ${driveShare.email}` : ""
+        }`,
         ipAddress: getIpAddress(req),
         userAgent: getUserAgent(req),
       })
-      return NextResponse.json({ ok: true, id })
+      return NextResponse.json({
+        ok: true,
+        id,
+        driveShare,
+        warning: driveShare && !driveShare.ok ? driveShare.error : undefined,
+      })
     }
 
     if (type === "NODE_USER" || type === "NODE_ROLE") {
@@ -214,17 +326,13 @@ export async function PUT(req: NextRequest) {
         const existing = (await db.$queryRawUnsafe(
           `SELECT * FROM "FileAccessGrant" WHERE "id" = ? LIMIT 1`,
           String(body.removeId)
-        )) as Array<{ id: string; userId: string | null; scope: string }>
+        )) as Array<{ id: string; userId: string | null; scope: string; role: string | null }>
         await db.$executeRawUnsafe(`DELETE FROM "FileAccessGrant" WHERE "id" = ?`, String(body.removeId))
-        if (existing[0]?.userId && node[0].driveFolderId) {
-          const personalGmail = await getGoogleEditEmailForUser(existing[0].userId)
-          if (personalGmail) {
-            try {
-              await unshareDriveFolderFromEmail(node[0].driveFolderId, personalGmail)
-            } catch (e) {
-              console.warn("[files/access] unshare failed", e)
-            }
-          }
+        if (existing[0]?.scope === "NODE_USER" && existing[0].userId) {
+          await unshareDepartmentFromUser(nodeId, existing[0].userId)
+        }
+        if (existing[0]?.scope === "NODE_ROLE" && existing[0].role) {
+          await unshareDepartmentFromRoleUsers(nodeId, existing[0].role)
         }
         void logAudit({
           userId: session.user.id,
@@ -248,6 +356,22 @@ export async function PUT(req: NextRequest) {
       if (type === "NODE_ROLE" && !role) return NextResponse.json({ error: "role required" }, { status: 400 })
       if (type === "NODE_USER" && !userId) return NextResponse.json({ error: "userId required" }, { status: 400 })
 
+      // Upsert: one grant per user/role + department
+      if (type === "NODE_USER" && userId) {
+        await db.$executeRawUnsafe(
+          `DELETE FROM "FileAccessGrant" WHERE "scope" = 'NODE_USER' AND "userId" = ? AND "nodeId" = ?`,
+          userId,
+          nodeId
+        )
+      }
+      if (type === "NODE_ROLE" && role) {
+        await db.$executeRawUnsafe(
+          `DELETE FROM "FileAccessGrant" WHERE "scope" = 'NODE_ROLE' AND "role" = ? AND "nodeId" = ?`,
+          role,
+          nodeId
+        )
+      }
+
       await db.$executeRawUnsafe(
         `INSERT INTO "FileAccessGrant" ("id","scope","role","userId","nodeId","canRead","canWrite","canDelete","createdAt","updatedAt")
          VALUES (?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`,
@@ -261,6 +385,22 @@ export async function PUT(req: NextRequest) {
         canDelete ? 1 : 0
       )
 
+      let driveShare: { ok: boolean; email?: string; error?: string } | null = null
+      if (type === "NODE_USER" && userId) {
+        driveShare = await shareDepartmentWithUser(nodeId, userId)
+        const gmail = await getGoogleEditEmailForUser(userId)
+        if (!gmail) {
+          driveShare = {
+            ok: false,
+            error: "User has no Google email — set Personal Gmail on Team, then re-grant or ask them to open Files.",
+          }
+        }
+      }
+      if (type === "NODE_ROLE" && role) {
+        await shareDepartmentWithRoleUsers(nodeId, role)
+        driveShare = { ok: true }
+      }
+
       void logAudit({
         userId: session.user.id,
         userName: session.user.name || "unknown",
@@ -270,11 +410,16 @@ export async function PUT(req: NextRequest) {
         action: "ASSIGN",
         entityType: "FileAccessGrant",
         entityId: id,
-        description: `Granted ${type} access on department ${node[0].name}`,
+        description: `Granted ${type} access on department ${node[0].name} + Drive sync`,
         ipAddress: getIpAddress(req),
         userAgent: getUserAgent(req),
       })
-      return NextResponse.json({ ok: true, id })
+      return NextResponse.json({
+        ok: true,
+        id,
+        driveShare,
+        warning: driveShare && !driveShare.ok ? driveShare.error : undefined,
+      })
     }
 
     return NextResponse.json({ error: "Unknown type" }, { status: 400 })
