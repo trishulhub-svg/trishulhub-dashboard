@@ -15,10 +15,10 @@ const ALLOWED_CATEGORIES = [
   "OTHER",
 ] as const
 
-/** Mask a decrypted secret for display: show only the last 4 chars. */
+/** Mask a decrypted secret for list display — never leak suffix characters. */
 function maskKeyValue(plaintext: string): string {
-  if (!plaintext) return "****"
-  return `****${plaintext.slice(-4)}`
+  if (!plaintext) return "********"
+  return "********"
 }
 
 /** Fail closed — never store vault secrets as plaintext. */

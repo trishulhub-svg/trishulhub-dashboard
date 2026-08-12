@@ -251,6 +251,33 @@ export async function PATCH(
     }
   }
 
+  // Portal link: only active CLIENT users, unique across clients
+  if (Object.prototype.hasOwnProperty.call(sanitizedData, "userId")) {
+    const portalUserId = sanitizedData.userId as string | null
+    if (portalUserId) {
+      const portalUser = await db.user.findUnique({
+        where: { id: portalUserId },
+        select: { id: true, role: true, isActive: true },
+      })
+      if (!portalUser || portalUser.role !== "CLIENT" || !portalUser.isActive) {
+        return NextResponse.json(
+          { error: "Portal user must be an active CLIENT account" },
+          { status: 400 }
+        )
+      }
+      const linked = await db.client.findFirst({
+        where: { userId: portalUserId, NOT: { id } },
+        select: { id: true },
+      })
+      if (linked) {
+        return NextResponse.json(
+          { error: "That CLIENT account is already linked to another client" },
+          { status: 409 }
+        )
+      }
+    }
+  }
+
   // Handle date fields
   if (sanitizedData.projectStartDate && typeof sanitizedData.projectStartDate === "string") {
     sanitizedData.projectStartDate = new Date(sanitizedData.projectStartDate)

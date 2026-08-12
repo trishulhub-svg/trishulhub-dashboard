@@ -335,16 +335,12 @@ export async function ensureDriveAccessForOpen(opts: {
     }
   }
 
+  // Share only the file + ancestor folders — NEVER the Files root for every open.
+  // Root writer access would bypass department isolation on Google Drive.
   const targets = new Set<string>()
   if (opts.driveFileId) targets.add(opts.driveFileId)
   if (opts.nodeId) {
     for (const id of await listAncestorDriveFolderIds(opts.nodeId)) targets.add(id)
-  }
-  try {
-    const { rootFolderId } = await ensureRootAndReview()
-    if (rootFolderId) targets.add(rootFolderId)
-  } catch {
-    /* Drive may be disconnected */
   }
 
   for (const driveId of targets) {
@@ -425,10 +421,10 @@ export async function rematerializeUserDriveAccess(opts: {
     }
   }
 
-  // Share root + all granted department folders
+  // Root Drive folder: Admin / Super Admin only (staff get their department folders, not the whole tree)
   try {
     const { rootFolderId } = await ensureRootAndReview()
-    if (rootFolderId && (isAdmin || newDeptIds.length > 0)) {
+    if (rootFolderId && isAdmin) {
       const result = await shareDriveTargetWithUser(rootFolderId, opts.userId, "writer")
       if (result.ok) shared += 1
       else if (result.error) warnings.push(result.error)
