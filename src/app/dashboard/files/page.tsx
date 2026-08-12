@@ -235,6 +235,11 @@ export default function FilesPage() {
     void load();
   }, [load]);
 
+  // Keep Google Drive ACLs in sync with Trishulhub roles whenever Files is opened.
+  useEffect(() => {
+    void fetch("/api/files/access?ensureMine=1", { credentials: "include" }).catch(() => {});
+  }, []);
+
   const loadMoveLevel = useCallback(async (pid: string | null) => {
     setMoveLoading(true);
     try {
@@ -335,10 +340,26 @@ export default function FilesPage() {
     }
     if (data.shareWarning) {
       toast.warning(String(data.shareWarning));
+    } else if (Array.isArray(data.sharedWithAll) && data.sharedWithAll.length > 0) {
+      toast.success(
+        `Drive edit access on ${String(data.sharedWithAll.join(", "))} — stay signed into that Gmail in this browser`
+      );
     } else if (data.sharedWith) {
-      toast.success(`Edit access shared to ${String(data.sharedWith)} — open while signed into that Gmail`);
+      toast.success(`Edit access shared to ${String(data.sharedWith)}`);
     }
     window.open(data.webViewLink, "_blank", "noopener,noreferrer");
+  };
+
+  /** Share this folder (and parents) on Drive, then open the Google folder URL. */
+  const openInDrive = async (nodeId: string, url: string) => {
+    try {
+      await fetch(`/api/files/access?ensureNodeId=${encodeURIComponent(nodeId)}`, {
+        credentials: "include",
+      });
+    } catch {
+      /* still open — link may work if already shared */
+    }
+    window.open(url, "_blank", "noopener,noreferrer");
   };
 
   const softDeleteFile = async (id: string) => {
@@ -788,10 +809,22 @@ export default function FilesPage() {
               </Button>
             )}
             {driveRootUrl && (
-              <Button variant="outline" size="sm" className="h-8" asChild>
-                <a href={driveRootUrl} target="_blank" rel="noopener noreferrer">
-                  <ExternalLink className="h-3.5 w-3.5 mr-1" /> Drive
-                </a>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8"
+                onClick={() => {
+                  void (async () => {
+                    try {
+                      await fetch("/api/files/access?ensureMine=1", { credentials: "include" })
+                    } catch {
+                      /* open anyway */
+                    }
+                    window.open(driveRootUrl, "_blank", "noopener,noreferrer")
+                  })()
+                }}
+              >
+                <ExternalLink className="h-3.5 w-3.5 mr-1" /> Drive
               </Button>
             )}
           </div>
@@ -881,17 +914,16 @@ export default function FilesPage() {
                   </button>
                 </span>
               ))}
-              {current?.driveFolderUrl && (
-                <a
-                  href={current.driveFolderUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
+              {current?.driveFolderUrl && parentId ? (
+                <button
+                  type="button"
+                  onClick={() => void openInDrive(parentId, current.driveFolderUrl!)}
                   className="ml-auto inline-flex items-center gap-1 text-xs sm:text-[11px] text-teal-700 dark:text-teal-300 hover:underline px-1 py-1"
                 >
                   <ExternalLink className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
                   Open in Drive
-                </a>
-              )}
+                </button>
+              ) : null}
             </div>
 
             {inPrivateTree && (
@@ -1160,13 +1192,13 @@ export default function FilesPage() {
                               <DropdownMenuItem onClick={() => setPath([...path, n])}>
                                 <FolderOpen className="h-3.5 w-3.5 mr-2" /> Open
                               </DropdownMenuItem>
-                              {n.driveFolderUrl && (
-                                <DropdownMenuItem asChild>
-                                  <a href={n.driveFolderUrl} target="_blank" rel="noopener noreferrer">
-                                    <ExternalLink className="h-3.5 w-3.5 mr-2" /> Open in Drive
-                                  </a>
+                              {n.driveFolderUrl ? (
+                                <DropdownMenuItem
+                                  onClick={() => void openInDrive(n.id, n.driveFolderUrl!)}
+                                >
+                                  <ExternalLink className="h-3.5 w-3.5 mr-2" /> Open in Drive
                                 </DropdownMenuItem>
-                              )}
+                              ) : null}
                               {n.kind !== "DEPARTMENT" && (
                                 <DropdownMenuItem onClick={() => openMove({ type: "node", node: n })}>
                                   <FolderInput className="h-3.5 w-3.5 mr-2" /> Move to…

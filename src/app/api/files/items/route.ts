@@ -11,20 +11,18 @@ import {
   canAccessFileNode,
   listSharedFileItemsForUser,
 } from "@/lib/file-access"
+import { canManageFileReview } from "@/lib/rbac"
 import {
   ensureRootAndReview,
   uploadDriveFile,
   moveDriveFile,
   getDriveWebViewLink,
   isFilesMobileBlocked,
-  shareDriveFolderWithEmail,
   ensureNodeDriveFolder,
   getDriveFileLink,
   getDriveFolderLink,
   getDriveFileMeta,
 } from "@/lib/file-drive"
-import { canManageFileReview } from "@/lib/rbac"
-import { getGoogleEditEmailForUser } from "@/lib/file-google-email"
 
 function newId() {
   return `fi_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
@@ -75,6 +73,7 @@ export async function GET(req: NextRequest) {
         deletedAt: string | null
         deletedById: string | null
         name: string
+        nodeId: string
       }>
       const item = rows[0]
       if (!item) return NextResponse.json({ error: "Not found" }, { status: 404 })
@@ -95,27 +94,15 @@ export async function GET(req: NextRequest) {
         }
       }
 
-      // Share THIS file with the user's personal Gmail so they can edit in Google Docs.
-      // Browse/upload in Trishulhub never needs Google login (service account + info@).
-      let sharedWith: string | null = null
-      let shareWarning: string | null = null
-      if (item.driveFileId) {
-        const personalGmail = await getGoogleEditEmailForUser(session.user.id)
-        if (!personalGmail) {
-          shareWarning =
-            "No personal Gmail on your profile. Ask admin to set Google edit email (Team), or open while logged into a Google account that received a share invite."
-        } else {
-          try {
-            await shareDriveFolderWithEmail(item.driveFileId, personalGmail, "writer")
-            sharedWith = personalGmail
-          } catch (e) {
-            shareWarning =
-              e instanceof Error
-                ? `Could not auto-share to ${personalGmail}: ${e.message.slice(0, 120)}`
-                : `Could not auto-share to ${personalGmail}`
-          }
-        }
-      }
+      // Share file + ancestor folders with login + personal Gmail BEFORE returning the link
+      const { ensureDriveAccessForOpen } = await import("@/lib/file-drive-acl")
+      const ensured = await ensureDriveAccessForOpen({
+        userId: session.user.id,
+        driveFileId: item.driveFileId,
+        nodeId: item.nodeId,
+      })
+      const sharedWith = ensured.sharedWith[0] || null
+      const shareWarning = ensured.warnings[0] || null
 
       void logAudit({
         userId: session.user.id,
@@ -127,13 +114,21 @@ export async function GET(req: NextRequest) {
         entityType: "FileItem",
         entityId: item.id,
         description: sharedWith
-          ? `Opened file in Google (shared edit to ${sharedWith}): ${item.name}`
+          ? `Opened file in Google (shared edit to ${ensured.sharedWith.join(", ")}): ${item.name}`
           : `Opened file in Google: ${item.name}`,
         ipAddress: getIpAddress(req),
         userAgent: getUserAgent(req),
-        metadata: JSON.stringify({ sharedWith, shareWarning }),
+        metadata: JSON.stringify({
+          sharedWith: ensured.sharedWith,
+          shareWarning,
+        }),
       })
-      return NextResponse.json({ webViewLink: link, sharedWith, shareWarning })
+      return NextResponse.json({
+        webViewLink: link,
+        sharedWith,
+        sharedWithAll: ensured.sharedWith,
+        shareWarning,
+      })
     }
 
     if (review) {

@@ -239,6 +239,16 @@ export async function POST(req: NextRequest) {
       userAgent: getUserAgent(req),
     })
 
+    // New departments must be Drive-shared with Admins immediately (Trishulhub access ≠ Drive ACL)
+    if (kind === "DEPARTMENT" && driveFolderId) {
+      try {
+        const { shareNewDepartmentWithAdmins } = await import("@/lib/file-drive-acl")
+        await shareNewDepartmentWithAdmins(id)
+      } catch (e) {
+        console.warn("[files/nodes] admin Drive share on create failed", e)
+      }
+    }
+
     const created = (await db.$queryRawUnsafe(
       `SELECT * FROM "FileNode" WHERE "id" = ? LIMIT 1`,
       id

@@ -605,8 +605,25 @@ export async function shareDriveFolderWithEmail(
     })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    // already shared is OK
-    if (!/already|duplicate/i.test(msg)) throw err
+    // already shared / duplicate permission is OK
+    if (/already|duplicate|exists|Conflict|403.*share/i.test(msg)) {
+      // Some APIs return 403 when permission already exists — verify by listing
+      try {
+        const perms = await drive.permissions.list({
+          fileId: folderId,
+          fields: "permissions(id,emailAddress,role)",
+          supportsAllDrives: true,
+        })
+        const has = perms.data.permissions?.some(
+          (p) => (p.emailAddress || "").toLowerCase() === email.toLowerCase()
+        )
+        if (has) return
+      } catch {
+        /* fall through */
+      }
+      if (/already|duplicate|exists/i.test(msg)) return
+    }
+    throw err
   }
 }
 
