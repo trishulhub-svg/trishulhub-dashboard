@@ -33,10 +33,51 @@ export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+    const { searchParams } = new URL(req.url)
+    const ensureMine = searchParams.get("ensureMine") === "1"
+    const ensureNodeId = searchParams.get("ensureNodeId")
+
+    // Any Files user can sync their own Drive ACL (fixes Admin "Request access")
+    if (ensureMine || ensureNodeId) {
+      const { canAccessFileModule } = await import("@/lib/file-access")
+      if (!(await canAccessFileModule(session.user.id, session.user.role))) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+      }
+      if (ensureMine) {
+        const { rematerializeUserDriveAccess } = await import("@/lib/file-drive-acl")
+        const result = await rematerializeUserDriveAccess({
+          userId: session.user.id,
+          role: session.user.role,
+        })
+        return NextResponse.json({ ok: true, ...result })
+      }
+      if (ensureNodeId) {
+        const { ensureDriveAccessForOpen } = await import("@/lib/file-drive-acl")
+        const { canAccessFileNode } = await import("@/lib/file-access")
+        if (!(await canAccessFileNode(session.user.id, session.user.role, ensureNodeId))) {
+          return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+        }
+        const ensured = await ensureDriveAccessForOpen({
+          userId: session.user.id,
+          nodeId: ensureNodeId,
+        })
+        const node = (await db.$queryRawUnsafe(
+          `SELECT "driveFolderId" FROM "FileNode" WHERE "id" = ? LIMIT 1`,
+          ensureNodeId
+        )) as Array<{ driveFolderId: string | null }>
+        const { getDriveFolderLink } = await import("@/lib/file-drive")
+        return NextResponse.json({
+          ok: true,
+          ...ensured,
+          driveFolderUrl: getDriveFolderLink(node[0]?.driveFolderId || null),
+        })
+      }
+    }
+
     if (!canManageFileSettings(session.user.role) && !canManageFileReview(session.user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
-    const { searchParams } = new URL(req.url)
     const nodeId = searchParams.get("nodeId")
     const userId = searchParams.get("userId")
     const itemId = searchParams.get("itemId")
