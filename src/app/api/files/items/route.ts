@@ -196,6 +196,109 @@ export async function POST(req: NextRequest) {
     const rl = rateLimit(`files-upload-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
     if (!rl.success) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
 
+    const contentType = req.headers.get("content-type") || ""
+
+    // Create native Google Doc / Sheet / Slide (JSON) — Drive-like "New"
+    if (contentType.includes("application/json")) {
+      const body = await req.json().catch(() => ({}))
+      const action = String(body.action || "create")
+      if (action !== "create") {
+        return NextResponse.json({ error: "Unknown action" }, { status: 400 })
+      }
+      const nodeId = String(body.nodeId || "")
+      const name = String(body.name || "").trim().slice(0, 240)
+      const googleType = String(body.googleType || "") as "doc" | "sheet" | "slide"
+      if (!nodeId || !name) {
+        return NextResponse.json({ error: "nodeId and name required" }, { status: 400 })
+      }
+      if (!["doc", "sheet", "slide"].includes(googleType)) {
+        return NextResponse.json({ error: "googleType must be doc, sheet, or slide" }, { status: 400 })
+      }
+
+      const access = await assertFolderAccess(nodeId, session.user.id, session.user.role)
+      if ("error" in access && access.error) {
+        return NextResponse.json({ error: access.error }, { status: access.status })
+      }
+
+      let parentDriveId: string
+      try {
+        parentDriveId = await ensureNodeDriveFolder(nodeId)
+      } catch (e) {
+        return NextResponse.json(
+          {
+            error:
+              e instanceof Error
+                ? e.message.slice(0, 200)
+                : "Folder is not linked to Google Drive. Connect Drive in Files → Settings.",
+          },
+          { status: 400 }
+        )
+      }
+
+      const { createGoogleNativeFile } = await import("@/lib/file-drive")
+      let created: { id: string; webViewLink?: string | null; mimeType: string }
+      try {
+        created = await createGoogleNativeFile({
+          name,
+          type: googleType,
+          parentId: parentDriveId,
+        })
+      } catch (e) {
+        return NextResponse.json(
+          {
+            error:
+              e instanceof Error
+                ? `Google Drive create failed: ${e.message.slice(0, 160)}`
+                : "Google Drive create failed",
+          },
+          { status: 400 }
+        )
+      }
+
+      const id = newId()
+      await db.$executeRawUnsafe(
+        `INSERT INTO "FileItem" ("id","nodeId","name","mimeType","sizeBytes","driveFileId","webViewLink","createdById","createdAt","updatedAt")
+         VALUES (?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`,
+        id,
+        nodeId,
+        name,
+        created.mimeType,
+        0,
+        created.id,
+        created.webViewLink || null,
+        session.user.id
+      )
+
+      void logAudit({
+        userId: session.user.id,
+        userName: session.user.name || "unknown",
+        userRole: session.user.role,
+        department: "FILES",
+        page: "files",
+        action: "CREATE",
+        entityType: "FileItem",
+        entityId: id,
+        description: `Created Google ${googleType}: ${name}`,
+        ipAddress: getIpAddress(req),
+        userAgent: getUserAgent(req),
+      })
+
+      const rows = await db.$queryRawUnsafe(`SELECT * FROM "FileItem" WHERE "id" = ? LIMIT 1`, id)
+      return NextResponse.json(
+        {
+          item: (rows as unknown[])[0],
+          drive: {
+            fileId: created.id,
+            fileUrl: created.webViewLink || getDriveFileLink(created.id),
+            folderId: parentDriveId,
+            folderUrl: getDriveFolderLink(parentDriveId),
+            verified: true,
+          },
+        },
+        { status: 201 }
+      )
+    }
+
     const form = await req.formData()
     const nodeId = String(form.get("nodeId") || "")
     const file = form.get("file")

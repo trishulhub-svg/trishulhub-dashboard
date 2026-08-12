@@ -530,6 +530,20 @@ export async function POST(req: NextRequest) {
         ipAddress: getIpAddress(req), userAgent: getUserAgent(req),
       })
 
+      // Apply role department Drive shares for the new user
+      try {
+        const { rematerializeUserDriveAccess } = await import("@/lib/file-drive-acl")
+        await rematerializeUserDriveAccess({
+          userId: user.id,
+          role: user.role,
+        })
+      } catch (err) {
+        console.warn(
+          "[team] Drive ACL for new user failed:",
+          err instanceof Error ? err.message : err
+        )
+      }
+
       return NextResponse.json({
         id: user.id,
         name: user.name,
@@ -746,6 +760,14 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "No valid fields to update" }, { status: 400 })
     }
 
+    const beforeUser = await db.user.findUnique({
+      where: { id: effectiveId },
+      select: { id: true, role: true, email: true, googleEditEmail: true },
+    })
+    if (!beforeUser) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 })
+    }
+
     const user = await db.user.update({
       where: { id: effectiveId },
       data: updateData,
@@ -771,6 +793,30 @@ export async function PATCH(req: NextRequest) {
       } catch (err) {
         console.warn(
           "[team] Failed to revoke sessions on deactivate:",
+          err instanceof Error ? err.message : err
+        )
+      }
+    }
+
+    // Files Drive ACL: rematerialize when Google edit email or role changes
+    const emailChanged = data.googleEditEmail !== undefined
+    const roleChanged = Boolean(data.role && data.role !== beforeUser.role)
+    if (emailChanged || roleChanged) {
+      try {
+        const { rematerializeUserDriveAccess } = await import("@/lib/file-drive-acl")
+        const { normalizeGoogleEditEmail } = await import("@/lib/file-google-email")
+        const oldEmail =
+          normalizeGoogleEditEmail(beforeUser.googleEditEmail) ||
+          normalizeGoogleEditEmail(beforeUser.email)
+        await rematerializeUserDriveAccess({
+          userId: user.id,
+          role: user.role,
+          oldEmail: emailChanged ? oldEmail : null,
+          oldRole: roleChanged ? beforeUser.role : null,
+        })
+      } catch (err) {
+        console.warn(
+          "[team] Drive ACL rematerialize failed:",
           err instanceof Error ? err.message : err
         )
       }

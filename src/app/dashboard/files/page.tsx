@@ -23,6 +23,9 @@ import {
   Info,
   Home,
   File,
+  FileText,
+  Sheet as SheetIcon,
+  Presentation,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -134,6 +137,7 @@ export default function FilesPage() {
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [creatingGoogle, setCreatingGoogle] = useState(false);
   const [createPrivate, setCreatePrivate] = useState(false);
   const [aboutOpen, setAboutOpen] = usePersistedOpen("files-about-open", false);
   const [createOpen, setCreateOpen] = usePersistedOpen("files-create-open", false);
@@ -384,6 +388,43 @@ export default function FilesPage() {
       void load();
     } finally {
       setUploading(false);
+    }
+  };
+
+  const createGoogleFile = async (googleType: "doc" | "sheet" | "slide") => {
+    if (!parentId || !canUpload) return;
+    const defaultNames = {
+      doc: "Untitled document",
+      sheet: "Untitled spreadsheet",
+      slide: "Untitled presentation",
+    };
+    const name = (newName.trim() || defaultNames[googleType]).slice(0, 240);
+    setCreatingGoogle(true);
+    try {
+      const res = await fetch("/api/files/items", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "create",
+          nodeId: parentId,
+          name,
+          googleType,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data.error || "Create failed");
+        return;
+      }
+      toast.success(`Created ${name}`);
+      setNewName("");
+      void load();
+      if (data.drive?.fileUrl) {
+        window.open(String(data.drive.fileUrl), "_blank", "noopener,noreferrer");
+      }
+    } finally {
+      setCreatingGoogle(false);
     }
   };
 
@@ -977,9 +1018,65 @@ export default function FilesPage() {
                       </Button>
                     )}
                   </div>
+                  {canUpload && (
+                    <div className="space-y-2 pt-1 border-t border-border/40">
+                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">
+                        Create like Google Drive
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8"
+                          disabled={creatingGoogle}
+                          onClick={() => void createGoogleFile("doc")}
+                        >
+                          <FileText className="h-3.5 w-3.5 mr-1 text-blue-600" /> Google Doc
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8"
+                          disabled={creatingGoogle}
+                          onClick={() => void createGoogleFile("sheet")}
+                        >
+                          <SheetIcon className="h-3.5 w-3.5 mr-1 text-emerald-600" /> Google Sheet
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8"
+                          disabled={creatingGoogle}
+                          onClick={() => void createGoogleFile("slide")}
+                        >
+                          <Presentation className="h-3.5 w-3.5 mr-1 text-amber-600" /> Google Slides
+                        </Button>
+                        <Label
+                          htmlFor="file-upload-panel"
+                          className={cn(
+                            "inline-flex items-center gap-1 h-8 px-2.5 rounded-md border text-xs font-medium cursor-pointer",
+                            uploading ? "opacity-50 pointer-events-none" : "hover:bg-muted"
+                          )}
+                        >
+                          <Upload className="h-3.5 w-3.5" />
+                          Upload file
+                        </Label>
+                        <input
+                          id="file-upload-panel"
+                          type="file"
+                          className="hidden"
+                          multiple
+                          onChange={(e) => void onUpload(e.target.files)}
+                        />
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">
+                        Optional name above is used for Doc/Sheet/Slides. Leave blank for “Untitled…”.
+                      </p>
+                    </div>
+                  )}
                   {current && current.kind !== "FOLDER" && (
                     <p className="text-[10px] text-muted-foreground">
-                      Tip: open a folder to upload files. Uploads are blocked on departments/categories.
+                      Tip: open a folder to create Docs/Sheets/Slides or upload files.
                     </p>
                   )}
                 </div>
