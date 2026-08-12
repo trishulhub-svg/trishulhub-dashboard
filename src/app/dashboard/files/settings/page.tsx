@@ -310,9 +310,9 @@ export default function FilesSettingsPage() {
     });
     if (!res.ok) {
       toast.error("Failed to save role module access");
-      return;
+      return false;
     }
-    toast.success("Role module access saved");
+    return true;
   };
 
   const toggleRoleDept = (deptId: string) => {
@@ -324,9 +324,12 @@ export default function FilesSettingsPage() {
     });
   };
 
-  const saveRoleDepartments = async () => {
+  const saveRoleAccess = async () => {
     setSavingRoleDepts(true);
     try {
+      const moduleOk = await saveRoles();
+      if (!moduleOk) return;
+
       const res = await fetch("/api/files/access", {
         method: "PUT",
         credentials: "include",
@@ -343,7 +346,7 @@ export default function FilesSettingsPage() {
         return;
       }
       toast.success(
-        `${ROLE_LABELS[selectedRole] || selectedRole}: departments saved (+${data.added || 0}/-${data.removed || 0}) · Drive synced for current users`
+        `${ROLE_LABELS[selectedRole] || selectedRole} saved · module + departments (+${data.added || 0}/-${data.removed || 0})`
       );
       if (Array.isArray(data.driveWarnings) && data.driveWarnings.length) {
         toast.warning(String(data.driveWarnings[0]));
@@ -403,13 +406,12 @@ export default function FilesSettingsPage() {
 
   const removeDeptGrant = async (removeId: string) => {
     if (!grantDeptId) return;
-    const grant = deptGrants.find((g) => String(g.id) === removeId);
     const res = await fetch("/api/files/access", {
       method: "PUT",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        type: grant?.scope === "NODE_ROLE" ? "NODE_ROLE" : "NODE_USER",
+        type: "NODE_USER",
         nodeId: grantDeptId,
         removeId,
       }),
@@ -418,12 +420,13 @@ export default function FilesSettingsPage() {
       toast.error("Failed to remove grant");
       return;
     }
-    toast.success("Grant removed (Drive unshared)");
+    toast.success("User grant removed");
     void loadDeptGrants(grantDeptId);
   };
 
   const selectableRoles = roles.filter((r) => r !== "SUPER_ADMIN" && r !== "ADMIN");
   const selectedDeptIds = new Set(roleDepartments[selectedRole] || []);
+  const userDeptGrants = deptGrants.filter((g) => g.scope === "NODE_USER");
 
   if (loading) {
     return <div className="p-6 text-sm text-muted-foreground">Loading file settings…</div>;
@@ -463,8 +466,15 @@ export default function FilesSettingsPage() {
                 <Plug className="h-4 w-4 text-teal-600" /> Google Drive connection
               </h2>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                <strong>OAuth works without a service account JSON key</strong> (use this if Google blocks SA keys).
-                Authorize once as <strong>info@trishulhub.in</strong>, then paste Client ID, Secret, and Refresh token.
+                Connect the info@ Drive account only. Who can open Files is managed on the{" "}
+                <button
+                  type="button"
+                  className="text-teal-700 dark:text-teal-300 underline font-medium"
+                  onClick={() => setSettingsTab("access")}
+                >
+                  Access control
+                </button>{" "}
+                tab.
               </p>
               {driveMeta && (
                 <p className={cn("text-xs", driveMeta.connected ? "text-emerald-600" : "text-amber-600")}>
@@ -605,9 +615,8 @@ export default function FilesSettingsPage() {
           {/* ═══════════ ACCESS TAB ═══════════ */}
           <TabsContent value="access" className="mt-0 space-y-4">
             <p className="text-xs text-muted-foreground rounded-lg border border-border/50 bg-muted/20 px-3 py-2">
-              Access here controls Trishulhub Files <strong>and</strong> Google Drive folder permissions for each
-              person’s Personal Gmail (Team profile). Changing email or role on Team updates Drive access immediately.
-              Private departments stay Admin / Super Admin only.
+              Role / custom / department access for Trishulhub Files. Matching Drive shares use each user’s Personal
+              Gmail from Team. Private departments stay Admin / Super Admin only.
             </p>
 
             {/* 1. Role module + departments */}
@@ -643,9 +652,6 @@ export default function FilesSettingsPage() {
                       </label>
                     ))}
                 </div>
-                <Button size="sm" variant="outline" onClick={() => void saveRoles()}>
-                  <Save className="h-3.5 w-3.5 mr-1" /> Save module toggles
-                </Button>
               </div>
 
               <div className="border-t border-border/40 pt-4 space-y-3">
@@ -673,8 +679,7 @@ export default function FilesSettingsPage() {
                   ))}
                 </div>
                 <p className="text-[11px] text-muted-foreground">
-                  Select departments for <strong>{ROLE_LABELS[selectedRole] || selectedRole}</strong>. New users with
-                  this role get the same access automatically (Trishulhub + Drive).
+                  Select departments for <strong>{ROLE_LABELS[selectedRole] || selectedRole}</strong>.
                 </p>
                 {grantableDepartments.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-4 text-center">
@@ -715,9 +720,11 @@ export default function FilesSettingsPage() {
                     Private departments are hidden here — Admin / Super Admin only.
                   </p>
                 )}
-                <Button size="sm" disabled={savingRoleDepts} onClick={() => void saveRoleDepartments()}>
+                <Button size="sm" disabled={savingRoleDepts} onClick={() => void saveRoleAccess()}>
                   <Save className="h-3.5 w-3.5 mr-1" />
-                  {savingRoleDepts ? "Saving…" : `Save ${ROLE_LABELS[selectedRole] || selectedRole} departments`}
+                  {savingRoleDepts
+                    ? "Saving…"
+                    : `Save ${ROLE_LABELS[selectedRole] || selectedRole} access`}
                 </Button>
               </div>
             </section>
@@ -774,39 +781,8 @@ export default function FilesSettingsPage() {
                 <Building2 className="h-4 w-4 text-violet-600" /> Department access (per user)
               </h2>
               <p className="text-xs text-muted-foreground">
-                Grant one person a whole department in Trishulhub <strong>and</strong> share that Drive folder with
-                their Personal Gmail. All departments are listed below (Private = Admin only, not grantable).
+                Extra department for one person only. Role-wide departments are set above under Role access.
               </p>
-
-              {departments.length > 0 && (
-                <div className="rounded-lg border border-border/40 divide-y divide-border/30 max-h-40 overflow-y-auto">
-                  {departments.map((d) => (
-                    <button
-                      key={d.id}
-                      type="button"
-                      disabled={d.isPrivate}
-                      onClick={() => setGrantDeptId(d.id)}
-                      className={cn(
-                        "w-full flex items-center gap-2 px-3 py-2 text-left text-sm",
-                        d.isPrivate && "opacity-60 cursor-not-allowed",
-                        grantDeptId === d.id && !d.isPrivate && "bg-teal-500/10"
-                      )}
-                    >
-                      {d.isPrivate ? (
-                        <Lock className="h-3.5 w-3.5 text-amber-600 shrink-0" />
-                      ) : (
-                        <Building2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                      )}
-                      <span className="font-medium truncate flex-1">{safeText(d.name)}</span>
-                      {d.isPrivate && (
-                        <span className="text-[10px] uppercase font-semibold text-amber-700 dark:text-amber-300">
-                          Private
-                        </span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
 
               <div className="grid sm:grid-cols-3 gap-2">
                 <select
@@ -834,23 +810,17 @@ export default function FilesSettingsPage() {
                   ))}
                 </select>
                 <Button size="sm" className="h-9" onClick={() => void grantDepartmentUser()}>
-                  Grant + Drive share
+                  Grant access
                 </Button>
               </div>
-              {deptGrants.length > 0 && (
+              {userDeptGrants.length > 0 && (
                 <ul className="text-xs space-y-1.5 border-t border-border/40 pt-2">
-                  {deptGrants.map((g) => (
+                  {userDeptGrants.map((g) => (
                     <li
                       key={String(g.id)}
                       className="flex items-center justify-between gap-2 text-muted-foreground"
                     >
-                      <span>
-                        {g.scope === "NODE_ROLE"
-                          ? `Role ${ROLE_LABELS[String(g.role)] || g.role}`
-                          : safeText(String(g.name || g.email || g.userId))}
-                        {" · "}
-                        {g.canWrite ? "write" : "read"}
-                      </span>
+                      <span>{safeText(String(g.name || g.email || g.userId))}</span>
                       <button
                         type="button"
                         className="text-red-600 hover:underline"
@@ -861,6 +831,9 @@ export default function FilesSettingsPage() {
                     </li>
                   ))}
                 </ul>
+              )}
+              {grantDeptId && userDeptGrants.length === 0 && (
+                <p className="text-[11px] text-muted-foreground">No per-user grants on this department yet.</p>
               )}
             </section>
           </TabsContent>
