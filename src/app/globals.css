@@ -351,7 +351,6 @@ body {
 .liquid-glass-sidebar,
 .th-nav-glass,
 aside.th-sidebar-shell {
-  position: relative;
   overflow: hidden;
   isolation: auto;
   transform: none;
@@ -363,6 +362,12 @@ aside.th-sidebar-shell {
     inset 0 1px 0 rgba(255, 255, 255, 0.72),
     inset 1px 0 0 rgba(255, 255, 255, 0.22),
     0 18px 50px rgba(15, 23, 42, 0.16);
+}
+
+/* Desktop rail only — never on the mobile sheet (relative kills `fixed`). */
+aside.th-nav-glass,
+aside.th-sidebar-shell {
+  position: relative;
 }
 
 @supports (-apple-visual-effect: -apple-system-glass-material) {
@@ -556,6 +561,7 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
   pointer-events: auto !important;
   isolation: auto;
   overflow: hidden;
+  position: fixed !important;
   z-index: 10100 !important;
   top: 0.75rem !important;
   left: 0.75rem !important;
@@ -572,10 +578,10 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
   will-change: auto !important;
   animation: none !important;
   opacity: 1 !important;
-  background: color-mix(in oklch, var(--card) 82%, transparent) !important;
+  background: var(--card) !important;
   backdrop-filter: blur(40px) saturate(1.8) brightness(1.08) !important;
   -webkit-backdrop-filter: blur(40px) saturate(1.8) brightness(1.08) !important;
-  border: 1px solid rgba(255, 255, 255, 0.55) !important;
+  border: 1px solid var(--lg-edge) !important;
   border-radius: 28px !important;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.75),
@@ -621,6 +627,7 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
   -webkit-backdrop-filter: none !important;
 }
 [data-slot="sheet-overlay"].th-nav-overlay {
+  position: fixed !important;
   z-index: 10050 !important;
   inset: 0 !important;
   width: auto !important;

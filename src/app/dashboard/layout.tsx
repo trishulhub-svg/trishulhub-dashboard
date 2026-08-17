@@ -1014,16 +1014,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             pageAccessPages={pageAccessPages}
           />
         </SheetContent>
-      </Sheet>
 
       {/* Main Content — only this region scrolls with the page */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
         {/* Header - taller and more prominent */}
         <header className="h-14 sm:h-16 glass-topbar grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1 sm:gap-2 px-2 sm:px-5 shrink-0 relative z-30">
           <div className="flex items-center gap-2 min-w-0 relative z-[1]">
-            <Button type="button" variant="ghost" size="icon" className="md:hidden shrink-0 relative z-[2]" aria-label="Open menu" onClick={() => setMobileOpen(true)}>
-              <Menu className="h-5 w-5" />
-            </Button>
+            <SheetTrigger asChild>
+              <Button type="button" variant="ghost" size="icon" className="md:hidden shrink-0 relative z-[2]" aria-label="Open menu">
+                <Menu className="h-5 w-5" />
+              </Button>
+            </SheetTrigger>
             <h2 className="text-sm sm:text-base font-semibold text-foreground truncate">
               {allNavItems.find((i) => pathname === i.href || (i.href !== "/dashboard" && pathname.startsWith(i.href + "/")))?.title || "Dashboard"}
             </h2>
@@ -1225,6 +1226,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {/* Page Content - more padding */}
         <main className="th-page-shell flex-1 min-h-0 max-w-full p-3 sm:p-4 md:p-6 lg:p-8 pb-20 overflow-y-auto overflow-x-hidden overscroll-y-contain touch-pan-y">{children}</main>
       </div>
+      </Sheet>
 
       {/* Agentation — visual feedback tool (SUPER_ADMIN only) */}
       {session?.user?.role === "SUPER_ADMIN" && <Agentation />}

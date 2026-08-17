@@ -81,7 +81,7 @@ function SheetContent({
             side === "bottom" &&
             "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom inset-x-0 bottom-0 h-auto border-t",
           isGlassNav &&
-            "flex flex-col bg-card/85 shadow-none border-0 translate-x-0 translate-y-0 transform-none data-[state=open]:animate-none data-[state=closed]:animate-none top-3 left-3 right-auto bottom-auto h-[calc(100dvh-1.5rem)] max-h-[calc(100dvh-1.5rem)] w-[min(100vw-3.25rem,300px)] z-[10100]",
+            "flex flex-col bg-card shadow-none border-0 !fixed translate-x-0 translate-y-0 transform-none data-[state=open]:animate-none data-[state=closed]:animate-none top-3 left-3 right-auto bottom-auto h-[calc(100dvh-1.5rem)] max-h-[calc(100dvh-1.5rem)] w-[min(100vw-3.25rem,300px)] z-[10100]",
           className
         )}
         {...props}
