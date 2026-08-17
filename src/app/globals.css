@@ -64,11 +64,11 @@
    ══════════════════════════════════════════════════════════════ */
 :root {
   --radius: 0.875rem;
-  --background: oklch(0.978 0.006 220);
+  --background: oklch(0.945 0.01 220);
   --foreground: oklch(0.2 0.02 255);
-  --card: oklch(0.995 0.003 220);
+  --card: oklch(0.995 0.004 220);
   --card-foreground: oklch(0.2 0.02 255);
-  --popover: oklch(0.995 0.003 220);
+  --popover: oklch(0.995 0.004 220);
   --popover-foreground: oklch(0.2 0.02 255);
   --primary: oklch(0.45 0.12 165);
   --primary-foreground: oklch(0.99 0.005 165);
@@ -214,12 +214,20 @@
   --brand-gradient-subtle: linear-gradient(135deg, oklch(0.55 0.05 160 / 14%), oklch(0.5 0.04 220 / 14%));
   --brand-blue: oklch(0.5 0.1 220);
   --brand-green: oklch(0.55 0.13 160);
-  --elevation-1: 0 1px 2px oklch(0.25 0.02 220 / 5%), 0 8px 24px oklch(0.25 0.02 220 / 6%);
-  --elevation-2: 0 2px 8px oklch(0.25 0.02 220 / 7%), 0 16px 40px oklch(0.32 0.04 200 / 10%);
+  --elevation-1:
+    0 1px 0 oklch(1 0 0 / 0.92),
+    0 1px 2px oklch(0.32 0.04 220 / 0.12),
+    0 10px 24px oklch(0.3 0.04 220 / 0.14),
+    0 22px 44px oklch(0.32 0.03 220 / 0.10);
+  --elevation-2:
+    0 1px 0 oklch(1 0 0 / 0.95),
+    0 4px 10px oklch(0.3 0.04 220 / 0.12),
+    0 18px 36px oklch(0.28 0.04 220 / 0.16),
+    0 32px 64px oklch(0.3 0.03 220 / 0.12);
   --page-glow:
-    radial-gradient(980px 420px at 8% -10%, color-mix(in oklch, var(--primary) 16%, transparent), transparent 62%),
-    radial-gradient(760px 380px at 100% -4%, color-mix(in oklch, var(--brand-blue) 14%, transparent), transparent 58%),
-    radial-gradient(640px 280px at 50% 118%, color-mix(in oklch, var(--primary) 8%, transparent), transparent 60%);
+    radial-gradient(980px 420px at 8% -10%, color-mix(in oklch, var(--primary) 22%, transparent), transparent 62%),
+    radial-gradient(760px 380px at 100% -4%, color-mix(in oklch, var(--brand-blue) 18%, transparent), transparent 58%),
+    radial-gradient(640px 280px at 50% 118%, color-mix(in oklch, var(--primary) 12%, transparent), transparent 60%);
 }
 .dark {
   --brand-gradient: linear-gradient(135deg, oklch(0.72 0.12 165), oklch(0.62 0.1 220));
@@ -240,8 +248,16 @@
   --brand-gradient-subtle: linear-gradient(135deg, oklch(0.5 0.04 155 / 12%), oklch(0.52 0.04 85 / 12%));
   --brand-blue: oklch(0.5 0.06 200);
   --brand-green: oklch(0.5 0.1 155);
-  --elevation-1: 0 1px 2px oklch(0.3 0.03 55 / 6%), 0 8px 22px oklch(0.32 0.04 70 / 7%);
-  --elevation-2: 0 2px 8px oklch(0.3 0.03 55 / 8%), 0 16px 36px oklch(0.35 0.05 70 / 10%);
+  --elevation-1:
+    0 1px 0 oklch(1 0 0 / 0.88),
+    0 1px 2px oklch(0.35 0.05 55 / 0.12),
+    0 10px 22px oklch(0.32 0.04 70 / 0.14),
+    0 22px 44px oklch(0.34 0.04 70 / 0.10);
+  --elevation-2:
+    0 1px 0 oklch(1 0 0 / 0.92),
+    0 4px 10px oklch(0.32 0.04 55 / 0.12),
+    0 16px 36px oklch(0.32 0.05 70 / 0.16),
+    0 28px 56px oklch(0.34 0.04 70 / 0.12);
   --page-glow:
     radial-gradient(900px 400px at 10% -8%, color-mix(in oklch, var(--primary) 12%, transparent), transparent 62%),
     radial-gradient(700px 320px at 100% 0%, color-mix(in oklch, var(--warning) 10%, transparent), transparent 58%),
@@ -259,17 +275,17 @@
 
 :root {
   --lg-ease: cubic-bezier(0.16, 1, 0.3, 1);
-  --lg-blur: 24px;
-  --lg-sat: 1.42;
-  --lg-bright: 1.06;
-  --lg-fill: color-mix(in oklch, var(--card) 72%, transparent);
-  --lg-fill-strong: color-mix(in oklch, var(--card) 90%, transparent);
-  --lg-tint: color-mix(in oklch, var(--primary) 9%, transparent);
-  --lg-specular: oklch(1 0 0 / 0.68);
-  --lg-rim: oklch(0.25 0.02 220 / 0.10);
-  --lg-edge: color-mix(in oklch, var(--border) 62%, oklch(1 0 0 / 0.52));
-  --lg-nested: color-mix(in oklch, var(--card) 42%, transparent);
-  --lg-nested-shadow: inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 30%, transparent);
+  --lg-blur: 28px;
+  --lg-sat: 1.5;
+  --lg-bright: 1.1;
+  --lg-fill: color-mix(in oklch, var(--card) 55%, transparent);
+  --lg-fill-strong: color-mix(in oklch, var(--card) 78%, transparent);
+  --lg-tint: color-mix(in oklch, var(--primary) 16%, transparent);
+  --lg-specular: oklch(1 0 0 / 0.92);
+  --lg-rim: oklch(0.38 0.03 220 / 0.28);
+  --lg-edge: color-mix(in oklch, var(--border) 42%, oklch(1 0 0 / 0.72));
+  --lg-nested: color-mix(in oklch, var(--card) 48%, transparent);
+  --lg-nested-shadow: inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 55%, transparent), inset 0 -1px 0 color-mix(in oklch, var(--lg-rim) 50%, transparent);
 }
 
 .dark {
@@ -286,15 +302,17 @@
 }
 
 .bluelight {
-  --lg-blur: 26px;
-  --lg-sat: 1.28;
-  --lg-bright: 1.05;
-  --lg-fill: color-mix(in oklch, var(--card) 70%, transparent);
-  --lg-fill-strong: color-mix(in oklch, var(--card) 92%, transparent);
-  --lg-tint: color-mix(in oklch, var(--warning) 10%, transparent);
-  --lg-specular: oklch(1 0 0 / 0.6);
-  --lg-rim: oklch(0.3 0.03 55 / 0.12);
-  --lg-edge: color-mix(in oklch, var(--border) 58%, oklch(1 0 0 / 0.48));
+  --lg-blur: 28px;
+  --lg-sat: 1.32;
+  --lg-bright: 1.08;
+  --lg-fill: color-mix(in oklch, var(--card) 56%, transparent);
+  --lg-fill-strong: color-mix(in oklch, var(--card) 80%, transparent);
+  --lg-tint: color-mix(in oklch, var(--warning) 14%, transparent);
+  --lg-specular: oklch(1 0 0 / 0.88);
+  --lg-rim: oklch(0.32 0.04 55 / 0.26);
+  --lg-edge: color-mix(in oklch, var(--border) 40%, oklch(1 0 0 / 0.7));
+  --lg-nested: color-mix(in oklch, var(--card) 50%, transparent);
+}
   --lg-nested: color-mix(in oklch, var(--card) 46%, transparent);
 }
 
@@ -565,20 +583,26 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
 [data-slot="dropdown-menu-content"],
 [data-slot="dropdown-menu-sub-content"],
 [data-slot="select-content"] {
-  backdrop-filter: blur(18px) saturate(1.3) !important;
-  -webkit-backdrop-filter: blur(18px) saturate(1.3) !important;
+  /* Solid fill — backdrop-filter on a portaled list loses to dialog glass on iOS. */
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
   background:
-    linear-gradient(160deg, color-mix(in oklch, var(--lg-specular) 35%, transparent), transparent 40%),
-    var(--lg-fill-strong) !important;
+    linear-gradient(160deg, color-mix(in oklch, var(--lg-specular) 45%, transparent), transparent 40%),
+    var(--card) !important;
   border: 1px solid var(--lg-edge) !important;
   box-shadow:
-    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 50%, transparent),
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 70%, transparent),
+    inset 0 -1px 0 color-mix(in oklch, var(--lg-rim) 40%, transparent),
     var(--elevation-2) !important;
 }
 [data-slot="select-item"]:not([data-disabled]),
 [data-slot="dropdown-menu-item"]:not([data-disabled]) {
   pointer-events: auto;
   cursor: pointer;
+}
+[data-slot="dialog-content"] [data-slot="select-content"],
+[data-slot="alert-dialog-content"] [data-slot="select-content"] {
+  z-index: 50 !important;
 }
 
 /* ── Dialog / modal — always centered in the viewport, never a bottom sheet.
@@ -591,20 +615,31 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
   right: auto !important;
   bottom: auto !important;
   translate: -50% -50% !important;
+  transform: none !important;
   z-index: 200 !important;
   max-height: min(90vh, calc(100vh - 2rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)));
   overflow-y: auto;
   overscroll-behavior: contain;
-  backdrop-filter: blur(22px) saturate(1.3) !important;
-  -webkit-backdrop-filter: blur(22px) saturate(1.3) !important;
+  /* No backdrop-filter: iOS paints that layer above portaled selects. */
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
   background:
-    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 40%, transparent) 0%, transparent 32%),
-    var(--lg-fill-strong) !important;
+    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 55%, transparent) 0%, transparent 32%),
+    linear-gradient(205deg, var(--lg-tint), transparent 48%),
+    var(--card) !important;
   border: 1px solid var(--lg-edge) !important;
   box-shadow:
-    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 60%, transparent),
-    0 24px 60px oklch(0 0 0 / 0.28) !important;
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 80%, transparent),
+    inset 0 -1px 0 color-mix(in oklch, var(--lg-rim) 45%, transparent),
+    0 24px 60px oklch(0.3 0.04 220 / 0.28) !important;
   border-radius: calc(var(--radius) + 4px);
+}
+.dark [data-slot="dialog-content"],
+.dark [data-slot="alert-dialog-content"] {
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 60%, transparent),
+    inset 0 -1px 0 color-mix(in oklch, var(--lg-rim) 45%, transparent),
+    0 24px 60px oklch(0 0 0 / 0.5) !important;
 }
 @supports (height: 100dvh) {
   [data-slot="dialog-content"],

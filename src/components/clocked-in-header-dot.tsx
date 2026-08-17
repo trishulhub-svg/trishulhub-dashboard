@@ -285,7 +285,7 @@ export function ClockedInHeaderDot({ enabled = true }: { enabled?: boolean }) {
         </button>
 
         <Dialog open={clockInOpen} onOpenChange={setClockInOpen}>
-          <DialogContent className="sm:max-w-[440px] max-h-[min(85dvh,40rem)] overflow-y-auto">
+          <DialogContent className="sm:max-w-[440px] max-h-[min(85dvh,40rem)] !overflow-visible">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <Play className="h-4 w-4 text-emerald-600" />
@@ -313,7 +313,7 @@ export function ClockedInHeaderDot({ enabled = true }: { enabled?: boolean }) {
                   />
                 </div>
 
-                <div className="space-y-1.5">
+                <div className="relative z-20 space-y-1.5">
                   <Label className="text-xs text-muted-foreground">
                     {kind === "project" ? "Project" : "Activity"}
                   </Label>
@@ -328,7 +328,7 @@ export function ClockedInHeaderDot({ enabled = true }: { enabled?: boolean }) {
                         }
                       />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent portal={false} className="w-[var(--radix-select-trigger-width)]">
                       {kind === "project" ? (
                         <ProjectSelectItems projects={projects} />
                       ) : (
@@ -342,7 +342,7 @@ export function ClockedInHeaderDot({ enabled = true }: { enabled?: boolean }) {
                 </div>
 
                 {isTrainingSelected && (
-                  <div className="space-y-1.5">
+                  <div className="relative z-20 space-y-1.5">
                     <Label className="text-xs text-muted-foreground">Training assignment</Label>
                     <Select
                       value={selectedTrainingId || undefined}
@@ -356,7 +356,7 @@ export function ClockedInHeaderDot({ enabled = true }: { enabled?: boolean }) {
                           }
                         />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent portal={false} className="w-[var(--radix-select-trigger-width)]">
                         {trainingAssignments.length === 0 ? (
                           <SelectItem value="__none__" disabled>
                             No open training assignments
