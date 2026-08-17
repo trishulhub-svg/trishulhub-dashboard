@@ -590,8 +590,17 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
   box-shadow: 0 0 40px oklch(0 0 0 / 0.22) !important;
 }
 
-/* Left nav drawer — must have a real height (h-auto + child h-full collapses to 0).
-   Sit above workspace layers (z-index 8000). No slide transform (keeps panel off-screen). */
+/* Left nav drawer — real height, fixed to the viewport.
+   Slide uses translate3d (GPU) so open/close is quick; fill stays opaque
+   so the panel remains visible even if blur pauses mid-motion. */
+@keyframes th-nav-in {
+  from { transform: translate3d(-110%, 0, 0); }
+  to { transform: translate3d(0, 0, 0); }
+}
+@keyframes th-nav-out {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(-110%, 0, 0); }
+}
 [data-slot="sheet-content"].th-nav-drawer {
   display: flex !important;
   flex-direction: column !important;
@@ -608,14 +617,7 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
   width: min(300px, calc(100vw - 3.25rem)) !important;
   height: calc(100dvh - 1.5rem) !important;
   max-height: calc(100dvh - 1.5rem) !important;
-  transform: none !important;
-  translate: none !important;
-  scale: none !important;
-  rotate: none !important;
-  filter: none !important;
-  will-change: auto !important;
-  animation: none !important;
-  opacity: 1 !important;
+  filter: none;
   background: var(--card) !important;
   backdrop-filter: blur(40px) saturate(1.8) brightness(1.08) !important;
   -webkit-backdrop-filter: blur(40px) saturate(1.8) brightness(1.08) !important;
@@ -626,6 +628,19 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
     inset 1px 0 0 rgba(255, 255, 255, 0.28),
     inset 0 -1px 0 rgba(255, 255, 255, 0.12),
     0 24px 64px rgba(15, 23, 42, 0.28) !important;
+}
+[data-slot="sheet-content"].th-nav-drawer[data-state="open"] {
+  animation: th-nav-in 0.22s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+[data-slot="sheet-content"].th-nav-drawer[data-state="closed"] {
+  animation: th-nav-out 0.16s cubic-bezier(0.4, 0, 1, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="sheet-content"].th-nav-drawer[data-state="open"],
+  [data-slot="sheet-content"].th-nav-drawer[data-state="closed"] {
+    animation: none !important;
+    transform: none !important;
+  }
 }
 .dark [data-slot="sheet-content"].th-nav-drawer {
   background: color-mix(in oklch, var(--card) 86%, transparent) !important;
@@ -675,6 +690,7 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
   clip-path: none !important;
   -webkit-mask-image: none !important;
   mask-image: none !important;
+  animation-duration: 0.2s !important;
 }
 .dark [data-radix-dialog-overlay],
 .dark [data-slot="dialog-overlay"],
