@@ -11,7 +11,7 @@ import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
-  Sheet, SheetContent, SheetTrigger,
+  Sheet, SheetContent, SheetTitle, SheetTrigger,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 
@@ -113,6 +113,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                 </Button>
               </SheetTrigger>
               <SheetContent side="left" className="w-64 p-4">
+                <SheetTitle className="sr-only">Portal navigation</SheetTitle>
                 <div className="flex items-center gap-2 mb-4">
                   <Image
                     src="/200px.png"

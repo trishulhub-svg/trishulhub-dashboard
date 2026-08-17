@@ -256,8 +256,8 @@
   --lg-blur: 22px;
   --lg-sat: 1.38;
   --lg-bright: 1.05;
-  --lg-fill: color-mix(in oklch, var(--card) 62%, transparent);
-  --lg-fill-strong: color-mix(in oklch, var(--card) 78%, transparent);
+  --lg-fill: color-mix(in oklch, var(--card) 78%, transparent);
+  --lg-fill-strong: color-mix(in oklch, var(--card) 94%, transparent);
   --lg-tint: color-mix(in oklch, var(--primary) 7%, transparent);
   --lg-specular: oklch(1 0 0 / 0.62);
   --lg-rim: oklch(0.25 0.02 220 / 0.10);
@@ -270,8 +270,8 @@
   --lg-blur: 26px;
   --lg-sat: 1.48;
   --lg-bright: 1.06;
-  --lg-fill: color-mix(in oklch, var(--card) 48%, transparent);
-  --lg-fill-strong: color-mix(in oklch, var(--card) 68%, transparent);
+  --lg-fill: color-mix(in oklch, var(--card) 70%, transparent);
+  --lg-fill-strong: color-mix(in oklch, var(--card) 92%, transparent);
   --lg-tint: color-mix(in oklch, var(--primary) 10%, transparent);
   --lg-specular: oklch(1 0 0 / 0.28);
   --lg-rim: oklch(0 0 0 / 0.38);
@@ -283,8 +283,8 @@
   --lg-blur: 24px;
   --lg-sat: 1.32;
   --lg-bright: 1.04;
-  --lg-fill: color-mix(in oklch, var(--card) 58%, transparent);
-  --lg-fill-strong: color-mix(in oklch, var(--card) 76%, transparent);
+  --lg-fill: color-mix(in oklch, var(--card) 76%, transparent);
+  --lg-fill-strong: color-mix(in oklch, var(--card) 94%, transparent);
   --lg-tint: color-mix(in oklch, var(--primary) 8%, transparent);
   --lg-specular: oklch(1 0 0 / 0.55);
   --lg-rim: oklch(0.3 0.03 55 / 0.12);
@@ -343,7 +343,7 @@ body {
   background:
     linear-gradient(180deg, color-mix(in oklch, var(--lg-specular) 18%, transparent), transparent 18%),
     linear-gradient(180deg, var(--lg-tint), transparent 28%),
-    color-mix(in oklch, var(--sidebar) 78%, transparent);
+    color-mix(in oklch, var(--sidebar) 92%, transparent);
   backdrop-filter: blur(20px) saturate(1.25);
   -webkit-backdrop-filter: blur(20px) saturate(1.25);
   border-right: 1px solid var(--lg-edge);
@@ -383,15 +383,19 @@ body {
     var(--elevation-2);
 }
 
-/* ── Floating menus / popovers ── */
+/* ── Floating menus / popovers (must sit above overlays) ── */
+[data-radix-popper-content-wrapper] {
+  z-index: 80 !important;
+}
 [data-radix-popper-content-wrapper] > [role="dialog"],
 [role="menu"],
 [data-slot="popover-content"],
 [data-slot="dropdown-menu-content"],
 [data-slot="dropdown-menu-sub-content"],
 [data-slot="select-content"] {
-  backdrop-filter: blur(22px) saturate(1.35) !important;
-  -webkit-backdrop-filter: blur(22px) saturate(1.35) !important;
+  z-index: 80 !important;
+  backdrop-filter: blur(18px) saturate(1.3) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(1.3) !important;
   background:
     linear-gradient(160deg, color-mix(in oklch, var(--lg-specular) 35%, transparent), transparent 40%),
     var(--lg-fill-strong) !important;
@@ -401,13 +405,12 @@ body {
     var(--elevation-2) !important;
 }
 
-/* ── Dialog / modal / sheet ── */
-[data-radix-dialog-content],
+/* ── Dialog / modal ── */
 [data-slot="dialog-content"],
-[data-slot="sheet-content"],
 [data-slot="alert-dialog-content"] {
-  backdrop-filter: blur(28px) saturate(1.4) !important;
-  -webkit-backdrop-filter: blur(28px) saturate(1.4) !important;
+  z-index: 70 !important;
+  backdrop-filter: blur(22px) saturate(1.3) !important;
+  -webkit-backdrop-filter: blur(22px) saturate(1.3) !important;
   background:
     linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 40%, transparent) 0%, transparent 32%),
     var(--lg-fill-strong) !important;
@@ -418,31 +421,56 @@ body {
   border-radius: calc(var(--radius) + 4px);
 }
 
+/* Drawers: opaque, edge-to-edge, above the overlay. No dialog rounding. */
+[data-slot="sheet-content"] {
+  z-index: 70 !important;
+  isolation: auto;
+  backdrop-filter: blur(20px) saturate(1.22) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(1.22) !important;
+  background:
+    linear-gradient(180deg, color-mix(in oklch, var(--lg-specular) 18%, transparent), transparent 22%),
+    color-mix(in oklch, var(--card) 96%, transparent) !important;
+  border-color: var(--lg-edge) !important;
+  border-radius: 0 !important;
+  box-shadow: 0 0 40px oklch(0 0 0 / 0.22) !important;
+}
+[data-slot="sheet-content"] .th-sidebar-shell {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-right: 0;
+  box-shadow: none;
+}
+
+/* Overlay MUST stay below content. Backdrop-filter here hides the sheet on mobile. */
 [data-radix-dialog-overlay],
 [data-slot="dialog-overlay"],
 [data-slot="alert-dialog-overlay"],
 [data-slot="sheet-overlay"] {
-  background: oklch(0.18 0.02 255 / 38%) !important;
-  backdrop-filter: blur(10px) saturate(1.1) !important;
-  -webkit-backdrop-filter: blur(10px) saturate(1.1) !important;
+  z-index: 60 !important;
+  background: oklch(0.18 0.02 255 / 46%) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 .dark [data-radix-dialog-overlay],
 .dark [data-slot="dialog-overlay"],
 .dark [data-slot="alert-dialog-overlay"],
 .dark [data-slot="sheet-overlay"] {
-  background: oklch(0.08 0.02 255 / 58%) !important;
+  background: oklch(0.08 0.02 255 / 62%) !important;
 }
 .bluelight [data-radix-dialog-overlay],
 .bluelight [data-slot="dialog-overlay"],
 .bluelight [data-slot="sheet-overlay"] {
-  background: oklch(0.28 0.03 60 / 32%) !important;
+  background: oklch(0.28 0.03 60 / 40%) !important;
 }
 
 /* ── Topbar ── */
 .glass-topbar {
+  position: relative;
+  z-index: 30;
   background:
     linear-gradient(180deg, color-mix(in oklch, var(--lg-specular) 22%, transparent), transparent 70%),
-    color-mix(in oklch, var(--background) 72%, transparent);
+    color-mix(in oklch, var(--background) 88%, transparent);
   backdrop-filter: blur(18px) saturate(1.28);
   -webkit-backdrop-filter: blur(18px) saturate(1.28);
   border-bottom: 1px solid var(--lg-edge);
@@ -486,8 +514,10 @@ textarea:focus,
     border-color 0.3s var(--lg-ease),
     filter 0.3s var(--lg-ease);
 }
-[data-slot="button"]:not(:disabled):hover {
-  transform: translateY(-1px);
+@media (hover: hover) and (pointer: fine) {
+  [data-slot="button"]:not(:disabled):hover {
+    transform: translateY(-1px);
+  }
 }
 [data-slot="button"]:not(:disabled):active {
   transform: translateY(1px) scale(0.985);
@@ -553,11 +583,15 @@ textarea:focus,
   transition: transform 0.35s var(--lg-ease), box-shadow 0.35s var(--lg-ease), border-color 0.3s var(--lg-ease);
 }
 .th-clock-in:hover {
-  transform: translateY(-1px);
   border-color: color-mix(in oklch, oklch(0.62 0.14 155) 58%, transparent) !important;
   box-shadow:
     inset 0 1px 0 oklch(1 0 0 / 0.5),
     0 12px 26px color-mix(in oklch, oklch(0.62 0.14 155) 22%, transparent);
+}
+@media (hover: hover) and (pointer: fine) {
+  .th-clock-in:hover {
+    transform: translateY(-1px);
+  }
 }
 .th-clock-in:active {
   transform: translateY(1px) scale(0.985);

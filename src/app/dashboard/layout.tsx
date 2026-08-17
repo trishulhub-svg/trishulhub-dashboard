@@ -997,7 +997,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Mobile Sidebar */}
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-        <SheetContent side="left" className="w-[min(100vw-2.5rem,300px)] p-0 th-sidebar-shell border-sidebar-border">
+        <SheetContent side="left" className="w-[min(100vw-2.5rem,300px)] p-0 gap-0 overflow-hidden th-sidebar-shell border-sidebar-border">
+          <SheetTitle className="sr-only">Navigation menu</SheetTitle>
           <SidebarContent
             collapsed={false}
             userRole={userRole as UserRole}
@@ -1013,9 +1014,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Main Content — only this region scrolls with the page */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
         {/* Header - taller and more prominent */}
-        <header className="h-14 sm:h-16 glass-topbar grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-3 sm:px-5 shrink-0 z-30">
-          <div className="flex items-center gap-3 min-w-0">
-            <Button variant="ghost" size="icon" className="md:hidden shrink-0" aria-label="Open menu" onClick={() => setMobileOpen(true)}>
+        <header className="h-14 sm:h-16 glass-topbar grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1 sm:gap-2 px-2 sm:px-5 shrink-0 relative z-30">
+          <div className="flex items-center gap-2 min-w-0 relative z-[1]">
+            <Button variant="ghost" size="icon" className="md:hidden shrink-0 relative z-[2]" aria-label="Open menu" onClick={() => setMobileOpen(true)}>
               <Menu className="h-5 w-5" />
             </Button>
             <h2 className="text-sm sm:text-base font-semibold text-foreground truncate">
@@ -1023,11 +1024,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </h2>
           </div>
 
-          <div className="flex items-center justify-center">
+          <div className="flex items-center justify-center shrink-0 px-1">
             <ClockedInHeaderDot />
           </div>
 
-          <div className="flex items-center justify-end gap-1 sm:gap-2">
+          <div className="flex items-center justify-end gap-0.5 sm:gap-2 min-w-0">
             {/* Theme Selector Dropdown */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -1089,7 +1090,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   )}
                 </Button>
               </SheetTrigger>
-              <SheetContent className="w-full sm:max-w-md p-0 overflow-hidden flex flex-col">
+              <SheetContent className="w-full sm:max-w-md p-0 gap-0 overflow-hidden flex flex-col">
                 <SheetHeader className="p-4 pb-3 border-b pr-10 shrink-0">
                   <div className="flex items-center justify-between">
                     <SheetTitle className="text-sm font-semibold">Notifications</SheetTitle>
