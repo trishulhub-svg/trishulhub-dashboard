@@ -116,7 +116,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                 side="left"
                 glassNav
                 overlayClassName="th-nav-overlay"
-                className="th-nav-drawer th-nav-glass w-64 rounded-[28px] p-4 border-0"
+                className="th-nav-drawer th-nav-glass w-64 rounded-[32px] p-4 border-0"
               >
                 <SheetTitle className="sr-only">Portal navigation</SheetTitle>
                 <div className="flex items-center gap-2 mb-4">

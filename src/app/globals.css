@@ -421,14 +421,19 @@ aside.th-sidebar-shell {
   overflow: hidden;
   isolation: auto;
   transform: none;
-  background: color-mix(in oklch, var(--card) 26%, transparent);
-  backdrop-filter: blur(40px) saturate(1.85) brightness(1.12);
-  -webkit-backdrop-filter: blur(40px) saturate(1.85) brightness(1.12);
-  border: 1px solid var(--lg-edge);
+  background:
+    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 58%, transparent) 0%, transparent 36%),
+    linear-gradient(210deg, var(--lg-tint), transparent 50%),
+    color-mix(in oklch, var(--card) 42%, transparent);
+  backdrop-filter: blur(48px) saturate(1.95) brightness(1.14);
+  -webkit-backdrop-filter: blur(48px) saturate(1.95) brightness(1.14);
+  border: 1px solid color-mix(in oklch, var(--lg-edge) 70%, oklch(1 0 0 / 0.55));
   box-shadow:
-    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 75%, transparent),
-    inset 1px 0 0 color-mix(in oklch, var(--lg-specular) 22%, transparent),
-    var(--elevation-2);
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 88%, transparent),
+    inset 1px 0 0 color-mix(in oklch, var(--lg-specular) 30%, transparent),
+    inset 0 -1px 0 color-mix(in oklch, var(--lg-rim) 42%, transparent),
+    0 10px 28px oklch(0.3 0.04 220 / 0.12),
+    0 28px 56px oklch(0.28 0.03 220 / 0.14);
 }
 
 /* Desktop rail only — never on the mobile sheet (relative kills `fixed`). */
@@ -456,11 +461,13 @@ aside.th-sidebar-shell::before,
   content: "";
   position: absolute;
   inset: 0 0 auto 0;
-  height: 32%;
+  height: 42%;
   pointer-events: none;
   z-index: 1;
   border-radius: inherit;
-  background: linear-gradient(180deg, color-mix(in oklch, var(--lg-specular) 42%, transparent), transparent);
+  background:
+    radial-gradient(120% 80% at 18% -10%, color-mix(in oklch, var(--lg-specular) 55%, transparent), transparent 58%),
+    linear-gradient(180deg, color-mix(in oklch, var(--lg-specular) 48%, transparent), transparent);
 }
 
 .th-nav-glass::after,
@@ -472,7 +479,9 @@ aside.th-sidebar-shell::after,
   pointer-events: none;
   z-index: 1;
   border-radius: inherit;
-  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--lg-specular) 28%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklch, var(--lg-specular) 42%, transparent),
+    inset 0 -28px 36px color-mix(in oklch, var(--lg-rim) 18%, transparent);
 }
 
 .th-nav-glass > *,
@@ -485,12 +494,16 @@ aside.th-sidebar-shell > *,
 .dark .th-nav-glass,
 .dark aside.th-sidebar-shell,
 .dark .th-nav-drawer {
-  background: color-mix(in oklch, var(--card) 36%, transparent);
-  border-color: color-mix(in oklch, var(--lg-edge) 90%, oklch(1 0 0 / 0.2));
+  background:
+    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 28%, transparent) 0%, transparent 34%),
+    linear-gradient(210deg, var(--lg-tint), transparent 52%),
+    color-mix(in oklch, var(--card) 44%, transparent);
+  border-color: color-mix(in oklch, var(--lg-edge) 80%, oklch(1 0 0 / 0.28));
   box-shadow:
-    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 55%, transparent),
-    inset 1px 0 0 color-mix(in oklch, var(--lg-specular) 16%, transparent),
-    var(--elevation-2);
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 58%, transparent),
+    inset 1px 0 0 color-mix(in oklch, var(--lg-specular) 18%, transparent),
+    inset 0 -1px 0 color-mix(in oklch, var(--lg-rim) 50%, transparent),
+    0 18px 48px oklch(0 0 0 / 0.38);
 }
 .dark .th-nav-glass::before,
 .dark aside.th-sidebar-shell::before,
@@ -507,8 +520,10 @@ aside.th-sidebar-shell > *,
 .bluelight .th-nav-glass,
 .bluelight aside.th-sidebar-shell,
 .bluelight .th-nav-drawer {
-  background: color-mix(in oklch, var(--card) 32%, transparent);
-  border-color: color-mix(in oklch, var(--lg-edge) 85%, oklch(1 0 0 / 0.35));
+  background:
+    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 52%, transparent) 0%, transparent 36%),
+    color-mix(in oklch, var(--card) 40%, transparent);
+  border-color: color-mix(in oklch, var(--lg-edge) 70%, oklch(1 0 0 / 0.5));
 }
 
 /* Nested inner shell is layout only */
@@ -711,7 +726,7 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
   backdrop-filter: blur(40px) saturate(1.8) brightness(1.08) !important;
   -webkit-backdrop-filter: blur(40px) saturate(1.8) brightness(1.08) !important;
   border: 1px solid var(--lg-edge) !important;
-  border-radius: 28px !important;
+  border-radius: 32px !important;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.75),
     inset 1px 0 0 rgba(255, 255, 255, 0.28),
@@ -1038,22 +1053,6 @@ table tbody tr {
 table tbody tr:hover {
   background: color-mix(in oklch, var(--primary) 8%, transparent) !important;
   box-shadow: inset 2px 0 0 color-mix(in oklch, var(--primary) 45%, transparent);
-}
-
-/* ── Sidebar links as shallow glass pills ── */
-.th-sidebar-link {
-  transition: background-color 0.2s var(--lg-ease), color 0.2s var(--lg-ease), box-shadow 0.2s var(--lg-ease), transform 0.25s var(--lg-ease);
-}
-.th-sidebar-link-active {
-  background:
-    linear-gradient(160deg, color-mix(in oklch, var(--lg-specular) 22%, transparent), transparent 50%),
-    color-mix(in oklch, var(--primary) 14%, var(--sidebar-accent));
-  box-shadow:
-    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 30%, transparent),
-    inset 0 0 0 1px color-mix(in oklch, var(--primary) 22%, transparent);
-}
-.th-sidebar-icon-wrap {
-  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 25%, transparent);
 }
 
 /* ── Progress bars ── */
@@ -1548,12 +1547,8 @@ main .max-h-\[32rem\].overflow-auto.rounded-lg.border {
 
 /* ── Sidebar navigation (dashboard shell) ── */
 .th-sidebar-brand {
-  border-bottom: 1px solid color-mix(in oklch, var(--lg-edge) 70%, transparent);
-  background: linear-gradient(
-    180deg,
-    color-mix(in oklch, var(--lg-specular) 12%, transparent),
-    transparent 80%
-  );
+  border-bottom: none;
+  background: transparent;
 }
 .th-sidebar-brand-mark {
   border-radius: 0;
@@ -1582,6 +1577,38 @@ main .max-h-\[32rem\].overflow-auto.rounded-lg.border {
     font-size: 1.05rem !important;
   }
 }
+.th-sidebar-well {
+  position: relative;
+  isolation: isolate;
+  border-radius: 1.35rem;
+  background:
+    linear-gradient(165deg, color-mix(in oklch, var(--lg-specular) 42%, transparent) 0%, transparent 46%),
+    color-mix(in oklch, var(--card) 28%, transparent);
+  border: 1px solid color-mix(in oklch, var(--lg-edge) 78%, oklch(1 0 0 / 0.35));
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 62%, transparent),
+    inset 0 -1px 0 color-mix(in oklch, var(--lg-rim) 32%, transparent),
+    0 8px 20px oklch(0.3 0.04 220 / 0.08);
+}
+.th-sidebar-well::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 70%;
+  height: 42%;
+  pointer-events: none;
+  border-radius: inherit;
+  background: radial-gradient(120% 90% at 12% 0%, color-mix(in oklch, var(--lg-specular) 36%, transparent), transparent 70%);
+}
+.dark .th-sidebar-well {
+  background:
+    linear-gradient(165deg, color-mix(in oklch, var(--lg-specular) 22%, transparent) 0%, transparent 46%),
+    color-mix(in oklch, var(--card) 34%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 36%, transparent),
+    inset 0 -1px 0 color-mix(in oklch, var(--lg-rim) 40%, transparent),
+    0 10px 22px oklch(0 0 0 / 0.22);
+}
 .th-sidebar-section-label {
   font-size: 0.625rem;
   font-weight: 700;
@@ -1590,7 +1617,7 @@ main .max-h-\[32rem\].overflow-auto.rounded-lg.border {
   color: color-mix(in oklch, var(--muted-foreground) 75%, transparent);
 }
 .th-sidebar-section-toggle {
-  border-radius: 0.5rem;
+  border-radius: 0.85rem;
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 .th-sidebar-section-toggle:hover {
@@ -1602,51 +1629,58 @@ main .max-h-\[32rem\].overflow-auto.rounded-lg.border {
   align-items: center;
   gap: 0.75rem;
   width: 100%;
-  border-radius: 0.85rem;
-  padding: 0.5rem 0.625rem;
+  border-radius: 1.05rem;
+  padding: 0.52rem 0.65rem;
   font-size: 0.8125rem;
   font-weight: 500;
   text-align: left;
   color: color-mix(in oklch, var(--sidebar-foreground) 82%, transparent);
-  border: 1px solid transparent;
-  background: transparent;
+  border: 1px solid color-mix(in oklch, var(--lg-edge) 45%, transparent);
+  background:
+    linear-gradient(160deg, color-mix(in oklch, var(--lg-specular) 22%, transparent), transparent 52%),
+    color-mix(in oklch, var(--card) 16%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 28%, transparent);
   transition: background 0.25s var(--lg-ease), color 0.2s var(--lg-ease), box-shadow 0.25s var(--lg-ease), border-color 0.25s var(--lg-ease), transform 0.25s var(--lg-ease);
 }
 .th-sidebar-link:hover {
   color: var(--sidebar-accent-foreground);
   background:
-    linear-gradient(160deg, color-mix(in oklch, var(--lg-specular) 28%, transparent), transparent 48%),
-    color-mix(in oklch, var(--card) 28%, transparent);
-  border-color: color-mix(in oklch, var(--lg-edge) 80%, transparent);
+    linear-gradient(160deg, color-mix(in oklch, var(--lg-specular) 40%, transparent), transparent 46%),
+    color-mix(in oklch, var(--card) 36%, transparent);
+  border-color: color-mix(in oklch, var(--lg-edge) 88%, transparent);
   box-shadow:
-    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 40%, transparent),
-    0 6px 16px oklch(0 0 0 / 0.08);
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 55%, transparent),
+    inset 0 -1px 0 color-mix(in oklch, var(--lg-rim) 22%, transparent),
+    0 8px 18px oklch(0.3 0.04 220 / 0.1);
 }
 .th-sidebar-link-active {
   color: var(--foreground);
   background:
-    linear-gradient(160deg, color-mix(in oklch, var(--lg-specular) 40%, transparent), transparent 46%),
-    color-mix(in oklch, var(--primary) 16%, color-mix(in oklch, var(--card) 35%, transparent));
-  border-color: color-mix(in oklch, var(--primary) 32%, var(--lg-edge));
+    linear-gradient(160deg, color-mix(in oklch, var(--lg-specular) 48%, transparent), transparent 44%),
+    color-mix(in oklch, var(--primary) 18%, color-mix(in oklch, var(--card) 42%, transparent));
+  border-color: color-mix(in oklch, var(--primary) 36%, var(--lg-edge));
   box-shadow:
-    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 55%, transparent),
-    inset 0 0 0 1px color-mix(in oklch, var(--primary) 18%, transparent),
-    0 8px 18px color-mix(in oklch, var(--primary) 12%, transparent);
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 65%, transparent),
+    inset 0 -1px 0 color-mix(in oklch, var(--lg-rim) 28%, transparent),
+    0 10px 22px color-mix(in oklch, var(--primary) 16%, transparent);
 }
 .th-sidebar-icon-wrap {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2rem;
-  height: 2rem;
+  width: 2.05rem;
+  height: 2.05rem;
   flex-shrink: 0;
-  border-radius: 0.6rem;
+  border-radius: 0.85rem;
   background:
-    linear-gradient(160deg, color-mix(in oklch, var(--lg-specular) 35%, transparent), transparent 50%),
-    color-mix(in oklch, var(--card) 30%, transparent);
-  border: 1px solid color-mix(in oklch, var(--lg-edge) 70%, transparent);
+    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 50%, transparent), transparent 48%),
+    color-mix(in oklch, var(--card) 42%, transparent);
+  border: 1px solid color-mix(in oklch, var(--lg-edge) 75%, transparent);
   color: color-mix(in oklch, var(--sidebar-foreground) 70%, var(--primary) 30%);
-  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 40%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 58%, transparent),
+    inset 0 -1px 0 color-mix(in oklch, var(--lg-rim) 22%, transparent),
+    0 4px 10px oklch(0.3 0.03 220 / 0.08);
   transition: background 0.2s var(--lg-ease), color 0.2s var(--lg-ease), border-color 0.2s var(--lg-ease);
 }
 .th-sidebar-link-active .th-sidebar-icon-wrap {
@@ -1661,13 +1695,14 @@ main .max-h-\[32rem\].overflow-auto.rounded-lg.border {
   align-items: center;
   gap: 0.5rem;
   width: 100%;
-  border-radius: 0.5rem;
+  border-radius: 0.85rem;
   padding: 0.45rem 0.625rem;
   font-size: 0.75rem;
   font-weight: 500;
   text-align: left;
   color: color-mix(in oklch, var(--sidebar-foreground) 68%, transparent);
-  transition: background-color 0.18s ease, color 0.18s ease;
+  border: 1px solid transparent;
+  transition: background-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
 }
 .th-sidebar-sublink:hover {
   background:

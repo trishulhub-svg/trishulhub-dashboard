@@ -354,8 +354,8 @@ const SidebarContent = React.memo(function SidebarContent({
     <div className="flex flex-col h-full th-sidebar-shell">
       {/* Brand */}
       <div className={cn(
-        "th-sidebar-brand flex items-center gap-3 px-4 py-4",
-        collapsed && "justify-center px-2"
+        "th-sidebar-brand th-sidebar-well mx-2.5 mt-2.5 mb-1 flex items-center gap-3 px-3 py-3",
+        collapsed && "justify-center mx-1.5 px-2"
       )}>
         <div className={cn(
           "th-sidebar-brand-mark relative shrink-0",
@@ -384,7 +384,7 @@ const SidebarContent = React.memo(function SidebarContent({
       </div>
 
       {/* Favorite pages — always in the side menu */}
-      <div className={cn("px-2.5 pb-2", collapsed && "px-2")}>
+      <div className={cn("th-sidebar-well mx-2.5 mb-2 px-1.5 pb-2 pt-1", collapsed && "mx-1.5 px-1")}>
           {!collapsed && (
             <div className="flex items-center justify-between gap-2 px-2.5 py-1.5">
               <p className="th-sidebar-section-label flex items-center gap-1.5">
@@ -475,13 +475,12 @@ const SidebarContent = React.memo(function SidebarContent({
               })
             )}
           </div>
-          {!collapsed && <div className="mx-2.5 mt-2 border-t border-sidebar-border/25" />}
         </div>
 
       {/* Navigation */}
       <ScrollArea className="flex-1 py-3">
-        <nav className="space-y-1 px-2.5">
-          {visibleGroups.map((group, groupIdx) => {
+        <nav className="space-y-2 px-2.5">
+          {visibleGroups.map((group) => {
             const isOverview = group.label === "Overview";
             const hasActive = group.items.some((item) => isItemActive(item));
             const isExpanded = collapsed ? true : (expandedGroups[group.label] ?? false) || hasActive;
@@ -491,7 +490,7 @@ const SidebarContent = React.memo(function SidebarContent({
             );
 
             return (
-              <div key={group.label} className={cn(groupIdx > 0 && "pt-1")}>
+              <div key={group.label} className="th-sidebar-well px-1 pt-1 pb-1.5">
                 {!collapsed && !isOverview && (
                   <button
                     onClick={() => toggleGroup(group.label)}
@@ -620,9 +619,6 @@ const SidebarContent = React.memo(function SidebarContent({
                   </div>
                 </div>
 
-                {groupIdx < visibleGroups.length - 1 && !collapsed && isExpanded && (
-                  <div className="mx-2.5 my-2 border-t border-sidebar-border/25" />
-                )}
               </div>
             );
           })}
@@ -971,7 +967,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Desktop Sidebar — fixed height; scrolls independently of page content */}
       <aside
         className={cn(
-          "hidden md:flex flex-col th-nav-glass th-sidebar-shell self-stretch mr-1 rounded-[28px] shrink-0 relative z-40 overflow-visible",
+          "hidden md:flex flex-col th-nav-glass th-sidebar-shell self-stretch mr-1 rounded-[32px] shrink-0 relative z-40 overflow-visible",
           collapsed ? "w-[72px] lg:w-[76px]" : "w-[240px] lg:w-[272px]"
         )}
       >
@@ -1001,7 +997,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           side="left"
           glassNav
           overlayClassName="th-nav-overlay"
-          className="th-nav-drawer th-nav-glass rounded-[28px] p-0 gap-0 overflow-hidden border-0"
+          className="th-nav-drawer th-nav-glass rounded-[32px] p-0 gap-0 overflow-hidden border-0"
         >
           <SheetTitle className="sr-only">Navigation menu</SheetTitle>
           <SidebarContent
