@@ -112,7 +112,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                   <Menu className="h-5 w-5" />
                 </Button>
               </SheetTrigger>
-              <SheetContent side="left" className="w-64 p-4">
+              <SheetContent side="left" className="th-nav-drawer th-nav-glass inset-y-3 left-3 h-auto max-h-[calc(100dvh-1.5rem)] w-64 rounded-[24px] p-4">
                 <SheetTitle className="sr-only">Portal navigation</SheetTitle>
                 <div className="flex items-center gap-2 mb-4">
                   <Image

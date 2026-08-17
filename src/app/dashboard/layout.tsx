@@ -971,7 +971,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Desktop Sidebar — fixed height; scrolls independently of page content */}
       <aside
         className={cn(
-          "hidden md:flex flex-col border-r border-sidebar-border transition-all duration-300 relative z-40 th-sidebar-shell h-full shrink-0 overflow-hidden",
+          "hidden md:flex flex-col th-nav-glass th-sidebar-shell h-full shrink-0 relative z-40 overflow-visible",
           collapsed ? "w-[76px]" : "w-[272px]"
         )}
       >
@@ -987,7 +987,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <Button
           variant="ghost"
           size="icon"
-          className="absolute top-24 -right-3 z-10 h-7 w-7 rounded-full border bg-background shadow-sm hidden md:flex"
+          className="absolute top-24 -right-3 z-20 h-7 w-7 rounded-full border bg-background/80 backdrop-blur-md shadow-sm hidden md:flex"
           onClick={() => setCollapsed(!collapsed)}
           aria-label="Toggle sidebar"
         >
@@ -997,7 +997,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Mobile Sidebar */}
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-        <SheetContent side="left" className="w-[min(100vw-2.5rem,300px)] p-0 gap-0 overflow-hidden th-sidebar-shell border-sidebar-border">
+        <SheetContent
+          side="left"
+          className="th-nav-drawer th-nav-glass inset-y-3 left-3 h-auto max-h-[calc(100dvh-1.5rem)] w-[min(100vw-3.25rem,300px)] rounded-[24px] p-0 gap-0 overflow-hidden border"
+        >
           <SheetTitle className="sr-only">Navigation menu</SheetTitle>
           <SidebarContent
             collapsed={false}

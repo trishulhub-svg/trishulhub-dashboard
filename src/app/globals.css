@@ -337,25 +337,131 @@ body {
     var(--elevation-2);
 }
 
-/* ── Glass sidebar ── */
-.liquid-glass-sidebar,
-.th-sidebar-shell {
-  background:
-    linear-gradient(180deg, color-mix(in oklch, var(--lg-specular) 18%, transparent), transparent 18%),
-    linear-gradient(180deg, var(--lg-tint), transparent 28%),
-    color-mix(in oklch, var(--sidebar) 92%, transparent);
-  backdrop-filter: blur(20px) saturate(1.25);
-  -webkit-backdrop-filter: blur(20px) saturate(1.25);
-  border-right: 1px solid var(--lg-edge);
-  box-shadow:
-    inset -1px 0 0 color-mix(in oklch, var(--lg-rim) 30%, transparent),
-    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 25%, transparent);
+/* ── Glass sidebar / left nav (Apple 3D liquid glass) ── */
+@keyframes th-nav-sheen {
+  0% { background-position: 0% 0%, 0% 0%; }
+  50% { background-position: 80% 20%, 40% 60%; }
+  100% { background-position: 0% 0%, 0% 0%; }
 }
 
-.dark .th-sidebar-shell {
+.liquid-glass-sidebar,
+.th-sidebar-shell,
+.th-nav-glass {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   background:
-    linear-gradient(180deg, color-mix(in oklch, var(--primary) 8%, transparent) 0%, transparent 22%),
-    color-mix(in oklch, var(--sidebar) 82%, transparent);
+    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 58%, transparent) 0%, transparent 34%),
+    linear-gradient(210deg, color-mix(in oklch, var(--primary) 14%, transparent), transparent 46%),
+    linear-gradient(180deg,
+      color-mix(in oklch, var(--card) 52%, transparent) 0%,
+      color-mix(in oklch, var(--sidebar) 38%, transparent) 100%);
+  backdrop-filter: blur(32px) saturate(1.58) brightness(1.08);
+  -webkit-backdrop-filter: blur(32px) saturate(1.58) brightness(1.08);
+  border-right: 1px solid color-mix(in oklch, var(--lg-specular) 28%, var(--lg-edge));
+  box-shadow:
+    inset 0 1.5px 0 color-mix(in oklch, var(--lg-specular) 82%, transparent),
+    inset 1px 0 0 color-mix(in oklch, var(--lg-specular) 36%, transparent),
+    inset 0 -2px 0 color-mix(in oklch, var(--lg-rim) 55%, transparent),
+    inset -1px 0 0 color-mix(in oklch, var(--lg-rim) 28%, transparent),
+    inset 0 0 0 1px color-mix(in oklch, var(--lg-specular) 10%, transparent),
+    8px 0 40px oklch(0 0 0 / 0.18);
+}
+
+.th-nav-glass::before,
+.th-sidebar-shell::before,
+.liquid-glass-sidebar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  border-radius: inherit;
+  background:
+    linear-gradient(
+      125deg,
+      color-mix(in oklch, var(--lg-specular) 70%, transparent) 0%,
+      color-mix(in oklch, var(--lg-specular) 16%, transparent) 18%,
+      transparent 42%
+    ),
+    radial-gradient(
+      420px 280px at 12% -8%,
+      color-mix(in oklch, var(--lg-specular) 38%, transparent),
+      transparent 55%
+    ),
+    radial-gradient(
+      380px 240px at 90% 110%,
+      color-mix(in oklch, var(--primary) 16%, transparent),
+      transparent 60%
+    );
+  background-size: 140% 140%, 100% 100%, 100% 100%;
+  animation: th-nav-sheen 14s var(--lg-ease) infinite;
+  mix-blend-mode: soft-light;
+  opacity: 0.9;
+}
+
+.th-nav-glass::after,
+.th-sidebar-shell::after,
+.liquid-glass-sidebar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  border-radius: inherit;
+  background: linear-gradient(
+    180deg,
+    transparent 52%,
+    color-mix(in oklch, var(--lg-rim) 22%, transparent) 100%
+  );
+  box-shadow:
+    inset 0 0 48px color-mix(in oklch, var(--lg-specular) 8%, transparent),
+    inset 0 -32px 48px color-mix(in oklch, var(--lg-rim) 28%, transparent);
+  opacity: 0.9;
+}
+
+.th-sidebar-shell > *,
+.th-nav-glass > * {
+  position: relative;
+  z-index: 2;
+}
+
+.dark .th-sidebar-shell,
+.dark .th-nav-glass {
+  background:
+    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 32%, transparent) 0%, transparent 36%),
+    linear-gradient(210deg, color-mix(in oklch, var(--primary) 18%, transparent), transparent 48%),
+    linear-gradient(180deg,
+      color-mix(in oklch, var(--card) 36%, transparent) 0%,
+      color-mix(in oklch, var(--sidebar) 28%, transparent) 100%);
+}
+
+.bluelight .th-sidebar-shell,
+.bluelight .th-nav-glass {
+  background:
+    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 62%, transparent) 0%, transparent 34%),
+    linear-gradient(210deg, color-mix(in oklch, var(--primary) 12%, transparent), transparent 48%),
+    linear-gradient(180deg,
+      color-mix(in oklch, var(--card) 58%, transparent) 0%,
+      color-mix(in oklch, var(--sidebar) 42%, transparent) 100%);
+}
+
+/* Nested inner shell is layout only — outer panel owns the glass */
+.th-sidebar-shell .th-sidebar-shell,
+.th-nav-glass .th-sidebar-shell {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  overflow: visible;
+  isolation: auto;
+}
+.th-sidebar-shell .th-sidebar-shell::before,
+.th-sidebar-shell .th-sidebar-shell::after,
+.th-nav-glass .th-sidebar-shell::before,
+.th-nav-glass .th-sidebar-shell::after {
+  display: none;
 }
 
 /* ── Cards (shadcn data-slot + bg-card) ── */
@@ -434,12 +540,52 @@ body {
   border-radius: 0 !important;
   box-shadow: 0 0 40px oklch(0 0 0 / 0.22) !important;
 }
-[data-slot="sheet-content"] .th-sidebar-shell {
-  background: transparent;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  border-right: 0;
-  box-shadow: none;
+
+/* Left nav drawer — floating 3D liquid glass slab */
+[data-slot="sheet-content"].th-nav-drawer {
+  isolation: isolate;
+  overflow: hidden;
+  background:
+    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 62%, transparent) 0%, transparent 32%),
+    linear-gradient(210deg, color-mix(in oklch, var(--primary) 16%, transparent), transparent 44%),
+    linear-gradient(180deg,
+      color-mix(in oklch, var(--card) 48%, transparent) 0%,
+      color-mix(in oklch, var(--sidebar) 32%, transparent) 100%) !important;
+  backdrop-filter: blur(36px) saturate(1.65) brightness(1.1) !important;
+  -webkit-backdrop-filter: blur(36px) saturate(1.65) brightness(1.1) !important;
+  border: 1px solid color-mix(in oklch, var(--lg-specular) 42%, var(--lg-edge)) !important;
+  border-radius: 24px !important;
+  box-shadow:
+    inset 0 1.5px 0 color-mix(in oklch, var(--lg-specular) 88%, transparent),
+    inset 1px 0 0 color-mix(in oklch, var(--lg-specular) 40%, transparent),
+    inset 0 -2px 0 color-mix(in oklch, var(--lg-rim) 50%, transparent),
+    inset -1px 0 0 color-mix(in oklch, var(--lg-rim) 22%, transparent),
+    inset 0 0 0 1px color-mix(in oklch, var(--lg-specular) 12%, transparent),
+    0 24px 60px oklch(0 0 0 / 0.32),
+    0 8px 24px oklch(0 0 0 / 0.18) !important;
+}
+.dark [data-slot="sheet-content"].th-nav-drawer {
+  background:
+    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 36%, transparent) 0%, transparent 34%),
+    linear-gradient(210deg, color-mix(in oklch, var(--primary) 20%, transparent), transparent 46%),
+    linear-gradient(180deg,
+      color-mix(in oklch, var(--card) 32%, transparent) 0%,
+      color-mix(in oklch, var(--sidebar) 22%, transparent) 100%) !important;
+}
+.bluelight [data-slot="sheet-content"].th-nav-drawer {
+  background:
+    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 70%, transparent) 0%, transparent 32%),
+    linear-gradient(210deg, color-mix(in oklch, var(--primary) 14%, transparent), transparent 46%),
+    linear-gradient(180deg,
+      color-mix(in oklch, var(--card) 56%, transparent) 0%,
+      color-mix(in oklch, var(--sidebar) 40%, transparent) 100%) !important;
+}
+[data-slot="sheet-content"].th-nav-drawer .th-sidebar-shell {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: 0 !important;
+  box-shadow: none !important;
 }
 
 /* Overlay MUST stay below content. Backdrop-filter here hides the sheet on mobile. */
@@ -448,7 +594,7 @@ body {
 [data-slot="alert-dialog-overlay"],
 [data-slot="sheet-overlay"] {
   z-index: 60 !important;
-  background: oklch(0.18 0.02 255 / 46%) !important;
+  background: oklch(0.18 0.02 255 / 28%) !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
@@ -456,12 +602,12 @@ body {
 .dark [data-slot="dialog-overlay"],
 .dark [data-slot="alert-dialog-overlay"],
 .dark [data-slot="sheet-overlay"] {
-  background: oklch(0.08 0.02 255 / 62%) !important;
+  background: oklch(0.08 0.02 255 / 42%) !important;
 }
 .bluelight [data-radix-dialog-overlay],
 .bluelight [data-slot="dialog-overlay"],
 .bluelight [data-slot="sheet-overlay"] {
-  background: oklch(0.28 0.03 60 / 40%) !important;
+  background: oklch(0.28 0.03 60 / 26%) !important;
 }
 
 /* ── Topbar ── */
@@ -713,6 +859,11 @@ table tbody tr:hover {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .th-nav-glass::before,
+  .th-sidebar-shell::before,
+  .liquid-glass-sidebar::before {
+    animation: none;
+  }
   .liquid-glass,
   .liquid-glass-sidebar,
   .liquid-glass-card,
@@ -1157,21 +1308,13 @@ main .max-h-\[32rem\].overflow-auto.rounded-lg.border {
 }
 
 /* ── Sidebar navigation (dashboard shell) ── */
-.th-sidebar-shell {
-  background: var(--sidebar);
-  border-right: 1px solid color-mix(in oklch, var(--sidebar-border) 85%, transparent);
-}
-.dark .th-sidebar-shell {
+.th-sidebar-brand {
+  border-bottom: 1px solid color-mix(in oklch, var(--lg-edge) 70%, transparent);
   background: linear-gradient(
     180deg,
-    color-mix(in oklch, var(--sidebar) 96%, var(--primary) 4%) 0%,
-    var(--sidebar) 18%,
-    var(--sidebar) 100%
+    color-mix(in oklch, var(--lg-specular) 12%, transparent),
+    transparent 80%
   );
-}
-.th-sidebar-brand {
-  border-bottom: 1px solid var(--sidebar-border);
-  background: transparent;
 }
 .th-sidebar-brand-mark {
   border-radius: 0;
@@ -1220,22 +1363,36 @@ main .max-h-\[32rem\].overflow-auto.rounded-lg.border {
   align-items: center;
   gap: 0.75rem;
   width: 100%;
-  border-radius: 0.75rem;
+  border-radius: 0.85rem;
   padding: 0.5rem 0.625rem;
   font-size: 0.8125rem;
   font-weight: 500;
   text-align: left;
   color: color-mix(in oklch, var(--sidebar-foreground) 82%, transparent);
-  transition: background-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+  border: 1px solid transparent;
+  background: transparent;
+  transition: background 0.25s var(--lg-ease), color 0.2s var(--lg-ease), box-shadow 0.25s var(--lg-ease), border-color 0.25s var(--lg-ease), transform 0.25s var(--lg-ease);
 }
 .th-sidebar-link:hover {
-  background: color-mix(in oklch, var(--sidebar-accent) 55%, transparent);
   color: var(--sidebar-accent-foreground);
+  background:
+    linear-gradient(160deg, color-mix(in oklch, var(--lg-specular) 28%, transparent), transparent 48%),
+    color-mix(in oklch, var(--card) 28%, transparent);
+  border-color: color-mix(in oklch, var(--lg-edge) 80%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 40%, transparent),
+    0 6px 16px oklch(0 0 0 / 0.08);
 }
 .th-sidebar-link-active {
-  background: color-mix(in oklch, var(--primary) 11%, var(--sidebar-accent));
   color: var(--foreground);
-  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--primary) 22%, transparent);
+  background:
+    linear-gradient(160deg, color-mix(in oklch, var(--lg-specular) 40%, transparent), transparent 46%),
+    color-mix(in oklch, var(--primary) 16%, color-mix(in oklch, var(--card) 35%, transparent));
+  border-color: color-mix(in oklch, var(--primary) 32%, var(--lg-edge));
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 55%, transparent),
+    inset 0 0 0 1px color-mix(in oklch, var(--primary) 18%, transparent),
+    0 8px 18px color-mix(in oklch, var(--primary) 12%, transparent);
 }
 .th-sidebar-icon-wrap {
   display: inline-flex;
@@ -1244,13 +1401,20 @@ main .max-h-\[32rem\].overflow-auto.rounded-lg.border {
   width: 2rem;
   height: 2rem;
   flex-shrink: 0;
-  border-radius: 0.55rem;
-  background: color-mix(in oklch, var(--sidebar-accent) 45%, transparent);
+  border-radius: 0.6rem;
+  background:
+    linear-gradient(160deg, color-mix(in oklch, var(--lg-specular) 35%, transparent), transparent 50%),
+    color-mix(in oklch, var(--card) 30%, transparent);
+  border: 1px solid color-mix(in oklch, var(--lg-edge) 70%, transparent);
   color: color-mix(in oklch, var(--sidebar-foreground) 70%, var(--primary) 30%);
-  transition: background-color 0.18s ease, color 0.18s ease;
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 40%, transparent);
+  transition: background 0.2s var(--lg-ease), color 0.2s var(--lg-ease), border-color 0.2s var(--lg-ease);
 }
 .th-sidebar-link-active .th-sidebar-icon-wrap {
-  background: color-mix(in oklch, var(--primary) 18%, transparent);
+  background:
+    linear-gradient(160deg, color-mix(in oklch, var(--lg-specular) 45%, transparent), transparent 50%),
+    color-mix(in oklch, var(--primary) 22%, transparent);
+  border-color: color-mix(in oklch, var(--primary) 35%, var(--lg-edge));
   color: var(--primary);
 }
 .th-sidebar-sublink {
@@ -1267,13 +1431,18 @@ main .max-h-\[32rem\].overflow-auto.rounded-lg.border {
   transition: background-color 0.18s ease, color 0.18s ease;
 }
 .th-sidebar-sublink:hover {
-  background: color-mix(in oklch, var(--sidebar-accent) 40%, transparent);
+  background:
+    linear-gradient(160deg, color-mix(in oklch, var(--lg-specular) 20%, transparent), transparent 50%),
+    color-mix(in oklch, var(--card) 22%, transparent);
   color: var(--sidebar-accent-foreground);
 }
 .th-sidebar-sublink-active {
-  background: color-mix(in oklch, var(--primary) 10%, transparent);
+  background:
+    linear-gradient(160deg, color-mix(in oklch, var(--lg-specular) 28%, transparent), transparent 50%),
+    color-mix(in oklch, var(--primary) 12%, transparent);
   color: var(--foreground);
   font-weight: 600;
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 30%, transparent);
 }
 .th-sidebar-child-rail {
   margin-left: 1.125rem;
