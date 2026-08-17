@@ -530,12 +530,23 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
   box-shadow: 0 0 40px oklch(0 0 0 / 0.22) !important;
 }
 
-/* Left nav drawer — page must show through.
-   Do not use SVG url() in backdrop-filter (voids blur).
-   Do not transform/animate opacity on this node (kills backdrop-filter). */
+/* Left nav drawer — must have a real height (h-auto + child h-full collapses to 0).
+   Sit above workspace layers (z-index 8000). No slide transform (keeps panel off-screen). */
 [data-slot="sheet-content"].th-nav-drawer {
+  display: flex !important;
+  flex-direction: column !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
   isolation: auto;
   overflow: hidden;
+  z-index: 10100 !important;
+  top: 0.75rem !important;
+  left: 0.75rem !important;
+  right: auto !important;
+  bottom: auto !important;
+  width: min(300px, calc(100vw - 3.25rem)) !important;
+  height: calc(100dvh - 1.5rem) !important;
+  max-height: calc(100dvh - 1.5rem) !important;
   transform: none !important;
   translate: none !important;
   scale: none !important;
@@ -544,9 +555,9 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
   will-change: auto !important;
   animation: none !important;
   opacity: 1 !important;
-  background: rgba(255, 255, 255, 0.16) !important;
-  backdrop-filter: blur(40px) saturate(1.8) brightness(1.12) !important;
-  -webkit-backdrop-filter: blur(40px) saturate(1.8) brightness(1.12) !important;
+  background: color-mix(in oklch, var(--card) 82%, transparent) !important;
+  backdrop-filter: blur(40px) saturate(1.8) brightness(1.08) !important;
+  -webkit-backdrop-filter: blur(40px) saturate(1.8) brightness(1.08) !important;
   border: 1px solid rgba(255, 255, 255, 0.55) !important;
   border-radius: 28px !important;
   box-shadow:
@@ -556,7 +567,7 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
     0 24px 64px rgba(15, 23, 42, 0.28) !important;
 }
 .dark [data-slot="sheet-content"].th-nav-drawer {
-  background: rgba(16, 20, 28, 0.32) !important;
+  background: color-mix(in oklch, var(--card) 86%, transparent) !important;
   border-color: rgba(255, 255, 255, 0.22) !important;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.28),
@@ -564,10 +575,13 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
     0 24px 64px rgba(0, 0, 0, 0.5) !important;
 }
 .bluelight [data-slot="sheet-content"].th-nav-drawer {
-  background: rgba(255, 250, 240, 0.22) !important;
+  background: color-mix(in oklch, var(--card) 84%, transparent) !important;
   border-color: rgba(255, 255, 255, 0.6) !important;
 }
 [data-slot="sheet-content"].th-nav-drawer .th-sidebar-shell {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100% !important;
   background: transparent !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
@@ -575,7 +589,6 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
   box-shadow: none !important;
 }
 
-/* Overlay MUST stay below content. Nav overlay is transparent so blur samples the page. */
 [data-radix-dialog-overlay],
 [data-slot="dialog-overlay"],
 [data-slot="alert-dialog-overlay"],
@@ -586,10 +599,10 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
   -webkit-backdrop-filter: none !important;
 }
 [data-slot="sheet-overlay"].th-nav-overlay {
-  z-index: 60 !important;
+  z-index: 10050 !important;
   inset: 0 !important;
   width: auto !important;
-  background: transparent !important;
+  background: rgba(15, 23, 42, 0.42) !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   clip-path: none !important;
@@ -602,15 +615,16 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
 .dark [data-slot="sheet-overlay"]:not(.th-nav-overlay) {
   background: oklch(0.08 0.02 255 / 42%) !important;
 }
+.dark [data-slot="sheet-overlay"].th-nav-overlay {
+  background: rgba(0, 0, 0, 0.5) !important;
+}
 .bluelight [data-radix-dialog-overlay],
 .bluelight [data-slot="dialog-overlay"],
 .bluelight [data-slot="sheet-overlay"]:not(.th-nav-overlay) {
   background: oklch(0.28 0.03 60 / 26%) !important;
 }
-
-/* Dim the live page (not a scrim behind the glass) so Control Center still reads as modal. */
-body:has([data-slot="sheet-content"].th-nav-drawer[data-state="open"]) .th-app-shell {
-  filter: brightness(0.72) saturate(0.92);
+.bluelight [data-slot="sheet-overlay"].th-nav-overlay {
+  background: rgba(42, 36, 28, 0.38) !important;
 }
 
 /* ── Topbar ── */

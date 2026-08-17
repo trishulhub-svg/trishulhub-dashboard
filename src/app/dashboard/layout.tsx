@@ -1001,7 +1001,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           side="left"
           glassNav
           overlayClassName="th-nav-overlay"
-          className="th-nav-drawer th-nav-glass bg-transparent inset-y-3 left-3 h-auto max-h-[calc(100dvh-1.5rem)] w-[min(100vw-3.25rem,300px)] rounded-[28px] p-0 gap-0 overflow-hidden border-0"
+          className="th-nav-drawer th-nav-glass rounded-[28px] p-0 gap-0 overflow-hidden border-0"
         >
           <SheetTitle className="sr-only">Navigation menu</SheetTitle>
           <SidebarContent
@@ -1021,7 +1021,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {/* Header - taller and more prominent */}
         <header className="h-14 sm:h-16 glass-topbar grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1 sm:gap-2 px-2 sm:px-5 shrink-0 relative z-30">
           <div className="flex items-center gap-2 min-w-0 relative z-[1]">
-            <Button variant="ghost" size="icon" className="md:hidden shrink-0 relative z-[2]" aria-label="Open menu" onClick={() => setMobileOpen(true)}>
+            <Button type="button" variant="ghost" size="icon" className="md:hidden shrink-0 relative z-[2]" aria-label="Open menu" onClick={() => setMobileOpen(true)}>
               <Menu className="h-5 w-5" />
             </Button>
             <h2 className="text-sm sm:text-base font-semibold text-foreground truncate">

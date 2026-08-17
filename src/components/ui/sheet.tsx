@@ -38,7 +38,7 @@ function SheetOverlay({
       data-slot="sheet-overlay"
       className={cn(
         "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-[60]",
-        isNavGlass ? "bg-transparent" : "bg-black/50",
+        isNavGlass ? "bg-black/40 z-[10050]" : "bg-black/50",
         className
       )}
       {...props}
@@ -81,7 +81,7 @@ function SheetContent({
             side === "bottom" &&
             "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom inset-x-0 bottom-0 h-auto border-t",
           isGlassNav &&
-            "bg-transparent shadow-none border-0 translate-x-0 translate-y-0 transform-none data-[state=open]:animate-none data-[state=closed]:animate-none",
+            "flex flex-col bg-card/85 shadow-none border-0 translate-x-0 translate-y-0 transform-none data-[state=open]:animate-none data-[state=closed]:animate-none top-3 left-3 right-auto bottom-auto h-[calc(100dvh-1.5rem)] max-h-[calc(100dvh-1.5rem)] w-[min(100vw-3.25rem,300px)] z-[10100]",
           className
         )}
         {...props}
