@@ -90,6 +90,7 @@ import {
 } from "@/lib/nav-pages";
 import { useFavoritePages } from "@/hooks/use-favorite-pages";
 import { ClockedInHeaderDot } from "@/components/clocked-in-header-dot";
+import { LiquidNavRail, liquidNavItemClass, liquidNavKey } from "@/components/liquid-nav-rail";
 
 interface NavItem {
   title: string;
@@ -404,7 +405,7 @@ const SidebarContent = React.memo(function SidebarContent({
               )}
             </div>
           )}
-          <div className={cn("space-y-0.5", collapsed && "flex flex-col items-center gap-1")}>
+          <div className={cn(collapsed && "flex flex-col items-center gap-1")}>
             {!favLoaded && favoritePages.length === 0 ? (
               !collapsed ? (
                 <div className="th-sidebar-link w-full opacity-60 pointer-events-none">
@@ -446,7 +447,20 @@ const SidebarContent = React.memo(function SidebarContent({
                 </button>
               )
             ) : (
-              favoritePages.map((fav) => {
+              <LiquidNavRail
+                activeKey={
+                  favoritePages.find(
+                    (f) =>
+                      pathname === f.href ||
+                      (f.href !== "/dashboard" && pathname.startsWith(f.href + "/"))
+                  )?.href ??
+                  favoritePages[0]?.href ??
+                  ""
+                }
+                onActivate={onNavigate}
+                className={cn("space-y-0.5", collapsed && "flex flex-col items-center gap-1")}
+              >
+              {favoritePages.map((fav) => {
                 const Icon = iconForHref(fav.href);
                 const isActive =
                   pathname === fav.href ||
@@ -460,9 +474,10 @@ const SidebarContent = React.memo(function SidebarContent({
                     aria-label={fav.title}
                     aria-current={isActive ? "page" : undefined}
                     title={collapsed ? fav.title : undefined}
+                    {...liquidNavKey(fav.href)}
                     className={cn(
                       "th-sidebar-link",
-                      isActive && "th-sidebar-link-active th-rail-active",
+                      liquidNavItemClass(isActive),
                       collapsed && "justify-center px-2"
                     )}
                   >
@@ -472,7 +487,8 @@ const SidebarContent = React.memo(function SidebarContent({
                     {!collapsed && <span className="flex-1 truncate text-left">{fav.title}</span>}
                   </button>
                 );
-              })
+              })}
+              </LiquidNavRail>
             )}
           </div>
         </div>
@@ -525,7 +541,22 @@ const SidebarContent = React.memo(function SidebarContent({
                     isExpanded ? "max-h-[800px] opacity-100" : collapsed ? "max-h-[800px] opacity-100" : "max-h-0 opacity-0"
                   )}
                 >
-                  <div className="space-y-0.5 pb-1">
+                  <LiquidNavRail
+                    activeKey={
+                      group.items.find((item) => isItemActive(item))?.href ??
+                      group.items[0]?.href ??
+                      ""
+                    }
+                    onActivate={(key) => {
+                      const item = group.items.find((i) => i.href === key);
+                      if (item?.children?.length) {
+                        toggleItem(item.href);
+                      } else if (item) {
+                        onNavigate(item.href);
+                      }
+                    }}
+                    className="space-y-0.5 pb-1"
+                  >
                     {group.items.map((item) => {
                       const isActive = isItemActive(item);
                       const hasChildren = !!item.children && item.children.length > 0;
@@ -549,9 +580,10 @@ const SidebarContent = React.memo(function SidebarContent({
                             aria-label={item.title}
                             aria-current={isActive ? "page" : undefined}
                             title={collapsed ? item.title : undefined}
+                            {...liquidNavKey(item.href)}
                             className={cn(
                               "th-sidebar-link",
-                              isActive && "th-sidebar-link-active th-rail-active",
+                              liquidNavItemClass(isActive),
                               collapsed && "justify-center px-2"
                             )}
                             type="button"
@@ -589,7 +621,15 @@ const SidebarContent = React.memo(function SidebarContent({
                                 isItemExpanded ? "max-h-[320px] opacity-100" : "max-h-0 opacity-0"
                               )}
                             >
-                              <div className="th-sidebar-child-rail space-y-0.5 mt-0.5 mb-1">
+                              <LiquidNavRail
+                                activeKey={
+                                  item.children!.find((c) => isChildActive(c))?.href ??
+                                  item.children![0]?.href ??
+                                  ""
+                                }
+                                onActivate={onNavigate}
+                                className="th-sidebar-child-rail space-y-0.5 mt-0.5 mb-1"
+                              >
                                 {item.children!.map((child) => {
                                   const childActive = isChildActive(child);
                                   return (
@@ -599,6 +639,7 @@ const SidebarContent = React.memo(function SidebarContent({
                                       role="link"
                                       aria-label={child.title}
                                       aria-current={childActive ? "page" : undefined}
+                                      {...liquidNavKey(child.href)}
                                       className={cn(
                                         "th-sidebar-sublink",
                                         childActive && "th-sidebar-sublink-active"
@@ -610,13 +651,13 @@ const SidebarContent = React.memo(function SidebarContent({
                                     </button>
                                   );
                                 })}
-                              </div>
+                              </LiquidNavRail>
                             </div>
                           )}
                         </div>
                       );
                     })}
-                  </div>
+                  </LiquidNavRail>
                 </div>
 
               </div>
