@@ -312,7 +312,12 @@ body {
     radial-gradient(ellipse 70% 42% at 96% 0%, color-mix(in oklch, var(--brand-blue) 12%, transparent), transparent 55%),
     radial-gradient(ellipse 55% 35% at 50% 110%, color-mix(in oklch, var(--primary) 8%, transparent), transparent 60%),
     var(--page-glow);
-  background-attachment: fixed;
+  background-attachment: scroll;
+}
+@media (hover: hover) and (pointer: fine) {
+  body {
+    background-attachment: fixed;
+  }
 }
 body::before {
   content: "";
@@ -323,7 +328,7 @@ body::before {
   background: var(--page-glow);
   opacity: 0.9;
 }
-@media (prefers-reduced-motion: no-preference) {
+@media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
   body::before {
     animation: th-ambient-drift 26s ease-in-out infinite;
   }
@@ -384,6 +389,12 @@ body::before {
 /* ── Left nav: Apple Liquid Glass (iOS 26 / Control Center) ── */
 .th-app-shell {
   background: transparent;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+.th-app-shell.overflow-hidden {
+  height: 100vh;
+  height: 100dvh;
 }
 
 .liquid-glass-sidebar,
@@ -406,6 +417,11 @@ aside.th-sidebar-shell {
 aside.th-nav-glass,
 aside.th-sidebar-shell {
   position: relative;
+  margin-top: max(0.5rem, env(safe-area-inset-top, 0px));
+  margin-bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));
+  margin-left: max(0.5rem, env(safe-area-inset-left, 0px));
+  height: calc(100vh - max(0.5rem, env(safe-area-inset-top, 0px)) - max(0.5rem, env(safe-area-inset-bottom, 0px)));
+  height: calc(100dvh - max(0.5rem, env(safe-area-inset-top, 0px)) - max(0.5rem, env(safe-area-inset-bottom, 0px)));
 }
 
 @supports (-apple-visual-effect: -apple-system-glass-material) {
@@ -549,7 +565,8 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
     var(--elevation-2) !important;
 }
 
-/* ── Dialog / modal — always centered in the viewport, never a bottom sheet ── */
+/* ── Dialog / modal — always centered in the viewport, never a bottom sheet.
+   Do not force width/max-width on desktop: max-w-3xl and sm:max-w-lg must win. ── */
 [data-slot="dialog-content"],
 [data-slot="alert-dialog-content"] {
   position: fixed !important;
@@ -559,9 +576,7 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
   bottom: auto !important;
   translate: -50% -50% !important;
   z-index: 200 !important;
-  width: calc(100% - 2rem) !important;
-  max-width: 28rem;
-  max-height: min(85dvh, 40rem);
+  max-height: min(90vh, calc(100vh - 2rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)));
   overflow-y: auto;
   overscroll-behavior: contain;
   backdrop-filter: blur(22px) saturate(1.3) !important;
@@ -574,6 +589,19 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
     inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 60%, transparent),
     0 24px 60px oklch(0 0 0 / 0.28) !important;
   border-radius: calc(var(--radius) + 4px);
+}
+@supports (height: 100dvh) {
+  [data-slot="dialog-content"],
+  [data-slot="alert-dialog-content"] {
+    max-height: min(90dvh, calc(100dvh - 2rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)));
+  }
+}
+@media (max-width: 639px) {
+  [data-slot="dialog-content"],
+  [data-slot="alert-dialog-content"] {
+    width: calc(100% - 2rem - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)) !important;
+    max-width: calc(100vw - 2rem - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)) !important;
+  }
 }
 
 /* Drawers: opaque, edge-to-edge, above the overlay. No dialog rounding. */
@@ -588,6 +616,14 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
   border-color: var(--lg-edge) !important;
   border-radius: 0 !important;
   box-shadow: 0 0 40px oklch(0 0 0 / 0.22) !important;
+  padding-top: max(0px, env(safe-area-inset-top, 0px));
+  padding-bottom: max(0px, env(safe-area-inset-bottom, 0px));
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+[data-slot="sheet-content"]:not(.th-nav-drawer) > button.absolute {
+  top: calc(0.875rem + env(safe-area-inset-top, 0px));
+  right: calc(0.875rem + env(safe-area-inset-right, 0px));
 }
 
 /* Left nav drawer — real height, fixed to the viewport.
@@ -610,13 +646,15 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
   overflow: hidden;
   position: fixed !important;
   z-index: 10100 !important;
-  top: 0.75rem !important;
-  left: 0.75rem !important;
+  top: max(0.75rem, env(safe-area-inset-top, 0px)) !important;
+  left: max(0.75rem, env(safe-area-inset-left, 0px)) !important;
   right: auto !important;
   bottom: auto !important;
-  width: min(300px, calc(100vw - 3.25rem)) !important;
-  height: calc(100dvh - 1.5rem) !important;
-  max-height: calc(100dvh - 1.5rem) !important;
+  width: min(300px, calc(100vw - 1.5rem - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 1.75rem)) !important;
+  height: calc(100vh - max(1.5rem, env(safe-area-inset-top, 0px) + env(safe-area-inset-bottom, 0px))) !important;
+  height: calc(100dvh - max(1.5rem, env(safe-area-inset-top, 0px) + env(safe-area-inset-bottom, 0px))) !important;
+  max-height: calc(100vh - max(1.5rem, env(safe-area-inset-top, 0px) + env(safe-area-inset-bottom, 0px))) !important;
+  max-height: calc(100dvh - max(1.5rem, env(safe-area-inset-top, 0px) + env(safe-area-inset-bottom, 0px))) !important;
   filter: none;
   background: var(--card) !important;
   backdrop-filter: blur(40px) saturate(1.8) brightness(1.08) !important;
@@ -628,6 +666,18 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
     inset 1px 0 0 rgba(255, 255, 255, 0.28),
     inset 0 -1px 0 rgba(255, 255, 255, 0.12),
     0 24px 64px rgba(15, 23, 42, 0.28) !important;
+}
+@media (max-height: 500px) {
+  [data-slot="sheet-content"].th-nav-drawer {
+    top: max(0.25rem, env(safe-area-inset-top, 0px)) !important;
+    left: max(0.25rem, env(safe-area-inset-left, 0px)) !important;
+    width: min(280px, calc(100vw - 0.5rem - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 0.5rem)) !important;
+    height: calc(100vh - max(0.5rem, env(safe-area-inset-top, 0px) + env(safe-area-inset-bottom, 0px))) !important;
+    height: calc(100dvh - max(0.5rem, env(safe-area-inset-top, 0px) + env(safe-area-inset-bottom, 0px))) !important;
+    max-height: calc(100vh - max(0.5rem, env(safe-area-inset-top, 0px) + env(safe-area-inset-bottom, 0px))) !important;
+    max-height: calc(100dvh - max(0.5rem, env(safe-area-inset-top, 0px) + env(safe-area-inset-bottom, 0px))) !important;
+    border-radius: 20px !important;
+  }
 }
 [data-slot="sheet-content"].th-nav-drawer[data-state="open"] {
   animation: th-nav-in 0.22s cubic-bezier(0.32, 0.72, 0, 1) both;
@@ -723,6 +773,28 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
   box-shadow:
     inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 48%, transparent),
     0 8px 24px color-mix(in oklch, var(--foreground) 4%, transparent);
+}
+.th-app-shell header.glass-topbar {
+  height: auto;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-left: max(0.5rem, env(safe-area-inset-left, 0px));
+  min-height: calc(3.5rem + env(safe-area-inset-top, 0px));
+}
+@media (min-width: 640px) {
+  .th-app-shell header.glass-topbar {
+    min-height: calc(4rem + env(safe-area-inset-top, 0px));
+    padding-left: max(1.25rem, env(safe-area-inset-left, 0px));
+  }
+}
+@media (max-width: 767px) {
+  button[aria-label="Open menu"] {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+[data-sonner-toaster] {
+  top: max(1rem, env(safe-area-inset-top, 0px)) !important;
+  right: max(1rem, env(safe-area-inset-right, 0px)) !important;
 }
 
 /* ── Inputs ── */
@@ -1336,6 +1408,7 @@ main .max-h-\[32rem\].overflow-auto.rounded-lg.border {
     touch-action: pan-x pan-y;
     overscroll-behavior-y: none;
     /* Stable layout — avoid 100vh jitter when mobile chrome / zoom changes */
+    min-height: 100vh;
     min-height: 100dvh;
   }
   h1, h2, h3 {
@@ -1599,13 +1672,18 @@ main .max-h-\[32rem\].overflow-auto.rounded-lg.border {
 
 .login-page-wrapper {
   position: relative;
-  height: 100dvh;
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
   background: var(--background);
+  padding:
+    env(safe-area-inset-top, 0px)
+    env(safe-area-inset-right, 0px)
+    env(safe-area-inset-bottom, 0px)
+    env(safe-area-inset-left, 0px);
 }
 
 /* Animated gradient mesh — brand green & blue orbs */

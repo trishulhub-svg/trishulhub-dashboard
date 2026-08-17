@@ -967,12 +967,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="th-app-shell h-dvh flex overflow-hidden">
+    <div className="th-app-shell h-[100vh] h-dvh flex overflow-hidden">
       {/* Desktop Sidebar — fixed height; scrolls independently of page content */}
       <aside
         className={cn(
-          "hidden md:flex flex-col th-nav-glass th-sidebar-shell self-stretch m-2 mr-1 rounded-[28px] h-[calc(100dvh-1rem)] shrink-0 relative z-40 overflow-visible",
-          collapsed ? "w-[76px]" : "w-[272px]"
+          "hidden md:flex flex-col th-nav-glass th-sidebar-shell self-stretch mr-1 rounded-[28px] shrink-0 relative z-40 overflow-visible",
+          collapsed ? "w-[72px] lg:w-[76px]" : "w-[240px] lg:w-[272px]"
         )}
       >
         <SidebarContent
@@ -1016,12 +1016,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </SheetContent>
 
       {/* Main Content — only this region scrolls with the page */}
-      <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden pr-[env(safe-area-inset-right,0px)]">
         {/* Header - taller and more prominent */}
-        <header className="h-14 sm:h-16 glass-topbar grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1 sm:gap-2 px-2 sm:px-5 shrink-0 relative z-30">
+        <header className="min-h-14 sm:min-h-16 glass-topbar grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1 sm:gap-2 px-2 sm:px-5 shrink-0 relative z-30">
           <div className="flex items-center gap-2 min-w-0 relative z-[1]">
             <SheetTrigger asChild>
-              <Button type="button" variant="ghost" size="icon" className="md:hidden shrink-0 relative z-[2]" aria-label="Open menu">
+              <Button type="button" variant="ghost" size="icon" className="md:hidden size-11 min-h-11 min-w-11 shrink-0 relative z-[2]" aria-label="Open menu">
                 <Menu className="h-5 w-5" />
               </Button>
             </SheetTrigger>
@@ -1224,7 +1224,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </header>
 
         {/* Page Content - more padding */}
-        <main className="th-page-shell flex-1 min-h-0 max-w-full p-3 sm:p-4 md:p-6 lg:p-8 pb-20 overflow-y-auto overflow-x-hidden overscroll-y-contain touch-pan-y">{children}</main>
+        <main className="th-page-shell flex-1 min-h-0 max-w-full p-3 sm:p-4 md:p-6 lg:p-8 pb-[max(5rem,calc(3.5rem+env(safe-area-inset-bottom,0px)))] overflow-y-auto overflow-x-hidden overscroll-y-contain touch-pan-y">{children}</main>
       </div>
       </Sheet>
 

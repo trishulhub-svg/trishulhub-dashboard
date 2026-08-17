@@ -101,14 +101,14 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   };
 
   return (
-    <div className="th-app-shell min-h-screen flex flex-col">
+    <div className="th-app-shell min-h-screen min-h-dvh flex flex-col">
       {/* Top Navigation */}
       <header className="sticky top-0 z-30 border-b border-border glass-topbar">
         <div className="flex items-center justify-between h-14 px-4 max-w-7xl mx-auto">
           <div className="flex items-center gap-4">
             <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
               <SheetTrigger asChild>
-                <Button variant="ghost" size="icon" className="md:hidden" aria-label="Open menu">
+                <Button variant="ghost" size="icon" className="md:hidden size-11 min-h-11 min-w-11" aria-label="Open menu">
                   <Menu className="h-5 w-5" />
                 </Button>
               </SheetTrigger>
