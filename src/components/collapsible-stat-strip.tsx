@@ -62,7 +62,7 @@ export function CollapsibleStatStrip({
   if (!items.length) return null;
 
   return (
-    <section className={cn("rounded-xl border border-border/70 bg-card/40 overflow-hidden", className)}>
+    <section className={cn("liquid-glass-card rounded-xl border border-border/70 overflow-hidden", className)}>
       <button
         type="button"
         onClick={toggle}
@@ -103,7 +103,7 @@ export function CollapsibleStatStrip({
             <div
               key={item.key}
               className={cn(
-                "rounded-lg border border-border/60 bg-background/60 px-3 py-2.5",
+                "th-inset rounded-lg border border-border/60 px-3 py-2.5",
                 item.accentClassName
               )}
             >

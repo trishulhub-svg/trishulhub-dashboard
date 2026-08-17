@@ -93,7 +93,7 @@ export function SearchableCombobox({
           <input
             type="text"
             className={cn(
-              "w-full rounded border bg-background px-3 py-2 pr-8 text-sm",
+              "w-full rounded border px-3 py-2 pr-8 text-sm",
               inputClassName
             )}
             placeholder={selected ? selected.label : placeholder}

@@ -183,7 +183,7 @@ export function ProjectMethodsDialog({
           <DialogHeader>
             <DialogTitle>Methods</DialogTitle>
           </DialogHeader>
-          <div className="rounded-lg bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 p-4 space-y-4">
+          <div className="rounded-lg liquid-glass border p-4 space-y-4">
             <div className={cn("space-y-3", canManageCatalog && "pb-4 border-b border-white/20 dark:border-white/10")}>
               <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                 <CheckCircle2 className="h-3.5 w-3.5" /> Methods for this Project

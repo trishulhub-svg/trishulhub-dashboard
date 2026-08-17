@@ -832,7 +832,7 @@ export default function FilesPage() {
 
         {/* Collapsible about section — collapsed by default */}
         <Collapsible open={aboutOpen} onOpenChange={setAboutOpen} className="shrink-0">
-          <div className="rounded-xl border border-border/60 bg-card/40 overflow-hidden">
+          <div className="rounded-xl border border-border/60 liquid-glass-card overflow-hidden">
             <CollapsibleTrigger asChild>
               <button
                 type="button"
@@ -880,16 +880,16 @@ export default function FilesPage() {
         </Collapsible>
 
         {/* Explorer shell */}
-        <div className="flex-1 min-h-0 rounded-xl border border-border/60 bg-card/30 overflow-hidden flex">
+        <div className="flex-1 min-h-0 rounded-xl border border-border/60 liquid-glass-card overflow-hidden flex">
           {/* Desktop sidebar */}
-          <aside className="hidden md:flex w-[240px] lg:w-[260px] shrink-0 border-r border-border/50 bg-muted/15 flex-col min-h-0">
+          <aside className="hidden md:flex w-[240px] lg:w-[260px] shrink-0 border-r border-border/50 th-inset flex-col min-h-0">
             <SidebarNav size="compact" />
           </aside>
 
           {/* Main pane */}
           <div className="flex-1 min-w-0 flex flex-col min-h-0">
             {/* Address / breadcrumb bar */}
-            <div className="shrink-0 border-b border-border/50 bg-muted/20 px-2.5 py-2 sm:py-1.5 flex flex-wrap items-center gap-1 text-sm sm:text-xs">
+            <div className="shrink-0 border-b border-border/50 th-inset px-2.5 py-2 sm:py-1.5 flex flex-wrap items-center gap-1 text-sm sm:text-xs">
               <button
                 type="button"
                 className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 sm:px-1.5 sm:py-1 font-medium text-teal-700 dark:text-teal-300 hover:bg-teal-500/10"

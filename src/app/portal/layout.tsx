@@ -36,8 +36,8 @@ function NavItems({ pathname, onNavigate, onNavClick }: { pathname: string; onNa
             className={cn(
               "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors w-full text-left",
               isActive
-                ? "bg-primary text-primary-foreground"
-                : "text-foreground hover:bg-muted"
+                ? "bg-primary text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.28)]"
+                : "text-foreground hover:bg-muted/70"
             )}
             type="button"
           >
@@ -155,10 +155,10 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
       </header>
 
       {/* Content */}
-      <main className="flex-1 p-4 md:p-6 max-w-7xl mx-auto w-full">{children}</main>
+      <main className="th-page-shell flex-1 p-4 md:p-6 max-w-7xl mx-auto w-full">{children}</main>
 
       {/* Footer */}
-      <footer className="border-t bg-card py-4 text-center text-xs text-muted-foreground">
+      <footer className="border-t glass-topbar py-4 text-center text-xs text-muted-foreground">
         <p>&copy; {new Date().getFullYear()} TrishulHub. AI-Powered Web Development Platform.</p>
       </footer>
     </div>

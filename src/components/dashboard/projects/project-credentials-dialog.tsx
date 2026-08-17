@@ -172,7 +172,7 @@ export function ProjectCredentialsDialog({
           <DialogHeader>
             <DialogTitle>Credentials</DialogTitle>
           </DialogHeader>
-          <div className="rounded-lg bg-white/60 dark:bg-white/[0.04] backdrop-blur-xl border border-white/20 dark:border-white/10 p-4 space-y-4">
+          <div className="rounded-lg liquid-glass border p-4 space-y-4">
             <div className="space-y-2">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                 <Key className="h-3.5 w-3.5" /> Add New Credential

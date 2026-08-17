@@ -262,6 +262,8 @@
   --lg-specular: oklch(1 0 0 / 0.62);
   --lg-rim: oklch(0.25 0.02 220 / 0.10);
   --lg-edge: color-mix(in oklch, var(--border) 70%, oklch(1 0 0 / 0.45));
+  --lg-nested: color-mix(in oklch, var(--card) 42%, transparent);
+  --lg-nested-shadow: inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 30%, transparent);
 }
 
 .dark {
@@ -274,6 +276,7 @@
   --lg-specular: oklch(1 0 0 / 0.28);
   --lg-rim: oklch(0 0 0 / 0.38);
   --lg-edge: color-mix(in oklch, var(--border) 75%, oklch(1 0 0 / 0.18));
+  --lg-nested: color-mix(in oklch, var(--card) 32%, transparent);
 }
 
 .bluelight {
@@ -286,6 +289,7 @@
   --lg-specular: oklch(1 0 0 / 0.55);
   --lg-rim: oklch(0.3 0.03 55 / 0.12);
   --lg-edge: color-mix(in oklch, var(--border) 65%, oklch(1 0 0 / 0.42));
+  --lg-nested: color-mix(in oklch, var(--card) 46%, transparent);
 }
 
 /* Ambient environment behind glass so translucency has something to catch */
@@ -384,6 +388,7 @@ body {
 [role="menu"],
 [data-slot="popover-content"],
 [data-slot="dropdown-menu-content"],
+[data-slot="dropdown-menu-sub-content"],
 [data-slot="select-content"] {
   backdrop-filter: blur(22px) saturate(1.35) !important;
   -webkit-backdrop-filter: blur(22px) saturate(1.35) !important;
@@ -415,18 +420,21 @@ body {
 
 [data-radix-dialog-overlay],
 [data-slot="dialog-overlay"],
-[data-slot="alert-dialog-overlay"] {
+[data-slot="alert-dialog-overlay"],
+[data-slot="sheet-overlay"] {
   background: oklch(0.18 0.02 255 / 38%) !important;
   backdrop-filter: blur(10px) saturate(1.1) !important;
   -webkit-backdrop-filter: blur(10px) saturate(1.1) !important;
 }
 .dark [data-radix-dialog-overlay],
 .dark [data-slot="dialog-overlay"],
-.dark [data-slot="alert-dialog-overlay"] {
+.dark [data-slot="alert-dialog-overlay"],
+.dark [data-slot="sheet-overlay"] {
   background: oklch(0.08 0.02 255 / 58%) !important;
 }
 .bluelight [data-radix-dialog-overlay],
-.bluelight [data-slot="dialog-overlay"] {
+.bluelight [data-slot="dialog-overlay"],
+.bluelight [data-slot="sheet-overlay"] {
   background: oklch(0.28 0.03 60 / 32%) !important;
 }
 
@@ -592,6 +600,14 @@ textarea:focus,
   box-shadow: inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 35%, transparent);
 }
 
+[data-slot="tooltip-content"] {
+  backdrop-filter: blur(12px) saturate(1.2);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 35%, transparent),
+    var(--elevation-2);
+}
+
 /* ── Tabs ── */
 [role="tablist"] {
   background: color-mix(in oklch, var(--muted) 55%, transparent);
@@ -692,6 +708,320 @@ table tbody tr:hover {
 }
 
 /* ══════════════════════════════════════════════════════════════
+   INNER PAGES / FORMS / TABLES / SECTIONS
+   Nested panels use optical inset (no extra heavy blur inside cards).
+   Standalone page sections get a light glass pass.
+   Skip paper/signing surfaces, inverted CTAs, and semantic tint panels.
+   ══════════════════════════════════════════════════════════════ */
+
+/* Shared exclusion: buttons, paper, inverted fills, alert/tint gradients */
+main .rounded-xl.border:not([data-slot="button"]):not([data-slot="badge"]):not(.bg-white):not(.bg-\[\#f3f4f6\]):not(.bg-foreground):not([data-no-glass]):not([class*="from-"]):not([class*="bg-destructive"]):not([class*="bg-amber"]):not([class*="bg-emerald"]):not([class*="bg-teal"]):not([class*="bg-red-"]):not([class*="bg-yellow-"]):not([class*="bg-blue-"]):not([class*="bg-green-"]):not([class*="bg-orange-"]):not([class*="bg-cyan-"]),
+main .rounded-2xl.border:not([data-slot="button"]):not(.bg-white):not(.bg-foreground):not([data-no-glass]):not([class*="from-"]):not([class*="bg-destructive"]):not([class*="bg-amber"]):not([class*="bg-red-"]),
+[data-slot="dialog-content"] .rounded-xl.border:not([data-slot="button"]):not(.bg-white):not([data-no-glass]):not([class*="from-"]):not([class*="bg-destructive"]):not([class*="bg-red-"]),
+[data-slot="sheet-content"] .rounded-xl.border:not([data-slot="button"]):not(.bg-white):not([data-no-glass]):not([class*="from-"]):not([class*="bg-destructive"]),
+[data-slot="alert-dialog-content"] .rounded-xl.border:not([data-slot="button"]):not(.bg-white) {
+  background:
+    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 32%, transparent) 0%, transparent 42%),
+    color-mix(in oklch, var(--card) 48%, transparent);
+  border-color: color-mix(in oklch, var(--lg-edge) 88%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 42%, transparent),
+    inset 0 -1px 0 color-mix(in oklch, var(--lg-rim) 22%, transparent);
+}
+
+main > .rounded-xl.border:not(.bg-white):not(.bg-foreground):not([data-slot="button"]),
+main > .rounded-2xl.border:not(.bg-white):not([data-slot="button"]),
+main .th-page-enter + .rounded-xl.border,
+section.rounded-xl.border:not([class*="from-"]):not([class*="bg-destructive"]):not([class*="bg-amber"]),
+section.rounded-2xl.border {
+  backdrop-filter: blur(14px) saturate(1.22);
+  -webkit-backdrop-filter: blur(14px) saturate(1.22);
+}
+
+/* Smaller form wells / list rows / field groups */
+main div.rounded-lg.border:not([data-slot="button"]):not([data-slot="badge"]):not(.bg-white):not(.bg-foreground):not([data-no-glass]):not([class*="from-"]):not([class*="bg-destructive"]):not([class*="bg-amber"]):not([class*="bg-emerald"]):not([class*="bg-red-"]):not([class*="bg-yellow-"]):not([class*="bg-blue-"]):not([class*="bg-green-"]),
+main section.rounded-lg.border:not([class*="from-"]):not([class*="bg-destructive"]),
+main p.rounded-lg.border:not([class*="bg-destructive"]),
+main label.rounded-lg.border,
+main dl.rounded-xl.border,
+[data-slot="dialog-content"] div.rounded-lg.border:not([data-slot="button"]):not(.bg-white):not([class*="from-"]):not([class*="bg-destructive"]):not([class*="bg-emerald"]):not([class*="bg-red-"]),
+[data-slot="sheet-content"] div.rounded-lg.border:not([data-slot="button"]):not(.bg-white):not([class*="from-"]):not([class*="bg-destructive"]),
+[data-slot="dialog-content"] div.rounded-md.border:not([data-slot="button"]):not(.bg-white):not([class*="bg-destructive"]),
+[data-slot="dialog-content"] p.rounded-lg.border,
+[data-slot="dialog-content"] label.rounded-lg.border,
+[data-slot="dialog-content"] dl.rounded-xl.border,
+main div.rounded-md.border:not([data-slot="button"]):not([data-slot="badge"]):not(.bg-white):not([class*="from-"]):not([class*="bg-destructive"]):not([class*="bg-red-"]):not([class*="bg-emerald"]) {
+  background:
+    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 22%, transparent) 0%, transparent 50%),
+    var(--lg-nested);
+  border-color: color-mix(in oklch, var(--lg-edge) 85%, transparent);
+  box-shadow: var(--lg-nested-shadow);
+}
+
+/* Nested tiles inside cards/dialogs: no second blur layer */
+[data-slot="card"] .rounded-xl.border,
+[data-slot="card"] .rounded-lg.border,
+[data-slot="card"] .rounded-md.border,
+[data-slot="dialog-content"] .rounded-xl.border,
+[data-slot="dialog-content"] .rounded-lg.border,
+[data-slot="sheet-content"] .rounded-xl.border,
+[data-slot="sheet-content"] .rounded-lg.border,
+.liquid-glass .rounded-xl.border,
+.liquid-glass .rounded-lg.border,
+.liquid-glass-card .rounded-xl.border,
+.liquid-glass-card .rounded-lg.border {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* Muted form wells (bordered or not) */
+main .rounded-xl.bg-muted\/20,
+main .rounded-xl.bg-muted\/30,
+main .rounded-xl.bg-muted\/40,
+main .rounded-lg.bg-muted\/20,
+main .rounded-lg.bg-muted\/30,
+main .rounded-2xl.bg-muted\/20,
+main .rounded-2xl.bg-muted\/30,
+main .rounded-md.bg-muted\/30,
+[data-slot="dialog-content"] .rounded-xl.bg-muted\/20,
+[data-slot="dialog-content"] .rounded-lg.bg-muted\/20,
+[data-slot="dialog-content"] .rounded-lg.bg-muted\/30,
+[data-slot="dialog-content"] .rounded-md.bg-muted\/30,
+[data-slot="sheet-content"] .rounded-xl.bg-muted\/20 {
+  background:
+    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 22%, transparent) 0%, transparent 50%),
+    var(--lg-nested) !important;
+  box-shadow: var(--lg-nested-shadow);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+main .rounded-xl.bg-card\/40,
+main .rounded-xl.bg-card\/30,
+main .rounded-xl.bg-card\/50,
+main .rounded-xl.bg-card\/70,
+main .rounded-2xl.bg-card\/40,
+main .rounded-xl.bg-background\/80,
+main .rounded-xl.bg-background\/40,
+main .rounded-lg.bg-background\/80,
+main .rounded-lg.bg-background\/60 {
+  background:
+    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 28%, transparent) 0%, transparent 44%),
+    var(--lg-fill) !important;
+  border-color: var(--lg-edge);
+  box-shadow: var(--lg-nested-shadow);
+}
+
+/* Legacy frosted white/60 panels (CRM, clients, projects) → Liquid Glass */
+.bg-white\/60:not(input):not(textarea):not([data-slot="input"]):not([data-slot="button"]):not(.bg-white),
+.bg-white\/40:not(input):not([data-slot="button"]),
+.backdrop-blur-xl.border-white\/20,
+.backdrop-blur-xl.border-white\/10 {
+  background:
+    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 40%, transparent) 0%, transparent 36%),
+    linear-gradient(210deg, var(--lg-tint), transparent 48%),
+    var(--lg-fill) !important;
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-sat)) brightness(var(--lg-bright)) !important;
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-sat)) brightness(var(--lg-bright)) !important;
+  border-color: var(--lg-edge) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 55%, transparent),
+    var(--elevation-1);
+}
+.bg-white\/60 .bg-white\/40,
+.liquid-glass .bg-white\/40,
+[data-slot="dialog-content"] .bg-white\/40,
+[data-slot="card"] .bg-white\/40,
+.bg-white\/60 .bg-white\/30 {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background:
+    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 18%, transparent) 0%, transparent 50%),
+    var(--lg-nested) !important;
+  box-shadow: var(--lg-nested-shadow);
+}
+
+/* Select-like triggers that still use a solid wash */
+button.bg-background\/80:not([data-slot="button"]) {
+  background: var(--lg-fill) !important;
+  backdrop-filter: blur(10px) saturate(1.15);
+  -webkit-backdrop-filter: blur(10px) saturate(1.15);
+  border-color: var(--lg-edge) !important;
+  box-shadow: var(--lg-nested-shadow);
+}
+
+/* Form controls already targeted; group wrappers and fieldsets */
+fieldset,
+form .space-y-4,
+form .space-y-6,
+form .space-y-5 {
+  border-radius: calc(var(--radius) + 2px);
+}
+fieldset.border,
+main fieldset {
+  background:
+    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 16%, transparent) 0%, transparent 50%),
+    var(--lg-nested);
+  border-color: color-mix(in oklch, var(--lg-edge) 85%, transparent);
+  box-shadow: var(--lg-nested-shadow);
+}
+
+legend {
+  color: var(--muted-foreground);
+}
+
+/* Tables as glass frames */
+[data-slot="table-container"] {
+  border-radius: calc(var(--radius) + 2px);
+  border: 1px solid var(--lg-edge);
+  background:
+    linear-gradient(180deg, color-mix(in oklch, var(--lg-specular) 16%, transparent), transparent 40%),
+    color-mix(in oklch, var(--card) 40%, transparent);
+  backdrop-filter: blur(12px) saturate(1.18);
+  -webkit-backdrop-filter: blur(12px) saturate(1.18);
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 30%, transparent);
+  overflow: hidden;
+}
+[data-slot="table-header"] {
+  background: color-mix(in oklch, var(--muted) 45%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+[data-slot="table-row"] {
+  transition: background 0.18s var(--lg-ease);
+}
+[data-slot="table-footer"] {
+  background: color-mix(in oklch, var(--muted) 35%, transparent);
+}
+
+/* Native overflow table shells that are not the shadcn Table wrapper */
+main .overflow-auto.rounded-lg.border,
+main .overflow-x-auto.rounded-lg.border,
+main .overflow-auto.rounded-xl.border,
+main .max-h-\[32rem\].overflow-auto.rounded-lg.border {
+  background:
+    linear-gradient(180deg, color-mix(in oklch, var(--lg-specular) 14%, transparent), transparent 40%),
+    var(--lg-nested);
+  border-color: var(--lg-edge);
+}
+
+/* Tabs content panes */
+[data-slot="tabs-content"] {
+  outline: none;
+}
+[data-slot="tabs-list"] {
+  border-radius: 999px;
+}
+
+/* Switch / toggle optical well */
+[data-slot="switch"] {
+  box-shadow:
+    inset 0 1px 2px oklch(0 0 0 / 0.14),
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 20%, transparent);
+}
+[data-slot="toggle"],
+[data-slot="toggle-group"] {
+  background: color-mix(in oklch, var(--muted) 40%, transparent);
+  border: 1px solid color-mix(in oklch, var(--lg-edge) 70%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 18%, transparent);
+}
+[data-slot="toggle-group-item"][data-state="on"],
+[data-slot="toggle"][data-state="on"] {
+  background:
+    linear-gradient(160deg, color-mix(in oklch, var(--lg-specular) 30%, transparent), transparent 50%),
+    var(--lg-fill-strong);
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 35%, transparent);
+}
+
+/* Scroll areas */
+[data-slot="scroll-area"] {
+  border-radius: inherit;
+}
+
+/* Combobox / native-looking search fields */
+[data-slot="command"],
+[cmdk-root] {
+  background: var(--lg-fill-strong);
+  backdrop-filter: blur(18px) saturate(1.3);
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  border: 1px solid var(--lg-edge);
+}
+
+/* Calendar popover */
+[data-slot="calendar"] {
+  background: transparent;
+}
+
+/* Radio / checkbox wells */
+[data-slot="radio-group-item"] {
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 30%, transparent);
+}
+
+/* Skeleton placeholders stay muted, slightly glassy */
+[data-slot="skeleton"] {
+  background: color-mix(in oklch, var(--muted) 70%, transparent);
+}
+
+/* Collapsible / accordion shells */
+[data-slot="collapsible"].rounded-lg.border,
+[data-slot="collapsible"].rounded-xl.border {
+  background:
+    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 22%, transparent) 0%, transparent 50%),
+    var(--lg-nested);
+  box-shadow: var(--lg-nested-shadow);
+}
+
+/* File explorer / list rows that use muted wells */
+.th-inset {
+  background:
+    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 28%, transparent) 0%, transparent 50%),
+    var(--lg-nested);
+  box-shadow: var(--lg-nested-shadow);
+}
+
+/* Explorer toolbars / muted strips inside glass shells */
+.liquid-glass-card > .bg-muted\/20,
+.liquid-glass-card .border-b.bg-muted\/20,
+.liquid-glass-card .border-b.bg-muted\/30,
+.liquid-glass-card aside.bg-muted\/15,
+.liquid-glass-card aside.border-r {
+  background:
+    linear-gradient(180deg, color-mix(in oklch, var(--lg-specular) 12%, transparent), transparent 70%),
+    var(--lg-nested) !important;
+}
+
+/* Page header action cluster */
+.th-page-enter {
+  position: relative;
+}
+
+/* Portal / error / reset surfaces inherit body glow; cards still glass */
+.portal-nav-pill {
+  border-radius: 0.85rem;
+  transition: background 0.2s var(--lg-ease), box-shadow 0.2s var(--lg-ease);
+}
+
+/* Keep document/paper surfaces opaque (signing, PDF) */
+.bg-white,
+.bg-\[\#f3f4f6\],
+[data-no-glass] {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  main .rounded-xl.border,
+  main .rounded-2xl.border,
+  main div.rounded-lg.border,
+  [data-slot="table-container"],
+  [data-slot="table-header"],
+  .bg-white\/60 {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
    BASE LAYER
    ══════════════════════════════════════════════════════════════ */
 @layer base {
@@ -767,13 +1097,7 @@ table tbody tr:hover {
   background: var(--page-glow);
   opacity: 0.55;
 }
-.th-surface {
-  background: color-mix(in oklch, var(--card) 96%, transparent);
-  border: 1px solid color-mix(in oklch, var(--border) 88%, transparent);
-  box-shadow: var(--elevation-1);
-  border-radius: calc(var(--radius) + 2px);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
-}
+/* .th-surface optical stack is defined with Liquid Glass above */
 .th-stat-icon {
   display: inline-flex;
   align-items: center;
@@ -1166,21 +1490,27 @@ table tbody tr:hover {
 }
 
 .login-setup-card {
-  background: color-mix(in oklch, var(--card) 92%, transparent);
-  backdrop-filter: blur(8px) saturate(1.08);
-  -webkit-backdrop-filter: blur(8px) saturate(1.08);
-  border: 1px solid color-mix(in oklch, oklch(0.75 0.08 55) 45%, var(--border));
+  background:
+    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 35%, transparent) 0%, transparent 40%),
+    var(--lg-fill-strong);
+  backdrop-filter: blur(18px) saturate(1.25);
+  -webkit-backdrop-filter: blur(18px) saturate(1.25);
+  border: 1px solid color-mix(in oklch, oklch(0.75 0.08 55) 45%, var(--lg-edge));
   box-shadow:
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 40%, transparent),
     0 1px 2px oklch(0 0 0 / 3%),
     0 6px 18px oklch(0 0 0 / 3%);
 }
 
 .login-session-card {
-  background: color-mix(in oklch, var(--card) 92%, transparent);
-  backdrop-filter: blur(8px) saturate(1.08);
-  -webkit-backdrop-filter: blur(8px) saturate(1.08);
-  border: 1px solid color-mix(in oklch, var(--primary) 25%, var(--border));
+  background:
+    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 35%, transparent) 0%, transparent 40%),
+    var(--lg-fill-strong);
+  backdrop-filter: blur(18px) saturate(1.25);
+  -webkit-backdrop-filter: blur(18px) saturate(1.25);
+  border: 1px solid color-mix(in oklch, var(--primary) 25%, var(--lg-edge));
   box-shadow:
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 40%, transparent),
     0 1px 2px oklch(0 0 0 / 3%),
     0 6px 18px oklch(0 0 0 / 3%);
 }

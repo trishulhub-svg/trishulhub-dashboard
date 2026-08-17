@@ -172,7 +172,7 @@ export function ExpenseDetailSheet({
         <Separator className="my-2" />
 
         {/* ─── Glassmorphism Details Card ──── */}
-        <div className="rounded-xl border bg-background/40 backdrop-blur-sm shadow-sm p-4 space-y-1">
+        <div className="rounded-xl border liquid-glass p-4 space-y-1">
           <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
             Details
           </h4>
@@ -242,7 +242,7 @@ export function ExpenseDetailSheet({
 
         {/* ─── Description Section ──── */}
         {displayDescription && (
-          <div className="rounded-xl border bg-background/40 backdrop-blur-sm shadow-sm p-4">
+          <div className="rounded-xl border liquid-glass p-4">
             <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
               Description
             </h4>
