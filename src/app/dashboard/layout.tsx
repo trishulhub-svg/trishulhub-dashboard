@@ -971,7 +971,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Desktop Sidebar — fixed height; scrolls independently of page content */}
       <aside
         className={cn(
-          "hidden md:flex flex-col th-nav-glass th-sidebar-shell h-full shrink-0 relative z-40 overflow-visible",
+          "hidden md:flex flex-col th-nav-glass th-sidebar-shell self-stretch m-2 mr-1 rounded-[28px] h-[calc(100dvh-1rem)] shrink-0 relative z-40 overflow-visible",
           collapsed ? "w-[76px]" : "w-[272px]"
         )}
       >
@@ -999,7 +999,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
         <SheetContent
           side="left"
-          className="th-nav-drawer th-nav-glass inset-y-3 left-3 h-auto max-h-[calc(100dvh-1.5rem)] w-[min(100vw-3.25rem,300px)] rounded-[24px] p-0 gap-0 overflow-hidden border"
+          overlayClassName="th-nav-overlay"
+          className="th-nav-drawer th-nav-glass bg-transparent inset-y-3 left-3 h-auto max-h-[calc(100dvh-1.5rem)] w-[min(100vw-3.25rem,300px)] rounded-[28px] p-0 gap-0 overflow-hidden border-0"
         >
           <SheetTitle className="sr-only">Navigation menu</SheetTitle>
           <SidebarContent

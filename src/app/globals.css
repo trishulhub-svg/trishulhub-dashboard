@@ -337,130 +337,150 @@ body {
     var(--elevation-2);
 }
 
-/* ── Glass sidebar / left nav (Apple 3D liquid glass) ── */
+/* ── Left nav: Apple Liquid Glass (iOS 26 / Control Center) ── */
 @keyframes th-nav-sheen {
-  0% { background-position: 0% 0%, 0% 0%; }
-  50% { background-position: 80% 20%, 40% 60%; }
-  100% { background-position: 0% 0%, 0% 0%; }
+  0% { transform: translate3d(-8%, -6%, 0) scale(1.05); opacity: 0.55; }
+  50% { transform: translate3d(10%, 8%, 0) scale(1.12); opacity: 0.9; }
+  100% { transform: translate3d(-8%, -6%, 0) scale(1.05); opacity: 0.55; }
 }
 
 .liquid-glass-sidebar,
-.th-sidebar-shell,
-.th-nav-glass {
+.th-nav-glass,
+aside.th-sidebar-shell {
   position: relative;
-  isolation: isolate;
   overflow: hidden;
   background:
-    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 58%, transparent) 0%, transparent 34%),
-    linear-gradient(210deg, color-mix(in oklch, var(--primary) 14%, transparent), transparent 46%),
-    linear-gradient(180deg,
-      color-mix(in oklch, var(--card) 52%, transparent) 0%,
-      color-mix(in oklch, var(--sidebar) 38%, transparent) 100%);
-  backdrop-filter: blur(32px) saturate(1.58) brightness(1.08);
-  -webkit-backdrop-filter: blur(32px) saturate(1.58) brightness(1.08);
-  border-right: 1px solid color-mix(in oklch, var(--lg-specular) 28%, var(--lg-edge));
+    linear-gradient(180deg, rgba(255,255,255,0.38) 0%, rgba(255,255,255,0.12) 42%, rgba(255,255,255,0.08) 100%);
+  backdrop-filter: blur(48px) saturate(1.85) brightness(1.12);
+  -webkit-backdrop-filter: blur(48px) saturate(1.85) brightness(1.12);
+  border: 1px solid rgba(255,255,255,0.55);
   box-shadow:
-    inset 0 1.5px 0 color-mix(in oklch, var(--lg-specular) 82%, transparent),
-    inset 1px 0 0 color-mix(in oklch, var(--lg-specular) 36%, transparent),
-    inset 0 -2px 0 color-mix(in oklch, var(--lg-rim) 55%, transparent),
-    inset -1px 0 0 color-mix(in oklch, var(--lg-rim) 28%, transparent),
-    inset 0 0 0 1px color-mix(in oklch, var(--lg-specular) 10%, transparent),
-    8px 0 40px oklch(0 0 0 / 0.18);
+    inset 0 1px 0 rgba(255,255,255,0.92),
+    inset 1px 0 0 rgba(255,255,255,0.38),
+    inset 0 -1px 0 rgba(255,255,255,0.16),
+    inset -1px 0 0 rgba(255,255,255,0.12),
+    inset 1px 0 0 rgba(125, 211, 252, 0.18),
+    inset -1px 0 0 rgba(251, 146, 180, 0.1),
+    0 18px 50px rgba(15, 23, 42, 0.18),
+    0 4px 16px rgba(15, 23, 42, 0.1);
+}
+
+@supports (-apple-visual-effect: -apple-system-glass-material) {
+  .th-nav-glass,
+  .th-nav-drawer,
+  aside.th-sidebar-shell {
+    -apple-visual-effect: -apple-system-glass-material;
+  }
+}
+
+@supports (backdrop-filter: url(#th-liquid-lens)) {
+  .th-nav-glass,
+  .th-nav-drawer,
+  aside.th-sidebar-shell {
+    backdrop-filter: blur(22px) saturate(1.9) brightness(1.14) url("#th-liquid-lens");
+    -webkit-backdrop-filter: blur(22px) saturate(1.9) brightness(1.14) url("#th-liquid-lens");
+  }
 }
 
 .th-nav-glass::before,
-.th-sidebar-shell::before,
-.liquid-glass-sidebar::before {
+aside.th-sidebar-shell::before,
+.th-nav-drawer::before {
   content: "";
   position: absolute;
-  inset: 0;
+  inset: -20% -10% auto -10%;
+  height: 58%;
   pointer-events: none;
   z-index: 1;
   border-radius: inherit;
   background:
-    linear-gradient(
-      125deg,
-      color-mix(in oklch, var(--lg-specular) 70%, transparent) 0%,
-      color-mix(in oklch, var(--lg-specular) 16%, transparent) 18%,
-      transparent 42%
-    ),
-    radial-gradient(
-      420px 280px at 12% -8%,
-      color-mix(in oklch, var(--lg-specular) 38%, transparent),
-      transparent 55%
-    ),
-    radial-gradient(
-      380px 240px at 90% 110%,
-      color-mix(in oklch, var(--primary) 16%, transparent),
-      transparent 60%
-    );
-  background-size: 140% 140%, 100% 100%, 100% 100%;
-  animation: th-nav-sheen 14s var(--lg-ease) infinite;
-  mix-blend-mode: soft-light;
-  opacity: 0.9;
+    radial-gradient(120% 80% at 18% -10%, rgba(255,255,255,0.72), transparent 58%),
+    linear-gradient(180deg, rgba(255,255,255,0.42) 0%, rgba(255,255,255,0.08) 36%, transparent 70%);
+  animation: th-nav-sheen 9s ease-in-out infinite;
 }
 
 .th-nav-glass::after,
-.th-sidebar-shell::after,
-.liquid-glass-sidebar::after {
+aside.th-sidebar-shell::after,
+.th-nav-drawer::after {
   content: "";
   position: absolute;
   inset: 0;
   pointer-events: none;
   z-index: 1;
   border-radius: inherit;
-  background: linear-gradient(
-    180deg,
-    transparent 52%,
-    color-mix(in oklch, var(--lg-rim) 22%, transparent) 100%
-  );
   box-shadow:
-    inset 0 0 48px color-mix(in oklch, var(--lg-specular) 8%, transparent),
-    inset 0 -32px 48px color-mix(in oklch, var(--lg-rim) 28%, transparent);
-  opacity: 0.9;
+    inset 0 0 0 1px rgba(255,255,255,0.28),
+    inset 0 -40px 50px rgba(15, 23, 42, 0.08);
+  background: linear-gradient(180deg, transparent 60%, rgba(15,23,42,0.06) 100%);
 }
 
-.th-sidebar-shell > *,
-.th-nav-glass > * {
+.th-nav-glass > *,
+aside.th-sidebar-shell > *,
+.th-nav-drawer > * {
   position: relative;
   z-index: 2;
 }
 
-.dark .th-sidebar-shell,
-.dark .th-nav-glass {
+.dark .th-nav-glass,
+.dark aside.th-sidebar-shell,
+.dark .th-nav-drawer {
   background:
-    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 32%, transparent) 0%, transparent 36%),
-    linear-gradient(210deg, color-mix(in oklch, var(--primary) 18%, transparent), transparent 48%),
-    linear-gradient(180deg,
-      color-mix(in oklch, var(--card) 36%, transparent) 0%,
-      color-mix(in oklch, var(--sidebar) 28%, transparent) 100%);
+    linear-gradient(180deg, rgba(255,255,255,0.14) 0%, rgba(18,22,32,0.42) 38%, rgba(12,16,24,0.5) 100%);
+  border-color: rgba(255,255,255,0.22);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.38),
+    inset 1px 0 0 rgba(255,255,255,0.16),
+    inset 0 -1px 0 rgba(0,0,0,0.35),
+    inset 1px 0 0 rgba(125, 211, 252, 0.16),
+    inset -1px 0 0 rgba(251, 146, 180, 0.08),
+    0 24px 60px rgba(0,0,0,0.45),
+    0 8px 24px rgba(0,0,0,0.28);
+}
+.dark .th-nav-glass::before,
+.dark aside.th-sidebar-shell::before,
+.dark .th-nav-drawer::before {
+  background:
+    radial-gradient(120% 80% at 16% -8%, rgba(255,255,255,0.28), transparent 55%),
+    linear-gradient(180deg, rgba(255,255,255,0.16) 0%, transparent 55%);
+}
+.dark .th-nav-glass::after,
+.dark aside.th-sidebar-shell::after,
+.dark .th-nav-drawer::after {
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,0.12),
+    inset 0 -48px 60px rgba(0,0,0,0.28);
+  background: linear-gradient(180deg, transparent 55%, rgba(0,0,0,0.22) 100%);
 }
 
-.bluelight .th-sidebar-shell,
-.bluelight .th-nav-glass {
+.bluelight .th-nav-glass,
+.bluelight aside.th-sidebar-shell,
+.bluelight .th-nav-drawer {
   background:
-    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 62%, transparent) 0%, transparent 34%),
-    linear-gradient(210deg, color-mix(in oklch, var(--primary) 12%, transparent), transparent 48%),
-    linear-gradient(180deg,
-      color-mix(in oklch, var(--card) 58%, transparent) 0%,
-      color-mix(in oklch, var(--sidebar) 42%, transparent) 100%);
+    linear-gradient(180deg, rgba(255,252,246,0.5) 0%, rgba(255,248,238,0.28) 42%, rgba(243,238,228,0.22) 100%);
+  border-color: rgba(255,255,255,0.6);
 }
 
-/* Nested inner shell is layout only — outer panel owns the glass */
-.th-sidebar-shell .th-sidebar-shell,
-.th-nav-glass .th-sidebar-shell {
+/* Nested inner shell is layout only */
+.th-nav-glass .th-sidebar-shell,
+aside.th-sidebar-shell .th-sidebar-shell,
+.th-nav-drawer .th-sidebar-shell {
   background: transparent !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   border: 0 !important;
   box-shadow: none !important;
   overflow: visible;
-  isolation: auto;
 }
-.th-sidebar-shell .th-sidebar-shell::before,
-.th-sidebar-shell .th-sidebar-shell::after,
+aside.th-nav-glass > .th-sidebar-shell {
+  overflow: hidden;
+  border-radius: inherit;
+  height: 100%;
+}
 .th-nav-glass .th-sidebar-shell::before,
-.th-nav-glass .th-sidebar-shell::after {
+.th-nav-glass .th-sidebar-shell::after,
+aside.th-sidebar-shell .th-sidebar-shell::before,
+aside.th-sidebar-shell .th-sidebar-shell::after,
+.th-nav-drawer .th-sidebar-shell::before,
+.th-nav-drawer .th-sidebar-shell::after {
   display: none;
 }
 
@@ -541,44 +561,47 @@ body {
   box-shadow: 0 0 40px oklch(0 0 0 / 0.22) !important;
 }
 
-/* Left nav drawer — floating 3D liquid glass slab */
+/* Left nav drawer — floating Control Center slab. Must beat generic sheet fill. */
 [data-slot="sheet-content"].th-nav-drawer {
-  isolation: isolate;
+  isolation: auto;
   overflow: hidden;
   background:
-    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 62%, transparent) 0%, transparent 32%),
-    linear-gradient(210deg, color-mix(in oklch, var(--primary) 16%, transparent), transparent 44%),
-    linear-gradient(180deg,
-      color-mix(in oklch, var(--card) 48%, transparent) 0%,
-      color-mix(in oklch, var(--sidebar) 32%, transparent) 100%) !important;
-  backdrop-filter: blur(36px) saturate(1.65) brightness(1.1) !important;
-  -webkit-backdrop-filter: blur(36px) saturate(1.65) brightness(1.1) !important;
-  border: 1px solid color-mix(in oklch, var(--lg-specular) 42%, var(--lg-edge)) !important;
-  border-radius: 24px !important;
+    linear-gradient(180deg, rgba(255,255,255,0.42) 0%, rgba(255,255,255,0.14) 40%, rgba(255,255,255,0.1) 100%) !important;
+  backdrop-filter: blur(52px) saturate(1.9) brightness(1.14) !important;
+  -webkit-backdrop-filter: blur(52px) saturate(1.9) brightness(1.14) !important;
+  border: 1px solid rgba(255,255,255,0.62) !important;
+  border-radius: 28px !important;
   box-shadow:
-    inset 0 1.5px 0 color-mix(in oklch, var(--lg-specular) 88%, transparent),
-    inset 1px 0 0 color-mix(in oklch, var(--lg-specular) 40%, transparent),
-    inset 0 -2px 0 color-mix(in oklch, var(--lg-rim) 50%, transparent),
-    inset -1px 0 0 color-mix(in oklch, var(--lg-rim) 22%, transparent),
-    inset 0 0 0 1px color-mix(in oklch, var(--lg-specular) 12%, transparent),
-    0 24px 60px oklch(0 0 0 / 0.32),
-    0 8px 24px oklch(0 0 0 / 0.18) !important;
+    inset 0 1px 0 rgba(255,255,255,0.95),
+    inset 1px 0 0 rgba(255,255,255,0.42),
+    inset 0 -1px 0 rgba(255,255,255,0.18),
+    inset 1px 0 0 rgba(125, 211, 252, 0.22),
+    inset -1px 0 0 rgba(251, 146, 180, 0.12),
+    0 28px 70px rgba(15, 23, 42, 0.28),
+    0 10px 28px rgba(15, 23, 42, 0.14) !important;
+}
+@supports (backdrop-filter: url(#th-liquid-lens)) {
+  [data-slot="sheet-content"].th-nav-drawer {
+    backdrop-filter: blur(24px) saturate(1.95) brightness(1.16) url("#th-liquid-lens") !important;
+    -webkit-backdrop-filter: blur(24px) saturate(1.95) brightness(1.16) url("#th-liquid-lens") !important;
+  }
 }
 .dark [data-slot="sheet-content"].th-nav-drawer {
   background:
-    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 36%, transparent) 0%, transparent 34%),
-    linear-gradient(210deg, color-mix(in oklch, var(--primary) 20%, transparent), transparent 46%),
-    linear-gradient(180deg,
-      color-mix(in oklch, var(--card) 32%, transparent) 0%,
-      color-mix(in oklch, var(--sidebar) 22%, transparent) 100%) !important;
+    linear-gradient(180deg, rgba(255,255,255,0.16) 0%, rgba(18,22,32,0.38) 36%, rgba(10,14,22,0.48) 100%) !important;
+  border-color: rgba(255,255,255,0.26) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.42),
+    inset 1px 0 0 rgba(255,255,255,0.18),
+    inset 0 -1px 0 rgba(0,0,0,0.4),
+    inset 1px 0 0 rgba(125, 211, 252, 0.18),
+    0 28px 70px rgba(0,0,0,0.5),
+    0 10px 28px rgba(0,0,0,0.3) !important;
 }
 .bluelight [data-slot="sheet-content"].th-nav-drawer {
   background:
-    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 70%, transparent) 0%, transparent 32%),
-    linear-gradient(210deg, color-mix(in oklch, var(--primary) 14%, transparent), transparent 46%),
-    linear-gradient(180deg,
-      color-mix(in oklch, var(--card) 56%, transparent) 0%,
-      color-mix(in oklch, var(--sidebar) 40%, transparent) 100%) !important;
+    linear-gradient(180deg, rgba(255,252,246,0.52) 0%, rgba(255,248,238,0.26) 100%) !important;
+  border-color: rgba(255,255,255,0.7) !important;
 }
 [data-slot="sheet-content"].th-nav-drawer .th-sidebar-shell {
   background: transparent !important;
@@ -588,7 +611,7 @@ body {
   box-shadow: none !important;
 }
 
-/* Overlay MUST stay below content. Backdrop-filter here hides the sheet on mobile. */
+/* Overlay MUST stay below content. Clip it off the nav slab so glass refracts the page. */
 [data-radix-dialog-overlay],
 [data-slot="dialog-overlay"],
 [data-slot="alert-dialog-overlay"],
@@ -598,16 +621,26 @@ body {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
+[data-slot="sheet-overlay"].th-nav-overlay {
+  background: oklch(0.14 0.02 255 / 0.22) !important;
+  clip-path: inset(0 0 0 min(21rem, calc(100vw - 3.5rem)));
+}
 .dark [data-radix-dialog-overlay],
 .dark [data-slot="dialog-overlay"],
 .dark [data-slot="alert-dialog-overlay"],
 .dark [data-slot="sheet-overlay"] {
   background: oklch(0.08 0.02 255 / 42%) !important;
 }
+.dark [data-slot="sheet-overlay"].th-nav-overlay {
+  background: oklch(0.06 0.02 255 / 0.28) !important;
+}
 .bluelight [data-radix-dialog-overlay],
 .bluelight [data-slot="dialog-overlay"],
 .bluelight [data-slot="sheet-overlay"] {
   background: oklch(0.28 0.03 60 / 26%) !important;
+}
+.bluelight [data-slot="sheet-overlay"].th-nav-overlay {
+  background: oklch(0.3 0.03 60 / 0.18) !important;
 }
 
 /* ── Topbar ── */
@@ -860,8 +893,8 @@ table tbody tr:hover {
 
 @media (prefers-reduced-motion: reduce) {
   .th-nav-glass::before,
-  .th-sidebar-shell::before,
-  .liquid-glass-sidebar::before {
+  .th-nav-drawer::before,
+  aside.th-sidebar-shell::before {
     animation: none;
   }
   .liquid-glass,
