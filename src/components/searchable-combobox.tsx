@@ -122,7 +122,7 @@ export function SearchableCombobox({
         align="start"
         sideOffset={4}
         onOpenAutoFocus={(e) => e.preventDefault()}
-        className="z-[200] max-h-48 overflow-y-auto overscroll-contain p-0"
+        className="z-[40000] max-h-48 overflow-y-auto overscroll-contain p-0 pointer-events-auto"
         style={{
           width: anchorRef.current?.offsetWidth
             ? `${anchorRef.current.offsetWidth}px`

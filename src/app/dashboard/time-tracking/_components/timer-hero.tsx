@@ -235,7 +235,7 @@ export const TimerHero = forwardRef<HTMLDivElement, TimerHeroProps>(function Tim
                   value={selectedProject === "none" ? undefined : selectedProject}
                   onValueChange={onProjectChange}
                 >
-                  <SelectTrigger className="h-10 bg-background/80">
+                  <SelectTrigger className="h-10 w-full bg-background/80">
                     <SelectValue
                       placeholder={
                         kind === "project" ? "Choose a project..." : "Choose an activity..."
@@ -265,7 +265,7 @@ export const TimerHero = forwardRef<HTMLDivElement, TimerHeroProps>(function Tim
                     onValueChange={onTrainingAssignmentChange}
                     disabled={trainingAssignmentsLoading}
                   >
-                    <SelectTrigger className="h-10 bg-background/80">
+                    <SelectTrigger className="h-10 w-full bg-background/80">
                       <SelectValue
                         placeholder={
                           trainingAssignmentsLoading

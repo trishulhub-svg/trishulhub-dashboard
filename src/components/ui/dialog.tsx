@@ -5,6 +5,7 @@ import * as DialogPrimitive from "@radix-ui/react-dialog"
 import { XIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { preventOutsideIfPortaled } from "@/lib/portaled-overlay"
 
 function Dialog({
   ...props
@@ -50,6 +51,9 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  onPointerDownOutside,
+  onFocusOutside,
+  onInteractOutside,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
@@ -64,6 +68,18 @@ function DialogContent({
           className
         )}
         {...props}
+        onPointerDownOutside={(event) => {
+          preventOutsideIfPortaled(event)
+          onPointerDownOutside?.(event)
+        }}
+        onFocusOutside={(event) => {
+          preventOutsideIfPortaled(event)
+          onFocusOutside?.(event)
+        }}
+        onInteractOutside={(event) => {
+          preventOutsideIfPortaled(event)
+          onInteractOutside?.(event)
+        }}
       >
         {children}
         {showCloseButton && (

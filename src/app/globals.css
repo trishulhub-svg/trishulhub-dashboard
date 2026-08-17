@@ -543,9 +543,21 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
     var(--elevation-2);
 }
 
-/* ── Floating menus / popovers (must sit above overlays) ── */
-[data-radix-popper-content-wrapper] {
-  z-index: 80 !important;
+/* ── Floating menus / popovers
+   Must beat dialogs (200), sheets (70), nav drawer (10100), and overlays.
+   z-index 80 was hiding Clock in / dialog selects behind the glass panel. ── */
+[data-radix-popper-content-wrapper],
+[data-radix-select-content],
+[data-radix-popper-content-wrapper] > [role="dialog"],
+[role="menu"],
+[role="listbox"],
+[data-slot="popover-content"],
+[data-slot="dropdown-menu-content"],
+[data-slot="dropdown-menu-sub-content"],
+[data-slot="select-content"],
+[data-slot="tooltip-content"] {
+  z-index: 40000 !important;
+  pointer-events: auto !important;
 }
 [data-radix-popper-content-wrapper] > [role="dialog"],
 [role="menu"],
@@ -553,7 +565,6 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
 [data-slot="dropdown-menu-content"],
 [data-slot="dropdown-menu-sub-content"],
 [data-slot="select-content"] {
-  z-index: 80 !important;
   backdrop-filter: blur(18px) saturate(1.3) !important;
   -webkit-backdrop-filter: blur(18px) saturate(1.3) !important;
   background:
@@ -563,6 +574,11 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
   box-shadow:
     inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 50%, transparent),
     var(--elevation-2) !important;
+}
+[data-slot="select-item"]:not([data-disabled]),
+[data-slot="dropdown-menu-item"]:not([data-disabled]) {
+  pointer-events: auto;
+  cursor: pointer;
 }
 
 /* ── Dialog / modal — always centered in the viewport, never a bottom sheet.
@@ -793,6 +809,7 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
   }
 }
 [data-sonner-toaster] {
+  z-index: 50000 !important;
   top: max(1rem, env(safe-area-inset-top, 0px)) !important;
   right: max(1rem, env(safe-area-inset-right, 0px)) !important;
 }

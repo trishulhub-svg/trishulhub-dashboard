@@ -321,7 +321,7 @@ export function ClockedInHeaderDot({ enabled = true }: { enabled?: boolean }) {
                     value={selected === "none" ? undefined : selected}
                     onValueChange={handleSelectChange}
                   >
-                    <SelectTrigger className="h-10">
+                    <SelectTrigger className="h-10 w-full">
                       <SelectValue
                         placeholder={
                           kind === "project" ? "Choose a project…" : "Choose an activity…"
@@ -349,7 +349,7 @@ export function ClockedInHeaderDot({ enabled = true }: { enabled?: boolean }) {
                       onValueChange={setSelectedTrainingId}
                       disabled={trainingLoading}
                     >
-                      <SelectTrigger className="h-10">
+                      <SelectTrigger className="h-10 w-full">
                         <SelectValue
                           placeholder={
                             trainingLoading ? "Loading…" : "Select assigned training…"

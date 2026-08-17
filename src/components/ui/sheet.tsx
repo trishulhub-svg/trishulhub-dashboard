@@ -5,6 +5,7 @@ import * as SheetPrimitive from "@radix-ui/react-dialog"
 import { XIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { preventOutsideIfPortaled } from "@/lib/portaled-overlay"
 
 function Sheet({ ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {
   return <SheetPrimitive.Root data-slot="sheet" {...props} />
@@ -52,6 +53,9 @@ function SheetContent({
   side = "right",
   overlayClassName,
   glassNav = false,
+  onPointerDownOutside,
+  onInteractOutside,
+  onFocusOutside,
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Content> & {
   side?: "top" | "right" | "bottom" | "left"
@@ -85,6 +89,18 @@ function SheetContent({
           className
         )}
         {...props}
+        onPointerDownOutside={(event) => {
+          preventOutsideIfPortaled(event)
+          onPointerDownOutside?.(event)
+        }}
+        onFocusOutside={(event) => {
+          preventOutsideIfPortaled(event)
+          onFocusOutside?.(event)
+        }}
+        onInteractOutside={(event) => {
+          preventOutsideIfPortaled(event)
+          onInteractOutside?.(event)
+        }}
       >
         {children}
         <SheetPrimitive.Close className="ring-offset-background focus:ring-ring absolute top-3.5 right-3.5 z-10 flex size-8 items-center justify-center rounded-full border border-white/20 bg-white/10 text-foreground opacity-90 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] backdrop-blur-md transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none">
