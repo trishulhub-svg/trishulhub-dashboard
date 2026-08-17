@@ -1487,9 +1487,12 @@ main .max-h-\[32rem\].overflow-auto.rounded-lg.border {
   background: oklch(0.4 0.01 185);
 }
 
-/* ScrollArea viewport safety */
-[data-radix-scroll-area-viewport] {
+/* ScrollArea viewport safety — allow scroll from headers/padding; rails use touch-action:none */
+[data-radix-scroll-area-viewport],
+[data-slot="scroll-area-viewport"] {
   min-height: 0;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Blue light mode: softer warm shadows */
@@ -1726,7 +1729,11 @@ main .max-h-\[32rem\].overflow-auto.rounded-lg.border {
 .th-liquid-nav-rail {
   position: relative;
   isolation: isolate;
-  touch-action: pan-y;
+  touch-action: none;
+  -webkit-touch-callout: none;
+}
+.th-liquid-nav-rail--scrubbing {
+  touch-action: none;
 }
 .th-liquid-nav-indicator {
   position: absolute;
@@ -1801,6 +1808,9 @@ main .max-h-\[32rem\].overflow-auto.rounded-lg.border {
 .th-liquid-nav-rail [data-liquid-nav-key] {
   position: relative;
   z-index: 1;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
   background: transparent !important;
   border-color: transparent !important;
   box-shadow: none !important;

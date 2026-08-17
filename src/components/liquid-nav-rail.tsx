@@ -32,8 +32,7 @@ type IndicatorFrame = {
 const SPRING =
   "transform 0.52s cubic-bezier(0.32, 0.72, 0, 1), width 0.44s cubic-bezier(0.32, 0.72, 0, 1), height 0.44s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.25s ease, scale 0.38s cubic-bezier(0.32, 0.72, 0, 1)"
 
-const HOLD_MS = 140
-const SCRUB_MOVE_PX = 3
+const SCRUB_MOVE_PX = 5
 
 type LiquidNavContextValue = {
   previewKey: string | null
@@ -55,6 +54,24 @@ function escapeAttr(value: string) {
 function smoothstep(t: number) {
   const x = Math.max(0, Math.min(1, t))
   return x * x * (3 - 2 * x)
+}
+
+function isCoarsePointer() {
+  return (
+    typeof window !== "undefined" &&
+    window.matchMedia("(pointer: coarse)").matches
+  )
+}
+
+function isFinePointer() {
+  return (
+    typeof window !== "undefined" &&
+    window.matchMedia("(hover: hover) and (pointer: fine)").matches
+  )
+}
+
+function holdDelayMs() {
+  return isCoarsePointer() ? 175 : 130
 }
 
 function frameForKey(rects: ItemRect[], key: string): IndicatorFrame | null {
@@ -158,6 +175,22 @@ function frameAtPointerY(
   }
 }
 
+function findScrollParent(node: HTMLElement | null): HTMLElement | null {
+  let el: HTMLElement | null = node
+  while (el && el !== document.body) {
+    const style = getComputedStyle(el)
+    const { overflowY } = style
+    if (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") {
+      return el
+    }
+    if (el.hasAttribute("data-slot") && el.getAttribute("data-slot") === "scroll-area-viewport") {
+      return el
+    }
+    el = el.parentElement
+  }
+  return null
+}
+
 type LiquidNavRailProps = {
   activeKey: string
   onActivate?: (key: string) => void
@@ -179,11 +212,16 @@ export function LiquidNavRail({
   const scrubRafRef = useRef<number | null>(null)
   const scrubPointerRef = useRef({ x: 0, y: 0 })
   const pulseRef = useRef(0)
+  const scrollParentRef = useRef<HTMLElement | null>(null)
+  const scrollLockRef = useRef<string | null>(null)
+  const docHandlersRef = useRef<{ move: (e: PointerEvent) => void; up: (e: PointerEvent) => void } | null>(
+    null
+  )
 
   const dragRef = useRef({
     scrubbing: false,
+    tracking: false,
     pointerId: -1,
-    didScrub: false,
     startX: 0,
     startY: 0,
     anchorKey: activeKey,
@@ -229,11 +267,11 @@ export function LiquidNavRail({
         const key = el.dataset.liquidNavKey
         if (!key) return null
         const r = el.getBoundingClientRect()
-        const top = r.top - cRect.top + container.scrollTop
+        const top = r.top - cRect.top
         return {
           key,
           top,
-          left: r.left - cRect.left + container.scrollLeft,
+          left: r.left - cRect.left,
           width: r.width,
           height: r.height,
           midY: top + r.height / 2,
@@ -270,10 +308,32 @@ export function LiquidNavRail({
     }
   }, [])
 
+  const lockScrollParent = useCallback(() => {
+    const container = containerRef.current
+    if (!container || scrollLockRef.current) return
+    const parent = findScrollParent(container.parentElement)
+    scrollParentRef.current = parent
+    if (!parent) return
+    scrollLockRef.current = parent.style.overflowY
+    parent.style.overflowY = "hidden"
+    parent.style.overscrollBehavior = "contain"
+  }, [])
+
+  const unlockScrollParent = useCallback(() => {
+    const parent = scrollParentRef.current
+    if (parent && scrollLockRef.current !== null) {
+      parent.style.overflowY = scrollLockRef.current
+      parent.style.overscrollBehavior = ""
+    }
+    scrollLockRef.current = null
+    scrollParentRef.current = null
+  }, [])
+
   const paintScrubFrame = useCallback(
     (clientX: number, clientY: number) => {
       const container = containerRef.current
       if (!container) return
+      rectsRef.current = measureRects()
       const cRect = container.getBoundingClientRect()
       pulseRef.current += 0.11
       const hit = frameAtPointerY(
@@ -290,7 +350,7 @@ export function LiquidNavRail({
         setPreviewKey(hit.key)
       }
     },
-    [applyFrame]
+    [applyFrame, measureRects]
   )
 
   const startScrubLoop = useCallback(() => {
@@ -303,6 +363,171 @@ export function LiquidNavRail({
     scrubRafRef.current = requestAnimationFrame(tick)
   }, [paintScrubFrame, stopScrubLoop])
 
+  const clearHoldTimer = useCallback(() => {
+    if (holdTimerRef.current !== null) {
+      window.clearTimeout(holdTimerRef.current)
+      holdTimerRef.current = null
+    }
+  }, [])
+
+  const beginScrub = useCallback(
+    (pointerId: number) => {
+      const state = dragRef.current
+      if (state.scrubbing) return
+      state.scrubbing = true
+      pulseRef.current = 0
+      setScrubbing(true)
+      setAnimateIndicator(false)
+      lockScrollParent()
+      rectsRef.current = measureRects()
+      try {
+        containerRef.current?.setPointerCapture(pointerId)
+      } catch {
+        /* ignore */
+      }
+      if (indicatorRef.current) {
+        indicatorRef.current.classList.add("th-liquid-nav-indicator--scrub")
+      }
+      if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+        navigator.vibrate(8)
+      }
+      startScrubLoop()
+    },
+    [lockScrollParent, measureRects, startScrubLoop]
+  )
+
+  const updateScrub = useCallback(
+    (clientX: number, clientY: number) => {
+      scrubPointerRef.current = { x: clientX, y: clientY }
+      paintScrubFrame(clientX, clientY)
+    },
+    [paintScrubFrame]
+  )
+
+  const detachDocumentPointerHandlers = useCallback(() => {
+    const handlers = docHandlersRef.current
+    if (!handlers) return
+    document.removeEventListener("pointermove", handlers.move, true)
+    document.removeEventListener("pointerup", handlers.up, true)
+    document.removeEventListener("pointercancel", handlers.up, true)
+    docHandlersRef.current = null
+  }, [])
+
+  const finishPointerSession = useCallback(
+    (event: PointerEvent | React.PointerEvent) => {
+      const state = dragRef.current
+      if (!state.tracking || state.pointerId !== event.pointerId) return
+
+      clearHoldTimer()
+      stopScrubLoop()
+      detachDocumentPointerHandlers()
+
+      const chosenKey = previewKeyRef.current ?? state.anchorKey
+      const moved =
+        Math.hypot(event.clientX - state.startX, event.clientY - state.startY) > SCRUB_MOVE_PX
+
+      if (state.scrubbing && chosenKey && chosenKey !== activeKey && onActivate) {
+        onActivate(chosenKey)
+        if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+          navigator.vibrate(4)
+        }
+      }
+
+      if (state.scrubbing || state.tracking) {
+        try {
+          containerRef.current?.releasePointerCapture(event.pointerId)
+        } catch {
+          /* ignore */
+        }
+      }
+
+      indicatorRef.current?.classList.remove("th-liquid-nav-indicator--scrub")
+      unlockScrollParent()
+
+      const wasScrubbing = state.scrubbing
+      state.scrubbing = false
+      state.tracking = false
+      state.pointerId = -1
+      setScrubbing(false)
+      setPreviewKey(null)
+      previewKeyRef.current = null
+      setAnimateIndicator(true)
+
+      if (chosenKey) snapToKey(chosenKey, true)
+
+      const blockTap =
+        wasScrubbing &&
+        (moved || (chosenKey !== activeKey && chosenKey !== state.anchorKey))
+      if (blockTap) {
+        const container = containerRef.current
+        const blockClick = (e: Event) => {
+          e.preventDefault()
+          e.stopPropagation()
+          container?.removeEventListener("click", blockClick, true)
+        }
+        container?.addEventListener("click", blockClick, true)
+        window.setTimeout(() => {
+          container?.removeEventListener("click", blockClick, true)
+        }, 450)
+        event.preventDefault()
+      }
+    },
+    [
+      activeKey,
+      clearHoldTimer,
+      detachDocumentPointerHandlers,
+      onActivate,
+      snapToKey,
+      stopScrubLoop,
+      unlockScrollParent,
+    ]
+  )
+
+  const handleTrackedPointerMove = useCallback(
+    (event: PointerEvent) => {
+      const state = dragRef.current
+      if (!state.tracking || state.pointerId !== event.pointerId) return
+
+      if (event.pointerType === "mouse" && isFinePointer()) {
+        const el = (event.target as HTMLElement | null)?.closest?.("[data-liquid-nav-key]")
+        if (el instanceof HTMLElement && el.dataset.liquidNavKey) {
+          setPreviewKey(el.dataset.liquidNavKey)
+        }
+        return
+      }
+
+      if (event.pointerType === "touch" || event.pointerType === "pen") {
+        const dx = event.clientX - state.startX
+        const dy = event.clientY - state.startY
+        if (!state.scrubbing && Math.hypot(dx, dy) > SCRUB_MOVE_PX) {
+          clearHoldTimer()
+          beginScrub(event.pointerId)
+        }
+        if (state.scrubbing) {
+          event.preventDefault()
+          updateScrub(event.clientX, event.clientY)
+        }
+      }
+    },
+    [beginScrub, clearHoldTimer, updateScrub]
+  )
+
+  const attachDocumentPointerHandlers = useCallback(
+    (pointerId: number) => {
+      detachDocumentPointerHandlers()
+      const up = (event: PointerEvent) => finishPointerSession(event)
+      docHandlersRef.current = { move: handleTrackedPointerMove, up }
+      document.addEventListener("pointermove", handleTrackedPointerMove, {
+        capture: true,
+        passive: false,
+      })
+      document.addEventListener("pointerup", up, { capture: true })
+      document.addEventListener("pointercancel", up, { capture: true })
+      void pointerId
+    },
+    [detachDocumentPointerHandlers, finishPointerSession, handleTrackedPointerMove]
+  )
+
   useLayoutEffect(() => {
     if (scrubbing) return
     setAnimateIndicator(true)
@@ -313,90 +538,59 @@ export function LiquidNavRail({
     const container = containerRef.current
     if (!container) return
 
-    const findScrollParent = (node: HTMLElement | null): HTMLElement => {
-      let el: HTMLElement | null = node
-      while (el && el !== document.body) {
-        const { overflowY } = getComputedStyle(el)
-        if (overflowY === "auto" || overflowY === "scroll") return el
-        el = el.parentElement
-      }
-      return node ?? document.documentElement
-    }
-
     const scrollParent = findScrollParent(container)
     const refresh = () => {
       if (!scrubbing) snapToKey(displayKey, false)
     }
     const ro = new ResizeObserver(refresh)
     ro.observe(container)
-    scrollParent.addEventListener("scroll", refresh, { passive: true })
+    scrollParent?.addEventListener("scroll", refresh, { passive: true })
     window.addEventListener("resize", refresh)
 
     return () => {
       ro.disconnect()
-      scrollParent.removeEventListener("scroll", refresh)
+      scrollParent?.removeEventListener("scroll", refresh)
       window.removeEventListener("resize", refresh)
     }
   }, [displayKey, scrubbing, snapToKey])
 
-  useEffect(() => () => stopScrubLoop(), [stopScrubLoop])
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
 
-  const clearHoldTimer = () => {
-    if (holdTimerRef.current !== null) {
-      window.clearTimeout(holdTimerRef.current)
-      holdTimerRef.current = null
+    const onTouchMove = (event: TouchEvent) => {
+      if (!dragRef.current.scrubbing) return
+      event.preventDefault()
     }
-  }
 
-  const beginScrub = (pointerId: number) => {
-    const state = dragRef.current
-    if (state.scrubbing) return
-    state.scrubbing = true
-    state.didScrub = true
-    pulseRef.current = 0
-    setScrubbing(true)
-    setAnimateIndicator(false)
-    rectsRef.current = measureRects()
-    try {
-      containerRef.current?.setPointerCapture(pointerId)
-    } catch {
-      /* ignore */
-    }
-    if (indicatorRef.current) {
-      indicatorRef.current.classList.add("th-liquid-nav-indicator--scrub")
-    }
-    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-      navigator.vibrate(8)
-    }
-    startScrubLoop()
-  }
+    container.addEventListener("touchmove", onTouchMove, { passive: false })
+    return () => container.removeEventListener("touchmove", onTouchMove)
+  }, [])
 
-  const updateScrub = (clientX: number, clientY: number) => {
-    scrubPointerRef.current = { x: clientX, y: clientY }
-    paintScrubFrame(clientX, clientY)
-  }
-
-  const isFinePointer = () =>
-    typeof window !== "undefined" &&
-    window.matchMedia("(hover: hover) and (pointer: fine)").matches
-
-  const handleMouseOver = (event: React.MouseEvent) => {
-    if (!isFinePointer() || dragRef.current.scrubbing) return
-    const el = (event.target as HTMLElement).closest("[data-liquid-nav-key]")
-    if (el instanceof HTMLElement && el.dataset.liquidNavKey) {
-      setPreviewKey(el.dataset.liquidNavKey)
-    }
-  }
+  useEffect(
+    () => () => {
+      stopScrubLoop()
+      detachDocumentPointerHandlers()
+      unlockScrollParent()
+    },
+    [detachDocumentPointerHandlers, stopScrubLoop, unlockScrollParent]
+  )
 
   const handleMouseLeave = () => {
-    if (!dragRef.current.scrubbing) setPreviewKey(null)
+    if (!dragRef.current.tracking && !dragRef.current.scrubbing) {
+      setPreviewKey(null)
+    }
   }
 
   const handlePointerDown = (event: React.PointerEvent) => {
-    if (event.pointerType === "mouse" && isFinePointer()) return
+    const isMouseDesktop = event.pointerType === "mouse" && isFinePointer()
+    if (isMouseDesktop) return
 
     const container = containerRef.current
     if (!container) return
+
+    const target = event.target as HTMLElement
+    if (!target.closest("[data-liquid-nav-key]")) return
 
     rectsRef.current = measureRects()
     const cRect = container.getBoundingClientRect()
@@ -405,8 +599,8 @@ export function LiquidNavRail({
 
     dragRef.current = {
       scrubbing: false,
+      tracking: true,
       pointerId: event.pointerId,
-      didScrub: false,
       startX: event.clientX,
       startY: event.clientY,
       anchorKey,
@@ -415,93 +609,45 @@ export function LiquidNavRail({
     setPreviewKey(anchorKey)
     previewKeyRef.current = anchorKey
     applyFrame(
-      hit?.frame ?? frameForKey(rectsRef.current, anchorKey) ?? {
-        top: 0,
-        left: 0,
-        width: 0,
-        height: 0,
-        opacity: 0,
-        scale: 1,
-      },
+      hit?.frame ??
+        frameForKey(rectsRef.current, anchorKey) ?? {
+          top: 0,
+          left: 0,
+          width: 0,
+          height: 0,
+          opacity: 0,
+          scale: 1,
+        },
       false
     )
 
+    try {
+      container.setPointerCapture(event.pointerId)
+    } catch {
+      /* ignore */
+    }
+
+    attachDocumentPointerHandlers(event.pointerId)
+
     clearHoldTimer()
     holdTimerRef.current = window.setTimeout(() => {
+      if (!dragRef.current.tracking || dragRef.current.pointerId !== event.pointerId) return
       beginScrub(event.pointerId)
       updateScrub(event.clientX, event.clientY)
-    }, HOLD_MS)
+    }, holdDelayMs())
   }
 
-  const handlePointerMove = (event: React.PointerEvent) => {
-    const state = dragRef.current
-    if (state.pointerId !== event.pointerId) return
-
-    if (event.pointerType === "touch" || event.pointerType === "pen") {
-      const dx = event.clientX - state.startX
-      const dy = event.clientY - state.startY
-      if (!state.scrubbing && Math.hypot(dx, dy) > SCRUB_MOVE_PX) {
-        clearHoldTimer()
-        beginScrub(event.pointerId)
-      }
-      if (state.scrubbing) {
-        event.preventDefault()
-        updateScrub(event.clientX, event.clientY)
-      }
+  const handlePointerMoveHover = (event: React.PointerEvent) => {
+    if (!isFinePointer() || event.pointerType !== "mouse") return
+    if (dragRef.current.tracking || dragRef.current.scrubbing) return
+    const el = (event.target as HTMLElement).closest("[data-liquid-nav-key]")
+    if (el instanceof HTMLElement && el.dataset.liquidNavKey) {
+      setPreviewKey(el.dataset.liquidNavKey)
     }
   }
 
-  const finishPointer = (event: React.PointerEvent) => {
-    const state = dragRef.current
-    if (state.pointerId !== event.pointerId) return
-
-    clearHoldTimer()
-    stopScrubLoop()
-
-    const chosenKey = previewKeyRef.current ?? state.anchorKey
-    const moved = Math.hypot(event.clientX - state.startX, event.clientY - state.startY) > SCRUB_MOVE_PX
-
-    if (state.scrubbing && chosenKey && chosenKey !== activeKey && onActivate) {
-      onActivate(chosenKey)
-      if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-        navigator.vibrate(4)
-      }
-    }
-
-    if (state.scrubbing) {
-      try {
-        containerRef.current?.releasePointerCapture(event.pointerId)
-      } catch {
-        /* ignore */
-      }
-    }
-
-    indicatorRef.current?.classList.remove("th-liquid-nav-indicator--scrub")
-
-    const wasScrubbing = state.scrubbing
-    state.scrubbing = false
-    state.pointerId = -1
-    setScrubbing(false)
-    setPreviewKey(null)
-    previewKeyRef.current = null
-    setAnimateIndicator(true)
-
-    if (chosenKey) snapToKey(chosenKey, true)
-
-    const blockTap = wasScrubbing && (moved || (chosenKey !== activeKey && chosenKey !== state.anchorKey))
-    if (blockTap) {
-      const container = containerRef.current
-      const blockClick = (e: Event) => {
-        e.preventDefault()
-        e.stopPropagation()
-        container?.removeEventListener("click", blockClick, true)
-      }
-      container?.addEventListener("click", blockClick, true)
-      window.setTimeout(() => {
-        container?.removeEventListener("click", blockClick, true)
-      }, 450)
-      event.preventDefault()
-    }
+  const handlePointerUp = (event: React.PointerEvent) => {
+    finishPointerSession(event)
   }
 
   return (
@@ -513,15 +659,13 @@ export function LiquidNavRail({
           scrubbing && "th-liquid-nav-rail--scrubbing",
           className
         )}
-        onMouseOver={handleMouseOver}
         onMouseLeave={handleMouseLeave}
         onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={finishPointer}
-        onPointerCancel={finishPointer}
+        onPointerMove={handlePointerMoveHover}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
         data-active-key={activeKey}
         data-preview-key={previewKey ?? undefined}
-        style={{ touchAction: scrubbing ? "none" : "pan-y" }}
       >
         <div
           ref={indicatorRef}
