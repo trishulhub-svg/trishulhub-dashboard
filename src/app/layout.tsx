@@ -5,7 +5,6 @@ import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import { QueryProvider } from "@/components/providers/query-provider";
 import { AuthProvider } from "@/components/providers/auth-provider";
-import { LiquidGlassFilter } from "@/components/liquid-glass-filter";
 
 const plusJakarta = Plus_Jakarta_Sans({
   variable: "--font-plus-jakarta",
@@ -83,7 +82,6 @@ export default function RootLayout({
           themes={["light", "dark", "bluelight", "system"]}
           disableTransitionOnChange
         >
-          <LiquidGlassFilter />
           <QueryProvider>
             <AuthProvider>
               {children}

@@ -32,11 +32,13 @@ function SheetOverlay({
   className,
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Overlay>) {
+  const isNavGlass = className?.includes("th-nav-overlay")
   return (
     <SheetPrimitive.Overlay
       data-slot="sheet-overlay"
       className={cn(
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-[60] bg-black/50",
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-[60]",
+        isNavGlass ? "bg-transparent" : "bg-black/50",
         className
       )}
       {...props}
@@ -49,26 +51,37 @@ function SheetContent({
   children,
   side = "right",
   overlayClassName,
+  glassNav = false,
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Content> & {
   side?: "top" | "right" | "bottom" | "left"
   overlayClassName?: string
+  glassNav?: boolean
 }) {
+  const isGlassNav = glassNav || Boolean(className?.includes("th-nav-drawer"))
   return (
     <SheetPortal>
-      <SheetOverlay className={overlayClassName} />
+      <SheetOverlay className={cn(isGlassNav && "th-nav-overlay", overlayClassName)} />
       <SheetPrimitive.Content
         data-slot="sheet-content"
         className={cn(
-          "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out fixed z-[70] flex flex-col gap-4 shadow-lg transition ease-in-out data-[state=closed]:duration-300 data-[state=open]:duration-500",
-          side === "right" &&
+          "fixed z-[70] flex flex-col gap-4",
+          !isGlassNav &&
+            "bg-background shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out transition ease-in-out data-[state=closed]:duration-300 data-[state=open]:duration-500",
+          !isGlassNav &&
+            side === "right" &&
             "data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right inset-y-0 right-0 h-dvh max-h-dvh w-3/4 border-l sm:max-w-sm",
-          side === "left" &&
+          !isGlassNav &&
+            side === "left" &&
             "data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left inset-y-0 left-0 h-dvh max-h-dvh w-3/4 border-r sm:max-w-sm",
-          side === "top" &&
+          !isGlassNav &&
+            side === "top" &&
             "data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top inset-x-0 top-0 h-auto border-b",
-          side === "bottom" &&
+          !isGlassNav &&
+            side === "bottom" &&
             "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom inset-x-0 bottom-0 h-auto border-t",
+          isGlassNav &&
+            "bg-transparent shadow-none border-0 translate-x-0 translate-y-0 transform-none data-[state=open]:animate-none data-[state=closed]:animate-none",
           className
         )}
         {...props}

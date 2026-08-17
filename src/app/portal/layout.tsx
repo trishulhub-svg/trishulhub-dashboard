@@ -101,7 +101,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
+    <div className="th-app-shell min-h-screen flex flex-col">
       {/* Top Navigation */}
       <header className="sticky top-0 z-30 border-b border-border glass-topbar">
         <div className="flex items-center justify-between h-14 px-4 max-w-7xl mx-auto">
@@ -114,6 +114,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
               </SheetTrigger>
               <SheetContent
                 side="left"
+                glassNav
                 overlayClassName="th-nav-overlay"
                 className="th-nav-drawer th-nav-glass bg-transparent inset-y-3 left-3 h-auto max-h-[calc(100dvh-1.5rem)] w-64 rounded-[28px] p-4 border-0"
               >

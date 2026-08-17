@@ -338,10 +338,8 @@ body {
 }
 
 /* ── Left nav: Apple Liquid Glass (iOS 26 / Control Center) ── */
-@keyframes th-nav-sheen {
-  0% { transform: translate3d(-8%, -6%, 0) scale(1.05); opacity: 0.55; }
-  50% { transform: translate3d(10%, 8%, 0) scale(1.12); opacity: 0.9; }
-  100% { transform: translate3d(-8%, -6%, 0) scale(1.05); opacity: 0.55; }
+.th-app-shell {
+  background: transparent;
 }
 
 .liquid-glass-sidebar,
@@ -349,20 +347,16 @@ body {
 aside.th-sidebar-shell {
   position: relative;
   overflow: hidden;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.38) 0%, rgba(255,255,255,0.12) 42%, rgba(255,255,255,0.08) 100%);
-  backdrop-filter: blur(48px) saturate(1.85) brightness(1.12);
-  -webkit-backdrop-filter: blur(48px) saturate(1.85) brightness(1.12);
-  border: 1px solid rgba(255,255,255,0.55);
+  isolation: auto;
+  transform: none;
+  background: rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(40px) saturate(1.8) brightness(1.12);
+  -webkit-backdrop-filter: blur(40px) saturate(1.8) brightness(1.12);
+  border: 1px solid rgba(255, 255, 255, 0.5);
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.92),
-    inset 1px 0 0 rgba(255,255,255,0.38),
-    inset 0 -1px 0 rgba(255,255,255,0.16),
-    inset -1px 0 0 rgba(255,255,255,0.12),
-    inset 1px 0 0 rgba(125, 211, 252, 0.18),
-    inset -1px 0 0 rgba(251, 146, 180, 0.1),
-    0 18px 50px rgba(15, 23, 42, 0.18),
-    0 4px 16px rgba(15, 23, 42, 0.1);
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    inset 1px 0 0 rgba(255, 255, 255, 0.22),
+    0 18px 50px rgba(15, 23, 42, 0.16);
 }
 
 @supports (-apple-visual-effect: -apple-system-glass-material) {
@@ -373,29 +367,17 @@ aside.th-sidebar-shell {
   }
 }
 
-@supports (backdrop-filter: url(#th-liquid-lens)) {
-  .th-nav-glass,
-  .th-nav-drawer,
-  aside.th-sidebar-shell {
-    backdrop-filter: blur(22px) saturate(1.9) brightness(1.14) url("#th-liquid-lens");
-    -webkit-backdrop-filter: blur(22px) saturate(1.9) brightness(1.14) url("#th-liquid-lens");
-  }
-}
-
 .th-nav-glass::before,
 aside.th-sidebar-shell::before,
 .th-nav-drawer::before {
   content: "";
   position: absolute;
-  inset: -20% -10% auto -10%;
-  height: 58%;
+  inset: 0 0 auto 0;
+  height: 28%;
   pointer-events: none;
   z-index: 1;
   border-radius: inherit;
-  background:
-    radial-gradient(120% 80% at 18% -10%, rgba(255,255,255,0.72), transparent 58%),
-    linear-gradient(180deg, rgba(255,255,255,0.42) 0%, rgba(255,255,255,0.08) 36%, transparent 70%);
-  animation: th-nav-sheen 9s ease-in-out infinite;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.26), transparent);
 }
 
 .th-nav-glass::after,
@@ -407,10 +389,7 @@ aside.th-sidebar-shell::after,
   pointer-events: none;
   z-index: 1;
   border-radius: inherit;
-  box-shadow:
-    inset 0 0 0 1px rgba(255,255,255,0.28),
-    inset 0 -40px 50px rgba(15, 23, 42, 0.08);
-  background: linear-gradient(180deg, transparent 60%, rgba(15,23,42,0.06) 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
 }
 
 .th-nav-glass > *,
@@ -423,40 +402,30 @@ aside.th-sidebar-shell > *,
 .dark .th-nav-glass,
 .dark aside.th-sidebar-shell,
 .dark .th-nav-drawer {
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.14) 0%, rgba(18,22,32,0.42) 38%, rgba(12,16,24,0.5) 100%);
-  border-color: rgba(255,255,255,0.22);
+  background: rgba(16, 20, 28, 0.32);
+  border-color: rgba(255, 255, 255, 0.2);
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.38),
-    inset 1px 0 0 rgba(255,255,255,0.16),
-    inset 0 -1px 0 rgba(0,0,0,0.35),
-    inset 1px 0 0 rgba(125, 211, 252, 0.16),
-    inset -1px 0 0 rgba(251, 146, 180, 0.08),
-    0 24px 60px rgba(0,0,0,0.45),
-    0 8px 24px rgba(0,0,0,0.28);
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    inset 1px 0 0 rgba(255, 255, 255, 0.1),
+    0 24px 60px rgba(0, 0, 0, 0.4);
 }
 .dark .th-nav-glass::before,
 .dark aside.th-sidebar-shell::before,
 .dark .th-nav-drawer::before {
-  background:
-    radial-gradient(120% 80% at 16% -8%, rgba(255,255,255,0.28), transparent 55%),
-    linear-gradient(180deg, rgba(255,255,255,0.16) 0%, transparent 55%);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), transparent);
 }
 .dark .th-nav-glass::after,
 .dark aside.th-sidebar-shell::after,
 .dark .th-nav-drawer::after {
-  box-shadow:
-    inset 0 0 0 1px rgba(255,255,255,0.12),
-    inset 0 -48px 60px rgba(0,0,0,0.28);
-  background: linear-gradient(180deg, transparent 55%, rgba(0,0,0,0.22) 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  background: none;
 }
 
 .bluelight .th-nav-glass,
 .bluelight aside.th-sidebar-shell,
 .bluelight .th-nav-drawer {
-  background:
-    linear-gradient(180deg, rgba(255,252,246,0.5) 0%, rgba(255,248,238,0.28) 42%, rgba(243,238,228,0.22) 100%);
-  border-color: rgba(255,255,255,0.6);
+  background: rgba(255, 250, 240, 0.22);
+  border-color: rgba(255, 255, 255, 0.55);
 }
 
 /* Nested inner shell is layout only */
@@ -548,7 +517,7 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
 }
 
 /* Drawers: opaque, edge-to-edge, above the overlay. No dialog rounding. */
-[data-slot="sheet-content"] {
+[data-slot="sheet-content"]:not(.th-nav-drawer) {
   z-index: 70 !important;
   isolation: auto;
   backdrop-filter: blur(20px) saturate(1.22) !important;
@@ -561,47 +530,42 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
   box-shadow: 0 0 40px oklch(0 0 0 / 0.22) !important;
 }
 
-/* Left nav drawer — floating Control Center slab. Must beat generic sheet fill. */
+/* Left nav drawer — page must show through.
+   Do not use SVG url() in backdrop-filter (voids blur).
+   Do not transform/animate opacity on this node (kills backdrop-filter). */
 [data-slot="sheet-content"].th-nav-drawer {
   isolation: auto;
   overflow: hidden;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.42) 0%, rgba(255,255,255,0.14) 40%, rgba(255,255,255,0.1) 100%) !important;
-  backdrop-filter: blur(52px) saturate(1.9) brightness(1.14) !important;
-  -webkit-backdrop-filter: blur(52px) saturate(1.9) brightness(1.14) !important;
-  border: 1px solid rgba(255,255,255,0.62) !important;
+  transform: none !important;
+  translate: none !important;
+  scale: none !important;
+  rotate: none !important;
+  filter: none !important;
+  will-change: auto !important;
+  animation: none !important;
+  opacity: 1 !important;
+  background: rgba(255, 255, 255, 0.16) !important;
+  backdrop-filter: blur(40px) saturate(1.8) brightness(1.12) !important;
+  -webkit-backdrop-filter: blur(40px) saturate(1.8) brightness(1.12) !important;
+  border: 1px solid rgba(255, 255, 255, 0.55) !important;
   border-radius: 28px !important;
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.95),
-    inset 1px 0 0 rgba(255,255,255,0.42),
-    inset 0 -1px 0 rgba(255,255,255,0.18),
-    inset 1px 0 0 rgba(125, 211, 252, 0.22),
-    inset -1px 0 0 rgba(251, 146, 180, 0.12),
-    0 28px 70px rgba(15, 23, 42, 0.28),
-    0 10px 28px rgba(15, 23, 42, 0.14) !important;
-}
-@supports (backdrop-filter: url(#th-liquid-lens)) {
-  [data-slot="sheet-content"].th-nav-drawer {
-    backdrop-filter: blur(24px) saturate(1.95) brightness(1.16) url("#th-liquid-lens") !important;
-    -webkit-backdrop-filter: blur(24px) saturate(1.95) brightness(1.16) url("#th-liquid-lens") !important;
-  }
+    inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    inset 1px 0 0 rgba(255, 255, 255, 0.28),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.12),
+    0 24px 64px rgba(15, 23, 42, 0.28) !important;
 }
 .dark [data-slot="sheet-content"].th-nav-drawer {
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.16) 0%, rgba(18,22,32,0.38) 36%, rgba(10,14,22,0.48) 100%) !important;
-  border-color: rgba(255,255,255,0.26) !important;
+  background: rgba(16, 20, 28, 0.32) !important;
+  border-color: rgba(255, 255, 255, 0.22) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.42),
-    inset 1px 0 0 rgba(255,255,255,0.18),
-    inset 0 -1px 0 rgba(0,0,0,0.4),
-    inset 1px 0 0 rgba(125, 211, 252, 0.18),
-    0 28px 70px rgba(0,0,0,0.5),
-    0 10px 28px rgba(0,0,0,0.3) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    inset 1px 0 0 rgba(255, 255, 255, 0.12),
+    0 24px 64px rgba(0, 0, 0, 0.5) !important;
 }
 .bluelight [data-slot="sheet-content"].th-nav-drawer {
-  background:
-    linear-gradient(180deg, rgba(255,252,246,0.52) 0%, rgba(255,248,238,0.26) 100%) !important;
-  border-color: rgba(255,255,255,0.7) !important;
+  background: rgba(255, 250, 240, 0.22) !important;
+  border-color: rgba(255, 255, 255, 0.6) !important;
 }
 [data-slot="sheet-content"].th-nav-drawer .th-sidebar-shell {
   background: transparent !important;
@@ -611,36 +575,42 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
   box-shadow: none !important;
 }
 
-/* Overlay MUST stay below content. Clip it off the nav slab so glass refracts the page. */
+/* Overlay MUST stay below content. Nav overlay is transparent so blur samples the page. */
 [data-radix-dialog-overlay],
 [data-slot="dialog-overlay"],
 [data-slot="alert-dialog-overlay"],
-[data-slot="sheet-overlay"] {
+[data-slot="sheet-overlay"]:not(.th-nav-overlay) {
   z-index: 60 !important;
   background: oklch(0.18 0.02 255 / 28%) !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
 [data-slot="sheet-overlay"].th-nav-overlay {
-  background: oklch(0.14 0.02 255 / 0.22) !important;
-  clip-path: inset(0 0 0 min(21rem, calc(100vw - 3.5rem)));
+  z-index: 60 !important;
+  inset: 0 !important;
+  width: auto !important;
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  clip-path: none !important;
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
 }
 .dark [data-radix-dialog-overlay],
 .dark [data-slot="dialog-overlay"],
 .dark [data-slot="alert-dialog-overlay"],
-.dark [data-slot="sheet-overlay"] {
+.dark [data-slot="sheet-overlay"]:not(.th-nav-overlay) {
   background: oklch(0.08 0.02 255 / 42%) !important;
-}
-.dark [data-slot="sheet-overlay"].th-nav-overlay {
-  background: oklch(0.06 0.02 255 / 0.28) !important;
 }
 .bluelight [data-radix-dialog-overlay],
 .bluelight [data-slot="dialog-overlay"],
-.bluelight [data-slot="sheet-overlay"] {
+.bluelight [data-slot="sheet-overlay"]:not(.th-nav-overlay) {
   background: oklch(0.28 0.03 60 / 26%) !important;
 }
-.bluelight [data-slot="sheet-overlay"].th-nav-overlay {
-  background: oklch(0.3 0.03 60 / 0.18) !important;
+
+/* Dim the live page (not a scrim behind the glass) so Control Center still reads as modal. */
+body:has([data-slot="sheet-content"].th-nav-drawer[data-state="open"]) .th-app-shell {
+  filter: brightness(0.72) saturate(0.92);
 }
 
 /* ── Topbar ── */
@@ -884,6 +854,8 @@ table tbody tr:hover {
   .liquid-glass-card,
   .th-surface,
   .th-sidebar-shell,
+  .th-nav-glass,
+  .th-nav-drawer,
   .glass-topbar,
   [data-slot="card"],
   .bg-card {

@@ -967,7 +967,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="h-dvh flex overflow-hidden bg-background">
+    <div className="th-app-shell h-dvh flex overflow-hidden">
       {/* Desktop Sidebar — fixed height; scrolls independently of page content */}
       <aside
         className={cn(
@@ -999,6 +999,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
         <SheetContent
           side="left"
+          glassNav
           overlayClassName="th-nav-overlay"
           className="th-nav-drawer th-nav-glass bg-transparent inset-y-3 left-3 h-auto max-h-[calc(100dvh-1.5rem)] w-[min(100vw-3.25rem,300px)] rounded-[28px] p-0 gap-0 overflow-hidden border-0"
         >
