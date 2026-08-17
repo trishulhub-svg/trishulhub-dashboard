@@ -285,7 +285,7 @@ export function ClockedInHeaderDot({ enabled = true }: { enabled?: boolean }) {
         </button>
 
         <Dialog open={clockInOpen} onOpenChange={setClockInOpen}>
-          <DialogContent className="sm:max-w-[440px]">
+          <DialogContent className="sm:max-w-[440px] max-h-[min(85dvh,40rem)] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <Play className="h-4 w-4 text-emerald-600" />
