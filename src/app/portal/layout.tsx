@@ -103,7 +103,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   return (
     <div className="min-h-screen flex flex-col bg-background">
       {/* Top Navigation */}
-      <header className="sticky top-0 z-30 border-b border-border bg-card">
+      <header className="sticky top-0 z-30 border-b border-border glass-topbar">
         <div className="flex items-center justify-between h-14 px-4 max-w-7xl mx-auto">
           <div className="flex items-center gap-4">
             <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>

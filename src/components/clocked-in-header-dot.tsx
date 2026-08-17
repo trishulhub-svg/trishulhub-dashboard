@@ -269,7 +269,7 @@ export function ClockedInHeaderDot({ enabled = true }: { enabled?: boolean }) {
           type="button"
           onClick={openClockIn}
           className={cn(
-            "group relative inline-flex items-center justify-center gap-2 rounded-full",
+            "th-clock-in group relative inline-flex items-center justify-center gap-2 rounded-full",
             "h-9 px-2.5 sm:px-3",
             "border border-emerald-500/30 bg-emerald-500/5",
             "hover:bg-emerald-500/10 hover:border-emerald-500/45",
@@ -398,7 +398,7 @@ export function ClockedInHeaderDot({ enabled = true }: { enabled?: boolean }) {
               </Button>
               <Button
                 type="button"
-                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                className="th-clock-in bg-emerald-600 hover:bg-emerald-700 text-white"
                 disabled={
                   starting ||
                   optionsLoading ||
@@ -432,7 +432,7 @@ export function ClockedInHeaderDot({ enabled = true }: { enabled?: boolean }) {
         type="button"
         onClick={() => setActiveOpen(true)}
         className={cn(
-          "group relative inline-flex items-center justify-center gap-2 rounded-full",
+          "th-clock-in th-clock-in--live group relative inline-flex items-center justify-center gap-2 rounded-full",
           "h-9 px-2.5 sm:px-3",
           "border border-emerald-500/40 bg-emerald-500/10",
           "hover:bg-emerald-500/15 hover:border-emerald-500/55",

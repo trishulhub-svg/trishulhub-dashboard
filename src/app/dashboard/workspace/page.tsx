@@ -557,7 +557,7 @@ export default function TrishulWorkspacePage() {
                 <button
                     type="button"
                     onClick={handleStart}
-                    className={`ws-btn-primary ws-btn-primary--${mode}`}
+                    className={`ws-btn-primary ws-btn-primary--${mode}${currentUserIsLive ? "" : " ws-btn-clockin"}`}
                     aria-label={currentUserIsLive ? "Cursor Workspace — open Cursor" : "Start session — clock in first"}
                     title={currentUserIsLive ? "Cursor Workspace" : "Start Session — clock in first"}
                   >
@@ -994,8 +994,8 @@ export default function TrishulWorkspacePage() {
           --ws-text: #0a0a0a;
           --ws-text-muted: rgba(0,0,0,0.52);
           --ws-text-dim: rgba(0,0,0,0.28);
-          --ws-card-bg: rgba(255,255,255,0.55);
-          --ws-card-bg-mid: rgba(255,255,255,0.42);
+          --ws-card-bg: rgba(255,255,255,0.68);
+          --ws-card-bg-mid: rgba(255,255,255,0.52);
           --ws-card-border: rgba(255,255,255,0.72);
           --ws-card-hover: rgba(255,255,255,0.72);
           --ws-card-border-hover: rgba(8,145,178,0.35);
@@ -1020,8 +1020,8 @@ export default function TrishulWorkspacePage() {
           --ws-text: #2a241c;
           --ws-text-muted: rgba(42,36,28,0.52);
           --ws-text-dim: rgba(42,36,28,0.30);
-          --ws-card-bg: rgba(255,250,242,0.48);
-          --ws-card-bg-mid: rgba(255,248,238,0.38);
+          --ws-card-bg: rgba(255,250,242,0.62);
+          --ws-card-bg-mid: rgba(255,248,238,0.50);
           --ws-card-border: rgba(255,252,246,0.65);
           --ws-card-hover: rgba(255,252,246,0.62);
           --ws-card-border-hover: rgba(14,116,144,0.32);
@@ -1649,6 +1649,26 @@ export default function TrishulWorkspacePage() {
           box-shadow:
             inset 0 1px 0 rgba(255,255,255,0.75),
             0 14px 28px color-mix(in oklch, var(--primary) 14%, transparent);
+          transform: translateY(-2px);
+        }
+        .ws-btn-clockin {
+          background:
+            linear-gradient(155deg, rgba(255,255,255,0.28), transparent 42%),
+            color-mix(in oklch, oklch(0.68 0.14 155) 22%, transparent) !important;
+          color: #34d399 !important;
+          border-color: color-mix(in oklch, oklch(0.68 0.14 155) 42%, transparent) !important;
+          box-shadow:
+            inset 0 1px 0 rgba(255,255,255,0.32),
+            0 10px 26px color-mix(in oklch, oklch(0.68 0.14 155) 18%, transparent) !important;
+        }
+        .ws-root--light .ws-btn-clockin,
+        .ws-root--bluelight .ws-btn-clockin {
+          color: #047857 !important;
+          background:
+            linear-gradient(155deg, rgba(255,255,255,0.78), transparent 45%),
+            color-mix(in oklch, oklch(0.62 0.14 155) 16%, transparent) !important;
+        }
+        .ws-btn-clockin:hover {
           transform: translateY(-2px);
         }
         .ws-btn-primary:active {

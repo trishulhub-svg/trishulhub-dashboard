@@ -128,7 +128,7 @@ export const TimerHero = forwardRef<HTMLDivElement, TimerHeroProps>(function Tim
       ref={ref}
       className={cn(
         "relative overflow-hidden rounded-xl border border-border transition-shadow",
-        "bg-card",
+        "bg-card liquid-glass-card",
         isRunning && "border-emerald-500/35 shadow-[0_0_0_1px_rgba(16,185,129,0.06)]"
       )}
     >
@@ -201,7 +201,7 @@ export const TimerHero = forwardRef<HTMLDivElement, TimerHeroProps>(function Tim
               <Button
                 size="lg"
                 variant="destructive"
-                className="h-12 px-8 text-base font-semibold w-full sm:w-auto"
+                className="th-clock-out h-12 px-8 text-base font-semibold w-full sm:w-auto"
                 onClick={onClockOutClick}
                 disabled={stopping}
               >
@@ -305,7 +305,7 @@ export const TimerHero = forwardRef<HTMLDivElement, TimerHeroProps>(function Tim
             </div>
             <Button
               size="lg"
-              className="h-12 px-8 text-base font-semibold w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white"
+              className="th-clock-in h-12 px-8 text-base font-semibold w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white"
               onClick={onStart}
               disabled={startDisabled || selectedProject === "none" || !selectedProject}
             >

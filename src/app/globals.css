@@ -247,219 +247,447 @@
 }
 
 /* ══════════════════════════════════════════════════════════════
-   LIQUID GLASS — Apple-style glassmorphism system-wide
-   Applied globally to all Cards, Popovers, Dialogs, Dropdowns
+   LIQUID GLASS — Apple-style optical material (all themes)
+   Heavy blur only on major surfaces. Nested content stays light.
    ══════════════════════════════════════════════════════════════ */
 
-/* ── Core glass mixin properties ── */
-/* Light mode: white frosted glass with green-blue tint */
-.liquid-glass {
-  background: var(--card);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  border: 1px solid var(--border);
-  box-shadow: var(--elevation-1);
+:root {
+  --lg-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --lg-blur: 22px;
+  --lg-sat: 1.38;
+  --lg-bright: 1.05;
+  --lg-fill: color-mix(in oklch, var(--card) 62%, transparent);
+  --lg-fill-strong: color-mix(in oklch, var(--card) 78%, transparent);
+  --lg-tint: color-mix(in oklch, var(--primary) 7%, transparent);
+  --lg-specular: oklch(1 0 0 / 0.62);
+  --lg-rim: oklch(0.25 0.02 220 / 0.10);
+  --lg-edge: color-mix(in oklch, var(--border) 70%, oklch(1 0 0 / 0.45));
 }
-.dark .liquid-glass {
-  background: var(--card);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  border: 1px solid var(--border);
-  box-shadow: var(--elevation-1);
+
+.dark {
+  --lg-blur: 26px;
+  --lg-sat: 1.48;
+  --lg-bright: 1.06;
+  --lg-fill: color-mix(in oklch, var(--card) 48%, transparent);
+  --lg-fill-strong: color-mix(in oklch, var(--card) 68%, transparent);
+  --lg-tint: color-mix(in oklch, var(--primary) 10%, transparent);
+  --lg-specular: oklch(1 0 0 / 0.28);
+  --lg-rim: oklch(0 0 0 / 0.38);
+  --lg-edge: color-mix(in oklch, var(--border) 75%, oklch(1 0 0 / 0.18));
 }
-.bluelight .liquid-glass {
-  background: var(--card);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  border: 1px solid var(--border);
-  box-shadow: var(--elevation-1);
+
+.bluelight {
+  --lg-blur: 24px;
+  --lg-sat: 1.32;
+  --lg-bright: 1.04;
+  --lg-fill: color-mix(in oklch, var(--card) 58%, transparent);
+  --lg-fill-strong: color-mix(in oklch, var(--card) 76%, transparent);
+  --lg-tint: color-mix(in oklch, var(--primary) 8%, transparent);
+  --lg-specular: oklch(1 0 0 / 0.55);
+  --lg-rim: oklch(0.3 0.03 55 / 0.12);
+  --lg-edge: color-mix(in oklch, var(--border) 65%, oklch(1 0 0 / 0.42));
+}
+
+/* Ambient environment behind glass so translucency has something to catch */
+html {
+  background-color: var(--background);
+}
+body {
+  background-color: var(--background);
+  background-image:
+    radial-gradient(ellipse 90% 50% at 8% -6%, color-mix(in oklch, var(--primary) 12%, transparent), transparent 58%),
+    radial-gradient(ellipse 70% 42% at 96% 0%, color-mix(in oklch, var(--brand-blue) 10%, transparent), transparent 55%),
+    radial-gradient(ellipse 55% 35% at 50% 110%, color-mix(in oklch, var(--primary) 7%, transparent), transparent 60%),
+    var(--page-glow);
+  background-attachment: fixed;
+}
+
+/* ── Shared optical stack ── */
+.liquid-glass,
+.liquid-glass-card,
+.th-surface {
+  position: relative;
+  isolation: isolate;
+  background:
+    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 55%, transparent) 0%, transparent 36%),
+    linear-gradient(210deg, var(--lg-tint), transparent 48%),
+    var(--lg-fill);
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-sat)) brightness(var(--lg-bright));
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-sat)) brightness(var(--lg-bright));
+  border: 1px solid var(--lg-edge);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 70%, transparent),
+    inset 1px 0 0 color-mix(in oklch, var(--lg-specular) 22%, transparent),
+    inset 0 -1px 0 color-mix(in oklch, var(--lg-rim) 55%, transparent),
+    var(--elevation-1);
+  transition: border-color 0.35s var(--lg-ease), box-shadow 0.4s var(--lg-ease), transform 0.4s var(--lg-ease), background 0.4s var(--lg-ease);
+}
+
+.liquid-glass-card:hover,
+.th-surface:hover {
+  border-color: color-mix(in oklch, var(--primary) 28%, var(--lg-edge));
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 80%, transparent),
+    inset 1px 0 0 color-mix(in oklch, var(--lg-specular) 28%, transparent),
+    inset 0 -1px 0 color-mix(in oklch, var(--lg-rim) 45%, transparent),
+    var(--elevation-2);
 }
 
 /* ── Glass sidebar ── */
-.liquid-glass-sidebar {
-  background: var(--sidebar);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  border-right: 1px solid var(--sidebar-border);
-  box-shadow: none;
-}
-.dark .liquid-glass-sidebar {
-  background: var(--sidebar);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  border-right: 1px solid var(--sidebar-border);
-  box-shadow: none;
-}
-.bluelight .liquid-glass-sidebar {
-  background: var(--sidebar);
-  border-right: 1px solid var(--sidebar-border);
+.liquid-glass-sidebar,
+.th-sidebar-shell {
+  background:
+    linear-gradient(180deg, color-mix(in oklch, var(--lg-specular) 18%, transparent), transparent 18%),
+    linear-gradient(180deg, var(--lg-tint), transparent 28%),
+    color-mix(in oklch, var(--sidebar) 78%, transparent);
+  backdrop-filter: blur(20px) saturate(1.25);
+  -webkit-backdrop-filter: blur(20px) saturate(1.25);
+  border-right: 1px solid var(--lg-edge);
+  box-shadow:
+    inset -1px 0 0 color-mix(in oklch, var(--lg-rim) 30%, transparent),
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 25%, transparent);
 }
 
-/* ── Glass cards — restrained, scannable ── */
-.liquid-glass-card {
-  background: var(--card);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  border: 1px solid var(--border);
-  box-shadow: var(--elevation-1);
-}
-.dark .liquid-glass-card {
-  background: var(--card);
-  border: 1px solid var(--border);
-  box-shadow: var(--elevation-1);
+.dark .th-sidebar-shell {
+  background:
+    linear-gradient(180deg, color-mix(in oklch, var(--primary) 8%, transparent) 0%, transparent 22%),
+    color-mix(in oklch, var(--sidebar) 82%, transparent);
 }
 
-/* ── GLOBAL PANELS: Prefer hairline elevation over heavy glass ── */
-[class*="bg-card"],
-[data-slot="card"] {
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  border: 1px solid color-mix(in oklch, var(--border) 90%, transparent);
-  box-shadow: var(--elevation-1);
+/* ── Cards (shadcn data-slot + bg-card) ── */
+[data-slot="card"],
+.bg-card {
+  background:
+    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 42%, transparent) 0%, transparent 34%),
+    linear-gradient(205deg, var(--lg-tint), transparent 50%),
+    var(--lg-fill) !important;
+  backdrop-filter: blur(18px) saturate(var(--lg-sat)) brightness(var(--lg-bright));
+  -webkit-backdrop-filter: blur(18px) saturate(var(--lg-sat)) brightness(var(--lg-bright));
+  border: 1px solid var(--lg-edge);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 55%, transparent),
+    inset 0 -1px 0 color-mix(in oklch, var(--lg-rim) 40%, transparent),
+    var(--elevation-1);
   border-radius: calc(var(--radius) + 2px);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
-}
-.dark [class*="bg-card"],
-.dark [data-slot="card"] {
-  border: 1px solid color-mix(in oklch, var(--border) 85%, transparent);
-  box-shadow: var(--elevation-1);
-}
-.bluelight [class*="bg-card"],
-.bluelight [data-slot="card"] {
-  border: 1px solid color-mix(in oklch, var(--border) 88%, transparent);
+  transition: border-color 0.3s var(--lg-ease), box-shadow 0.35s var(--lg-ease);
 }
 
-/* ── FLOATING SURFACES: Popovers & Dropdown menus — light blur, theme tokens ── */
+[data-slot="card"]:hover {
+  border-color: color-mix(in oklch, var(--primary) 22%, var(--lg-edge));
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 70%, transparent),
+    var(--elevation-2);
+}
+
+/* ── Floating menus / popovers ── */
 [data-radix-popper-content-wrapper] > [role="dialog"],
 [role="menu"],
-[data-slot="popover-content"] {
-  backdrop-filter: blur(4px) saturate(1.02);
-  -webkit-backdrop-filter: blur(4px) saturate(1.02);
-  background: color-mix(in oklch, var(--popover) 96%, transparent) !important;
-  border: 1px solid var(--border) !important;
-  box-shadow: var(--elevation-2) !important;
-}
-.dark [data-radix-popper-content-wrapper] > [role="dialog"],
-.dark [role="menu"],
-.dark [data-slot="popover-content"] {
-  backdrop-filter: blur(4px) saturate(1.02);
-  -webkit-backdrop-filter: blur(4px) saturate(1.02);
-  background: color-mix(in oklch, var(--popover) 96%, transparent) !important;
-  border: 1px solid var(--border) !important;
-  box-shadow: var(--elevation-2) !important;
+[data-slot="popover-content"],
+[data-slot="dropdown-menu-content"],
+[data-slot="select-content"] {
+  backdrop-filter: blur(22px) saturate(1.35) !important;
+  -webkit-backdrop-filter: blur(22px) saturate(1.35) !important;
+  background:
+    linear-gradient(160deg, color-mix(in oklch, var(--lg-specular) 35%, transparent), transparent 40%),
+    var(--lg-fill-strong) !important;
+  border: 1px solid var(--lg-edge) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 50%, transparent),
+    var(--elevation-2) !important;
 }
 
-/* ── Dialog / Modal panels — solid surfaces, minimal blur cost ── */
-[data-radix-dialog-content] {
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  background: var(--card) !important;
-  border: 1px solid var(--border) !important;
-  box-shadow: var(--elevation-2) !important;
-  border-radius: calc(var(--radius) + 2px);
-}
-.dark [data-radix-dialog-content] {
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  background: var(--card) !important;
-  border: 1px solid var(--border) !important;
-  box-shadow: var(--elevation-2) !important;
-}
-
-/* ── Dialog overlay ── */
-[data-radix-dialog-overlay] {
-  background: oklch(0.2 0.02 255 / 32%) !important;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-.dark [data-radix-dialog-overlay] {
-  background: oklch(0.08 0.02 255 / 55%) !important;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+/* ── Dialog / modal / sheet ── */
+[data-radix-dialog-content],
+[data-slot="dialog-content"],
+[data-slot="sheet-content"],
+[data-slot="alert-dialog-content"] {
+  backdrop-filter: blur(28px) saturate(1.4) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(1.4) !important;
+  background:
+    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 40%, transparent) 0%, transparent 32%),
+    var(--lg-fill-strong) !important;
+  border: 1px solid var(--lg-edge) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 60%, transparent),
+    0 24px 60px oklch(0 0 0 / 0.28) !important;
+  border-radius: calc(var(--radius) + 4px);
 }
 
-/* ── Sheet (side panels) ── */
-[data-radix-dialog-content][data-state="open"][style*="translate"] {
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+[data-radix-dialog-overlay],
+[data-slot="dialog-overlay"],
+[data-slot="alert-dialog-overlay"] {
+  background: oklch(0.18 0.02 255 / 38%) !important;
+  backdrop-filter: blur(10px) saturate(1.1) !important;
+  -webkit-backdrop-filter: blur(10px) saturate(1.1) !important;
+}
+.dark [data-radix-dialog-overlay],
+.dark [data-slot="dialog-overlay"],
+.dark [data-slot="alert-dialog-overlay"] {
+  background: oklch(0.08 0.02 255 / 58%) !important;
+}
+.bluelight [data-radix-dialog-overlay],
+.bluelight [data-slot="dialog-overlay"] {
+  background: oklch(0.28 0.03 60 / 32%) !important;
 }
 
-/* ── Inputs: solid, scannable fields ── */
-input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
-textarea,
-select {
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-.dark input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
-.dark textarea,
-.dark select {
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-
-/* ── Topbar / header bar — solid-leaning, cheap to paint ── */
+/* ── Topbar ── */
 .glass-topbar {
-  background: color-mix(in oklch, var(--background) 92%, transparent);
-  backdrop-filter: blur(6px) saturate(1.05);
-  -webkit-backdrop-filter: blur(6px) saturate(1.05);
-  border-bottom: 1px solid color-mix(in oklch, var(--border) 85%, transparent);
-  box-shadow: none;
-}
-.dark .glass-topbar {
-  background: color-mix(in oklch, var(--background) 90%, transparent);
-  backdrop-filter: blur(6px) saturate(1.04);
-  -webkit-backdrop-filter: blur(6px) saturate(1.04);
-  border-bottom: 1px solid color-mix(in oklch, var(--border) 80%, transparent);
-  box-shadow: none;
-}
-.bluelight .glass-topbar {
-  background: color-mix(in oklch, var(--background) 93%, transparent);
-  border-bottom: 1px solid color-mix(in oklch, var(--border) 85%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in oklch, var(--lg-specular) 22%, transparent), transparent 70%),
+    color-mix(in oklch, var(--background) 72%, transparent);
+  backdrop-filter: blur(18px) saturate(1.28);
+  -webkit-backdrop-filter: blur(18px) saturate(1.28);
+  border-bottom: 1px solid var(--lg-edge);
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 35%, transparent);
 }
 
-/* ── Table rows ── */
-table tbody tr {
-  transition: background 0.15s ease;
+/* ── Inputs ── */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="hidden"]),
+textarea,
+select,
+[data-slot="input"],
+[data-slot="textarea"],
+[data-slot="select-trigger"] {
+  background:
+    linear-gradient(180deg, color-mix(in oklch, var(--lg-specular) 18%, transparent), transparent 55%),
+    color-mix(in oklch, var(--card) 70%, transparent) !important;
+  backdrop-filter: blur(10px) saturate(1.15);
+  -webkit-backdrop-filter: blur(10px) saturate(1.15);
+  border-color: var(--lg-edge) !important;
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 28%, transparent);
+  transition: border-color 0.25s var(--lg-ease), box-shadow 0.25s var(--lg-ease);
 }
-table tbody tr:hover {
-  background: oklch(0.52 0.05 160 / 6%) !important;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+
+input:not([type="checkbox"]):not([type="radio"]):focus,
+textarea:focus,
+[data-slot="input"]:focus-visible,
+[data-slot="select-trigger"]:focus-visible {
+  border-color: color-mix(in oklch, var(--primary) 50%, var(--lg-edge)) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 40%, transparent),
+    0 0 0 3px color-mix(in oklch, var(--primary) 18%, transparent) !important;
 }
-.dark table tbody tr:hover {
-  background: oklch(0.74 0.08 165 / 8%) !important;
+
+/* ── Buttons: optical glass controls ── */
+[data-slot="button"] {
+  position: relative;
+  transition:
+    transform 0.35s var(--lg-ease),
+    box-shadow 0.35s var(--lg-ease),
+    background-color 0.3s var(--lg-ease),
+    border-color 0.3s var(--lg-ease),
+    filter 0.3s var(--lg-ease);
+}
+[data-slot="button"]:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+[data-slot="button"]:not(:disabled):active {
+  transform: translateY(1px) scale(0.985);
+}
+
+[data-slot="button"][data-variant="default"] {
+  background:
+    linear-gradient(160deg, color-mix(in oklch, var(--lg-specular) 38%, transparent), transparent 42%),
+    color-mix(in oklch, var(--primary) 88%, oklch(1 0 0 / 0.12)) !important;
+  border: 1px solid color-mix(in oklch, var(--primary) 55%, oklch(1 0 0 / 0.25));
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.28),
+    inset 0 -1px 0 oklch(0 0 0 / 0.12),
+    0 8px 20px color-mix(in oklch, var(--primary) 22%, transparent);
+}
+
+[data-slot="button"][data-variant="outline"],
+[data-slot="button"][data-variant="secondary"] {
+  background:
+    linear-gradient(160deg, color-mix(in oklch, var(--lg-specular) 40%, transparent), transparent 48%),
+    color-mix(in oklch, var(--card) 45%, transparent);
+  backdrop-filter: blur(12px) saturate(1.2);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 40%, transparent);
+}
+
+[data-slot="button"][data-variant="ghost"]:not(:disabled):hover {
+  background: color-mix(in oklch, var(--accent) 70%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 25%, transparent);
+}
+
+[data-slot="button"][data-variant="destructive"] {
+  background:
+    linear-gradient(160deg, oklch(1 0 0 / 0.18), transparent 42%),
+    color-mix(in oklch, var(--destructive) 82%, transparent) !important;
+  border: 1px solid color-mix(in oklch, var(--destructive) 50%, oklch(1 0 0 / 0.2));
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.22),
+    0 8px 18px color-mix(in oklch, var(--destructive) 22%, transparent);
+}
+
+[data-slot="button"]:focus-visible {
+  outline: 2px solid color-mix(in oklch, var(--ring) 70%, transparent);
+  outline-offset: 2px;
+}
+
+/* ── Clock in / live session glass capsules ── */
+.th-clock-in,
+[data-slot="button"].th-clock-in {
+  position: relative;
+  isolation: isolate;
+  border-radius: 999px !important;
+  background:
+    linear-gradient(155deg, oklch(1 0 0 / 0.38), transparent 42%),
+    color-mix(in oklch, oklch(0.72 0.15 155) 16%, transparent) !important;
+  border: 1px solid color-mix(in oklch, oklch(0.62 0.14 155) 42%, transparent) !important;
+  backdrop-filter: blur(16px) saturate(1.35);
+  -webkit-backdrop-filter: blur(16px) saturate(1.35);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.4),
+    inset 0 -1px 0 oklch(0.3 0.08 155 / 0.12),
+    0 8px 20px color-mix(in oklch, oklch(0.62 0.14 155) 16%, transparent);
+  transition: transform 0.35s var(--lg-ease), box-shadow 0.35s var(--lg-ease), border-color 0.3s var(--lg-ease);
+}
+.th-clock-in:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in oklch, oklch(0.62 0.14 155) 58%, transparent) !important;
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.5),
+    0 12px 26px color-mix(in oklch, oklch(0.62 0.14 155) 22%, transparent);
+}
+.th-clock-in:active {
+  transform: translateY(1px) scale(0.985);
+}
+.th-clock-in--live {
+  background:
+    linear-gradient(155deg, oklch(1 0 0 / 0.28), transparent 42%),
+    color-mix(in oklch, oklch(0.62 0.14 155) 22%, transparent) !important;
+  border-color: color-mix(in oklch, oklch(0.62 0.14 155) 55%, transparent) !important;
+}
+.dark .th-clock-in {
+  background:
+    linear-gradient(155deg, oklch(1 0 0 / 0.16), transparent 42%),
+    color-mix(in oklch, oklch(0.72 0.14 155) 18%, transparent) !important;
+}
+.bluelight .th-clock-in {
+  background:
+    linear-gradient(155deg, oklch(1 0 0 / 0.42), transparent 42%),
+    color-mix(in oklch, oklch(0.55 0.11 150) 16%, transparent) !important;
+}
+
+.th-clock-out,
+[data-slot="button"].th-clock-out,
+[data-slot="button"][data-variant="destructive"].th-clock-out {
+  border-radius: 999px !important;
+  background:
+    linear-gradient(155deg, oklch(1 0 0 / 0.22), transparent 42%),
+    color-mix(in oklch, var(--destructive) 78%, transparent) !important;
+  border: 1px solid color-mix(in oklch, var(--destructive) 48%, oklch(1 0 0 / 0.2));
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.22),
+    0 8px 20px color-mix(in oklch, var(--destructive) 18%, transparent);
+}
+
+/* ── Badges as glass capsules ── */
+[data-slot="badge"] {
+  border-radius: 999px;
+  backdrop-filter: blur(10px) saturate(1.2);
+  -webkit-backdrop-filter: blur(10px) saturate(1.2);
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 35%, transparent);
 }
 
 /* ── Tabs ── */
 [role="tablist"] {
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+  background: color-mix(in oklch, var(--muted) 55%, transparent);
+  backdrop-filter: blur(12px) saturate(1.15);
+  -webkit-backdrop-filter: blur(12px) saturate(1.15);
+  border: 1px solid color-mix(in oklch, var(--lg-edge) 70%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 18%, transparent);
 }
 [role="tab"][data-state="active"] {
-  background: var(--card);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  box-shadow: var(--elevation-1);
-}
-.dark [role="tab"][data-state="active"] {
-  background: var(--card);
-  box-shadow: var(--elevation-1);
+  background:
+    linear-gradient(160deg, color-mix(in oklch, var(--lg-specular) 40%, transparent), transparent 50%),
+    var(--lg-fill-strong);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 45%, transparent),
+    var(--elevation-1);
 }
 
-/* Reduced motion for accessibility */
+/* ── Table hover ── */
+table tbody tr {
+  transition: background 0.18s var(--lg-ease);
+}
+table tbody tr:hover {
+  background: color-mix(in oklch, var(--primary) 7%, transparent) !important;
+}
+
+/* ── Sidebar links as shallow glass pills ── */
+.th-sidebar-link {
+  transition: background-color 0.2s var(--lg-ease), color 0.2s var(--lg-ease), box-shadow 0.2s var(--lg-ease), transform 0.25s var(--lg-ease);
+}
+.th-sidebar-link-active {
+  background:
+    linear-gradient(160deg, color-mix(in oklch, var(--lg-specular) 22%, transparent), transparent 50%),
+    color-mix(in oklch, var(--primary) 14%, var(--sidebar-accent));
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 30%, transparent),
+    inset 0 0 0 1px color-mix(in oklch, var(--primary) 22%, transparent);
+}
+.th-sidebar-icon-wrap {
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 25%, transparent);
+}
+
+/* ── Progress bars ── */
+[data-slot="progress"] {
+  background: color-mix(in oklch, var(--muted) 70%, transparent);
+  box-shadow: inset 0 1px 2px oklch(0 0 0 / 0.12);
+  overflow: hidden;
+}
+
+/* ── Toasts ── */
+[data-sonner-toast] {
+  backdrop-filter: blur(18px) saturate(1.3) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(1.3) !important;
+  background: var(--lg-fill-strong) !important;
+  border: 1px solid var(--lg-edge) !important;
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 40%, transparent), var(--elevation-2) !important;
+}
+
+/* Fallback when backdrop-filter unsupported */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .liquid-glass,
+  .liquid-glass-card,
+  .th-surface,
+  .th-sidebar-shell,
+  .glass-topbar,
+  [data-slot="card"],
+  .bg-card {
+    background: var(--card) !important;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .liquid-glass,
   .liquid-glass-sidebar,
   .liquid-glass-card,
   .glass-topbar,
-  [class*="bg-card"],
+  .th-clock-in,
+  .bg-card,
   [data-slot="card"],
+  [data-slot="button"],
   [data-radix-dialog-content],
   [role="menu"],
   [data-slot="popover-content"] {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
+    transition: none !important;
+    transform: none !important;
+  }
+  [data-slot="button"]:not(:disabled):hover,
+  .th-clock-in:hover {
+    transform: none;
+  }
+}
+
+@media (max-width: 639px) {
+  :root {
+    --lg-blur: 16px;
   }
 }
 
@@ -917,14 +1145,17 @@ table tbody tr:hover {
 
 /* ── Login Cards — quiet glass, CSS-var borders ── */
 .login-main-card {
-  background: color-mix(in oklch, var(--card) 92%, transparent);
-  backdrop-filter: blur(10px) saturate(1.1);
-  -webkit-backdrop-filter: blur(10px) saturate(1.1);
-  border: 1px solid color-mix(in oklch, var(--border) 85%, transparent);
+  background:
+    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 45%, transparent) 0%, transparent 36%),
+    color-mix(in oklch, var(--card) 70%, transparent);
+  backdrop-filter: blur(22px) saturate(1.35);
+  -webkit-backdrop-filter: blur(22px) saturate(1.35);
+  border: 1px solid var(--lg-edge);
   box-shadow:
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 55%, transparent),
     0 1px 2px oklch(0 0 0 / 3%),
-    0 8px 24px oklch(0 0 0 / 4%);
-  transition: box-shadow 0.25s ease, border-color 0.25s ease;
+    0 18px 44px oklch(0 0 0 / 8%);
+  transition: box-shadow 0.35s var(--lg-ease), border-color 0.35s var(--lg-ease);
 }
 
 .login-main-card:hover {
