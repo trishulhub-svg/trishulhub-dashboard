@@ -1045,7 +1045,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <Button
           variant="ghost"
           size="icon"
-          className="absolute top-24 -right-3 z-20 h-8 w-8 rounded-full border bg-background/80 backdrop-blur-md shadow-sm"
+          className="absolute top-3.5 right-3 z-20 h-8 w-8 rounded-full border bg-background/80 backdrop-blur-md shadow-sm"
           onClick={stowCapsule}
           aria-label="Collapse menu to capsule"
           title="Collapse menu"
@@ -1062,18 +1062,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {/* Header - taller and more prominent */}
         <header className="min-h-14 sm:min-h-16 glass-topbar grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1 sm:gap-2 px-2 sm:px-5 shrink-0 relative z-30">
           <div className="flex items-center gap-2 min-w-0 relative z-[1]">
-            {!navOpen && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-11 min-h-11 min-w-11 shrink-0 relative z-[2]"
-                aria-label="Open menu"
-                onClick={openDock}
-              >
-                <Menu className="h-5 w-5" />
-              </Button>
-            )}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-11 min-h-11 min-w-11 shrink-0 relative z-[2]"
+              aria-label={navOpen ? "Collapse menu to capsule" : "Open menu"}
+              title={navOpen ? "Collapse menu" : "Open menu"}
+              onClick={navOpen ? stowCapsule : openDock}
+            >
+              {navOpen ? <ChevronLeft className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </Button>
             <h2 className="text-sm sm:text-base font-semibold text-foreground truncate">
               {allNavItems.find((i) => pathname === i.href || (i.href !== "/dashboard" && pathname.startsWith(i.href + "/")))?.title || "Dashboard"}
             </h2>
