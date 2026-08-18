@@ -1,9 +1,7 @@
 "use client"
 
 import React, {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -33,16 +31,6 @@ const SPRING =
   "transform 0.52s cubic-bezier(0.32, 0.72, 0, 1), width 0.44s cubic-bezier(0.32, 0.72, 0, 1), height 0.44s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.25s ease, scale 0.38s cubic-bezier(0.32, 0.72, 0, 1)"
 
 const SCRUB_MOVE_PX = 5
-
-type LiquidNavContextValue = {
-  previewKey: string | null
-  scrubbing: boolean
-}
-
-const LiquidNavContext = createContext<LiquidNavContextValue>({
-  previewKey: null,
-  scrubbing: false,
-})
 
 function escapeAttr(value: string) {
   if (typeof CSS !== "undefined" && "escape" in CSS) {
@@ -667,38 +655,36 @@ export function LiquidNavRail({
   }
 
   return (
-    <LiquidNavContext.Provider value={{ previewKey, scrubbing }}>
+    <div
+      ref={containerRef}
+      className={cn(
+        "th-liquid-nav-rail relative",
+        scrubbing && "th-liquid-nav-rail--scrubbing",
+        className
+      )}
+      onMouseLeave={handleMouseLeave}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMoveHover}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      data-active-key={activeKey}
+      data-preview-key={previewKey ?? undefined}
+    >
       <div
-        ref={containerRef}
+        ref={indicatorRef}
         className={cn(
-          "th-liquid-nav-rail relative",
-          scrubbing && "th-liquid-nav-rail--scrubbing",
-          className
+          "th-liquid-nav-indicator",
+          animateIndicator && "th-liquid-nav-indicator--spring"
         )}
-        onMouseLeave={handleMouseLeave}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMoveHover}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
-        data-active-key={activeKey}
-        data-preview-key={previewKey ?? undefined}
-      >
-        <div
-          ref={indicatorRef}
-          className={cn(
-            "th-liquid-nav-indicator",
-            animateIndicator && "th-liquid-nav-indicator--spring"
-          )}
-          aria-hidden
-          style={{
-            opacity: 0,
-            transformOrigin: "center center",
-            willChange: "transform, width, height",
-          }}
-        />
-        {children}
-      </div>
-    </LiquidNavContext.Provider>
+        aria-hidden
+        style={{
+          opacity: 0,
+          transformOrigin: "center center",
+          willChange: "transform, width, height",
+        }}
+      />
+      {children}
+    </div>
   )
 }
 
@@ -706,20 +692,6 @@ export function liquidNavKey(key: string) {
   return { "data-liquid-nav-key": key } as const
 }
 
-export function liquidNavItemClass(
-  isActive: boolean,
-  previewKey?: string | null,
-  selfKey?: string
-) {
-  const focused = isActive || (previewKey != null && previewKey === selfKey)
-  return cn(
-    isActive && "th-sidebar-link-active th-rail-active",
-    focused && !isActive && "th-liquid-nav-item--preview"
-  )
-}
-
-/** Use inside LiquidNavRail for preview highlight while scrubbing/hovering */
-export function useLiquidNavItemClass(isActive: boolean, selfKey: string) {
-  const { previewKey } = useContext(LiquidNavContext)
-  return liquidNavItemClass(isActive, previewKey, selfKey)
+export function liquidNavItemClass(isActive: boolean) {
+  return cn(isActive && "th-sidebar-link-active th-rail-active")
 }

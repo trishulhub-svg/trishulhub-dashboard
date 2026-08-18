@@ -272,26 +272,3 @@ export function useFormGuard(opts: {
     clearDraft,
   }
 }
-
-export function FormGuardRoot({
-  className,
-  onDirty,
-  onClickCapture,
-  children,
-}: {
-  className?: string
-  onDirty: () => void
-  onClickCapture: (event: React.MouseEvent) => void
-  children: React.ReactNode
-}) {
-  return (
-    <div
-      className={className}
-      onInput={onDirty}
-      onChange={onDirty}
-      onClickCapture={onClickCapture}
-    >
-      {children}
-    </div>
-  )
-}
