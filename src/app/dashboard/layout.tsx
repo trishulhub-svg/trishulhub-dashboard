@@ -91,6 +91,8 @@ import {
 import { useFavoritePages } from "@/hooks/use-favorite-pages";
 import { ClockedInHeaderDot } from "@/components/clocked-in-header-dot";
 import { LiquidNavRail, liquidNavItemClass, liquidNavKey } from "@/components/liquid-nav-rail";
+import { NavCapsule } from "@/components/nav-capsule";
+import { useNavShell } from "@/hooks/use-nav-shell";
 
 interface NavItem {
   title: string;
@@ -695,8 +697,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // Using window.location.search instead of useSearchParams to avoid Suspense requirement
   const isEmbed = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("embed") === "true";
   const { theme, setTheme, resolvedTheme } = useTheme();
-  const [collapsed, setCollapsed] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadBadge, setUnreadBadge] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -717,6 +717,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pageAccessPages = Array.isArray(session?.user?.pageAccessPages)
     ? session.user.pageAccessPages
     : [];
+  const { navOpen, capsulePos, openDock, stowCapsule, moveCapsule } = useNavShell(userId || undefined);
 
   const unreadFromList = useMemo(() => notifications.filter((n) => !n.isRead).length, [notifications]);
   const unreadCount = notifOpen ? unreadFromList : Math.max(unreadBadge, unreadFromList);
@@ -824,13 +825,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       router.replace("/dashboard");
     }
   }, [status, userRole, pathname, pageAccessMode, pageAccessPages, router]);
-
-  // Auto-collapse sidebar when navigating to workspace landing page
-  useEffect(() => {
-    if (pathname === "/dashboard/workspace") {
-      setCollapsed(true);
-    }
-  }, [pathname]);
 
   // PERF: One shell bootstrap on mount; light polls keep badge fresh. Full list loads when panel opens.
   useEffect(() => {
@@ -976,7 +970,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     } else {
       router.push(href);
     }
-    setMobileOpen(false);
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) {
+      stowCapsule();
+    }
   };
 
   // Safety timeout for session loading — show fallback after 3s (reduced from 5s/15s)
@@ -1022,15 +1018,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="th-app-shell h-[100vh] h-dvh flex overflow-hidden">
-      {/* Desktop Sidebar — fixed height; scrolls independently of page content */}
+      {navOpen && (
+        <button
+          type="button"
+          className="th-sidebar-backdrop md:hidden"
+          aria-label="Close menu"
+          onClick={stowCapsule}
+        />
+      )}
       <aside
         className={cn(
-          "hidden md:flex flex-col th-nav-glass th-sidebar-shell self-stretch mr-1 rounded-[32px] shrink-0 relative z-40 overflow-visible",
-          collapsed ? "w-[72px] lg:w-[76px]" : "w-[240px] lg:w-[272px]"
+          "th-nav-glass th-sidebar-shell th-sidebar-dock relative z-40 rounded-[32px] md:mr-1",
+          navOpen ? "th-sidebar-dock--open" : "th-sidebar-dock--stowed"
         )}
+        aria-hidden={!navOpen}
       >
         <SidebarContent
-          collapsed={collapsed}
+          collapsed={false}
           userRole={userRole as UserRole}
           pathname={pathname}
           onNavigate={handleNavigate}
@@ -1041,44 +1045,35 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <Button
           variant="ghost"
           size="icon"
-          className="absolute top-24 -right-3 z-20 h-7 w-7 rounded-full border bg-background/80 backdrop-blur-md shadow-sm hidden md:flex"
-          onClick={() => setCollapsed(!collapsed)}
-          aria-label="Toggle sidebar"
+          className="absolute top-24 -right-3 z-20 h-8 w-8 rounded-full border bg-background/80 backdrop-blur-md shadow-sm"
+          onClick={stowCapsule}
+          aria-label="Collapse menu to capsule"
+          title="Collapse menu"
         >
-          <ChevronLeft className={cn("h-3.5 w-3.5 transition-transform", collapsed && "rotate-180")} />
+          <ChevronLeft className="h-3.5 w-3.5" />
         </Button>
       </aside>
-
-      {/* Mobile Sidebar */}
-      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-        <SheetContent
-          side="left"
-          glassNav
-          overlayClassName="th-nav-overlay"
-          className="th-nav-drawer th-nav-glass rounded-[32px] p-0 gap-0 overflow-hidden border-0"
-        >
-          <SheetTitle className="sr-only">Navigation menu</SheetTitle>
-          <SidebarContent
-            collapsed={false}
-            userRole={userRole as UserRole}
-            pathname={pathname}
-            onNavigate={handleNavigate}
-            badgeCounts={navBadgeData}
-            pageAccessMode={pageAccessMode}
-            pageAccessPages={pageAccessPages}
-          />
-        </SheetContent>
+      {!navOpen && (
+        <NavCapsule pos={capsulePos} onOpen={openDock} onMove={moveCapsule} />
+      )}
 
       {/* Main Content — only this region scrolls with the page */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden pr-[env(safe-area-inset-right,0px)]">
         {/* Header - taller and more prominent */}
         <header className="min-h-14 sm:min-h-16 glass-topbar grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1 sm:gap-2 px-2 sm:px-5 shrink-0 relative z-30">
           <div className="flex items-center gap-2 min-w-0 relative z-[1]">
-            <SheetTrigger asChild>
-              <Button type="button" variant="ghost" size="icon" className="md:hidden size-11 min-h-11 min-w-11 shrink-0 relative z-[2]" aria-label="Open menu">
+            {!navOpen && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-11 min-h-11 min-w-11 shrink-0 relative z-[2]"
+                aria-label="Open menu"
+                onClick={openDock}
+              >
                 <Menu className="h-5 w-5" />
               </Button>
-            </SheetTrigger>
+            )}
             <h2 className="text-sm sm:text-base font-semibold text-foreground truncate">
               {allNavItems.find((i) => pathname === i.href || (i.href !== "/dashboard" && pathname.startsWith(i.href + "/")))?.title || "Dashboard"}
             </h2>
@@ -1280,7 +1275,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {/* Page Content - more padding */}
         <main className="th-page-shell flex-1 min-h-0 max-w-full p-3 sm:p-4 md:p-6 lg:p-8 pb-[max(5rem,calc(3.5rem+env(safe-area-inset-bottom,0px)))] overflow-y-auto overflow-x-hidden overscroll-y-contain touch-pan-y">{children}</main>
       </div>
-      </Sheet>
 
       {/* Agentation — visual feedback tool (SUPER_ADMIN only) */}
       {session?.user?.role === "SUPER_ADMIN" && <Agentation />}

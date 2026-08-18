@@ -413,6 +413,126 @@ body::before {
   height: 100dvh;
 }
 
+/* Smart dock: open takes layout space (md+) or overlays (phones). Stowed → full canvas. */
+.th-sidebar-dock.th-sidebar-shell,
+aside.th-sidebar-dock {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  overflow: visible;
+  will-change: width, transform, opacity;
+  transition:
+    width 0.34s cubic-bezier(0.32, 0.72, 0, 1),
+    min-width 0.34s cubic-bezier(0.32, 0.72, 0, 1),
+    margin 0.34s cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 0.22s ease,
+    transform 0.34s cubic-bezier(0.32, 0.72, 0, 1),
+    border-width 0.2s ease;
+}
+.th-sidebar-dock--open {
+  width: min(272px, calc(100vw - 1.25rem));
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+  pointer-events: auto;
+}
+@media (min-width: 768px) {
+  .th-sidebar-dock--open {
+    width: 240px;
+  }
+}
+@media (min-width: 1024px) {
+  .th-sidebar-dock--open {
+    width: 272px;
+  }
+}
+.th-sidebar-dock--stowed {
+  width: 0 !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden;
+  opacity: 0;
+  transform: translate3d(-18px, 0, 0);
+  pointer-events: none;
+  border-width: 0 !important;
+  box-shadow: none !important;
+}
+.th-sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10090;
+  background: oklch(0 0 0 / 0.38);
+  animation: th-fade-in 0.2s ease both;
+}
+@keyframes th-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (min-width: 768px) {
+  .th-sidebar-backdrop {
+    display: none;
+  }
+}
+@media (max-width: 767px) {
+  .th-sidebar-dock {
+    position: fixed !important;
+    z-index: 10100 !important;
+    top: max(0.75rem, env(safe-area-inset-top, 0px)) !important;
+    left: max(0.75rem, env(safe-area-inset-left, 0px)) !important;
+    height: calc(100dvh - max(1.5rem, env(safe-area-inset-top, 0px) + env(safe-area-inset-bottom, 0px))) !important;
+    max-height: calc(100dvh - max(1.5rem, env(safe-area-inset-top, 0px) + env(safe-area-inset-bottom, 0px))) !important;
+  }
+  .th-sidebar-dock--open {
+    width: min(300px, calc(100vw - 1.5rem - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 1.75rem)) !important;
+  }
+}
+
+.th-nav-capsule {
+  position: fixed;
+  z-index: 10120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  border: 1px solid color-mix(in oklch, var(--lg-edge) 70%, oklch(1 0 0 / 0.55));
+  background:
+    linear-gradient(155deg, color-mix(in oklch, var(--lg-specular) 62%, transparent) 0%, transparent 42%),
+    color-mix(in oklch, var(--card) 72%, transparent);
+  backdrop-filter: blur(28px) saturate(1.6);
+  -webkit-backdrop-filter: blur(28px) saturate(1.6);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 80%, transparent),
+    0 10px 28px oklch(0.3 0.04 220 / 0.22);
+  transition: box-shadow 0.2s ease, transform 0.18s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.th-nav-capsule:active {
+  cursor: grabbing;
+}
+.th-nav-capsule:hover,
+.th-nav-capsule:focus-visible {
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 88%, transparent),
+    0 14px 32px color-mix(in oklch, var(--primary) 18%, transparent);
+}
+.th-nav-capsule-mark {
+  display: flex;
+  width: 28px;
+  height: 28px;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .th-sidebar-dock,
+  .th-nav-capsule,
+  .th-sidebar-backdrop {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
 .liquid-glass-sidebar,
 .th-nav-glass,
 aside.th-sidebar-shell {
