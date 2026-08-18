@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { emitFinanceChanged } from "@/lib/finance-events";
 
 import {
   DEFAULT_EXPENSE_CATEGORIES,
@@ -47,6 +48,7 @@ interface EditExpenseDialogProps {
   projects?: { id: string; name: string }[];
   employees?: { id: string; name: string }[];
   categories?: string[];
+  recordKind?: "expense" | "subscription";
 }
 
 export function EditExpenseDialog({
@@ -57,6 +59,7 @@ export function EditExpenseDialog({
   projects = [],
   employees = [],
   categories,
+  recordKind = "expense",
 }: EditExpenseDialogProps) {
   const categoryOptions =
     categories && categories.length > 0
@@ -108,6 +111,39 @@ export function EditExpenseDialog({
 
     setSaving(true);
     try {
+      if (recordKind === "subscription") {
+        const subCategory = [
+          "HOSTING", "DOMAINS", "API_COSTS", "TOOLS", "MARKETING", "SALARY", "SOFTWARE", "OTHER",
+        ].includes(form.category)
+          ? form.category
+          : "OTHER";
+        const res = await fetch(`/api/subscriptions/${expense.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            id: expense.id,
+            service: form.description,
+            amount: parseFloat(form.amount) || 0,
+            category: subCategory,
+            projectId:
+              form.projectId && form.projectId !== "NONE" ? form.projectId : null,
+            startDate: form.date || undefined,
+            notes: form.paymentRef || undefined,
+          }),
+        });
+        if (res.ok) {
+          toast.success("Subscription updated");
+          emitFinanceChanged();
+          onOpenChange(false);
+          onSuccess?.();
+        } else {
+          const data = await res.json().catch(() => ({}));
+          toast.error(data.error || "Failed to update subscription");
+        }
+        return;
+      }
+
       const payload = {
         id: expense.id,
         category: form.category,
@@ -135,6 +171,7 @@ export function EditExpenseDialog({
 
       if (res.ok) {
         toast.success("Expense updated");
+        emitFinanceChanged();
         onOpenChange(false);
         onSuccess?.();
       } else {
@@ -150,11 +187,13 @@ export function EditExpenseDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[92dvh] flex flex-col p-0 gap-0">
+      <DialogContent className="sm:max-w-lg max-h-[92dvh] flex flex-col p-0 gap-0" formGuardKey={`edit-${recordKind}-${expense?.id || "new"}`}>
         <DialogHeader className="px-5 pt-5 pb-2 shrink-0">
-          <DialogTitle>Edit Expense</DialogTitle>
+          <DialogTitle>{recordKind === "subscription" ? "Edit Subscription" : "Edit Expense"}</DialogTitle>
           <DialogDescription>
-            Update this expense record. Fields marked with * are required.
+            {recordKind === "subscription"
+              ? "Update this subscription. Changes apply to finance totals immediately."
+              : "Update this expense record. Fields marked with * are required."}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 overflow-y-auto flex-1 min-h-0 px-5 pb-5">

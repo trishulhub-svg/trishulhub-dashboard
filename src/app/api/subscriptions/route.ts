@@ -82,7 +82,7 @@ export async function GET(req: NextRequest) {
 
     // M-FIN-8: Pagination support
     const page = Math.max(1, parseInt(searchParams.get("page") || "1") || 1)
-    const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || "50") || 50), 200)
+    const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || "50") || 50), 2000)
     const offset = (page - 1) * limit
 
     const where: Prisma.SubscriptionWhereInput = {}

@@ -6,6 +6,7 @@ import { XIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { preventOutsideIfPortaled } from "@/lib/portaled-overlay"
+import { useFormGuard } from "@/components/form-guard"
 
 function Sheet({ ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {
   return <SheetPrimitive.Root data-slot="sheet" {...props} />
@@ -53,23 +54,38 @@ function SheetContent({
   side = "right",
   overlayClassName,
   glassNav = false,
+  formGuard,
+  formGuardKey,
   onPointerDownOutside,
   onInteractOutside,
   onFocusOutside,
+  onEscapeKeyDown,
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Content> & {
   side?: "top" | "right" | "bottom" | "left"
   overlayClassName?: string
   glassNav?: boolean
+  formGuard?: boolean
+  formGuardKey?: string
 }) {
   const isGlassNav = glassNav || Boolean(className?.includes("th-nav-drawer"))
+  const guardEnabled = formGuard ?? !isGlassNav
+  const closeRef = React.useRef<HTMLButtonElement>(null)
+  const scope =
+    formGuardKey ||
+    (typeof window !== "undefined" ? `sheet:${window.location.pathname}` : "sheet")
+  const guard = useFormGuard({
+    enabled: guardEnabled,
+    scope,
+    onRequestClose: () => closeRef.current?.click(),
+  })
   return (
     <SheetPortal>
       <SheetOverlay className={cn(isGlassNav && "th-nav-overlay", overlayClassName)} />
       <SheetPrimitive.Content
         data-slot="sheet-content"
         className={cn(
-          "fixed z-[70] flex flex-col gap-4",
+          "fixed z-[70] flex flex-col gap-4 relative",
           !isGlassNav &&
             "bg-background shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out transition ease-in-out data-[state=closed]:duration-300 data-[state=open]:duration-500",
           !isGlassNav &&
@@ -89,8 +105,12 @@ function SheetContent({
           className
         )}
         {...props}
+        ref={(node) => {
+          guard.bindRoot(node)
+        }}
         onPointerDownOutside={(event) => {
           preventOutsideIfPortaled(event)
+          if (!event.defaultPrevented && guardEnabled) guard.onInteract(event)
           onPointerDownOutside?.(event)
         }}
         onFocusOutside={(event) => {
@@ -99,14 +119,32 @@ function SheetContent({
         }}
         onInteractOutside={(event) => {
           preventOutsideIfPortaled(event)
+          if (!event.defaultPrevented && guardEnabled) guard.onInteract(event)
           onInteractOutside?.(event)
         }}
+        onEscapeKeyDown={(event) => {
+          if (guardEnabled) guard.onInteract(event)
+          onEscapeKeyDown?.(event)
+        }}
+        onInput={guardEnabled ? guard.markDirty : undefined}
+        onChange={guardEnabled ? guard.markDirty : undefined}
+        onClickCapture={guardEnabled ? guard.onSaveClickCapture : undefined}
       >
+        <SheetPrimitive.Close ref={closeRef} className="hidden" tabIndex={-1} aria-hidden />
         {children}
-        <SheetPrimitive.Close className="ring-offset-background focus:ring-ring absolute top-3.5 right-3.5 z-10 flex size-8 items-center justify-center rounded-full border border-white/20 bg-white/10 text-foreground opacity-90 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] backdrop-blur-md transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none">
+        <button
+          type="button"
+          data-form-guard-skip="true"
+          className="ring-offset-background focus:ring-ring absolute top-3.5 right-3.5 z-10 flex size-8 items-center justify-center rounded-full border border-white/20 bg-white/10 text-foreground opacity-90 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] backdrop-blur-md transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none"
+          onClick={() => {
+            if (guardEnabled && guard.tryClose()) return
+            closeRef.current?.click()
+          }}
+        >
           <XIcon className="size-4" />
           <span className="sr-only">Close</span>
-        </SheetPrimitive.Close>
+        </button>
+        {guardEnabled && guard.promptUi}
       </SheetPrimitive.Content>
     </SheetPortal>
   )

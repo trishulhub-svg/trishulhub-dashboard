@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
+import { emitFinanceChanged, useFinanceLiveRefresh } from "@/lib/finance-events";
 import { PageHeader } from "@/components/page-header";
 import { EditExpenseDialog } from "@/components/dashboard/finance/edit-expense-dialog";
 import { ExpenseDetailSheet } from "@/components/dashboard/finance/expense-detail-sheet";
@@ -557,6 +558,14 @@ function FinancePageInner() {
     return () => controller.abort();
   }, [activeTab, subSearchDebounced, expStartDate, expEndDate, fetchSubscriptions]);
 
+  useFinanceLiveRefresh(() => {
+    void fetchData();
+    void fetchSubscriptions();
+    void fetchExpenses();
+    void fetchStats();
+    void fetchAllExpenses();
+  });
+
   // Exchange rates only when subscription dialogs/tabs need them
   useEffect(() => {
     if (activeTab !== "subscriptions" && !subDialogOpen) return;
@@ -652,6 +661,7 @@ function FinancePageInner() {
         });
         if (res.ok) {
           toast.success("Subscription updated");
+          emitFinanceChanged();
         } else {
           const errData = await res.json().catch(() => ({}));
           toast.error(errData.error || "Failed to update subscription");
@@ -666,6 +676,7 @@ function FinancePageInner() {
         });
         if (res.ok) {
           toast.success("Subscription added");
+          emitFinanceChanged();
         } else {
           const errData = await res.json().catch(() => ({}));
           toast.error(errData.error || "Failed to add subscription");
@@ -707,6 +718,7 @@ function FinancePageInner() {
       });
       if (res.ok) {
         toast.success("Expense added");
+        emitFinanceChanged();
         setExpDialogOpen(false);
         setExpForm({ category: "", description: "", amount: "", date: "", projectId: "", employeeId: "", paymentRef: "", receiptUrl: "" });
         fetchExpenses();
@@ -733,6 +745,7 @@ function FinancePageInner() {
       });
       if (res.ok) {
         toast.success(`Subscription ${newStatus === "ACTIVE" ? "resumed" : "paused"}`);
+        emitFinanceChanged();
         fetchSubscriptions();
       } else {
         toast.error("Failed to update subscription status");
@@ -762,13 +775,13 @@ function FinancePageInner() {
     if (pendingDelete.type === "subscription") {
       try {
         const res = await fetch(`/api/subscriptions/${pendingDelete.id}`, { method: "DELETE", credentials: "include" });
-        if (res.ok) { toast.success("Subscription deleted"); fetchSubscriptions(); }
+        if (res.ok) { toast.success("Subscription deleted"); emitFinanceChanged(); fetchSubscriptions(); }
         else { const d = await res.json().catch(() => ({})); toast.error(d.error || "Failed to delete subscription"); }
       } catch { toast.error("Failed to delete subscription"); }
     } else if (pendingDelete.type === "expense") {
       try {
         const res = await fetch(`/api/expenses`, { method: "DELETE", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ id: pendingDelete.id }) });
-        if (res.ok) { toast.success("Expense deleted"); fetchExpenses(); fetchStats(); fetchAllExpenses(); }
+        if (res.ok) { toast.success("Expense deleted"); emitFinanceChanged(); fetchExpenses(); fetchStats(); fetchAllExpenses(); }
         else { const d = await res.json().catch(() => ({})); toast.error(d.error || "Failed to delete expense"); }
       } catch { toast.error("Failed to delete expense"); }
     }
@@ -1598,7 +1611,7 @@ function FinancePageInner() {
         open={editExpenseOpen}
         onOpenChange={(open) => { setEditExpenseOpen(open); if (!open) setEditingExpense(null); }}
         expense={editingExpense as unknown as ExpenseWithProject | null}
-        onSuccess={() => { setEditExpenseOpen(false); setEditingExpense(null); refetchAllExpenseData(); toast.success("Expense updated"); }}
+        onSuccess={() => { setEditExpenseOpen(false); setEditingExpense(null); refetchAllExpenseData(); emitFinanceChanged(); toast.success("Expense updated"); }}
         projects={projects}
         employees={employees}
         categories={expenseCategories}

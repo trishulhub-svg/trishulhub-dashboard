@@ -28,6 +28,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
+import { emitFinanceChanged, useFinanceLiveRefresh } from "@/lib/finance-events";
 import { PageHeader } from "@/components/page-header";
 import { CollapsibleStatStrip } from "@/components/collapsible-stat-strip";
 import { cn, safeText, safeNumber } from "@/lib/utils";
@@ -56,6 +57,9 @@ interface Expense {
   employee?: { id: string; name: string } | null;
   paymentRef?: string | null;
   receiptUrl?: string | null;
+  kind?: "expense" | "subscription";
+  frequency?: string;
+  status?: string;
 }
 
 // categoryBadgeColors imported from @/lib/format as CATEGORY_BADGE_COLORS
@@ -70,11 +74,6 @@ const categoryBorderColors: Record<string, string> = {
   SOFTWARE: "border-l-indigo-500",
   OTHER: "border-l-gray-500",
 };
-
-// ━━ Helpers ━━
-function isExpenseDetail(obj: unknown): obj is ExpenseDetail {
-  return typeof obj === "object" && obj !== null && "id" in obj && "amount" in obj;
-}
 
 // ━━ Main Page ━━
 export default function ExpensesPage() {
@@ -138,17 +137,50 @@ export default function ExpensesPage() {
   // ━━ Fetch data ━━
   const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
-      const [expRes, projRes, empRes] = await Promise.all([
+      const [expRes, projRes, empRes, subRes] = await Promise.all([
         fetch("/api/expenses?limit=" + MAX_EXPENSE_FETCH, { credentials: "include", signal }),
         fetch("/api/projects?fields=minimal", { credentials: "include", signal }),
         fetch("/api/team?type=users", { credentials: "include", signal }),
+        fetch("/api/subscriptions?limit=1000", { credentials: "include", signal }),
         fetchCategories(signal),
       ]);
       if (handleFetchError(expRes, router)) return;
       if (expRes.ok) {
         const raw = await expRes.json().catch(() => null);
         const arr = Array.isArray(raw) ? raw : (raw.data || raw.expenses || []);
-        setExpenses(arr);
+        let merged: Expense[] = arr.map((e: Expense) => ({ ...e, kind: "expense" as const }));
+        if (subRes.ok) {
+          const subRaw = await subRes.json().catch(() => null);
+          const subs = Array.isArray(subRaw) ? subRaw : (subRaw?.subscriptions || []);
+          const subRows: Expense[] = subs.map((s: {
+            id: string;
+            service?: string;
+            category?: string | null;
+            amount?: number;
+            startDate?: string;
+            createdAt?: string;
+            project?: { id: string; name: string } | null;
+            notes?: string | null;
+            frequency?: string;
+            status?: string;
+          }) => ({
+            id: s.id,
+            category: s.category || "SOFTWARE",
+            description: s.service || "Subscription",
+            amount: Number(s.amount) || 0,
+            date: s.startDate || s.createdAt || new Date().toISOString(),
+            project: s.project || null,
+            employee: null,
+            paymentRef: s.notes || s.frequency || null,
+            kind: "subscription" as const,
+            frequency: s.frequency,
+            status: s.status,
+          }));
+          merged = [...subRows, ...merged].sort(
+            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+          );
+        }
+        setExpenses(merged);
       }
       if (projRes.ok) {
         const projData = await projRes.json().catch(() => null);
@@ -177,6 +209,8 @@ export default function ExpensesPage() {
     fetchData(controller.signal);
     return () => controller.abort();
   }, [fetchData]);
+
+  useFinanceLiveRefresh(fetchData);
 
   // ━━ Add Expense ━━
   const [addForm, setAddForm] = useState({
@@ -216,6 +250,7 @@ export default function ExpensesPage() {
       if (handleFetchError(res, router)) return;
       if (res.ok) {
         toast.success("Expense added");
+        emitFinanceChanged();
         setAddOpen(false);
         resetAddForm();
         fetchData();
@@ -231,17 +266,34 @@ export default function ExpensesPage() {
   // ━━ Delete ━━
   const executeDelete = async () => {
     if (!pendingDelete) return;
+    const row = expenses.find((e) => e.id === pendingDelete);
     try {
-      const res = await fetch("/api/expenses", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ id: pendingDelete }),
-      });
-      if (handleFetchError(res, router)) return;
-      if (res.ok) { toast.success("Expense deleted"); fetchData(); }
-      else { const data = await res.json().catch(() => ({})); toast.error(safeText(data.error, "Failed to delete expense")); }
-    } catch { toast.error("Failed to delete expense"); }
+      if (row?.kind === "subscription") {
+        const res = await fetch(`/api/subscriptions/${pendingDelete}`, {
+          method: "DELETE",
+          credentials: "include",
+        });
+        if (handleFetchError(res, router)) return;
+        if (res.ok) {
+          toast.success("Subscription deleted");
+          emitFinanceChanged();
+          fetchData();
+        } else {
+          const data = await res.json().catch(() => ({}));
+          toast.error(safeText(data.error, "Failed to delete subscription"));
+        }
+      } else {
+        const res = await fetch("/api/expenses", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ id: pendingDelete }),
+        });
+        if (handleFetchError(res, router)) return;
+        if (res.ok) { toast.success("Expense deleted"); emitFinanceChanged(); fetchData(); }
+        else { const data = await res.json().catch(() => ({})); toast.error(safeText(data.error, "Failed to delete expense")); }
+      }
+    } catch { toast.error("Failed to delete"); }
     setPendingDelete(null);
   };
 
@@ -427,7 +479,7 @@ export default function ExpensesPage() {
                 <Plus className="h-4 w-4 mr-1" /> Add Expense
               </Button>
             </DialogTrigger>
-          <DialogContent className="sm:max-w-lg max-h-[92dvh] flex flex-col p-0 gap-0">
+          <DialogContent className="sm:max-w-lg max-h-[92dvh] flex flex-col p-0 gap-0" formGuardKey="expense-add">
             <DialogHeader className="px-5 pt-5 pb-2 shrink-0">
               <DialogTitle>Add Expense</DialogTitle>
               <DialogDescription>
@@ -694,6 +746,11 @@ export default function ExpensesPage() {
                       <Badge className={cn("text-[10px] px-1.5 py-0 h-5", CATEGORY_BADGE_COLORS[exp.category] || "")}>
                         {safeText(exp.category, "").replace(/_/g, " ")}
                       </Badge>
+                      {exp.kind === "subscription" && (
+                        <Badge className="text-[10px] px-1.5 py-0 h-5 bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+                          Subscription{exp.status ? ` · ${exp.status}` : ""}
+                        </Badge>
+                      )}
                       {exp.employee && (
                         <Badge className="text-[10px] px-1.5 py-0 h-5 bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">
                           <User className="h-2.5 w-2.5 mr-0.5" />
@@ -734,7 +791,7 @@ export default function ExpensesPage() {
                     <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setPreviewExpense(exp)} aria-label="View expense" title="View">
                       <Eye className="h-3.5 w-3.5" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { if (isExpenseDetail(exp)) { setEditingExpense(exp); setEditExpenseOpen(true); } }} aria-label="Edit expense" title="Edit">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditingExpense(exp as ExpenseDetail); setEditExpenseOpen(true); }} aria-label="Edit expense" title="Edit">
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
                     <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => setPendingDelete(exp.id)} aria-label="Delete expense" title="Delete">
@@ -751,7 +808,7 @@ export default function ExpensesPage() {
       {/* ━━ Expense Preview Dialog ━━ */}
       <Dialog open={!!previewExpense} onOpenChange={(open) => { if (!open) setPreviewExpense(null); }}>
         {previewExpense && (
-          <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogContent formGuard={false} className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Expense Details</DialogTitle>
               <DialogDescription>View full details of this expense record.</DialogDescription>
@@ -838,7 +895,7 @@ export default function ExpensesPage() {
 
               {/* Actions */}
               <div className="flex gap-2 justify-end">
-                <Button variant="outline" size="sm" className="rounded-xl gap-1.5" onClick={() => { setPreviewExpense(null); if (isExpenseDetail(previewExpense)) { setEditingExpense(previewExpense); setEditExpenseOpen(true); } }}>
+                <Button variant="outline" size="sm" className="rounded-xl gap-1.5" onClick={() => { setPreviewExpense(null); setEditingExpense(previewExpense as ExpenseDetail); setEditExpenseOpen(true); }}>
                   <Pencil className="h-3.5 w-3.5" /> Edit
                 </Button>
                 <Button variant="outline" size="sm" className="rounded-xl gap-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20 border-red-200 dark:border-red-900/40" onClick={() => { setPreviewExpense(null); setPendingDelete(previewExpense.id); }}>
@@ -855,10 +912,11 @@ export default function ExpensesPage() {
         open={editExpenseOpen}
         onOpenChange={setEditExpenseOpen}
         expense={editingExpense as Parameters<typeof EditExpenseDialog>[0]["expense"]}
+        recordKind={editingExpense && expenses.find((e) => e.id === editingExpense.id)?.kind === "subscription" ? "subscription" : "expense"}
         projects={projects}
         employees={employees}
         categories={categoryNames}
-        onSuccess={() => { fetchData(); }}
+        onSuccess={() => { fetchData(); emitFinanceChanged(); }}
       />
 
       {/* ━━ Manage Categories Dialog ━━ */}

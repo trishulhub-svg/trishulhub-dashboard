@@ -9,6 +9,7 @@ import { ArrowLeft, ChevronLeft, ChevronRight, LineChart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useFinanceLiveRefresh } from "@/lib/finance-events";
 
 const FILTERS = [
   { key: "profit", label: "Profit", axis: "money" as const },
@@ -93,6 +94,10 @@ export default function PnLPage() {
       if (id === requestId.current) setLoading(false);
     }
   }, [router]);
+
+  useFinanceLiveRefresh(() => {
+    void load();
+  });
 
   useEffect(() => {
     const controller = new AbortController();

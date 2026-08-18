@@ -53,7 +53,7 @@ export async function GET() {
 
     const monthlyAggResults = await Promise.all(
       monthBoundaries.map(async ({ start, end, label }) => {
-        const [revAgg, expAgg] = await Promise.all([
+        const [revAgg, expAgg, subAgg] = await Promise.all([
           admin
             ? db.invoice.aggregate({
                 where: {
@@ -79,8 +79,28 @@ export async function GET() {
                 _sum: { amount: true },
               }).then((r) => r._sum.amount || 0)
             : Promise.resolve(0),
+          admin
+            ? db.subscription.findMany({
+                where: {
+                  startDate: { lt: end },
+                  OR: [{ endDate: null }, { endDate: { gte: start } }],
+                },
+                select: { amount: true, frequency: true, startDate: true, endDate: true },
+                take: 2000,
+              }).then((subs) =>
+                subs.reduce((sum, s) => {
+                  const amount = Number(s.amount || 0)
+                  if (s.frequency === "ONE_TIME") {
+                    const when = new Date(s.startDate)
+                    return when >= start && when < end ? sum + amount : sum
+                  }
+                  const monthly = s.frequency === "YEARLY" ? amount / 12 : amount
+                  return sum + monthly
+                }, 0)
+              )
+            : Promise.resolve(0),
         ])
-        return { month: label, revenue: revAgg, expenses: expAgg }
+        return { month: label, revenue: revAgg, expenses: expAgg + subAgg }
       })
     )
 

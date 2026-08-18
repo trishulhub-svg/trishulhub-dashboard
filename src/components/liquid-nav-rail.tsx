@@ -255,7 +255,9 @@ export function LiquidNavRail({
   const getItemElements = useCallback(() => {
     const container = containerRef.current
     if (!container) return [] as HTMLElement[]
-    return Array.from(container.querySelectorAll<HTMLElement>("[data-liquid-nav-key]"))
+    return Array.from(container.querySelectorAll<HTMLElement>("[data-liquid-nav-key]")).filter(
+      (el) => el.closest(".th-liquid-nav-rail") === container
+    )
   }, [])
 
   const measureRects = useCallback(() => {
@@ -277,7 +279,7 @@ export function LiquidNavRail({
           midY: top + r.height / 2,
         }
       })
-      .filter((r): r is ItemRect => r !== null)
+      .filter((r): r is ItemRect => r !== null && r.height > 4)
   }, [getItemElements])
 
   const applyFrame = useCallback((frame: IndicatorFrame, animate: boolean) => {
@@ -310,29 +312,43 @@ export function LiquidNavRail({
 
   const lockScrollParent = useCallback(() => {
     const container = containerRef.current
-    if (!container || scrollLockRef.current) return
-    const parent = findScrollParent(container.parentElement)
+    if (!container) return
+    const parent = findScrollParent(container.parentElement) ?? findScrollParent(container)
     scrollParentRef.current = parent
-    if (!parent) return
-    scrollLockRef.current = parent.style.overflowY
-    parent.style.overflowY = "hidden"
+    if (!parent || scrollLockRef.current !== null) return
+    scrollLockRef.current = parent.style.overscrollBehavior
     parent.style.overscrollBehavior = "contain"
   }, [])
 
   const unlockScrollParent = useCallback(() => {
     const parent = scrollParentRef.current
     if (parent && scrollLockRef.current !== null) {
-      parent.style.overflowY = scrollLockRef.current
-      parent.style.overscrollBehavior = ""
+      parent.style.overscrollBehavior = scrollLockRef.current
     }
     scrollLockRef.current = null
     scrollParentRef.current = null
+  }, [])
+
+  const autoScrollNearEdges = useCallback((clientY: number) => {
+    const parent = scrollParentRef.current
+    if (!parent) return
+    const rect = parent.getBoundingClientRect()
+    const edge = 64
+    const maxStep = 22
+    if (clientY < rect.top + edge) {
+      const t = Math.max(0, 1 - (clientY - rect.top) / edge)
+      parent.scrollTop -= Math.max(6, maxStep * t)
+    } else if (clientY > rect.bottom - edge) {
+      const t = Math.max(0, 1 - (rect.bottom - clientY) / edge)
+      parent.scrollTop += Math.max(6, maxStep * t)
+    }
   }, [])
 
   const paintScrubFrame = useCallback(
     (clientX: number, clientY: number) => {
       const container = containerRef.current
       if (!container) return
+      autoScrollNearEdges(clientY)
       rectsRef.current = measureRects()
       const cRect = container.getBoundingClientRect()
       pulseRef.current += 0.11
@@ -350,7 +366,7 @@ export function LiquidNavRail({
         setPreviewKey(hit.key)
       }
     },
-    [applyFrame, measureRects]
+    [applyFrame, autoScrollNearEdges, measureRects]
   )
 
   const startScrubLoop = useCallback(() => {

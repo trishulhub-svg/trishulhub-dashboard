@@ -22,6 +22,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { emitFinanceChanged, useFinanceLiveRefresh } from "@/lib/finance-events";
 import { PageHeader } from "@/components/page-header";
 import { CollapsibleStatStrip } from "@/components/collapsible-stat-strip";
 import { useUrlState } from "@/hooks/use-url-state";
@@ -396,6 +397,10 @@ function InvoicesPageInner() {
     return () => controller.abort();
   }, [fetchData]);
 
+  useFinanceLiveRefresh(() => {
+    void fetchData();
+  });
+
   // Deep-link from Clients: /dashboard/finance/invoices?clientId=xxx → open create with client prefilled
   useEffect(() => {
     if (!isAdminUser || status !== "authenticated") return;
@@ -488,6 +493,7 @@ function InvoicesPageInner() {
       if (handleFetchError(res, router)) return;
       if (res.ok) {
         toast.success("Invoice created");
+        emitFinanceChanged();
         setAddOpen(false);
         resetInvoiceForm();
         fetchData();
@@ -513,6 +519,7 @@ function InvoicesPageInner() {
       if (handleFetchError(res, router)) return;
       if (res.ok) {
         toast.success("Invoice deleted");
+        emitFinanceChanged();
         fetchData();
       } else {
         const data = await res.json().catch(() => ({}));
@@ -538,6 +545,7 @@ function InvoicesPageInner() {
       if (handleFetchError(res, router)) return;
       if (res.ok) {
         toast.success(`Invoice marked as ${newStatus}`);
+        emitFinanceChanged();
         fetchData();
       } else {
         const data = await res.json().catch(() => ({}));
@@ -570,6 +578,7 @@ function InvoicesPageInner() {
       if (handleFetchError(res, router)) return;
       if (res.ok) {
         toast.success(`Payment status updated to ${label}`);
+        emitFinanceChanged();
         fetchData();
       } else {
         const data = await res.json().catch(() => ({}));
@@ -612,6 +621,7 @@ function InvoicesPageInner() {
       if (handleFetchError(res, router)) return;
       if (res.ok) {
         toast.success("Payment recorded");
+        emitFinanceChanged();
         setPaymentInvoice(null);
         fetchData();
       } else {
@@ -750,6 +760,7 @@ function InvoicesPageInner() {
       if (handleFetchError(res, router)) return;
       if (res.ok) {
         toast.success("Invoice updated");
+        emitFinanceChanged();
         setEditInvoice(null);
         fetchData();
       } else {
@@ -908,6 +919,7 @@ function InvoicesPageInner() {
             </Button>
           </DialogTrigger>
           <DialogContent
+            formGuardKey="invoice-create"
             className="flex max-h-[85vh] max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl"
             onPointerDownOutside={(e) => {
               const t = e.target as HTMLElement | null
@@ -1580,6 +1592,7 @@ function InvoicesPageInner() {
         }}
       >
         <DialogContent
+          formGuardKey="invoice-edit"
           className="flex max-h-[85vh] max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl"
           onPointerDownOutside={(e) => {
             const t = e.target as HTMLElement | null

@@ -118,7 +118,7 @@ export async function GET(req: NextRequest) {
       .map((s) => s.trim())
       .filter(Boolean)
 
-    const [invoices, expenses, projects, clients, timeEntries, deals, auditLogs] = await Promise.all([
+    const [invoices, expenses, projects, clients, timeEntries, deals, auditLogs, subscriptions] = await Promise.all([
       db.invoice.findMany({
         where: { status: "PAID" },
         select: { total: true, currency: true, paidAt: true, createdAt: true },
@@ -167,6 +167,22 @@ export async function GET(req: NextRequest) {
           orderBy: { createdAt: "desc" },
         })
         .catch(() => [] as Array<{ id: string; createdAt: Date }>),
+      db.subscription.findMany({
+        select: {
+          amount: true,
+          frequency: true,
+          status: true,
+          startDate: true,
+          endDate: true,
+        },
+        take: 5000,
+      }).catch(() => [] as Array<{
+        amount: number
+        frequency: string
+        status: string
+        startDate: Date
+        endDate: Date | null
+      }>),
     ])
 
     const months = new Map<string, MonthRow>()
@@ -193,6 +209,40 @@ export async function GET(req: NextRequest) {
       if (String(exp.category).toUpperCase() === "SALARY") {
         row.salaryGBP += amount
         if (exp.employeeId) row.employeePerfGBP += amount
+      }
+    }
+
+    const now = new Date()
+    for (const sub of subscriptions) {
+      if (!sub.startDate) continue
+      const amount = Number(sub.amount || 0)
+      if (amount <= 0) continue
+      const start = new Date(sub.startDate)
+      const end = sub.endDate ? new Date(sub.endDate) : now
+      const last = end.getTime() < now.getTime() ? end : now
+
+      if (sub.frequency === "ONE_TIME") {
+        const row = ensure(monthKey(start))
+        row.expensesGBP += amount
+        row.expenseCount += 1
+        continue
+      }
+
+      const monthly = sub.frequency === "YEARLY" ? amount / 12 : amount
+      let y = start.getFullYear()
+      let m = start.getMonth()
+      const lastY = last.getFullYear()
+      const lastM = last.getMonth()
+      for (let i = 0; i < 60; i++) {
+        if (y > lastY || (y === lastY && m > lastM)) break
+        const row = ensure(`${y}-${String(m + 1).padStart(2, "0")}`)
+        row.expensesGBP += monthly
+        row.expenseCount += 1
+        m += 1
+        if (m > 11) {
+          m = 0
+          y += 1
+        }
       }
     }
 

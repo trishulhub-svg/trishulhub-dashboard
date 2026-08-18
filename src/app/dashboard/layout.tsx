@@ -494,8 +494,39 @@ const SidebarContent = React.memo(function SidebarContent({
         </div>
 
       {/* Navigation */}
-      <ScrollArea className="flex-1 py-3">
+      <div className="th-sidebar-scroll flex-1 min-h-0 overflow-y-auto overscroll-y-contain py-3">
         <nav className="space-y-2 px-2.5">
+          <LiquidNavRail
+            activeKey={
+              visibleGroups
+                .flatMap((g) => g.items)
+                .find((item) => isItemActive(item))?.href ??
+              visibleGroups[0]?.items[0]?.href ??
+              ""
+            }
+            onActivate={(key) => {
+              for (const group of visibleGroups) {
+                const item = group.items.find((i) => i.href === key);
+                if (item?.children?.length) {
+                  toggleItem(item.href);
+                  return;
+                }
+                if (item) {
+                  onNavigate(item.href);
+                  return;
+                }
+                const child = group.items
+                  .flatMap((i) => i.children || [])
+                  .find((c) => c.href === key);
+                if (child) {
+                  onNavigate(child.href);
+                  return;
+                }
+              }
+              onNavigate(key);
+            }}
+            className="space-y-2"
+          >
           {visibleGroups.map((group) => {
             const isOverview = group.label === "Overview";
             const hasActive = group.items.some((item) => isItemActive(item));
@@ -541,22 +572,7 @@ const SidebarContent = React.memo(function SidebarContent({
                     isExpanded ? "max-h-[800px] opacity-100" : collapsed ? "max-h-[800px] opacity-100" : "max-h-0 opacity-0"
                   )}
                 >
-                  <LiquidNavRail
-                    activeKey={
-                      group.items.find((item) => isItemActive(item))?.href ??
-                      group.items[0]?.href ??
-                      ""
-                    }
-                    onActivate={(key) => {
-                      const item = group.items.find((i) => i.href === key);
-                      if (item?.children?.length) {
-                        toggleItem(item.href);
-                      } else if (item) {
-                        onNavigate(item.href);
-                      }
-                    }}
-                    className="space-y-0.5 pb-1"
-                  >
+                  <div className="space-y-0.5 pb-1">
                     {group.items.map((item) => {
                       const isActive = isItemActive(item);
                       const hasChildren = !!item.children && item.children.length > 0;
@@ -657,14 +673,15 @@ const SidebarContent = React.memo(function SidebarContent({
                         </div>
                       );
                     })}
-                  </LiquidNavRail>
+                  </div>
                 </div>
 
               </div>
             );
           })}
+          </LiquidNavRail>
         </nav>
-      </ScrollArea>
+      </div>
     </div>
   );
 });
@@ -1133,7 +1150,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   )}
                 </Button>
               </SheetTrigger>
-              <SheetContent className="w-full sm:max-w-md p-0 gap-0 overflow-hidden flex flex-col">
+              <SheetContent formGuard={false} className="w-full sm:max-w-md p-0 gap-0 overflow-hidden flex flex-col">
                 <SheetHeader className="p-4 pb-3 border-b pr-10 shrink-0">
                   <div className="flex items-center justify-between">
                     <SheetTitle className="text-sm font-semibold">Notifications</SheetTitle>
