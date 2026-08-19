@@ -720,7 +720,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     : [];
   const { navOpen, capsulePos, openDock, stowCapsule, moveCapsule } = useNavShell(userId || undefined);
 
-  // Clicking anywhere outside the open menu collapses it to the capsule (desktop).
+  // Clicking anywhere outside the open menu collapses it to the capsule (desktop),
+  // without interfering with header controls or floating layers (sheets,
+  // dropdowns, popovers, selects).
   useEffect(() => {
     if (!navOpen) return;
     const onPointerDown = (e: PointerEvent) => {
@@ -728,7 +730,28 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       const target = e.target as HTMLElement | null;
       if (!target) return;
       if (target.closest("aside.th-sidebar-dock")) return;
-      if (target.closest("[data-nav-toggle]")) return;
+      // Header buttons (menu toggle, notifications, theme, user menu) must
+      // stay clickable — collapsing the sidebar reflows the header and the
+      // button slides away before the click lands.
+      if (target.closest("header button")) return;
+      if (
+        target.closest(
+          [
+            "[data-radix-popper-content-wrapper]",
+            "[data-radix-dialog-content]",
+            "[data-radix-dialog-overlay]",
+            "[data-slot='sheet-content']",
+            "[data-slot='sheet-overlay']",
+            "[data-slot='dialog-content']",
+            "[data-slot='dialog-overlay']",
+            "[data-slot='dropdown-menu-content']",
+            "[data-slot='popover-content']",
+            "[data-slot='select-content']",
+          ].join(",")
+        )
+      ) {
+        return;
+      }
       stowCapsule();
     };
     document.addEventListener("pointerdown", onPointerDown, true);
