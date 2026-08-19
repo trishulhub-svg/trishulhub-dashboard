@@ -1237,9 +1237,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </SheetHeader>
                 <ScrollArea ref={notifScrollRef} className="flex-1">
                   {notifications.length === 0 ? (
-                    <div className="p-8 text-center text-sm text-muted-foreground">
-                      <Bell className="h-8 w-8 mx-auto mb-2 opacity-20" />
-                      <p>No notifications yet</p>
+                    <div className="flex flex-col items-center px-6 py-10 text-center">
+                      <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-accent/50 text-primary/80">
+                        <Bell className="h-5 w-5" />
+                      </div>
+                      <p className="text-sm font-medium text-foreground">No notifications yet</p>
+                      <p className="mt-1 max-w-[240px] text-xs leading-relaxed text-muted-foreground">
+                        System alerts and updates will appear here.
+                      </p>
                     </div>
                   ) : (
                     <div>
