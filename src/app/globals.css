@@ -965,7 +965,7 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
 
 /* Drawers: opaque, edge-to-edge, above the overlay. No dialog rounding. */
 [data-slot="sheet-content"]:not(.th-nav-drawer) {
-  z-index: 70 !important;
+  z-index: 10140 !important;
   isolation: auto;
   backdrop-filter: blur(20px) saturate(1.22) !important;
   -webkit-backdrop-filter: blur(20px) saturate(1.22) !important;
@@ -1114,7 +1114,7 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
   -webkit-backdrop-filter: none !important;
 }
 [data-slot="sheet-overlay"]:not(.th-nav-overlay) {
-  z-index: 60 !important;
+  z-index: 10130 !important;
   background: oklch(0.18 0.02 255 / 28%) !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
