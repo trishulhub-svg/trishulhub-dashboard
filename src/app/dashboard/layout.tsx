@@ -1057,7 +1057,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="th-app-shell h-[100vh] h-dvh flex overflow-hidden">
+    <div
+      className="th-app-shell h-[100vh] h-dvh flex overflow-hidden"
+      style={{ "--capsule-x": `${capsulePos.x}px`, "--capsule-y": `${capsulePos.y}px` } as React.CSSProperties}
+    >
       {navOpen && (
         <button
           type="button"
