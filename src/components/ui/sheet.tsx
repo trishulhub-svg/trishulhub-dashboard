@@ -85,7 +85,7 @@ function SheetContent({
       <SheetPrimitive.Content
         data-slot="sheet-content"
         className={cn(
-          "fixed z-[70] flex flex-col gap-4 relative",
+          "fixed z-[70] flex flex-col gap-4",
           !isGlassNav &&
             "bg-background shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out transition ease-in-out data-[state=closed]:duration-300 data-[state=open]:duration-500",
           !isGlassNav &&
