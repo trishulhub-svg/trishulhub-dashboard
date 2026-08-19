@@ -956,7 +956,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   };
 
   const handleNavigate = (href: string) => {
-    if (window.matchMedia?.("(pointer: coarse)").matches) haptic("tap");
+    haptic("tap");
     const hashIdx = href.indexOf("#");
     if (hashIdx >= 0) {
       const path = href.slice(0, hashIdx) || "/dashboard";

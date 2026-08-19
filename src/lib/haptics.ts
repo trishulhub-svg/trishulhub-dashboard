@@ -7,13 +7,12 @@
 
 let audioCtx: AudioContext | null = null
 
-function isIos(): boolean {
-  return /iPhone|iPad|iPod/i.test(
-    typeof navigator !== "undefined" ? navigator.userAgent : ""
-  )
+function isMobile(): boolean {
+  if (typeof navigator === "undefined") return false
+  return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
 }
 
-function iosPulse(): void {
+function pulse(): void {
   try {
     const Ctor =
       window.AudioContext ??
@@ -28,8 +27,8 @@ function iosPulse(): void {
     osc.type = "sine"
     osc.frequency.value = 150
     gain.gain.setValueAtTime(0.0001, now)
-    gain.gain.exponentialRampToValueAtTime(0.12, now + 0.01)
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.055)
+    gain.gain.exponentialRampToValueAtTime(0.14, now + 0.012)
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.06)
     osc.connect(gain)
     gain.connect(ctx.destination)
     osc.start(now)
@@ -41,16 +40,20 @@ function iosPulse(): void {
 
 export type HapticKind = "tap" | "select" | "drop"
 
+const PATTERNS: Record<HapticKind, number | number[]> = {
+  tap: [12],
+  select: [16],
+  drop: [14, 40, 14],
+}
+
 export function haptic(kind: HapticKind = "tap"): void {
   if (typeof navigator === "undefined") return
-  const duration = kind === "drop" ? 18 : kind === "select" ? 10 : 6
   if ("vibrate" in navigator) {
     try {
-      navigator.vibrate(duration)
+      if (navigator.vibrate(PATTERNS[kind])) return
     } catch {
-      /* ignore */
+      /* fall through to pulse */
     }
-    return
   }
-  if (isIos()) iosPulse()
+  if (isMobile()) pulse()
 }

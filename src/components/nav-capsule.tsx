@@ -3,6 +3,7 @@
 import { useRef, type PointerEvent } from "react"
 import Image from "next/image"
 import { cn } from "@/lib/utils"
+import { haptic } from "@/lib/haptics"
 import type { CapsulePos } from "@/hooks/use-nav-shell"
 
 type NavCapsuleProps = {
@@ -49,9 +50,11 @@ export function NavCapsule({ pos, onOpen, onMove, size = 56 }: NavCapsuleProps) 
     const dx = event.clientX - state.startX
     const dy = event.clientY - state.startY
     if (!state.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return
+    const justStarted = !state.moved
     state.moved = true
     state.dx = dx
     state.dy = dy
+    if (justStarted) haptic("select")
     event.preventDefault()
     event.currentTarget.style.transform = `translate3d(${dx}px, ${dy}px, 0)`
   }

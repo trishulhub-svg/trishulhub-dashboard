@@ -353,6 +353,7 @@ export function LiquidNavRail({
       if (hit.key !== previewKeyRef.current) {
         previewKeyRef.current = hit.key
         setPreviewKey(hit.key)
+        haptic("tap")
       }
     },
     [applyFrame, autoScrollNearEdges, measureRects]

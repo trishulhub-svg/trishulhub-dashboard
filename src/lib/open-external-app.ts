@@ -20,6 +20,8 @@ export function detectDevice(ua: string = typeof navigator !== "undefined" ? nav
 
 const CHATGPT_LOGIN_URL = "https://chatgpt.com/auth/login"
 const CHATGPT_ANDROID_PACKAGE = "com.openai.chatgpt"
+const QWEN_WEB_URL = "https://chat.qwen.ai/"
+const QWEN_ANDROID_PACKAGE = "ai.qwenlm.chat.android"
 
 /**
  * Device-aware ChatGPT deep links.
@@ -39,8 +41,28 @@ function chatGptDeepLinks(device: DeviceKind, withLoginFallback: boolean): strin
 }
 
 function tryProtocolLaunch(url: string): void {
+  // Anchor click first — it keeps the user gesture, which Android Chrome
+  // requires for intent:// launches. Starting with a hidden iframe can
+  // consume that activation and silently block the real launch.
   try {
-    // 1) Hidden iframe — common pattern for custom schemes
+    const a = document.createElement("a")
+    a.href = url
+    a.style.display = "none"
+    document.body.appendChild(a)
+    a.click()
+    window.setTimeout(() => {
+      try {
+        document.body.removeChild(a)
+      } catch {
+        /* ignore */
+      }
+    }, 1200)
+  } catch {
+    /* ignore */
+  }
+
+  // Hidden-iframe fallback (helps a few iOS custom-scheme cases).
+  try {
     const iframe = document.createElement("iframe")
     iframe.setAttribute("style", "display:none;width:0;height:0;border:0;position:absolute")
     iframe.src = url
@@ -52,25 +74,6 @@ function tryProtocolLaunch(url: string): void {
         /* ignore */
       }
     }, 2500)
-  } catch {
-    /* ignore */
-  }
-
-  try {
-    // 2) Synthetic <a> click — more reliable on desktop Chromium/Windows
-    const a = document.createElement("a")
-    a.href = url
-    a.rel = "noopener noreferrer"
-    a.style.display = "none"
-    document.body.appendChild(a)
-    a.click()
-    window.setTimeout(() => {
-      try {
-        document.body.removeChild(a)
-      } catch {
-        /* ignore */
-      }
-    }, 0)
   } catch {
     /* ignore */
   }
@@ -188,22 +191,25 @@ export function openResearchGpt(): void {
   window.open(CHATGPT_LOGIN_URL, "_blank", "noopener,noreferrer")
 }
 
-/** QWEN workspace — try native app / intent, then web. */
+/** QWEN workspace — Qwen Studio app on Android, native app / web elsewhere. */
 export function openQwenWorkspace(): void {
   const device = detectDevice()
-  const webUrl = "https://chat.qwen.ai/"
-  const deepLinks: string[] = []
 
   if (device === "android") {
-    // Official Play package: com.tongyi.intl — Intent with browser fallback
-    deepLinks.push(
-      "intent://chat.qwen.ai/#Intent;scheme=https;package=com.tongyi.intl;S.browser_fallback_url=https%3A%2F%2Fchat.qwen.ai%2F;end"
-    )
+    openAppOrWeb({
+      deepLinks: [
+        `intent://chat.qwen.ai/#Intent;scheme=https;package=${QWEN_ANDROID_PACKAGE};S.browser_fallback_url=${encodeURIComponent(QWEN_WEB_URL)};end`,
+      ],
+      webUrl: QWEN_WEB_URL,
+      timeoutMs: 1400,
+    })
+    return
   }
 
-  // Custom scheme used by Qwen desktop/mobile apps (Windows/Mac/iOS/Android)
-  deepLinks.push("qwen://chat")
-  deepLinks.push("qwen://")
-
-  openAppOrWeb({ deepLinks, webUrl, timeoutMs: 1400 })
+  // Custom scheme used by Qwen desktop/mobile apps (Windows/Mac/iOS)
+  openAppOrWeb({
+    deepLinks: ["qwen://chat", "qwen://"],
+    webUrl: QWEN_WEB_URL,
+    timeoutMs: 1400,
+  })
 }
