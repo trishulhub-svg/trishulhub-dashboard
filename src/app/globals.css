@@ -984,6 +984,37 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
   top: calc(0.875rem + env(safe-area-inset-top, 0px));
   right: calc(0.875rem + env(safe-area-inset-right, 0px));
 }
+/* Notifications sheet — liquid glass, same language as the rest of the UI */
+[data-slot="sheet-content"].th-notif-sheet {
+  background:
+    linear-gradient(165deg, color-mix(in oklch, var(--lg-specular) 46%, transparent) 0%, transparent 36%),
+    linear-gradient(210deg, var(--lg-tint), transparent 52%),
+    var(--lg-fill) !important;
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-sat)) brightness(var(--lg-bright)) !important;
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-sat)) brightness(var(--lg-bright)) !important;
+  border-color: var(--lg-edge) !important;
+  border-left-color: var(--lg-edge) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 65%, transparent),
+    inset 1px 0 0 color-mix(in oklch, var(--lg-specular) 32%, transparent),
+    inset -1px 0 0 color-mix(in oklch, var(--lg-rim) 36%, transparent),
+    0 24px 64px oklch(0.2 0.04 240 / 0.26) !important;
+}
+.dark [data-slot="sheet-content"].th-notif-sheet {
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, var(--lg-specular) 45%, transparent),
+    inset 1px 0 0 color-mix(in oklch, var(--lg-specular) 22%, transparent),
+    0 24px 64px oklch(0 0 0 / 0.5) !important;
+}
+@media (pointer: coarse) {
+  [data-slot="sheet-content"].th-notif-sheet {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background:
+      linear-gradient(165deg, color-mix(in oklch, var(--lg-specular) 40%, transparent), transparent 36%),
+      color-mix(in oklch, var(--card) 96%, transparent) !important;
+  }
+}
 
 /* Left nav drawer — real height, fixed to the viewport.
    Slide uses translate3d (GPU) so open/close is quick; fill stays opaque
@@ -1138,6 +1169,14 @@ aside.th-sidebar-shell .th-sidebar-shell::after,
   padding-top: env(safe-area-inset-top, 0px);
   padding-left: max(0.5rem, env(safe-area-inset-left, 0px));
   min-height: calc(3.5rem + env(safe-area-inset-top, 0px));
+}
+/* Mobile: when the menu drawer is open, keep header controls above its
+   backdrop (but below the drawer itself) so the bell, theme and user
+   menus stay tappable instead of being swallowed by the overlay. */
+@media (max-width: 767px) {
+  .th-app-shell header.glass-topbar.th-header-over-menu {
+    z-index: 10095;
+  }
 }
 @media (min-width: 640px) {
   .th-app-shell header.glass-topbar {

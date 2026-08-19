@@ -1016,6 +1016,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   };
 
+  // Mobile: header controls stay usable while the menu drawer is open.
+  // Tapping one closes the drawer first so its panel (sheet/dropdown) is
+  // never rendered behind the menu backdrop.
+  const closeMenuForHeaderControl = () => {
+    if (navOpen && window.matchMedia("(max-width: 767px)").matches) stowCapsule()
+  }
+
   // Safety timeout for session loading — show fallback after 3s (reduced from 5s/15s)
   const [sessionTimedOut, setSessionTimedOut] = useState(false);
   useEffect(() => {
@@ -1107,7 +1114,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Main Content — only this region scrolls with the page */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden pr-[env(safe-area-inset-right,0px)]">
         {/* Header - taller and more prominent */}
-        <header className="min-h-14 sm:min-h-16 glass-topbar grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1 sm:gap-2 px-2 sm:px-5 shrink-0 relative z-30">
+        <header className={cn(
+          "min-h-14 sm:min-h-16 glass-topbar grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1 sm:gap-2 px-2 sm:px-5 shrink-0 relative z-30",
+          navOpen && "th-header-over-menu"
+        )}>
           <div className="flex items-center gap-2 min-w-0 relative z-[1]">
             <Button
               type="button"
@@ -1134,7 +1144,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             {/* Theme Selector Dropdown */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-9 sm:w-9" aria-label="Change theme">
+                <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-9 sm:w-9" aria-label="Change theme" onClick={closeMenuForHeaderControl}>
                   {theme === "system" ? (
                     resolvedTheme === "dark" ? (
                       <Moon className="h-4 w-4" />
@@ -1183,7 +1193,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               if (open) void fetchNotifications(false);
             }}>
               <SheetTrigger asChild>
-                <Button variant="ghost" size="icon" className="relative h-8 w-8 sm:h-9 sm:w-9" aria-label="Notifications">
+                <Button variant="ghost" size="icon" className="relative h-8 w-8 sm:h-9 sm:w-9" aria-label="Notifications" onClick={closeMenuForHeaderControl}>
                   <Bell className="h-4 w-4" />
                   {unreadCount > 0 && (
                     <Badge className="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center text-[10px]">
@@ -1192,8 +1202,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   )}
                 </Button>
               </SheetTrigger>
-              <SheetContent formGuard={false} className="w-full sm:max-w-md p-0 gap-0 overflow-hidden flex flex-col">
-                <SheetHeader className="p-4 pb-3 border-b pr-10 shrink-0">
+              <SheetContent formGuard={false} className="th-notif-sheet w-full sm:max-w-md p-0 gap-0 overflow-hidden flex flex-col">
+                <SheetHeader className="p-4 pb-3 border-b pr-10 shrink-0 [border-color:var(--lg-edge)]">
                   <div className="flex items-center justify-between">
                     <SheetTitle className="text-sm font-semibold">Notifications</SheetTitle>
                     {unreadCount > 0 && (
@@ -1285,7 +1295,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="flex items-center gap-2 h-8 sm:h-9" aria-label="Open user menu">
+                <Button variant="ghost" className="flex items-center gap-2 h-8 sm:h-9" aria-label="Open user menu" onClick={closeMenuForHeaderControl}>
                   <Avatar className="h-8 w-8">
                     {userAvatar ? <AvatarImage src={userAvatar} alt={userName} /> : null}
                     <AvatarFallback className="bg-primary text-primary-foreground text-xs font-bold">
