@@ -35,22 +35,22 @@ type AiLine = { prefix: string; msg: string; type: LineType };
 
 /** Codex model / agent flavour — replaces old ZAI/GLM lines */
 const AI_LINES: AiLine[] = [
-  { prefix: "CURSOR", msg: "Composer model ready — context window warm", type: "success" },
-  { prefix: "CURSOR", msg: "Auto mode planning next edit sequence", type: "info" },
+  { prefix: "CODEX", msg: "Composer model ready — context window warm", type: "success" },
+  { prefix: "CODEX", msg: "Auto mode planning next edit sequence", type: "info" },
   { prefix: "SONNET", msg: "Claude Sonnet reasoning pass complete", type: "success" },
   { prefix: "OPUS", msg: "Claude Opus deep review — architecture check", type: "info" },
   { prefix: "GPT", msg: "GPT-5.4 patch proposal staged", type: "success" },
   { prefix: "CODEX", msg: "Codex fast path — 14 files indexed", type: "info" },
-  { prefix: "CURSOR", msg: "Agent loop: apply → test → iterate", type: "info" },
+  { prefix: "CODEX", msg: "Agent loop: apply → test → iterate", type: "info" },
   { prefix: "DEPLOY", msg: "Next.js build compiled — 0 TypeScript errors", type: "success" },
   { prefix: "STACK", msg: "Prisma client in sync with schema", type: "success" },
   { prefix: "COLLAB", msg: "Real-time sync: workspace state healthy", type: "info" },
-  { prefix: "CURSOR", msg: "Background agent scanning for dead code", type: "info" },
+  { prefix: "CODEX", msg: "Background agent scanning for dead code", type: "info" },
   { prefix: "SONNET", msg: "Diff review — no security regressions flagged", type: "success" },
   { prefix: "STACK", msg: "Memory usage elevated — monitoring", type: "warn" },
-  { prefix: "CURSOR", msg: "Auto mode waiting for human confirmation", type: "warn" },
+  { prefix: "CODEX", msg: "Auto mode waiting for human confirmation", type: "warn" },
   { prefix: "WORKSPACE", msg: "System idle — background sync paused", type: "idle" },
-  { prefix: "CURSOR", msg: "Models on standby — no active sessions", type: "idle" },
+  { prefix: "CODEX", msg: "Models on standby — no active sessions", type: "idle" },
 ];
 
 const INTENSITY = [
@@ -121,7 +121,25 @@ export function LiveIntensity({
   const logsRef = useRef<HTMLDivElement>(null);
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const onLineRef = useRef(onActivityLine);
-  onLineRef.current = onActivityLine;
+
+  // Keep the latest callback without touching refs during render.
+  useEffect(() => {
+    onLineRef.current = onActivityLine;
+  }, [onActivityLine]);
+
+  // Reset the feed when the live state changes (adjusted during render).
+  const [resetState, setResetState] = useState({ entered, count: liveUsers.length });
+  if (resetState.entered !== entered || resetState.count !== liveUsers.length) {
+    setResetState({ entered, count: liveUsers.length });
+    if (!entered || liveUsers.length === 0) {
+      setAiLogs([]);
+    } else {
+      const intensity = INTENSITY[Math.min(4, liveUsers.length)];
+      setAiLogs(
+        Array.from({ length: Math.min(2, intensity.maxVisible) }, () => pickLine(intensity.pool))
+      );
+    }
+  }
 
   useEffect(() => {
     if (liveUsers.length === 0) return;
@@ -135,17 +153,10 @@ export function LiveIntensity({
   );
 
   useEffect(() => {
-    if (!entered || liveUsers.length === 0) {
-      setAiLogs([]);
-      timersRef.current.forEach(clearTimeout);
-      timersRef.current = [];
-      return;
-    }
-    const intensity = INTENSITY[Math.min(4, liveUsers.length)];
     timersRef.current.forEach(clearTimeout);
     timersRef.current = [];
-
-    setAiLogs(Array.from({ length: Math.min(2, intensity.maxVisible) }, () => pickLine(intensity.pool)));
+    if (!entered || liveUsers.length === 0) return;
+    const intensity = INTENSITY[Math.min(4, liveUsers.length)];
 
     const schedule = () => {
       const delay = intensity.min + Math.random() * (intensity.max - intensity.min);
@@ -168,7 +179,7 @@ export function LiveIntensity({
     };
   }, [entered, liveUsers.length]);
 
-  // Only the AI log pane scrolls — user + CURSOR agent rows stay pinned at top.
+  // Only the AI log pane scrolls — user + CODEX agent rows stay pinned at top.
   useEffect(() => {
     const el = logsRef.current;
     if (!el) return;
@@ -222,7 +233,7 @@ export function LiveIntensity({
                 ) : (
                   <div key={`auto-${u.userId}`} className="ws-feed-line ws-feed-line--enter">
                     <span className={`ws-feed-time ws-feed-time--${mode}`}>{formatTime()}</span>
-                    <span className="ws-feed-prefix ws-feed-prefix--success">CURSOR</span>
+                    <span className="ws-feed-prefix ws-feed-prefix--success">CODEX</span>
                     <span className="ws-live-user-dot" aria-hidden />
                     <span className={`ws-feed-msg ws-feed-msg--${mode}`}>
                       Auto mode running for {u.name} — agent loop active
