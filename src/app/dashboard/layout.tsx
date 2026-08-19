@@ -91,7 +91,7 @@ import {
 } from "@/lib/nav-pages";
 import { useFavoritePages } from "@/hooks/use-favorite-pages";
 import { ClockedInHeaderDot } from "@/components/clocked-in-header-dot";
-import { haptic } from "@/lib/haptics";
+import { haptic, hapticScroll } from "@/lib/haptics";
 import { LiquidNavRail, liquidNavItemClass, liquidNavKey } from "@/components/liquid-nav-rail";
 import { NavCapsule } from "@/components/nav-capsule";
 import { useNavShell } from "@/hooks/use-nav-shell";
@@ -759,6 +759,28 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return () => document.removeEventListener("pointerdown", onPointerDown, true);
   }, [navOpen, stowCapsule]);
 
+  // Subtle scroll feedback on the notification list. Attached directly to
+  // the Radix viewport (scroll events don't bubble) with a passive listener,
+  // throttled to ~150ms so we never tick on every scroll event. Runs only
+  // while the sheet is open and is torn down when it closes.
+  const notifScrollRef = React.useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!notifOpen) return;
+    const viewport = notifScrollRef.current?.querySelector<HTMLElement>(
+      '[data-slot="scroll-area-viewport"]'
+    );
+    if (!viewport) return;
+    let lastTick = 0;
+    const onScroll = () => {
+      const now = Date.now();
+      if (now - lastTick < 150) return;
+      lastTick = now;
+      hapticScroll();
+    };
+    viewport.addEventListener("scroll", onScroll, { passive: true });
+    return () => viewport.removeEventListener("scroll", onScroll);
+  }, [notifOpen]);
+
   const unreadFromList = useMemo(() => notifications.filter((n) => !n.isRead).length, [notifications]);
   const unreadCount = notifOpen ? unreadFromList : Math.max(unreadBadge, unreadFromList);
 
@@ -1213,7 +1235,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     )}
                   </div>
                 </SheetHeader>
-                <ScrollArea className="flex-1">
+                <ScrollArea ref={notifScrollRef} className="flex-1">
                   {notifications.length === 0 ? (
                     <div className="p-8 text-center text-sm text-muted-foreground">
                       <Bell className="h-8 w-8 mx-auto mb-2 opacity-20" />
