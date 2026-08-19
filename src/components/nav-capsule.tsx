@@ -24,6 +24,7 @@ export function NavCapsule({ pos, onOpen, onMove, size = 56 }: NavCapsuleProps) 
     dx: 0,
     dy: 0,
     moved: false,
+    startTime: 0,
   })
 
   const onPointerDown = (event: PointerEvent<HTMLButtonElement>) => {
@@ -37,6 +38,7 @@ export function NavCapsule({ pos, onOpen, onMove, size = 56 }: NavCapsuleProps) 
     state.dx = 0
     state.dy = 0
     state.moved = false
+    state.startTime = Date.now()
     try {
       event.currentTarget.setPointerCapture(event.pointerId)
     } catch {
@@ -66,7 +68,7 @@ export function NavCapsule({ pos, onOpen, onMove, size = 56 }: NavCapsuleProps) 
     const state = dragRef.current
     if (state.pointerId !== event.pointerId) return
     const pointerId = state.pointerId
-    const { moved, dx, dy, origX, origY } = state
+    const { moved, dx, dy, origX, origY, startTime } = state
     state.pointerId = -1
     state.moved = false
     try {
@@ -77,10 +79,16 @@ export function NavCapsule({ pos, onOpen, onMove, size = 56 }: NavCapsuleProps) 
     event.currentTarget.style.transform = ""
     event.currentTarget.dataset.dragging = "false"
     if (moved) {
-      if (commitMove) onMove({ x: origX + dx, y: origY + dy })
+      // A fast phone tap that jitters a few pixels is still a tap: open.
+      const quickTap = event.pointerType !== "mouse" && Date.now() - startTime < 350
+      if (quickTap) {
+        onOpen()
+      } else if (commitMove) {
+        onMove({ x: origX + dx, y: origY + dy })
+      }
       return
     }
-    // Desktop opens with a double-click; touch keeps the familiar single tap.
+    // Phones open with a single tap; desktop keeps double-click.
     if (event.pointerType !== "mouse") onOpen()
   }
 

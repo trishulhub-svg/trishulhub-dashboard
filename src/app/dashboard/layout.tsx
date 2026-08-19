@@ -14,6 +14,7 @@ import {
   Settings,
   LogOut,
   ChevronLeft,
+  X,
   ChevronDown,
   Moon,
   Sun,
@@ -1091,12 +1092,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <Button
           variant="ghost"
           size="icon"
-          className="absolute top-3.5 right-3 z-20 h-8 w-8 rounded-full border bg-background/80 backdrop-blur-md shadow-sm"
+          className="absolute top-3.5 right-3 z-20 h-9 w-9 rounded-full border bg-background/85 shadow-sm hover:bg-accent/70 active:scale-95 transition-transform"
           onClick={stowCapsule}
-          aria-label="Collapse menu to capsule"
-          title="Collapse menu"
+          aria-label="Close menu"
+          title="Close menu"
         >
-          <ChevronLeft className="h-3.5 w-3.5" />
+          <X className="h-4 w-4" />
         </Button>
       </aside>
       {!navOpen && (
