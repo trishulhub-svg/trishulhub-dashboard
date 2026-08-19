@@ -141,3 +141,23 @@ export function openResearchGpt(): void {
   if (typeof window === "undefined") return
   window.open("https://chatgpt.com/auth/login", "_blank", "noopener,noreferrer")
 }
+
+/** QWEN workspace — try native app / intent, then web. */
+export function openQwenWorkspace(): void {
+  const device = detectDevice()
+  const webUrl = "https://chat.qwen.ai/"
+  const deepLinks: string[] = []
+
+  if (device === "android") {
+    // Official Play package: com.tongyi.intl — Intent with browser fallback
+    deepLinks.push(
+      "intent://chat.qwen.ai/#Intent;scheme=https;package=com.tongyi.intl;S.browser_fallback_url=https%3A%2F%2Fchat.qwen.ai%2F;end"
+    )
+  }
+
+  // Custom scheme used by Qwen desktop/mobile apps (Windows/Mac/iOS/Android)
+  deepLinks.push("qwen://chat")
+  deepLinks.push("qwen://")
+
+  openAppOrWeb({ deepLinks, webUrl, timeoutMs: 2500 })
+}

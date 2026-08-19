@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { LiveIntensity, type LineType, type LiveUser } from "@/components/workspace/live-intensity";
-import { openCodexApp, openResearchGpt } from "@/lib/open-external-app";
+import { openCodexApp, openResearchGpt, openQwenWorkspace } from "@/lib/open-external-app";
 
 /* ═══════════════════════════════════════════════════════════════
    TRISHULHUB WORKSPACE v2.1 — Live AI + Dynamic Agents
@@ -458,6 +458,14 @@ export default function TrishulWorkspacePage() {
     }
   }, [currentUserIsLive, router]);
 
+  const handleQwenResearch = useCallback(() => {
+    if (currentUserIsLive) {
+      openQwenWorkspace();
+    } else {
+      router.push("/dashboard/time-tracking?action=start");
+    }
+  }, [currentUserIsLive, router]);
+
   const handleClockOut = useCallback(() => {
     router.push("/dashboard/time-tracking?action=clockout");
   }, [router]);
@@ -584,6 +592,19 @@ export default function TrishulWorkspacePage() {
                     >
                       <Zap size={16} strokeWidth={2.5} />
                       <span>Research GPT</span>
+                      <ArrowUpRight size={14} />
+                    </button>
+                  )}
+                  {status === "authenticated" && currentUserIsLive && (
+                    <button
+                      type="button"
+                      onClick={handleQwenResearch}
+                      className={`ws-btn-primary ws-btn-primary--${mode}`}
+                      aria-label="QWEN workspace — open Qwen"
+                      title="QWEN workspace"
+                    >
+                      <Zap size={16} strokeWidth={2.5} />
+                      <span>QWEN workspace</span>
                       <ArrowUpRight size={14} />
                     </button>
                   )}
@@ -838,6 +859,34 @@ export default function TrishulWorkspacePage() {
                       </h3>
                       <p className={`ws-start-sub ws-start-sub--${mode}`}>
                         Login to ChatGPT in a new tab
+                      </p>
+                    </div>
+                  </div>
+                  <div className={`ws-start-badge ws-start-badge--${mode}`}>
+                    <span>Open</span>
+                    <ArrowUpRight size={14} />
+                  </div>
+                </button>
+              )}
+              {status === "authenticated" && currentUserIsLive && (
+                <button
+                  type="button"
+                  onClick={handleQwenResearch}
+                  className="ws-start-card-inner"
+                  style={{ marginTop: "0.5rem", borderTop: "1px solid color-mix(in oklch, var(--border) 80%, transparent)" }}
+                  aria-label="QWEN workspace — open Qwen"
+                  title="QWEN workspace"
+                >
+                  <div className="ws-start-left">
+                    <div className={`ws-start-icon-box ws-start-icon-box--${mode}`}>
+                      <Zap size={20} />
+                    </div>
+                    <div>
+                      <h3 className={`ws-start-heading ws-start-heading--${mode}`}>
+                        QWEN workspace
+                      </h3>
+                      <p className={`ws-start-sub ws-start-sub--${mode}`}>
+                        Open QWEN workspace
                       </p>
                     </div>
                   </div>
