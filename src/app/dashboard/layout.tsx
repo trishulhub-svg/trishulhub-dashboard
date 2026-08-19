@@ -720,6 +720,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     : [];
   const { navOpen, capsulePos, openDock, stowCapsule, moveCapsule } = useNavShell(userId || undefined);
 
+  // Clicking anywhere outside the open menu collapses it to the capsule (desktop).
+  useEffect(() => {
+    if (!navOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.pointerType !== "mouse") return;
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      if (target.closest("aside.th-sidebar-dock")) return;
+      if (target.closest("[data-nav-toggle]")) return;
+      stowCapsule();
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [navOpen, stowCapsule]);
+
   const unreadFromList = useMemo(() => notifications.filter((n) => !n.isRead).length, [notifications]);
   const unreadCount = notifOpen ? unreadFromList : Math.max(unreadBadge, unreadFromList);
 
@@ -1074,6 +1089,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               className="size-11 min-h-11 min-w-11 shrink-0 relative z-[2]"
               aria-label={navOpen ? "Collapse menu to capsule" : "Open menu"}
               title={navOpen ? "Collapse menu" : "Open menu"}
+              data-nav-toggle=""
               onClick={navOpen ? stowCapsule : openDock}
             >
               {navOpen ? <ChevronLeft className="h-5 w-5" /> : <Menu className="h-5 w-5" />}

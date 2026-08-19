@@ -421,13 +421,14 @@ aside.th-sidebar-dock {
   flex-shrink: 0;
   overflow: visible;
   will-change: width, transform, opacity;
+  transform-origin: left center;
   transition:
-    width 0.34s cubic-bezier(0.32, 0.72, 0, 1),
-    min-width 0.34s cubic-bezier(0.32, 0.72, 0, 1),
-    margin 0.34s cubic-bezier(0.32, 0.72, 0, 1),
-    opacity 0.22s ease,
-    transform 0.34s cubic-bezier(0.32, 0.72, 0, 1),
-    border-width 0.2s ease;
+    width 0.26s cubic-bezier(0.32, 0.72, 0, 1),
+    min-width 0.26s cubic-bezier(0.32, 0.72, 0, 1),
+    margin 0.26s cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 0.18s ease,
+    transform 0.26s cubic-bezier(0.32, 0.72, 0, 1),
+    border-width 0.18s ease;
 }
 .th-sidebar-dock--open {
   width: min(272px, calc(100vw - 1.25rem));
@@ -452,7 +453,7 @@ aside.th-sidebar-dock {
   padding: 0 !important;
   overflow: hidden;
   opacity: 0;
-  transform: translate3d(-18px, 0, 0);
+  transform: translate3d(-18px, 0, 0) scale(0.6);
   pointer-events: none;
   border-width: 0 !important;
   box-shadow: none !important;
@@ -493,6 +494,7 @@ aside.th-sidebar-dock {
 .th-nav-capsule {
   position: fixed;
   z-index: 10120;
+  animation: th-capsule-in 0.22s cubic-bezier(0.32, 0.72, 0, 1) both;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -529,6 +531,42 @@ aside.th-sidebar-dock {
   width: 28px;
   height: 28px;
   pointer-events: none;
+}
+.th-nav-capsule::after {
+  content: "Double-click to open menu";
+  position: absolute;
+  bottom: calc(100% + 12px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px) scale(0.96);
+  transform-origin: bottom center;
+  padding: 7px 12px;
+  border-radius: 999px;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: color-mix(in oklch, var(--foreground) 92%, transparent);
+  background: color-mix(in oklch, var(--card) 90%, transparent);
+  border: 1px solid color-mix(in oklch, var(--lg-edge) 75%, transparent);
+  box-shadow: 0 8px 20px oklch(0.25 0.04 220 / 0.18);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 40;
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+@media (hover: hover) {
+  .th-nav-capsule:hover::after {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+}
+.th-nav-capsule[data-dragging="true"]::after {
+  opacity: 0 !important;
+  transform: translateX(-50%) translateY(4px) scale(0.96) !important;
+}
+@keyframes th-capsule-in {
+  from { opacity: 0; transform: scale(0.55); }
+  to { opacity: 1; transform: scale(1); }
 }
 @media (prefers-reduced-motion: reduce) {
   .th-sidebar-dock,

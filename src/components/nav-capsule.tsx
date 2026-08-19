@@ -54,7 +54,10 @@ export function NavCapsule({ pos, onOpen, onMove, size = 56 }: NavCapsuleProps) 
     state.moved = true
     state.dx = dx
     state.dy = dy
-    if (justStarted) haptic("select")
+    if (justStarted) {
+      haptic("select")
+      event.currentTarget.dataset.dragging = "true"
+    }
     event.preventDefault()
     event.currentTarget.style.transform = `translate3d(${dx}px, ${dy}px, 0)`
   }
@@ -72,11 +75,13 @@ export function NavCapsule({ pos, onOpen, onMove, size = 56 }: NavCapsuleProps) 
       /* ignore */
     }
     event.currentTarget.style.transform = ""
+    event.currentTarget.dataset.dragging = "false"
     if (moved) {
       if (commitMove) onMove({ x: origX + dx, y: origY + dy })
       return
     }
-    onOpen()
+    // Desktop opens with a double-click; touch keeps the familiar single tap.
+    if (event.pointerType !== "mouse") onOpen()
   }
 
   return (
@@ -84,13 +89,15 @@ export function NavCapsule({ pos, onOpen, onMove, size = 56 }: NavCapsuleProps) 
       type="button"
       className={cn("th-nav-capsule")}
       style={{ left: pos.x, top: pos.y, width: size, height: size }}
-      aria-label="Open menu. Drag to move."
-      title="Drag to move · tap to open"
+      aria-label="Open menu. Drag to move. Double-click to open."
+      title="Drag to move · double-click to open"
+      data-dragging="false"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={(e) => endDrag(e, true)}
       onPointerCancel={(e) => endDrag(e, false)}
       onLostPointerCapture={(e) => endDrag(e, true)}
+      onDoubleClick={onOpen}
     >
       <span className="th-nav-capsule-mark">
         <Image
