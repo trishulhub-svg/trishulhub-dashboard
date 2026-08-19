@@ -440,10 +440,13 @@ export default function TrishulWorkspacePage() {
      send them to the time-tracking page so they can clock in first. */
   const handleStart = useCallback(() => {
     if (currentUserIsLive) {
-      openCodexApp(() => {
-        toast.error("Codex app is not installed", {
-          description: "Install the Codex desktop app to open it from this workspace.",
-        });
+      openCodexApp((app) => {
+        toast.error(
+          app === "chatgpt" ? "ChatGPT app is not installed" : "Codex app is not installed",
+          {
+            description: "Please install it first, then try again.",
+          }
+        );
       });
     } else {
       router.push("/dashboard/time-tracking?action=start");

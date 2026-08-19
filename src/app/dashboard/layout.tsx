@@ -1024,6 +1024,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           className="th-sidebar-backdrop md:hidden"
           aria-label="Close menu"
           onClick={stowCapsule}
+          onPointerDown={(e) => {
+            if (e.target === e.currentTarget) stowCapsule()
+          }}
         />
       )}
       <aside

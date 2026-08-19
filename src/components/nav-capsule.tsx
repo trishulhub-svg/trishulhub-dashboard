@@ -13,12 +13,15 @@ type NavCapsuleProps = {
 }
 
 export function NavCapsule({ pos, onOpen, onMove, size = 56 }: NavCapsuleProps) {
+  const DRAG_THRESHOLD = 10
   const dragRef = useRef({
     pointerId: -1,
     startX: 0,
     startY: 0,
     origX: 0,
     origY: 0,
+    dx: 0,
+    dy: 0,
     moved: false,
   })
 
@@ -30,8 +33,14 @@ export function NavCapsule({ pos, onOpen, onMove, size = 56 }: NavCapsuleProps) 
     state.startY = event.clientY
     state.origX = pos.x
     state.origY = pos.y
+    state.dx = 0
+    state.dy = 0
     state.moved = false
-    event.currentTarget.setPointerCapture(event.pointerId)
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId)
+    } catch {
+      /* ignore */
+    }
   }
 
   const onPointerMove = (event: PointerEvent<HTMLButtonElement>) => {
@@ -39,26 +48,29 @@ export function NavCapsule({ pos, onOpen, onMove, size = 56 }: NavCapsuleProps) 
     if (state.pointerId !== event.pointerId) return
     const dx = event.clientX - state.startX
     const dy = event.clientY - state.startY
-    if (!state.moved && Math.hypot(dx, dy) < 8) return
+    if (!state.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return
     state.moved = true
+    state.dx = dx
+    state.dy = dy
     event.preventDefault()
     event.currentTarget.style.transform = `translate3d(${dx}px, ${dy}px, 0)`
   }
 
-  const finish = (event: PointerEvent<HTMLButtonElement>) => {
+  const endDrag = (event: PointerEvent<HTMLButtonElement>, commitMove: boolean) => {
     const state = dragRef.current
     if (state.pointerId !== event.pointerId) return
+    const pointerId = state.pointerId
+    const { moved, dx, dy, origX, origY } = state
+    state.pointerId = -1
+    state.moved = false
     try {
-      event.currentTarget.releasePointerCapture(event.pointerId)
+      event.currentTarget.releasePointerCapture(pointerId)
     } catch {
       /* ignore */
     }
     event.currentTarget.style.transform = ""
-    const dx = event.clientX - state.startX
-    const dy = event.clientY - state.startY
-    state.pointerId = -1
-    if (state.moved) {
-      onMove({ x: state.origX + dx, y: state.origY + dy })
+    if (moved) {
+      if (commitMove) onMove({ x: origX + dx, y: origY + dy })
       return
     }
     onOpen()
@@ -73,8 +85,9 @@ export function NavCapsule({ pos, onOpen, onMove, size = 56 }: NavCapsuleProps) 
       title="Drag to move · tap to open"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
-      onPointerUp={finish}
-      onPointerCancel={finish}
+      onPointerUp={(e) => endDrag(e, true)}
+      onPointerCancel={(e) => endDrag(e, false)}
+      onLostPointerCapture={(e) => endDrag(e, true)}
     >
       <span className="th-nav-capsule-mark">
         <Image

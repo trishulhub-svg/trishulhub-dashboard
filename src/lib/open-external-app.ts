@@ -123,22 +123,49 @@ export function openAppOrWeb(options: {
 }
 
 /**
- * Codex app — direct deep link. Opens only when the Codex desktop app is
- * installed (no web fallback). If the app never takes over, the browser
- * stays focused and onNotInstalled is called after a short delay.
+ * Codex Workspace — opens the ChatGPT mobile app on phones/tablets and the
+ * Codex desktop app on PCs. Only opens when the target app is installed;
+ * otherwise onNotInstalled is called so the UI can ask to install it first.
  */
-export function openCodexApp(onNotInstalled?: () => void): void {
+export function openCodexApp(onNotInstalled?: (app: "chatgpt" | "codex") => void): void {
+  if (typeof window === "undefined") return
+  const device = detectDevice()
+  const isMobile = device === "ios" || device === "android"
+
+  if (isMobile) {
+    // ChatGPT mobile app registers the chatgpt:// scheme.
+    openAppOrWeb({
+      deepLinks: ["chatgpt://"],
+      timeoutMs: 1400,
+      onNotInstalled: () => onNotInstalled?.("chatgpt"),
+    })
+    return
+  }
+
   // Codex Desktop registers the codex:// protocol (e.g. codex://threads/new).
   openAppOrWeb({
     deepLinks: ["codex://threads/new"],
-    timeoutMs: 2200,
-    onNotInstalled,
+    timeoutMs: 1400,
+    onNotInstalled: () => onNotInstalled?.("codex"),
   })
 }
 
-/** Research GPT — open the ChatGPT login page in a new browser tab. */
+/**
+ * Research GPT — opens the ChatGPT mobile app on phones/tablets (falls back
+ * to the login page if the app is not installed) and the ChatGPT login page
+ * in a new tab on desktop.
+ */
 export function openResearchGpt(): void {
   if (typeof window === "undefined") return
+  const device = detectDevice()
+  if (device === "ios" || device === "android") {
+    openAppOrWeb({
+      deepLinks: ["chatgpt://"],
+      webUrl: "https://chatgpt.com/auth/login",
+      timeoutMs: 1400,
+    })
+    return
+  }
   window.open("https://chatgpt.com/auth/login", "_blank", "noopener,noreferrer")
 }
 
@@ -159,5 +186,5 @@ export function openQwenWorkspace(): void {
   deepLinks.push("qwen://chat")
   deepLinks.push("qwen://")
 
-  openAppOrWeb({ deepLinks, webUrl, timeoutMs: 2500 })
+  openAppOrWeb({ deepLinks, webUrl, timeoutMs: 1400 })
 }
