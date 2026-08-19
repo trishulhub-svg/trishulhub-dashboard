@@ -15,10 +15,27 @@ type NavCapsuleProps = {
 
 const EDGE = 8
 const DRAG_THRESHOLD = 10
-const QUICK_TAP_RADIUS = 16
+const TAP_RADIUS = 16
+const LONG_PRESS_MS = 450
+const TIP_MS = 2800
+
+type DragState = {
+  pointerId: number
+  startX: number
+  startY: number
+  origX: number
+  origY: number
+  dx: number
+  dy: number
+  moved: boolean
+  startTime: number
+  longPressTimer: number | null
+  longPressFired: boolean
+  tipTimer: number | null
+}
 
 export function NavCapsule({ pos, onOpen, onMove, size = 56 }: NavCapsuleProps) {
-  const dragRef = useRef({
+  const dragRef = useRef<DragState>({
     pointerId: -1,
     startX: 0,
     startY: 0,
@@ -28,6 +45,9 @@ export function NavCapsule({ pos, onOpen, onMove, size = 56 }: NavCapsuleProps) 
     dy: 0,
     moved: false,
     startTime: 0,
+    longPressTimer: null,
+    longPressFired: false,
+    tipTimer: null,
   })
 
   const clampToViewport = (x: number, y: number) => {
@@ -39,6 +59,40 @@ export function NavCapsule({ pos, onOpen, onMove, size = 56 }: NavCapsuleProps) 
     }
   }
 
+  const clearLongPress = () => {
+    const s = dragRef.current
+    if (s.longPressTimer !== null) {
+      window.clearTimeout(s.longPressTimer)
+      s.longPressTimer = null
+    }
+  }
+
+  const clearTipTimer = () => {
+    const s = dragRef.current
+    if (s.tipTimer !== null) {
+      window.clearTimeout(s.tipTimer)
+      s.tipTimer = null
+    }
+  }
+
+  const hideTip = (el: HTMLButtonElement) => {
+    clearTipTimer()
+    el.dataset.tip = "false"
+  }
+
+  const toggleTip = (el: HTMLButtonElement) => {
+    if (el.dataset.tip === "true") {
+      hideTip(el)
+      return
+    }
+    el.dataset.tip = "true"
+    clearTipTimer()
+    dragRef.current.tipTimer = window.setTimeout(() => {
+      el.dataset.tip = "false"
+      dragRef.current.tipTimer = null
+    }, TIP_MS)
+  }
+
   const restore = (el: HTMLButtonElement, x: number, y: number) => {
     el.style.left = `${x}px`
     el.style.top = `${y}px`
@@ -48,7 +102,9 @@ export function NavCapsule({ pos, onOpen, onMove, size = 56 }: NavCapsuleProps) 
   const onPointerDown = (event: PointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0 && event.pointerType === "mouse") return
     const state = dragRef.current
-    state.pointerId = event.pointerId
+    const el = event.currentTarget
+    const pointerId = event.pointerId
+    state.pointerId = pointerId
     state.startX = event.clientX
     state.startY = event.clientY
     state.origX = pos.x
@@ -57,8 +113,23 @@ export function NavCapsule({ pos, onOpen, onMove, size = 56 }: NavCapsuleProps) 
     state.dy = 0
     state.moved = false
     state.startTime = Date.now()
+    state.longPressFired = false
+    clearLongPress()
+    if (event.pointerType !== "mouse") {
+      // Touch-and-hold opens the menu; a quick tap only shows the hint.
+      state.longPressTimer = window.setTimeout(() => {
+        const s = dragRef.current
+        if (s.pointerId !== pointerId || s.moved) return
+        s.longPressFired = true
+        s.pointerId = -1
+        s.longPressTimer = null
+        restore(el, pos.x, pos.y)
+        hideTip(el)
+        onOpen()
+      }, LONG_PRESS_MS)
+    }
     try {
-      event.currentTarget.setPointerCapture(event.pointerId)
+      el.setPointerCapture(pointerId)
     } catch {
       /* ignore */
     }
@@ -75,8 +146,10 @@ export function NavCapsule({ pos, onOpen, onMove, size = 56 }: NavCapsuleProps) 
     state.dx = dx
     state.dy = dy
     if (justStarted) {
+      clearLongPress()
       haptic("select")
       event.currentTarget.dataset.dragging = "true"
+      hideTip(event.currentTarget)
     }
     event.preventDefault()
     // Track the finger 1:1 in real time. left/top are instant (no CSS
@@ -91,7 +164,8 @@ export function NavCapsule({ pos, onOpen, onMove, size = 56 }: NavCapsuleProps) 
     const state = dragRef.current
     if (state.pointerId !== event.pointerId) return
     const pointerId = state.pointerId
-    const { moved, dx, dy, origX, origY, startTime } = state
+    const { moved, dx, dy, origX, origY, longPressFired } = state
+    clearLongPress()
     state.pointerId = -1
     state.moved = false
     try {
@@ -100,30 +174,27 @@ export function NavCapsule({ pos, onOpen, onMove, size = 56 }: NavCapsuleProps) 
       /* ignore */
     }
     const el = event.currentTarget
+    if (longPressFired) return // menu already opened via touch-and-hold
     if (moved) {
-      // A fast phone tap that jitters only a few pixels is still a tap:
-      // open the menu. Anything beyond that is a real drag and commits.
-      const quickTap =
-        event.pointerType !== "mouse" &&
-        Date.now() - startTime < 350 &&
-        Math.hypot(dx, dy) < QUICK_TAP_RADIUS
-      if (quickTap) {
-        restore(el, origX, origY)
-        onOpen()
-      } else if (commitMove) {
+      if (commitMove && Math.hypot(dx, dy) >= TAP_RADIUS) {
         const next = clampToViewport(origX + dx, origY + dy)
         // The element already sits at `next`; React commits the same value,
         // so there is no snap-back or jump on release.
         onMove(next)
         el.dataset.dragging = "false"
+      } else if (commitMove) {
+        // Tiny jitter on a tap: snap back and show the hint bubble.
+        restore(el, origX, origY)
+        toggleTip(el)
       } else {
         restore(el, origX, origY)
       }
       return
     }
     restore(el, origX, origY)
-    // Phones open with a single tap; desktop keeps double-click.
-    if (event.pointerType !== "mouse") onOpen()
+    // Quick tap on phones shows the hint bubble; desktop keeps hover +
+    // double-click to open.
+    if (event.pointerType !== "mouse") toggleTip(el)
   }
 
   return (
@@ -131,9 +202,10 @@ export function NavCapsule({ pos, onOpen, onMove, size = 56 }: NavCapsuleProps) 
       type="button"
       className={cn("th-nav-capsule")}
       style={{ left: pos.x, top: pos.y, width: size, height: size }}
-      aria-label="Open menu. Drag to move. Double-click to open."
-      title="Drag to move · double-click to open"
+      aria-label="Open menu. Touch and hold or double-click to open. Drag to move."
+      data-tip-side={pos.y < 120 ? "bottom" : "top"}
       data-dragging="false"
+      data-tip="false"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={(e) => endDrag(e, true)}
