@@ -8,6 +8,7 @@ import React, {
   useState,
 } from "react"
 import { cn } from "@/lib/utils"
+import { haptic } from "@/lib/haptics"
 
 type ItemRect = {
   key: string
@@ -392,9 +393,7 @@ export function LiquidNavRail({
       if (indicatorRef.current) {
         indicatorRef.current.classList.add("th-liquid-nav-indicator--scrub")
       }
-      if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-        navigator.vibrate(8)
-      }
+      haptic("select")
       startScrubLoop()
     },
     [lockScrollParent, measureRects, startScrubLoop]
@@ -432,9 +431,7 @@ export function LiquidNavRail({
 
       if (state.scrubbing && chosenKey && chosenKey !== activeKey && onActivate) {
         onActivate(chosenKey)
-        if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-          navigator.vibrate(4)
-        }
+        haptic("tap")
       }
 
       if (state.scrubbing || state.tracking) {
@@ -534,7 +531,6 @@ export function LiquidNavRail({
 
   useLayoutEffect(() => {
     if (scrubbing) return
-    setAnimateIndicator(true)
     snapToKey(displayKey, true)
   }, [displayKey, scrubbing, snapToKey, children, activeKey])
 

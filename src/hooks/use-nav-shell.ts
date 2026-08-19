@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import { haptic } from "@/lib/haptics"
 
 const MODE_KEY = "th-nav-mode"
 const POS_KEY = "th-nav-capsule-pos"
@@ -65,21 +66,38 @@ export function useNavShell(userId?: string) {
   const [capsulePos, setCapsulePos] = useState<CapsulePos>(() =>
     typeof window === "undefined" ? defaultPos() : readPos(userId)
   )
+  const [prevUserId, setPrevUserId] = useState<string | undefined>(userId)
 
+  // Sync nav mode/position from storage when the signed-in user becomes known.
+  if (typeof window !== "undefined" && userId && userId !== prevUserId) {
+    setPrevUserId(userId)
+    try {
+      const scoped = localStorage.getItem(storageKey(MODE_KEY, userId))
+      const legacy = localStorage.getItem(MODE_KEY)
+      const mode =
+        scoped === "open" || scoped === "capsule"
+          ? scoped
+          : legacy === "open" || legacy === "capsule"
+            ? legacy
+            : null
+      if (mode) setNavOpen(mode === "open")
+      setCapsulePos(readPos(userId))
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // Migrate legacy storage to the per-user key (side effect only).
   useEffect(() => {
     if (!userId) return
     try {
-      const scoped = localStorage.getItem(storageKey(MODE_KEY, userId))
-      if (scoped === "capsule" || scoped === "open") {
-        setNavOpen(scoped === "open")
-      } else {
-        const legacy = localStorage.getItem(MODE_KEY)
-        if (legacy === "capsule" || legacy === "open") {
-          localStorage.setItem(storageKey(MODE_KEY, userId), legacy)
-          setNavOpen(legacy === "open")
-        }
+      const legacy = localStorage.getItem(MODE_KEY)
+      if (
+        (legacy === "capsule" || legacy === "open") &&
+        !localStorage.getItem(storageKey(MODE_KEY, userId))
+      ) {
+        localStorage.setItem(storageKey(MODE_KEY, userId), legacy)
       }
-      setCapsulePos(readPos(userId))
     } catch {
       /* ignore */
     }
@@ -118,17 +136,20 @@ export function useNavShell(userId?: string) {
   const openDock = useCallback(() => {
     setNavOpen(true)
     persistMode(true)
+    haptic("select")
   }, [persistMode])
 
   const stowCapsule = useCallback(() => {
     setNavOpen(false)
     persistMode(false)
+    haptic("tap")
   }, [persistMode])
 
   const moveCapsule = useCallback(
     (pos: CapsulePos) => {
       const next = persistPos(pos)
       setCapsulePos(next)
+      haptic("drop")
     },
     [persistPos]
   )

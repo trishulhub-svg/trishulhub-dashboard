@@ -242,7 +242,7 @@ export const TimerHero = forwardRef<HTMLDivElement, TimerHeroProps>(function Tim
                       }
                     />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent portal>
                     {kind === "project" ? (
                       <ProjectSelectItems projects={projects} />
                     ) : (
@@ -274,7 +274,7 @@ export const TimerHero = forwardRef<HTMLDivElement, TimerHeroProps>(function Tim
                         }
                       />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent portal>
                       {trainingAssignments.length === 0 ? (
                         <SelectItem value="__none__" disabled>
                           No assigned trainings available

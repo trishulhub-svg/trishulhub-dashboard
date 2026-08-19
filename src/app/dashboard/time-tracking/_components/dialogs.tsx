@@ -520,12 +520,25 @@ export function SwitchSessionDialog({
     (isTrainingSelected && !selectedTrainingAssignmentId);
 
   const [kind, setKind] = useState<"project" | "activity">("project");
+  const [prevKindSync, setPrevKindSync] = useState({
+    open,
+    selectedProject,
+    activities,
+  });
 
-  useEffect(() => {
-    if (!open) return;
-    if (activities.some((a) => a.selectValue === selectedProject)) setKind("activity");
-    else setKind("project");
-  }, [open, selectedProject, activities]);
+  if (
+    open &&
+    (prevKindSync.open !== open ||
+      prevKindSync.selectedProject !== selectedProject ||
+      prevKindSync.activities !== activities)
+  ) {
+    setPrevKindSync({ open, selectedProject, activities });
+    setKind(
+      activities.some((a) => a.selectValue === selectedProject)
+        ? "activity"
+        : "project"
+    );
+  }
 
   const projectHasWork = projects.some((p) => p.hasOpenAssignedMilestones);
   const activityBadgeKeys = useMemo(() => {
@@ -580,7 +593,7 @@ export function SwitchSessionDialog({
                     }
                   />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent portal>
                   {kind === "project" ? (
                     <ProjectSelectItems projects={projects} />
                   ) : (
@@ -612,7 +625,7 @@ export function SwitchSessionDialog({
                       }
                     />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent portal>
                     {trainingAssignments.length === 0 ? (
                       <SelectItem value="__none__" disabled>
                         No assigned trainings available
@@ -703,10 +716,12 @@ export function ViewDescriptionDialog({
   savingNotes?: boolean;
 }) {
   const [notesDraft, setNotesDraft] = useState("");
+  const [prevEntryId, setPrevEntryId] = useState<string | null>(entry?.id ?? null);
 
-  useEffect(() => {
-    if (entry) setNotesDraft(entry.workNotes || "");
-  }, [entry]);
+  if (entry && entry.id !== prevEntryId) {
+    setPrevEntryId(entry.id);
+    setNotesDraft(entry.workNotes || "");
+  }
 
   const editable = !!(entry && canEditNotes);
   const hoursLeft = entry ? workNotesHoursLeft(entry) : 0;
@@ -896,7 +911,7 @@ export function AddEntryDialog(props: AddEntryDialogProps) {
               <SelectTrigger>
                 <SelectValue placeholder="Select activity..." />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent portal>
                 <ActivitySelectItems projects={projects} activities={activities} />
               </SelectContent>
             </Select>
@@ -1037,7 +1052,7 @@ export function EditEntryDialog(props: EditEntryDialogProps) {
                 <SelectTrigger>
                   <SelectValue placeholder="Select activity..." />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent portal>
                   <ActivitySelectItems projects={projects} activities={activities} />
                 </SelectContent>
               </Select>

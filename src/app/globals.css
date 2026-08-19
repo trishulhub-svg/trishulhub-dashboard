@@ -463,6 +463,8 @@ aside.th-sidebar-dock {
   z-index: 10090;
   touch-action: none;
   background: oklch(0 0 0 / 0.38);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
   animation: th-fade-in 0.2s ease both;
 }
 @keyframes th-fade-in {
@@ -513,6 +515,8 @@ aside.th-sidebar-dock {
 }
 .th-nav-capsule:active {
   cursor: grabbing;
+  transform: scale(0.94);
+  filter: brightness(1.1);
 }
 .th-nav-capsule:hover,
 .th-nav-capsule:focus-visible {

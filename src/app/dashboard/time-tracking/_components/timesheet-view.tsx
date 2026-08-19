@@ -140,7 +140,7 @@ export function TimesheetView({
               <SelectTrigger className="h-9">
                 <SelectValue placeholder="All employees" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent portal>
                 <SelectItem value="all">All employees</SelectItem>
                 {teamUsers.map((u) => (
                   <SelectItem key={u.id} value={u.id}>
@@ -156,7 +156,7 @@ export function TimesheetView({
               <SelectTrigger className="h-9">
                 <SelectValue placeholder="All projects" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent portal>
                 <SelectItem value="all">All projects</SelectItem>
                 {projects.map((p) => (
                   <SelectItem key={p.id} value={p.id}>

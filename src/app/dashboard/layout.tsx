@@ -90,6 +90,7 @@ import {
 } from "@/lib/nav-pages";
 import { useFavoritePages } from "@/hooks/use-favorite-pages";
 import { ClockedInHeaderDot } from "@/components/clocked-in-header-dot";
+import { haptic } from "@/lib/haptics";
 import { LiquidNavRail, liquidNavItemClass, liquidNavKey } from "@/components/liquid-nav-rail";
 import { NavCapsule } from "@/components/nav-capsule";
 import { useNavShell } from "@/hooks/use-nav-shell";
@@ -955,6 +956,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   };
 
   const handleNavigate = (href: string) => {
+    if (window.matchMedia?.("(pointer: coarse)").matches) haptic("tap");
     const hashIdx = href.indexOf("#");
     if (hashIdx >= 0) {
       const path = href.slice(0, hashIdx) || "/dashboard";

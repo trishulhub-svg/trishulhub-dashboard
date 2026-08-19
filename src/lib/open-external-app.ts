@@ -18,6 +18,26 @@ export function detectDevice(ua: string = typeof navigator !== "undefined" ? nav
   return "other"
 }
 
+const CHATGPT_LOGIN_URL = "https://chatgpt.com/auth/login"
+const CHATGPT_ANDROID_PACKAGE = "com.openai.chatgpt"
+
+/**
+ * Device-aware ChatGPT deep links.
+ * - Android: package intent (reliable in Chrome; optional login fallback)
+ * - iOS: chatgpt:// custom scheme
+ */
+function chatGptDeepLinks(device: DeviceKind, withLoginFallback: boolean): string[] {
+  if (device === "android") {
+    const fallback = withLoginFallback
+      ? `;S.browser_fallback_url=${encodeURIComponent(CHATGPT_LOGIN_URL)}`
+      : ""
+    return [
+      `intent://chatgpt.com/#Intent;scheme=https;package=${CHATGPT_ANDROID_PACKAGE}${fallback};end`,
+    ]
+  }
+  return ["chatgpt://"]
+}
+
 function tryProtocolLaunch(url: string): void {
   try {
     // 1) Hidden iframe — common pattern for custom schemes
@@ -133,9 +153,8 @@ export function openCodexApp(onNotInstalled?: (app: "chatgpt" | "codex") => void
   const isMobile = device === "ios" || device === "android"
 
   if (isMobile) {
-    // ChatGPT mobile app registers the chatgpt:// scheme.
     openAppOrWeb({
-      deepLinks: ["chatgpt://"],
+      deepLinks: chatGptDeepLinks(device, false),
       timeoutMs: 1400,
       onNotInstalled: () => onNotInstalled?.("chatgpt"),
     })
@@ -160,13 +179,13 @@ export function openResearchGpt(): void {
   const device = detectDevice()
   if (device === "ios" || device === "android") {
     openAppOrWeb({
-      deepLinks: ["chatgpt://"],
-      webUrl: "https://chatgpt.com/auth/login",
+      deepLinks: chatGptDeepLinks(device, true),
+      webUrl: CHATGPT_LOGIN_URL,
       timeoutMs: 1400,
     })
     return
   }
-  window.open("https://chatgpt.com/auth/login", "_blank", "noopener,noreferrer")
+  window.open(CHATGPT_LOGIN_URL, "_blank", "noopener,noreferrer")
 }
 
 /** QWEN workspace — try native app / intent, then web. */
