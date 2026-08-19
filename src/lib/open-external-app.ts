@@ -62,10 +62,11 @@ function tryProtocolLaunch(url: string): void {
  */
 export function openAppOrWeb(options: {
   deepLinks: string[]
-  webUrl: string
+  webUrl?: string
   timeoutMs?: number
+  onNotInstalled?: () => void
 }): void {
-  const { deepLinks, webUrl, timeoutMs = 2200 } = options
+  const { deepLinks, webUrl, timeoutMs = 2200, onNotInstalled } = options
   if (typeof window === "undefined") return
 
   let appLikelyOpened = false
@@ -111,39 +112,32 @@ export function openAppOrWeb(options: {
       document.visibilityState === "visible" &&
       document.hasFocus()
     ) {
-      window.open(webUrl, "_blank", "noopener,noreferrer")
+      if (webUrl) {
+        window.open(webUrl, "_blank", "noopener,noreferrer")
+      } else {
+        onNotInstalled?.()
+      }
     }
     cleanup()
   }, timeoutMs)
 }
 
-/** Cursor Workspace — try native app on every desktop/mobile OS, then web. */
-export function openCursorWorkspace(): void {
-  const webUrl = "https://cursor.com/agents"
-  // Official Cursor deeplink scheme (registered by desktop + iOS apps)
-  const deepLinks = [
-    "cursor://anysphere.cursor-deeplink/agents",
-    "cursor://agents",
-  ]
-  openAppOrWeb({ deepLinks, webUrl, timeoutMs: 2500 })
+/**
+ * Codex app — direct deep link. Opens only when the Codex desktop app is
+ * installed (no web fallback). If the app never takes over, the browser
+ * stays focused and onNotInstalled is called after a short delay.
+ */
+export function openCodexApp(onNotInstalled?: () => void): void {
+  // Codex Desktop registers the codex:// protocol (e.g. codex://threads/new).
+  openAppOrWeb({
+    deepLinks: ["codex://threads/new"],
+    timeoutMs: 2200,
+    onNotInstalled,
+  })
 }
 
-/** QWEN workspace — try native app / intent, then web. */
-export function openQwenWorkspace(): void {
-  const device = detectDevice()
-  const webUrl = "https://chat.qwen.ai/"
-  const deepLinks: string[] = []
-
-  if (device === "android") {
-    // Official Play package: com.tongyi.intl — Intent with browser fallback
-    deepLinks.push(
-      "intent://chat.qwen.ai/#Intent;scheme=https;package=com.tongyi.intl;S.browser_fallback_url=https%3A%2F%2Fchat.qwen.ai%2F;end"
-    )
-  }
-
-  // Custom scheme used by Qwen desktop/mobile apps (Windows/Mac/iOS/Android)
-  deepLinks.push("qwen://chat")
-  deepLinks.push("qwen://")
-
-  openAppOrWeb({ deepLinks, webUrl, timeoutMs: 2500 })
+/** Research GPT — open the ChatGPT login page in a new browser tab. */
+export function openResearchGpt(): void {
+  if (typeof window === "undefined") return
+  window.open("https://chatgpt.com/auth/login", "_blank", "noopener,noreferrer")
 }

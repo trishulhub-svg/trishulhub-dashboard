@@ -33,7 +33,7 @@ function isTrainingUser(u: LiveUser): boolean {
 
 type AiLine = { prefix: string; msg: string; type: LineType };
 
-/** Cursor model / agent flavour — replaces old ZAI/GLM lines */
+/** Codex model / agent flavour — replaces old ZAI/GLM lines */
 const AI_LINES: AiLine[] = [
   { prefix: "CURSOR", msg: "Composer model ready — context window warm", type: "success" },
   { prefix: "CURSOR", msg: "Auto mode planning next edit sequence", type: "info" },

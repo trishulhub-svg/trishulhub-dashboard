@@ -16,8 +16,9 @@ import {
   Clock,
   StopCircle,
 } from "lucide-react";
+import { toast } from "sonner";
 import { LiveIntensity, type LineType, type LiveUser } from "@/components/workspace/live-intensity";
-import { openCursorWorkspace, openQwenWorkspace } from "@/lib/open-external-app";
+import { openCodexApp, openResearchGpt } from "@/lib/open-external-app";
 
 /* ═══════════════════════════════════════════════════════════════
    TRISHULHUB WORKSPACE v2.1 — Live AI + Dynamic Agents
@@ -128,8 +129,8 @@ export default function TrishulWorkspacePage() {
       : "light"
     : "dark";
 
-  /* Display name — always Cursor Agent (no protocol/init fetch) */
-  const agentTitle = "Cursor Agent";
+  /* Display name — always Codex Agent (no protocol/init fetch) */
+  const agentTitle = "Codex Agent";
 
   /* ── Entrance stagger ── */
   const [entered, setEntered] = useState(false);
@@ -435,19 +436,23 @@ export default function TrishulWorkspacePage() {
 
    /* ── START handler ──
      If the user is clocked in (has an active TimeEntry / appears in
-     liveUsers), open Cursor Workspace (app when available). Otherwise,
+     liveUsers), open Codex Workspace (app when installed). Otherwise,
      send them to the time-tracking page so they can clock in first. */
   const handleStart = useCallback(() => {
     if (currentUserIsLive) {
-      openCursorWorkspace();
+      openCodexApp(() => {
+        toast.error("Codex app is not installed", {
+          description: "Install the Codex desktop app to open it from this workspace.",
+        });
+      });
     } else {
       router.push("/dashboard/time-tracking?action=start");
     }
   }, [currentUserIsLive, router]);
 
-  const handleResearchSpace = useCallback(() => {
+  const handleResearchGpt = useCallback(() => {
     if (currentUserIsLive) {
-      openQwenWorkspace();
+      openResearchGpt();
     } else {
       router.push("/dashboard/time-tracking?action=start");
     }
@@ -558,27 +563,27 @@ export default function TrishulWorkspacePage() {
                     type="button"
                     onClick={handleStart}
                     className={`ws-btn-primary ws-btn-primary--${mode}${currentUserIsLive ? "" : " ws-btn-clockin"}`}
-                    aria-label={currentUserIsLive ? "Cursor Workspace — open Cursor" : "Start session — clock in first"}
-                    title={currentUserIsLive ? "Cursor Workspace" : "Start Session — clock in first"}
+                    aria-label={currentUserIsLive ? "Codex Workspace — open Codex" : "Start session — clock in first"}
+                    title={currentUserIsLive ? "Codex Workspace" : "Start Session — clock in first"}
                   >
                     {currentUserIsLive ? (
                       <Zap size={16} strokeWidth={2.5} />
                     ) : (
                       <Clock size={16} strokeWidth={2.5} />
                     )}
-                    <span>{currentUserIsLive ? "Cursor Workspace" : "Start Session"}</span>
+                    <span>{currentUserIsLive ? "Codex Workspace" : "Start Session"}</span>
                     <ArrowUpRight size={14} />
                   </button>
-                  {currentUserIsLive && (
+                  {status === "authenticated" && currentUserIsLive && (
                     <button
                       type="button"
-                      onClick={handleResearchSpace}
+                      onClick={handleResearchGpt}
                       className={`ws-btn-primary ws-btn-primary--${mode}`}
-                      aria-label="QWEN workspace — open Qwen"
-                      title="QWEN workspace"
+                      aria-label="Research GPT — login to ChatGPT"
+                      title="Research GPT"
                     >
                       <Zap size={16} strokeWidth={2.5} />
-                      <span>QWEN workspace</span>
+                      <span>Research GPT</span>
                       <ArrowUpRight size={14} />
                     </button>
                   )}
@@ -791,8 +796,8 @@ export default function TrishulWorkspacePage() {
                 type="button"
                 onClick={handleStart}
                 className="ws-start-card-inner"
-                aria-label={currentUserIsLive ? "Cursor Workspace — open Cursor" : "Start your session — clock in first"}
-                title={currentUserIsLive ? "Cursor Workspace" : "Clock in first"}
+                aria-label={currentUserIsLive ? "Codex Workspace — open Codex" : "Start your session — clock in first"}
+                title={currentUserIsLive ? "Codex Workspace" : "Clock in first"}
               >
                 <div className="ws-start-left">
                   <div className={`ws-start-icon-box ws-start-icon-box--${mode}`}>
@@ -800,11 +805,11 @@ export default function TrishulWorkspacePage() {
                   </div>
                   <div>
                     <h3 className={`ws-start-heading ws-start-heading--${mode}`}>
-                      {currentUserIsLive ? "Cursor Workspace" : "Start Session"}
+                      {currentUserIsLive ? "Codex Workspace" : "Start Session"}
                     </h3>
                     <p className={`ws-start-sub ws-start-sub--${mode}`}>
                       {currentUserIsLive
-                        ? "Open Cursor Workspace"
+                        ? "Open Codex Workspace"
                         : "Clock in to begin working"}
                     </p>
                   </div>
@@ -814,14 +819,14 @@ export default function TrishulWorkspacePage() {
                   <ArrowUpRight size={14} />
                 </div>
               </button>
-              {currentUserIsLive && (
+              {status === "authenticated" && currentUserIsLive && (
                 <button
                   type="button"
-                  onClick={handleResearchSpace}
+                  onClick={handleResearchGpt}
                   className="ws-start-card-inner"
                   style={{ marginTop: "0.5rem", borderTop: "1px solid color-mix(in oklch, var(--border) 80%, transparent)" }}
-                  aria-label="QWEN workspace — open Qwen"
-                  title="QWEN workspace"
+                  aria-label="Research GPT — login to ChatGPT"
+                  title="Research GPT"
                 >
                   <div className="ws-start-left">
                     <div className={`ws-start-icon-box ws-start-icon-box--${mode}`}>
@@ -829,10 +834,10 @@ export default function TrishulWorkspacePage() {
                     </div>
                     <div>
                       <h3 className={`ws-start-heading ws-start-heading--${mode}`}>
-                        QWEN workspace
+                        Research GPT
                       </h3>
                       <p className={`ws-start-sub ws-start-sub--${mode}`}>
-                        Open QWEN workspace
+                        Login to ChatGPT in a new tab
                       </p>
                     </div>
                   </div>
