@@ -107,6 +107,7 @@ export function NavCapsule({ pos, onOpen, onMove, size = 56 }: NavCapsuleProps) 
       onLostPointerCapture={(e) => endDrag(e, true)}
       onDoubleClick={onOpen}
     >
+      <span className="th-nav-capsule-ring" aria-hidden />
       <span className="th-nav-capsule-mark">
         <Image
           src="/logo-mark.png"

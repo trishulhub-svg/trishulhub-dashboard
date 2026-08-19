@@ -435,6 +435,7 @@ aside.th-sidebar-dock {
   opacity: 1;
   transform: translate3d(0, 0, 0);
   pointer-events: auto;
+  animation: th-dock-explode-in 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 @media (min-width: 768px) {
   .th-sidebar-dock--open {
@@ -455,6 +456,7 @@ aside.th-sidebar-dock {
   opacity: 0;
   transform: translate3d(calc(var(--capsule-x, 12px) - 8px), calc(var(--capsule-y, 180px) - 8px), 0) scale(0.05);
   pointer-events: none;
+  animation: th-dock-explode-out 0.28s cubic-bezier(0.4, 0, 0.2, 1) both;
   border-width: 0 !important;
   box-shadow: none !important;
 }
@@ -532,6 +534,22 @@ aside.th-sidebar-dock {
   height: 28px;
   pointer-events: none;
 }
+.th-nav-capsule-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  border: 2px solid color-mix(in oklch, var(--primary) 60%, transparent);
+  opacity: 0;
+  pointer-events: none;
+}
+.th-nav-capsule:active .th-nav-capsule-ring,
+.th-nav-capsule:focus-visible .th-nav-capsule-ring {
+  animation: th-capsule-ring 0.34s ease-out both;
+}
+@keyframes th-capsule-ring {
+  0% { opacity: 0.95; transform: scale(1); }
+  100% { opacity: 0; transform: scale(2.5); }
+}
 .th-nav-capsule::after {
   content: "Drag to move\A Double-click to open menu";
   position: absolute;
@@ -594,12 +612,42 @@ aside.th-sidebar-dock {
   62% { opacity: 1; transform: scale(1.08); }
   100% { opacity: 1; transform: scale(1); }
 }
+/* Menu explodes out of the capsule / sucks back into it (transform-only) */
+@keyframes th-dock-explode-in {
+  0% {
+    transform: translate3d(calc(var(--capsule-x, 12px) - 10px), calc(var(--capsule-y, 180px) - 10px), 0) scale(0.14);
+    opacity: 0;
+  }
+  60% {
+    transform: translate3d(-5px, 0, 0) scale(1.05);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 1;
+  }
+}
+@keyframes th-dock-explode-out {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 1;
+  }
+  35% {
+    transform: translate3d(-5px, 0, 0) scale(0.9);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(calc(var(--capsule-x, 12px) - 8px), calc(var(--capsule-y, 180px) - 8px), 0) scale(0.05);
+    opacity: 0;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .th-sidebar-dock,
   .th-nav-capsule,
   .th-sidebar-backdrop,
   .th-nav-capsule::after,
-  .th-nav-capsule::before {
+  .th-nav-capsule::before,
+  .th-nav-capsule-ring {
     transition: none !important;
     animation: none !important;
   }
