@@ -86,10 +86,11 @@ function tryProtocolLaunch(url: string): void {
 export function openAppOrWeb(options: {
   deepLinks: string[]
   webUrl?: string
+  sameTabUrl?: string
   timeoutMs?: number
   onNotInstalled?: () => void
 }): void {
-  const { deepLinks, webUrl, timeoutMs = 2200, onNotInstalled } = options
+  const { deepLinks, webUrl, sameTabUrl, timeoutMs = 2200, onNotInstalled } = options
   if (typeof window === "undefined") return
 
   let appLikelyOpened = false
@@ -135,7 +136,11 @@ export function openAppOrWeb(options: {
       document.visibilityState === "visible" &&
       document.hasFocus()
     ) {
-      if (webUrl) {
+      if (sameTabUrl) {
+        // Same-tab navigation is what triggers Android App Links, so the
+        // installed app takes over instead of opening a browser tab.
+        window.location.href = sameTabUrl
+      } else if (webUrl) {
         window.open(webUrl, "_blank", "noopener,noreferrer")
       } else {
         onNotInstalled?.()
@@ -148,7 +153,7 @@ export function openAppOrWeb(options: {
 /**
  * Codex Workspace — opens the ChatGPT mobile app on phones/tablets and the
  * Codex desktop app on PCs. Only opens when the target app is installed;
- * otherwise onNotInstalled is called so the UI can ask to install it first.
+ * on desktop, onNotInstalled is called so the UI can ask to install it first.
  */
 export function openCodexApp(onNotInstalled?: (app: "chatgpt" | "codex") => void): void {
   if (typeof window === "undefined") return
@@ -158,8 +163,10 @@ export function openCodexApp(onNotInstalled?: (app: "chatgpt" | "codex") => void
   if (isMobile) {
     openAppOrWeb({
       deepLinks: chatGptDeepLinks(device, false),
-      timeoutMs: 1400,
-      onNotInstalled: () => onNotInstalled?.("chatgpt"),
+      // chatgpt.com is a verified Android App Link: if the app is installed,
+      // Android opens ChatGPT directly; otherwise the web app loads.
+      sameTabUrl: "https://chatgpt.com/",
+      timeoutMs: 1000,
     })
     return
   }
@@ -183,8 +190,10 @@ export function openResearchGpt(): void {
   if (device === "ios" || device === "android") {
     openAppOrWeb({
       deepLinks: chatGptDeepLinks(device, true),
-      webUrl: CHATGPT_LOGIN_URL,
-      timeoutMs: 1400,
+      // Same-tab App Link navigation: installed app opens, otherwise the
+      // ChatGPT login page loads in the browser.
+      sameTabUrl: CHATGPT_LOGIN_URL,
+      timeoutMs: 1000,
     })
     return
   }
@@ -198,10 +207,13 @@ export function openQwenWorkspace(): void {
   if (device === "android") {
     openAppOrWeb({
       deepLinks: [
-        `intent://chat.qwen.ai/#Intent;scheme=https;package=${QWEN_ANDROID_PACKAGE};S.browser_fallback_url=${encodeURIComponent(QWEN_WEB_URL)};end`,
+        `intent://chat.qwen.ai/#Intent;scheme=https;package=${QWEN_ANDROID_PACKAGE};end`,
       ],
-      webUrl: QWEN_WEB_URL,
-      timeoutMs: 1400,
+      // Qwen Studio has no verified App Link, so fall back to the
+      // package-based market launch: opens the app if installed, or the
+      // Play Store listing so it can be installed.
+      sameTabUrl: `market://launch?id=${QWEN_ANDROID_PACKAGE}`,
+      timeoutMs: 1000,
     })
     return
   }
