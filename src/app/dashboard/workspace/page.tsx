@@ -19,6 +19,8 @@ import {
 import { toast } from "sonner";
 import { LiveIntensity, type LineType, type LiveUser } from "@/components/workspace/live-intensity";
 import { GpuLiveCard } from "@/components/workspace/gpu-live-card";
+import { DeepSeekPricingBadge } from "@/components/workspace/deepseek-pricing-badge";
+import { useDeepSeekPricing } from "@/hooks/use-deepseek-pricing";
 import { openCodexApp, openResearchGpt, openQwenWorkspace } from "@/lib/open-external-app";
 
 /* ═══════════════════════════════════════════════════════════════
@@ -107,6 +109,8 @@ export default function TrishulWorkspacePage() {
   const router = useRouter();
   const { resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
+  // DeepSeek Peak/Off-Peak — Beijing-derived, local display only.
+  const deepSeekState = useDeepSeekPricing();
 
   // Guard: ensure layout session is available before rendering
   if (status === "loading") {
@@ -529,6 +533,7 @@ export default function TrishulWorkspacePage() {
               </div>
             </div>
             <div className="ws-header-right">
+              <DeepSeekPricingBadge state={deepSeekState} variant="standard" />
               <span className={`ws-uptime ws-uptime--${mode}`}>
                 <Clock size={11} />
                 {formatUptime(uptime)}
@@ -624,6 +629,7 @@ export default function TrishulWorkspacePage() {
                 </div>
                 {currentUserIsLive && (
                   <div className="ws-clockout-row">
+                    <DeepSeekPricingBadge state={deepSeekState} variant="compact" />
                     <button
                       type="button"
                       onClick={handleClockOut}
