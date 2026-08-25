@@ -136,14 +136,14 @@ export async function GET(
 
     await ensureCriticalSchema()
 
-    const canManage = isAdminOrProjectManager(userRole)
+    const isAdminOrPm = isAdminOrProjectManager(userRole)
     const now = new Date()
 
     let memberCanView = false
     let grants: ReturnType<typeof serializeInfraGrant>[] = []
     let ownVisibleUntil: string | null = null
 
-    if (canManage) {
+    if (isAdminOrPm) {
       const rows = await db.projectInfraMemberAccess.findMany({
         where: { projectId },
         orderBy: { updatedAt: "desc" },
@@ -168,7 +168,8 @@ export async function GET(
       ownVisibleUntil = own?.visibleUntil?.toISOString() ?? null
     }
 
-    const canView = canManage || memberCanView
+    const canManage = isAdminOrPm || memberCanView
+    const canView = canManage
 
     const visibleItems = canView
       ? ((await db.projectInfraItem.findMany({
@@ -184,7 +185,7 @@ export async function GET(
       groups,
       groupDefs,
       groupKeys: groupDefs.map((g) => g.key),
-      memberAccess: canManage
+      memberAccess: isAdminOrPm
         ? {
             isActive: memberCanView,
             visibleUntil: null,
@@ -214,10 +215,6 @@ export async function POST(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    if (!isAdminOrProjectManager(session.user.role)) {
-      return NextResponse.json({ error: "Forbidden: admin or project manager access required" }, { status: 403 })
-    }
-
     const rl = rateLimit(`infra-items-post-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
     if (!rl.success) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 })
@@ -229,6 +226,15 @@ export async function POST(
     }
     if (!(await ensureProjectExists(projectId))) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 })
+    }
+
+    const canManage = isAdminOrProjectManager(session.user.role) || isInfraGrantActive(
+      await db.projectInfraMemberAccess.findUnique({
+        where: { projectId_userId: { projectId, userId: session.user.id } },
+      })
+    )
+    if (!canManage) {
+      return NextResponse.json({ error: "Forbidden: infrastructure access required" }, { status: 403 })
     }
 
     await ensureCriticalSchema()

@@ -939,6 +939,9 @@ export default function ProjectDetailPage() {
   const teamUsers = teamUsersData;
   const websites = websitesData;
   const infrastructure = infraData;
+  // An active infrastructure grant allows a project developer to manage
+  // infrastructure items, while member-access administration remains admin/PM-only.
+  const canManageInfrastructure = canManageProject || infrastructure?.canManage === true;
   const infraStorageKey = projectId ? `trishul:project-infra-open:${projectId}` : null;
   const milestoneStorageKey = projectId ? `trishul:project-milestones-open:${projectId}` : null;
 
@@ -2514,7 +2517,7 @@ export default function ProjectDetailPage() {
             {infraItemCount > 0 && (
               <Badge variant="secondary" className="text-[10px] font-semibold h-5 px-1.5 shrink-0">{infraItemCount} items</Badge>
             )}
-            {!canManageProject && infraMemberAccess.isActive && (
+            {!canManageInfrastructure && infraMemberAccess.isActive && (
               <Badge className="text-[10px] h-5 px-1.5 bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 shrink-0">
                 Visible
                 {infraMemberAccess.visibleUntil
@@ -2611,7 +2614,7 @@ export default function ProjectDetailPage() {
                           <p className="text-[10px] text-muted-foreground truncate">{group.description}</p>
                         </div>
                       </div>
-                      {canManageProject && (
+                      {canManageInfrastructure && (
                         <Button
                           size="sm"
                           variant="outline"
@@ -2688,7 +2691,7 @@ export default function ProjectDetailPage() {
                                     ) : null}
                                   </div>
                                 </div>
-                                {canManageProject && (
+                                {canManageInfrastructure && (
                                   <div className="flex items-center gap-1 shrink-0">
                                     <button type="button" onClick={() => openEditInfraItem(item)} className="text-muted-foreground hover:text-foreground transition-colors p-1" title="Edit">
                                       <Pencil className="h-3.5 w-3.5" />
@@ -2933,7 +2936,7 @@ export default function ProjectDetailPage() {
         </Dialog>
       )}
 
-      {canManageProject && (
+      {canManageInfrastructure && (
         <Dialog
           open={customGroupDialogOpen}
           onOpenChange={(open) => {

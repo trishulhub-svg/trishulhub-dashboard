@@ -85,10 +85,6 @@ export async function PATCH(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    if (!isAdminOrProjectManager(session.user.role)) {
-      return NextResponse.json({ error: "Forbidden: admin or project manager access required" }, { status: 403 })
-    }
-
     const rl = rateLimit(`infra-items-patch-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
     if (!rl.success) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 })
@@ -97,6 +93,15 @@ export async function PATCH(
     const { projectId, itemId } = await params
     if (!projectId || !isValidProjectId(projectId)) {
       return NextResponse.json({ error: "Invalid project ID format" }, { status: 400 })
+    }
+
+    const canManage = isAdminOrProjectManager(session.user.role) || isInfraGrantActive(
+      await db.projectInfraMemberAccess.findUnique({
+        where: { projectId_userId: { projectId, userId: session.user.id } },
+      })
+    )
+    if (!canManage) {
+      return NextResponse.json({ error: "Forbidden: infrastructure access required" }, { status: 403 })
     }
 
     const existing = await getScopedItem(projectId, itemId)
@@ -224,10 +229,6 @@ export async function DELETE(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    if (!isAdminOrProjectManager(session.user.role)) {
-      return NextResponse.json({ error: "Forbidden: admin or project manager access required" }, { status: 403 })
-    }
-
     const rl = rateLimit(`infra-items-delete-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)
     if (!rl.success) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 })
@@ -236,6 +237,15 @@ export async function DELETE(
     const { projectId, itemId } = await params
     if (!projectId || !isValidProjectId(projectId)) {
       return NextResponse.json({ error: "Invalid project ID format" }, { status: 400 })
+    }
+
+    const canManage = isAdminOrProjectManager(session.user.role) || isInfraGrantActive(
+      await db.projectInfraMemberAccess.findUnique({
+        where: { projectId_userId: { projectId, userId: session.user.id } },
+      })
+    )
+    if (!canManage) {
+      return NextResponse.json({ error: "Forbidden: infrastructure access required" }, { status: 403 })
     }
 
     const existing = await getScopedItem(projectId, itemId)
