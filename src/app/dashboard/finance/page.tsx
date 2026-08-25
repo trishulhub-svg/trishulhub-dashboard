@@ -943,6 +943,9 @@ function FinancePageInner() {
       {/* Header */}
       <PageHeader title="Finance" description="Revenue, invoices, expenses & subscriptions at a glance">
         <div className="flex flex-wrap gap-2">
+          <Button size="sm" onClick={() => setActiveTab("reports")}>
+            <FileDown className="h-4 w-4 mr-1" /> Generate Report
+          </Button>
           <Button size="sm" variant="outline" onClick={() => setActiveTab("subscriptions")}>
             <CreditCard className="h-4 w-4 mr-1" /> Subscriptions
           </Button>
