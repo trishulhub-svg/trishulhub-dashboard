@@ -237,7 +237,7 @@ export const GpuLiveCard = React.memo(function GpuLiveCard({
       )}
 
       {!error && anyLive && (
-        <>
+        <div className="ws-gpu-body">
           {/* Combined totals — e.g. "4 GB of 8 GB" across all nodes */}
           <div className="ws-gpu-totals">
             {avgCpu !== null && (
@@ -371,7 +371,7 @@ export const GpuLiveCard = React.memo(function GpuLiveCard({
               );
             })}
           </div>
-        </>
+        </div>
       )}
 
       <div className="ws-gpu-footer">

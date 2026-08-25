@@ -2557,7 +2557,19 @@ export default function TrishulWorkspacePage() {
           gap: 0.6rem;
         }
         @media (min-width: 768px) {
-          .ws-gpu-card { grid-column: span 2; }
+          .ws-gpu-card { grid-column: 1 / -1; }
+          .ws-gpu-body {
+            display: grid;
+            grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+            gap: 0.75rem;
+            align-items: start;
+          }
+          .ws-gpu-totals { height: 100%; }
+        }
+        @media (min-width: 1400px) {
+          .ws-gpu-body {
+            grid-template-columns: minmax(0, 1.6fr) minmax(0, 3.4fr);
+          }
         }
         .ws-gpu-header {
           display: flex;
@@ -2637,7 +2649,7 @@ export default function TrishulWorkspacePage() {
           gap: 0.6rem;
         }
         @media (min-width: 640px) {
-          .ws-gpu-grid { grid-template-columns: repeat(3, 1fr); }
+          .ws-gpu-grid { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
         }
         .ws-gpu-node {
           border: 1px solid color-mix(in srgb, var(--ws-card-border) 60%, transparent);
