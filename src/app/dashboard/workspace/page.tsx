@@ -114,6 +114,11 @@ export default function TrishulWorkspacePage() {
   // True while any GPU monitor node is streaming live data — hides the static
   // "All Systems Operational" card so the live cloud process replaces it.
   const [gpuLive, setGpuLive] = useState(false);
+  const handleGpuLiveChange = useCallback((live: boolean) => setGpuLive(live), []);
+  const handleActivityLine = useCallback(
+    (prefix: string, type: LineType) => barBumpFnRef.current?.(prefix, type),
+    []
+  );
 
   // Guard: ensure layout session is available before rendering
   if (status === "loading") {
@@ -189,25 +194,6 @@ export default function TrishulWorkspacePage() {
     if (h < 12) setGreeting("Good morning");
     else if (h < 17) setGreeting("Good afternoon");
     else setGreeting("Good evening");
-  }, []);
-
-  /* ── Current time ── */
-  const [time, setTime] = useState("");
-  useEffect(() => {
-    const tick = () => {
-      const now = new Date();
-      setTime(
-        now.toLocaleTimeString("en-US", {
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-          hour12: true,
-        })
-      );
-    };
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
   }, []);
 
   /* ── Dynamic status bars — fully independent with wide spread ── */
@@ -297,19 +283,28 @@ export default function TrishulWorkspacePage() {
       api: initTarget("api"),
     };
 
-    /* Lerp animation loop — different speeds per bar for natural feel */
-    let frame: number;
+    /* Lerp animation loop — throttled to ~10fps with change detection.
+       (CSS `transition: width 1s` on .ws-bar-fill already smooths the bars;
+       this loop only advances targets toward their current goal and skips
+       state updates when nothing changed — avoids 60 re-renders/sec.) */
     const lerp = (cur: number, target: number, speed: number) =>
       cur + (target - cur) * speed;
+    let last = { ai: -1, sync: -1, api: -1 };
     const animate = () => {
-      setBarValues((prev) => ({
-        ai: Math.round(lerp(prev.ai, barTargets.current.ai, 0.08)),
-        sync: Math.round(lerp(prev.sync, barTargets.current.sync, 0.05)),
-        api: Math.round(lerp(prev.api, barTargets.current.api, 0.065)),
-      }));
-      frame = requestAnimationFrame(animate);
+      setBarValues((prev) => {
+        const next = {
+          ai: Math.round(lerp(prev.ai, barTargets.current.ai, 0.16)),
+          sync: Math.round(lerp(prev.sync, barTargets.current.sync, 0.12)),
+          api: Math.round(lerp(prev.api, barTargets.current.api, 0.14)),
+        };
+        if (next.ai === last.ai && next.sync === last.sync && next.api === last.api) {
+          return prev; // no visible change → skip render
+        }
+        last = next;
+        return next;
+      });
     };
-    frame = requestAnimationFrame(animate);
+    const loop = setInterval(animate, 100);
 
     /* Each bar decays independently toward its own base range */
     const decayTimers: ReturnType<typeof setTimeout>[] = [];
@@ -338,49 +333,53 @@ export default function TrishulWorkspacePage() {
     };
 
     return () => {
-      cancelAnimationFrame(frame);
+      clearInterval(loop);
       decayTimers.forEach(clearTimeout);
       barBumpFnRef.current = null;
     };
   }, [entered]);
 
-  /* ── Long Horizon long-running tasks ── */
+  /* ── ONE merged 1s tick for all live counters (time, horizons, uptime) ──
+     Previously 4 separate setInterval(…, 1000) effects each triggered a full
+     re-render of this large component — now a single interval updates all of
+     them in one batched render (≈1 render/sec instead of ≈4). */
   const horizonStartRef = useRef(Date.now() - 1000 * 60 * 60 * 2.4 - 1000 * 47); // ~2h 47m ago
-  const [horizonElapsed, setHorizonElapsed] = useState("");
+  const horizonStart2Ref = useRef(Date.now() - 1000 * 60 * 47);
+  const [clockState, setClockState] = useState(() => ({
+    time: "",
+    horizonElapsed: "",
+    horizonElapsed2: "",
+    uptime: 0,
+  }));
+
   useEffect(() => {
-    const tick = () => {
-      const diff = Math.floor((Date.now() - horizonStartRef.current) / 1000);
+    const fmtElapsed = (from: number) => {
+      const diff = Math.floor((Date.now() - from) / 1000);
       const h = Math.floor(diff / 3600);
       const m = Math.floor((diff % 3600) / 60);
       const s = diff % 60;
-      setHorizonElapsed(`${h}h ${m.toString().padStart(2, "0")}m ${s.toString().padStart(2, "0")}s`);
+      return `${h}h ${m.toString().padStart(2, "0")}m ${s.toString().padStart(2, "0")}s`;
+    };
+    const tick = () => {
+      const now = new Date();
+      setClockState((prev) => ({
+        time: now.toLocaleTimeString("en-US", {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: true,
+        }),
+        horizonElapsed: fmtElapsed(horizonStartRef.current),
+        horizonElapsed2: fmtElapsed(horizonStart2Ref.current),
+        uptime: prev.uptime + 1,
+      }));
     };
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, []);
 
-  const [horizonStart2, setHorizonStart2] = useState(Date.now() - 1000 * 60 * 47);
-  const [horizonElapsed2, setHorizonElapsed2] = useState("");
-  useEffect(() => {
-    const tick = () => {
-      const diff = Math.floor((Date.now() - horizonStart2) / 1000);
-      const h = Math.floor(diff / 3600);
-      const m = Math.floor((diff % 3600) / 60);
-      const s = diff % 60;
-      setHorizonElapsed2(`${h}h ${m.toString().padStart(2, "0")}m ${s.toString().padStart(2, "0")}s`);
-    };
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, []);
-
-  /* ── Uptime counter ── */
-  const [uptime, setUptime] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => setUptime((u) => u + 1), 1000);
-    return () => clearInterval(t);
-  }, []);
+  const { time, horizonElapsed, horizonElapsed2, uptime } = clockState;
   const formatUptime = (s: number) => {
     const h = Math.floor(s / 3600);
     const m = Math.floor((s % 3600) / 60);
@@ -722,7 +721,7 @@ export default function TrishulWorkspacePage() {
               liveUsers={liveUsers}
               mode={mode}
               entered={entered}
-              onActivityLine={(prefix, type) => barBumpFnRef.current?.(prefix, type)}
+              onActivityLine={handleActivityLine}
             />
 
             {/* ─── ROW 4: Status bars (right after Live Ops) ─── */}
@@ -769,7 +768,7 @@ export default function TrishulWorkspacePage() {
             <GpuLiveCard
               entered={entered}
               style={{ transitionDelay: "0.385s" }}
-              onLiveChange={(live) => setGpuLive(live)}
+              onLiveChange={handleGpuLiveChange}
             />
 
             {/* ─── LONG HORIZON CARD ─── */}

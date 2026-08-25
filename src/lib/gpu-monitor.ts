@@ -116,7 +116,7 @@ export async function getEnabledGpuUrls(): Promise<GpuMonitorUrl[]> {
  */
 export async function fetchGpuUrl(
   url: string,
-  timeoutMs = 3000
+  timeoutMs = 5000
 ): Promise<Record<string, unknown> | null> {
   try {
     const controller = new AbortController()

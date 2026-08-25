@@ -192,9 +192,8 @@ export function NavCapsule({ pos, onOpen, onMove, size = 56 }: NavCapsuleProps) 
       return
     }
     restore(el, origX, origY)
-    // Quick tap on phones shows the hint bubble; desktop keeps hover +
-    // double-click to open.
-    if (event.pointerType !== "mouse") toggleTip(el)
+    // Single click/tap (no drag) opens the menu on every device.
+    onOpen()
   }
 
   return (
@@ -202,7 +201,7 @@ export function NavCapsule({ pos, onOpen, onMove, size = 56 }: NavCapsuleProps) 
       type="button"
       className={cn("th-nav-capsule")}
       style={{ left: pos.x, top: pos.y, width: size, height: size }}
-      aria-label="Open menu. Touch and hold or double-click to open. Drag to move."
+      aria-label="Open menu. Click or tap to open. Drag to move."
       data-tip-side={pos.y < 120 ? "bottom" : "top"}
       data-dragging="false"
       data-tip="false"
@@ -211,7 +210,6 @@ export function NavCapsule({ pos, onOpen, onMove, size = 56 }: NavCapsuleProps) 
       onPointerUp={(e) => endDrag(e, true)}
       onPointerCancel={(e) => endDrag(e, false)}
       onLostPointerCapture={(e) => endDrag(e, true)}
-      onDoubleClick={onOpen}
     >
       <span className="th-nav-capsule-ring" aria-hidden />
       <span className="th-nav-capsule-mark">

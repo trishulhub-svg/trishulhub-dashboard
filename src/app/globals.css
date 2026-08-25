@@ -427,7 +427,7 @@ aside.th-sidebar-dock {
   100% { opacity: 0; transform: scale(2.2); }
 }
 .th-nav-capsule::after {
-  content: "Drag to move\A Double-click to open menu";
+  content: "Click to open\A Drag to move";
   position: absolute;
   bottom: calc(100% + 10px);
   left: 50%;
@@ -477,7 +477,7 @@ aside.th-sidebar-dock {
 }
 /* Phones: quick tap shows the hint bubble (same bubble, touch wording) */
 @media (pointer: coarse) {
-  .th-nav-capsule::after { content: "Hold to open\A Drag to move"; }
+  .th-nav-capsule::after { content: "Tap to open\A Drag to move"; }
 }
 .th-nav-capsule[data-tip="true"]::after,
 .th-nav-capsule[data-tip="true"]::before { opacity: 1; }

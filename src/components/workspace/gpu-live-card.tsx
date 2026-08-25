@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Cpu,
   Activity,
@@ -40,7 +40,7 @@ type GpuLiveCardProps = {
 
 const POLL_MS = 3000;
 /** Keep showing a node for this long after it stops responding (smooth fade). */
-const STALE_MS = 10_000;
+const STALE_MS = 20_000;
 
 function num(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -117,9 +117,15 @@ function extractMetrics(data: Record<string, unknown>): NodeMetrics {
   };
 }
 
-export function GpuLiveCard({ className, style, entered, onLiveChange }: GpuLiveCardProps) {
+export const GpuLiveCard = React.memo(function GpuLiveCard({
+  className,
+  style,
+  entered,
+  onLiveChange,
+}: GpuLiveCardProps) {
   const [status, setStatus] = useState<GpuStatus | null>(null);
   const [error, setError] = useState(false);
+  const lastGoodRef = useRef<GpuStatus | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const liveRef = useRef(false);
 
@@ -128,6 +134,11 @@ export function GpuLiveCard({ className, style, entered, onLiveChange }: GpuLive
       const res = await fetch("/api/gpu/status", { credentials: "include", cache: "no-store" });
       if (!res.ok) return;
       const data = (await res.json()) as GpuStatus;
+      // Keep the last known-good snapshot so intermittent tunnel outages don't
+      // flash the card OFF — only drop it after repeated failures.
+      if (data.anyLive === true || !lastGoodRef.current) {
+        lastGoodRef.current = data;
+      }
       setStatus(data);
       setError(false);
       const live = data.anyLive === true;
@@ -142,7 +153,6 @@ export function GpuLiveCard({ className, style, entered, onLiveChange }: GpuLive
 
   useEffect(() => {
     // Polling effect: fetch once, then every 3s while mounted
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchStatus();
     timerRef.current = setInterval(() => void fetchStatus(), POLL_MS);
     return () => {
@@ -152,11 +162,14 @@ export function GpuLiveCard({ className, style, entered, onLiveChange }: GpuLive
 
   // Smoothly drop nodes that stopped responding (keep them for STALE_MS).
   const now = Date.now();
-  const liveResults = (status?.results || [])
+  const source = status?.anyLive === true ? status : lastGoodRef.current;
+  const liveResults = (source?.results || [])
     .filter((r) => r.ok)
     .map((r) => ({ ...r, stale: now - new Date(r.fetchedAt).getTime() > STALE_MS }))
     .filter((r) => !r.stale);
   const anyLive = liveResults.length > 0;
+  // Track whether we are currently live vs waiting (for the OFF label).
+  const isCurrentlyLive = status?.anyLive === true;
 
   // ── Aggregated totals across all live nodes ──
   const metrics = liveResults.map((r) => extractMetrics(r.data || {}));
@@ -215,9 +228,9 @@ export function GpuLiveCard({ className, style, entered, onLiveChange }: GpuLive
 
       {error && <p className="ws-gpu-empty">Could not reach the monitor. Retrying…</p>}
 
-      {!error && !anyLive && (
+      {!error && !isCurrentlyLive && (
         <p className="ws-gpu-empty">
-          {status?.enabled?.length
+          {source?.enabled?.length
             ? "Connected nodes are not emitting data right now. Start a GPU process or toggle a URL on in System → GPU."
             : "No GPU sources enabled. Add a URL in System → GPU to see live performance here."}
         </p>
@@ -363,9 +376,11 @@ export function GpuLiveCard({ className, style, entered, onLiveChange }: GpuLive
 
       <div className="ws-gpu-footer">
         {anyLive
-          ? `Updated every 3s · ${new Date(liveResults[0].fetchedAt).toLocaleTimeString()}`
+          ? `${isCurrentlyLive ? "Updated every 3s" : "Reconnecting… last data"} · ${new Date(
+              liveResults[0].fetchedAt
+            ).toLocaleTimeString()}`
           : "Configured in System → GPU"}
       </div>
     </div>
   );
-}
+})

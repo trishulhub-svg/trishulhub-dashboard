@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Terminal } from "lucide-react";
 
 export type WorkspaceMode = "dark" | "light" | "bluelight";
@@ -103,7 +103,7 @@ function elapsedFor(u: LiveUser) {
   );
 }
 
-export function LiveIntensity({
+export const LiveIntensity = React.memo(function LiveIntensity({
   liveUsers,
   mode,
   entered,
@@ -259,4 +259,4 @@ export function LiveIntensity({
       </div>
     </div>
   );
-}
+})

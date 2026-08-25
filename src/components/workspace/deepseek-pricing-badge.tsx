@@ -1,5 +1,6 @@
 "use client"
 
+import React from "react"
 import { Info, Zap, MoonStar, Clock } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { DeepSeekPricingState } from "@/lib/deepseek-pricing"
@@ -19,7 +20,11 @@ type Props = {
  * DeepSeek Peak/Off-Peak status — clickable pill that opens a detail popover.
  * Same state object drives both variants (single source of truth).
  */
-export function DeepSeekPricingBadge({ state, variant = "standard", className }: Props) {
+export const DeepSeekPricingBadge = React.memo(function DeepSeekPricingBadge({
+  state,
+  variant = "standard",
+  className,
+}: Props) {
   const peak = state.status === "peak"
 
   return (
@@ -158,4 +163,4 @@ export function DeepSeekPricingBadge({ state, variant = "standard", className }:
       </PopoverContent>
     </Popover>
   )
-}
+})
