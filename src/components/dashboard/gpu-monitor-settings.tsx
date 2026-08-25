@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Cpu, Plus, Trash2, Loader2, Radio, CircleSlash, ExternalLink } from "lucide-react";
+import { Cpu, Plus, Trash2, Loader2, Radio, CircleSlash, ExternalLink, Wifi, WifiOff, PlugZap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,6 +18,8 @@ export function GpuMonitorSettings() {
   const [urls, setUrls] = useState<GpuUrl[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [testingIndex, setTestingIndex] = useState<number | null>(null);
+  const [testResults, setTestResults] = useState<Record<number, { ok: boolean; label: string }>>({});
 
   const load = useCallback(async () => {
     try {
@@ -57,6 +59,43 @@ export function GpuMonitorSettings() {
 
   const removeUrl = (index: number) => {
     setUrls((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const testUrl = async (index: number) => {
+    const u = urls[index];
+    if (!u?.url) return;
+    setTestingIndex(index);
+    try {
+      // Server-side probe (Vercel-safe, no browser CORS).
+      const res = await fetch("/api/system/gpu/test", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: u.url }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok) {
+        const m = data.metrics || {};
+        const parts: string[] = [];
+        if (typeof m.cpuLoad === "number") parts.push(`CPU ${Math.round(m.cpuLoad)}%`);
+        if (typeof m.memoryUsedGb === "number" && typeof m.memoryTotalGb === "number")
+          parts.push(`${m.memoryUsedGb}/${m.memoryTotalGb} GB`);
+        if (typeof m.batteryPercent === "number") parts.push(`Battery ${Math.round(m.batteryPercent)}%`);
+        setTestResults((prev) => ({
+          ...prev,
+          [index]: { ok: true, label: parts.length ? parts.join(" · ") : "Responding" },
+        }));
+      } else {
+        setTestResults((prev) => ({
+          ...prev,
+          [index]: { ok: false, label: data.error || "No data at this URL" },
+        }));
+      }
+    } catch {
+      setTestResults((prev) => ({ ...prev, [index]: { ok: false, label: "Could not reach URL" } }));
+    } finally {
+      setTestingIndex(null);
+    }
   };
 
   const save = async () => {
@@ -172,6 +211,34 @@ export function GpuMonitorSettings() {
                 <span className="truncate">{safeText(u.url)}</span>
               </div>
             )}
+            <div className="flex items-center justify-between gap-2 pt-0.5">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-[11px] gap-1"
+                disabled={testingIndex === i || !u.url}
+                onClick={() => void testUrl(i)}
+              >
+                {testingIndex === i ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <PlugZap className="h-3 w-3" />
+                )}
+                Test
+              </Button>
+              {testResults[i] &&
+                (testResults[i].ok ? (
+                  <span className="flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 min-w-0">
+                    <Wifi className="h-3 w-3 shrink-0" />
+                    <span className="truncate">{testResults[i].label}</span>
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1 text-[11px] text-amber-600 dark:text-amber-400 min-w-0">
+                    <WifiOff className="h-3 w-3 shrink-0" />
+                    <span className="truncate">{testResults[i].label}</span>
+                  </span>
+                ))}
+            </div>
           </div>
         ))}
       </div>

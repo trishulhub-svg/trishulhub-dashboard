@@ -1109,10 +1109,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           "th-nav-glass th-sidebar-shell th-sidebar-dock relative z-40 rounded-xl md:my-2 md:ml-2 md:mr-2",
           navOpen ? "th-sidebar-dock--open" : "th-sidebar-dock--stowed"
         )}
-        aria-hidden={!navOpen}
       >
         <SidebarContent
-          collapsed={false}
+          collapsed={!navOpen}
           userRole={userRole as UserRole}
           pathname={pathname}
           onNavigate={handleNavigate}
@@ -1132,7 +1131,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </Button>
       </aside>
       {!navOpen && (
-        <NavCapsule pos={capsulePos} onOpen={openDock} onMove={moveCapsule} />
+        <div className="md:hidden">
+          <NavCapsule pos={capsulePos} onOpen={openDock} onMove={moveCapsule} />
+        </div>
       )}
 
       {/* Main Content — only this region scrolls with the page */}

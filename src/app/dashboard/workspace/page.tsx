@@ -111,14 +111,6 @@ export default function TrishulWorkspacePage() {
   const [mounted, setMounted] = useState(false);
   // DeepSeek Peak/Off-Peak — Beijing-derived, local display only.
   const deepSeekState = useDeepSeekPricing();
-  // True while any GPU monitor node is streaming live data — hides the static
-  // "All Systems Operational" card so the live cloud process replaces it.
-  const [gpuLive, setGpuLive] = useState(false);
-  const handleGpuLiveChange = useCallback((live: boolean) => setGpuLive(live), []);
-  const handleActivityLine = useCallback(
-    (prefix: string, type: LineType) => barBumpFnRef.current?.(prefix, type),
-    []
-  );
 
   // Guard: ensure layout session is available before rendering
   if (status === "loading") {
@@ -195,149 +187,6 @@ export default function TrishulWorkspacePage() {
     else if (h < 17) setGreeting("Good afternoon");
     else setGreeting("Good evening");
   }, []);
-
-  /* ── Dynamic status bars — fully independent with wide spread ── */
-  const [barValues, setBarValues] = useState({ ai: 82, sync: 45, api: 67 });
-  const barTargets = useRef({ ai: 82, sync: 45, api: 67 });
-  const barBumpFnRef = useRef<((p: string, t: LineType) => void) | null>(null);
-
-  /* Each bar gets its OWN base range — intentionally spread apart */
-  const getBarBase = (bar: "ai" | "sync" | "api") => {
-    const h = new Date().getHours();
-    const t = h + new Date().getMinutes() / 60;
-    const isNight = t >= 22 || t < 6;
-    const isMorning = t >= 6 && t < 9;
-    const isLunch = t >= 12 && t < 13.5;
-    const isEvening = t >= 18 && t < 22;
-
-    if (bar === "ai") {
-      // AI is the highest — it's the core engine
-      if (isNight) return [35, 60];
-      if (isMorning) return [60, 85];
-      if (isLunch) return [55, 80];
-      if (isEvening) return [50, 75];
-      return [72, 96];
-    }
-    if (bar === "sync") {
-      // Sync is the lowest — collaborative, intermittent
-      if (isNight) return [8, 25];
-      if (isMorning) return [20, 45];
-      if (isLunch) return [25, 50];
-      if (isEvening) return [18, 42];
-      return [15, 48];
-    }
-    // API is the middle — varies a lot
-    if (isNight) return [15, 40];
-    if (isMorning) return [35, 62];
-    if (isLunch) return [30, 58];
-    if (isEvening) return [28, 55];
-    return [40, 75];
-  };
-
-  /* Map operation prefix → bar impact — each op affects ONE primary bar strongly */
-  const getBarImpact = (prefix: string, type: LineType) => {
-    const r = (lo: number, hi: number) => lo + Math.random() * (hi - lo);
-    const impact = { ai: 0, sync: 0, api: 0 };
-    switch (prefix) {
-      case "ZAI":
-        impact.ai += type === "warn" ? -r(12, 20) : type === "idle" ? -r(5, 10) : r(10, 18);
-        break;
-      case "BLUEPRINT":
-        impact.ai += type === "idle" ? -r(2, 4) : r(3, 8);
-        break;
-      case "DEPLOY":
-        impact.api += type === "warn" ? -r(12, 18) : type === "idle" ? -r(4, 8) : r(8, 16);
-        break;
-      case "STACK":
-        impact.api += type === "warn" ? -r(8, 14) : type === "idle" ? -r(3, 6) : r(5, 10);
-        break;
-      case "COLLAB":
-        impact.sync += type === "warn" ? -r(10, 18) : type === "idle" ? -r(4, 8) : r(8, 16);
-        break;
-      case "WORKSPACE":
-        impact.sync += type === "idle" ? -r(3, 6) : r(4, 8);
-        impact.api += type === "idle" ? -r(1, 3) : r(1, 4);
-        break;
-      case "AGENT":
-      case "PROTOCOL":
-        impact.sync += type === "idle" ? -r(2, 4) : r(3, 6);
-        break;
-      case "TASK":
-        impact.ai += type === "idle" ? -r(1, 3) : r(2, 6);
-        impact.api += type === "idle" ? -r(1, 3) : r(1, 4);
-        break;
-    }
-    return impact;
-  };
-
-  useEffect(() => {
-    if (!entered) return;
-
-    const initTarget = (bar: "ai" | "sync" | "api") => {
-      const range = getBarBase(bar);
-      return range[0] + Math.random() * (range[1] - range[0]);
-    };
-    barTargets.current = {
-      ai: initTarget("ai"),
-      sync: initTarget("sync"),
-      api: initTarget("api"),
-    };
-
-    /* Lerp animation loop — throttled to ~10fps with change detection.
-       (CSS `transition: width 1s` on .ws-bar-fill already smooths the bars;
-       this loop only advances targets toward their current goal and skips
-       state updates when nothing changed — avoids 60 re-renders/sec.) */
-    const lerp = (cur: number, target: number, speed: number) =>
-      cur + (target - cur) * speed;
-    let last = { ai: -1, sync: -1, api: -1 };
-    const animate = () => {
-      setBarValues((prev) => {
-        const next = {
-          ai: Math.round(lerp(prev.ai, barTargets.current.ai, 0.16)),
-          sync: Math.round(lerp(prev.sync, barTargets.current.sync, 0.12)),
-          api: Math.round(lerp(prev.api, barTargets.current.api, 0.14)),
-        };
-        if (next.ai === last.ai && next.sync === last.sync && next.api === last.api) {
-          return prev; // no visible change → skip render
-        }
-        last = next;
-        return next;
-      });
-    };
-    const loop = setInterval(animate, 100);
-
-    /* Each bar decays independently toward its own base range */
-    const decayTimers: ReturnType<typeof setTimeout>[] = [];
-    const scheduleDecay = (bar: "ai" | "sync" | "api") => {
-      const delay = 1500 + Math.random() * 2500;
-      const tid = setTimeout(() => {
-        const range = getBarBase(bar);
-        const base = range[0] + Math.random() * (range[1] - range[0]);
-        barTargets.current[bar] = barTargets.current[bar] * 0.88 + base * 0.12;
-        scheduleDecay(bar);
-      }, delay);
-      decayTimers.push(tid);
-    };
-    scheduleDecay("ai");
-    scheduleDecay("sync");
-    scheduleDecay("api");
-
-    /* Expose function so feed can bump bars */
-    barBumpFnRef.current = (prefix: string, type: LineType) => {
-      const impact = getBarImpact(prefix, type);
-      barTargets.current = {
-        ai: Math.max(3, Math.min(99, barTargets.current.ai + impact.ai)),
-        sync: Math.max(3, Math.min(99, barTargets.current.sync + impact.sync)),
-        api: Math.max(3, Math.min(99, barTargets.current.api + impact.api)),
-      };
-    };
-
-    return () => {
-      clearInterval(loop);
-      decayTimers.forEach(clearTimeout);
-      barBumpFnRef.current = null;
-    };
-  }, [entered]);
 
   /* ── ONE merged 1s tick for all live counters (time, horizons, uptime) ──
      Previously 4 separate setInterval(…, 1000) effects each triggered a full
@@ -479,33 +328,6 @@ export default function TrishulWorkspacePage() {
   const handleClockOut = useCallback(() => {
     router.push("/dashboard/time-tracking?action=clockout");
   }, [router]);
-
-  /* ── Bar positions for smooth reordering (absolute positioning) ── */
-  const statusBarsRef = useRef<HTMLDivElement>(null);
-  const [barStep, setBarStep] = useState(28); // px — will be measured
-
-  /* Measure actual item spacing after mount */
-  useEffect(() => {
-    if (!entered || !statusBarsRef.current) return;
-    const items = statusBarsRef.current.querySelectorAll('.ws-status-bar-item');
-    if (items.length >= 2) {
-      const r0 = items[0].getBoundingClientRect();
-      const r1 = items[1].getBoundingClientRect();
-      setBarStep(Math.round(r1.top - r0.top));
-    }
-  }, [entered]);
-
-  const barPositions = useMemo(() => {
-    const entries = [
-      { key: "ai" as const, value: barValues.ai },
-      { key: "sync" as const, value: barValues.sync },
-      { key: "api" as const, value: barValues.api },
-    ];
-    const sorted = [...entries].sort((a, b) => b.value - a.value);
-    const pos: Record<string, number> = {};
-    sorted.forEach((e, i) => { pos[e.key] = i * barStep; });
-    return pos;
-  }, [barValues, barStep]);
 
   return (
     <>
@@ -721,54 +543,12 @@ export default function TrishulWorkspacePage() {
               liveUsers={liveUsers}
               mode={mode}
               entered={entered}
-              onActivityLine={handleActivityLine}
             />
-
-            {/* ─── ROW 4: Status bars (right after Live Ops) ─── */}
-
-            {/* STATUS INDICATOR CARD — hidden while the live GPU monitor streams */}
-            {!gpuLive && (
-              <div
-                className={`ws-card ws-status-card ${entered ? "ws-in" : ""}`}
-                style={{ transitionDelay: "0.38s" }}
-              >
-                <div className="ws-status-row">
-                  <div className={`ws-status-dot ws-status-dot--${mode}`} />
-                  <span className={`ws-status-text ws-status-text--${mode}`}>
-                    All Systems Operational
-                  </span>
-                </div>
-                <div ref={statusBarsRef} className="ws-status-bars" style={{ height: barStep * 3 }}>
-                  <div className="ws-status-bar-item" style={{ top: `${barPositions.ai}px` }}>
-                    <span className={`ws-bar-label ws-bar-label--${mode}`}>AI</span>
-                    <div className={`ws-bar-track ws-bar-track--${mode}`}>
-                      <div className="ws-bar-fill ws-bar-fill--cyan" style={{ width: `${barValues.ai}%` }} />
-                    </div>
-                    <span className={`ws-bar-pct ws-bar-pct--cyan`}>{barValues.ai}%</span>
-                  </div>
-                  <div className="ws-status-bar-item" style={{ top: `${barPositions.sync}px` }}>
-                    <span className={`ws-bar-label ws-bar-label--${mode}`}>Sync</span>
-                    <div className={`ws-bar-track ws-bar-track--${mode}`}>
-                      <div className="ws-bar-fill ws-bar-fill--purple" style={{ width: `${barValues.sync}%` }} />
-                    </div>
-                    <span className={`ws-bar-pct ws-bar-pct--purple`}>{barValues.sync}%</span>
-                  </div>
-                  <div className="ws-status-bar-item" style={{ top: `${barPositions.api}px` }}>
-                    <span className={`ws-bar-label ws-bar-label--${mode}`}>API</span>
-                    <div className={`ws-bar-track ws-bar-track--${mode}`}>
-                      <div className="ws-bar-fill ws-bar-fill--pink" style={{ width: `${barValues.api}%` }} />
-                    </div>
-                    <span className={`ws-bar-pct ws-bar-pct--pink`}>{barValues.api}%</span>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {/* ─── TRISHUL CLOUD PROCESS — GPU & performance live monitor ─── */}
             <GpuLiveCard
               entered={entered}
               style={{ transitionDelay: "0.385s" }}
-              onLiveChange={handleGpuLiveChange}
             />
 
             {/* ─── LONG HORIZON CARD ─── */}

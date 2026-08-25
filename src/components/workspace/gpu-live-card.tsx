@@ -33,9 +33,6 @@ type GpuLiveCardProps = {
   className?: string;
   style?: React.CSSProperties;
   entered?: boolean;
-  /** Called when the live/off state changes — lets the page hide the
-   *  "All Systems Operational" card while nodes are streaming. */
-  onLiveChange?: (live: boolean) => void;
 };
 
 const POLL_MS = 3000;
@@ -121,13 +118,11 @@ export const GpuLiveCard = React.memo(function GpuLiveCard({
   className,
   style,
   entered,
-  onLiveChange,
 }: GpuLiveCardProps) {
   const [status, setStatus] = useState<GpuStatus | null>(null);
   const [error, setError] = useState(false);
   const lastGoodRef = useRef<GpuStatus | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const liveRef = useRef(false);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -141,15 +136,10 @@ export const GpuLiveCard = React.memo(function GpuLiveCard({
       }
       setStatus(data);
       setError(false);
-      const live = data.anyLive === true;
-      if (live !== liveRef.current) {
-        liveRef.current = live;
-        onLiveChange?.(live);
-      }
     } catch {
       setError(true);
     }
-  }, [onLiveChange]);
+  }, []);
 
   useEffect(() => {
     // Polling effect: fetch once, then every 3s while mounted
