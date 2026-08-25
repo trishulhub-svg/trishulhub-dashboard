@@ -10,6 +10,7 @@ import {
   listItemGrants,
   getUserModuleOverride,
   getDepartmentIdForItem,
+  getDepartmentIdForNode,
   isDepartmentPrivate,
   FILE_STAFF_ROLES,
 } from "@/lib/file-access"
@@ -123,7 +124,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ grants })
     }
     if (nodeId) {
-      const grants = await listDepartmentGrants(nodeId)
+      // Resolve any node (CATEGORY/FOLDER/DEPARTMENT) to its department so the
+      // Files page can show sharing for the folder the user is looking at.
+      const deptId = await getDepartmentIdForNode(nodeId)
+      const targetDeptId = deptId || nodeId
+      const grants = await listDepartmentGrants(targetDeptId)
       // Enrich with user names
       const enriched: Array<{
         id: string
@@ -337,12 +342,15 @@ export async function PUT(req: NextRequest) {
     }
 
     if (type === "NODE_USER" || type === "NODE_ROLE") {
-      const nodeId = String(body.nodeId || "")
+      const nodeIdRaw = String(body.nodeId || "")
       const canRead = body.canRead !== false
       const canWrite = body.canWrite !== false
       const canDelete = body.canDelete === true
-      if (!nodeId) return NextResponse.json({ error: "nodeId required" }, { status: 400 })
+      if (!nodeIdRaw) return NextResponse.json({ error: "nodeId required" }, { status: 400 })
 
+      // Resolve any folder/category to its owning DEPARTMENT for grant + Drive sync
+      const resolvedDeptId = (await getDepartmentIdForNode(nodeIdRaw)) || nodeIdRaw
+      const nodeId = resolvedDeptId
       const node = (await db.$queryRawUnsafe(
         `SELECT "id","kind","driveFolderId","name","isPrivate" FROM "FileNode" WHERE "id" = ? LIMIT 1`,
         nodeId

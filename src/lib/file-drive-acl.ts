@@ -150,20 +150,34 @@ async function listAllDepartmentIds(includePrivate: boolean): Promise<string[]> 
 
 /** Share a department Drive folder with every active user of a role. */
 export async function shareDepartmentWithRoleUsers(nodeId: string, role: string): Promise<void> {
-  const driveId = await departmentDriveId(nodeId)
-  if (!driveId) return
+  // Share the department folder AND every descendant folder (categories/folders)
+  // so role users never hit "Request access" when browsing the tree in Drive.
+  const nodeIds = await collectSubtreeNodeIds(nodeId)
+  const driveIds: string[] = []
+  for (const id of nodeIds) {
+    const driveId = await departmentDriveId(id)
+    if (driveId) driveIds.push(driveId)
+  }
   const users = await listActiveUsersByRole(role)
-  for (const u of users) {
-    await shareDriveTargetWithUser(driveId, u.id, "writer")
+  for (const driveId of driveIds) {
+    for (const u of users) {
+      await shareDriveTargetWithUser(driveId, u.id, "writer")
+    }
   }
 }
 
 export async function unshareDepartmentFromRoleUsers(nodeId: string, role: string): Promise<void> {
-  const driveId = await departmentDriveId(nodeId)
-  if (!driveId) return
+  const nodeIds = await collectSubtreeNodeIds(nodeId)
+  const driveIds: string[] = []
+  for (const id of nodeIds) {
+    const driveId = await departmentDriveId(id)
+    if (driveId) driveIds.push(driveId)
+  }
   const users = await listActiveUsersByRole(role)
-  for (const u of users) {
-    await unshareDriveTargetFromUser(driveId, u.id)
+  for (const driveId of driveIds) {
+    for (const u of users) {
+      await unshareDriveTargetFromUser(driveId, u.id)
+    }
   }
 }
 
@@ -393,12 +407,16 @@ export async function rematerializeUserDriveAccess(opts: {
 
   if (oldEmailNorm) {
     for (const nodeId of unshareDeptSet) {
-      const driveId = await departmentDriveId(nodeId)
-      if (!driveId) continue
-      // Don't unshare if still needed and same email still in newEmails
-      if (newDeptIds.includes(nodeId) && newEmails.includes(oldEmailNorm)) continue
-      await unshareDriveTargetFromEmail(driveId, oldEmailNorm)
-      unshared += 1
+      // Unshare the department subtree too (categories/folders)
+      const subtreeIds = await collectSubtreeNodeIds(nodeId)
+      for (const subId of subtreeIds) {
+        const driveId = await departmentDriveId(subId)
+        if (!driveId) continue
+        // Don't unshare if still needed and same email still in newEmails
+        if (newDeptIds.includes(nodeId) && newEmails.includes(oldEmailNorm)) continue
+        await unshareDriveTargetFromEmail(driveId, oldEmailNorm)
+        unshared += 1
+      }
     }
     for (const driveId of itemDriveIds) {
       if (newEmails.includes(oldEmailNorm)) continue
@@ -412,12 +430,15 @@ export async function rematerializeUserDriveAccess(opts: {
     for (const nodeId of oldRoleDepts) {
       if (stillNeeded.has(nodeId)) continue
       if (nodeUserOnly.some((r) => r.nodeId === nodeId)) continue
-      const driveId = await departmentDriveId(nodeId)
-      if (!driveId) continue
-      for (const email of newEmails) {
-        await unshareDriveTargetFromEmail(driveId, email)
+      const subtreeIds = await collectSubtreeNodeIds(nodeId)
+      for (const subId of subtreeIds) {
+        const driveId = await departmentDriveId(subId)
+        if (!driveId) continue
+        for (const email of newEmails) {
+          await unshareDriveTargetFromEmail(driveId, email)
+        }
+        unshared += 1
       }
-      unshared += 1
     }
   }
 
@@ -435,10 +456,16 @@ export async function rematerializeUserDriveAccess(opts: {
 
   if (newEmails.length) {
     for (const nodeId of newDeptIds) {
-      const driveId = await departmentDriveId(nodeId)
-      const result = await shareDriveTargetWithUser(driveId, opts.userId, "writer")
-      if (result.ok) shared += 1
-      else if (result.error) warnings.push(result.error)
+      // Share the department folder AND its whole subtree (categories/folders)
+      // so the user can open any file in Drive without "Request access".
+      const subtreeIds = await collectSubtreeNodeIds(nodeId)
+      for (const subId of subtreeIds) {
+        const driveId = await departmentDriveId(subId)
+        if (!driveId) continue
+        const result = await shareDriveTargetWithUser(driveId, opts.userId, "writer")
+        if (result.ok) shared += 1
+        else if (result.error) warnings.push(result.error)
+      }
     }
     for (const driveId of itemDriveIds) {
       const result = await shareDriveTargetWithUser(driveId, opts.userId, "writer")
@@ -484,11 +511,179 @@ export async function shareNewDepartmentWithAdmins(nodeId: string): Promise<void
 }
 
 export async function shareDepartmentWithUser(nodeId: string, userId: string) {
-  const driveId = await departmentDriveId(nodeId)
-  return shareDriveTargetWithUser(driveId, userId, "writer")
+  // Share department folder + every descendant so the user gets full tree access
+  const nodeIds = await collectSubtreeNodeIds(nodeId)
+  let last: Awaited<ReturnType<typeof shareDriveTargetWithUser>> | null = null
+  for (const id of nodeIds) {
+    const driveId = await departmentDriveId(id)
+    if (!driveId) continue
+    last = await shareDriveTargetWithUser(driveId, userId, "writer")
+  }
+  return last || { ok: false, error: "No Drive folder on department" }
 }
 
 export async function unshareDepartmentFromUser(nodeId: string, userId: string, emailOverride?: string | null) {
-  const driveId = await departmentDriveId(nodeId)
-  await unshareDriveTargetFromUser(driveId, userId, emailOverride)
+  const nodeIds = await collectSubtreeNodeIds(nodeId)
+  for (const id of nodeIds) {
+    const driveId = await departmentDriveId(id)
+    if (!driveId) continue
+    await unshareDriveTargetFromUser(driveId, userId, emailOverride)
+  }
+}
+
+/**
+ * ── ENHANCED AUTO-SHARE ──
+ * When a CATEGORY/FOLDER is created inside a department, its Drive folder must
+ * be shared with every user who has access to that department (role grants +
+ * user grants + admins). This is what keeps Drive ACLs in sync with Trishulhub
+ * roles automatically — no manual "Request access" for users.
+ */
+
+/** Resolve the DEPARTMENT ancestor of any node (or the node itself). */
+export async function resolveDepartmentNodeId(nodeId: string): Promise<string | null> {
+  let current: string | null = nodeId
+  for (let i = 0; i < 40 && current; i++) {
+    const rows = (await db.$queryRawUnsafe(
+      `SELECT "id","kind","parentId" FROM "FileNode" WHERE "id" = ? AND "deletedAt" IS NULL LIMIT 1`,
+      current
+    )) as Array<{ id: string; kind: string; parentId: string | null }>
+    if (!rows[0]) return null
+    if (rows[0].kind === "DEPARTMENT") return rows[0].id
+    current = rows[0].parentId
+  }
+  return null
+}
+
+/** All active users who should see a department: admins + NODE_ROLE + NODE_USER. */
+export async function listDepartmentAccessUsers(departmentId: string): Promise<
+  Array<{ id: string; role: string }>
+> {
+  const users = await db.user.findMany({
+    where: { isActive: true },
+    select: { id: true, role: true },
+  })
+  if (users.length === 0) return []
+
+  const isAdminUser = (role: string) => isSuperAdmin(role) || canManageFileReview(role)
+
+  const roleRows = (await db.$queryRawUnsafe(
+    `SELECT DISTINCT "role" FROM "FileAccessGrant"
+     WHERE "scope" = 'NODE_ROLE' AND "nodeId" = ? AND "canRead" = 1 AND "role" IS NOT NULL`,
+    departmentId
+  )) as Array<{ role: string }>
+  const userRows = (await db.$queryRawUnsafe(
+    `SELECT "userId" FROM "FileAccessGrant"
+     WHERE "scope" = 'NODE_USER' AND "nodeId" = ? AND "canRead" = 1 AND "userId" IS NOT NULL`,
+    departmentId
+  )) as Array<{ userId: string }>
+
+  const roleSet = new Set(roleRows.map((r) => r.role))
+  const userSet = new Set(userRows.map((r) => r.userId))
+
+  return users.filter((u) => {
+    if (isAdminUser(u.role)) return true
+    if (userSet.has(u.id)) return true
+    return roleSet.has(u.role)
+  })
+}
+
+/** Collect all descendant node IDs (BFS) of a node, including itself. */
+async function collectSubtreeNodeIds(rootId: string): Promise<string[]> {
+  const ids = [rootId]
+  const queue = [rootId]
+  while (queue.length) {
+    const parent = queue.shift()!
+    const kids = (await db.$queryRawUnsafe(
+      `SELECT "id" FROM "FileNode" WHERE "parentId" = ? AND "deletedAt" IS NULL`,
+      parent
+    )) as Array<{ id: string }>
+    for (const k of kids) {
+      ids.push(k.id)
+      queue.push(k.id)
+    }
+  }
+  return ids
+}
+
+/**
+ * Share a node's Drive folder (and every descendant folder) with all users who
+ * have access to the owning department. Call after creating CATEGORY/FOLDER or
+ * moving a node so Drive ACLs follow Trishulhub roles automatically.
+ */
+export async function shareNodeSubtreeWithDepartmentUsers(
+  nodeId: string
+): Promise<{ sharedFolders: number; sharedUsers: number; warnings: string[] }> {
+  const warnings: string[] = []
+  const departmentId = await resolveDepartmentNodeId(nodeId)
+  if (!departmentId) return { sharedFolders: 0, sharedUsers: 0, warnings }
+
+  const users = await listDepartmentAccessUsers(departmentId)
+  if (users.length === 0) return { sharedFolders: 0, sharedUsers: 0, warnings }
+
+  const nodeIds = await collectSubtreeNodeIds(nodeId)
+  let sharedFolders = 0
+  let sharedUsers = 0
+
+  for (const id of nodeIds) {
+    const driveId = await departmentDriveId(id)
+    if (!driveId) continue
+    let anyOk = false
+    for (const u of users) {
+      const result = await shareDriveTargetWithUser(driveId, u.id, "writer")
+      if (result.ok) {
+        anyOk = true
+        sharedUsers += 1
+      } else if (result.error) {
+        warnings.push(result.error)
+      }
+    }
+    if (anyOk) sharedFolders += 1
+  }
+
+  return { sharedFolders, sharedUsers, warnings }
+}
+
+/**
+ * Unshare a node's Drive folder + descendants from everyone EXCEPT admins and
+ * users with an explicit NODE_USER grant. Call when a node is soft-deleted so
+ * removed folders stop being visible in users' Drive.
+ */
+export async function unshareNodeSubtreeFromUsers(
+  nodeId: string
+): Promise<{ unsharedFolders: number; unsharedUsers: number; warnings: string[] }> {
+  const warnings: string[] = []
+  const departmentId = await resolveDepartmentNodeId(nodeId)
+  if (!departmentId) return { unsharedFolders: 0, unsharedUsers: 0, warnings }
+
+  // Keep access for: admins + explicit NODE_USER grants on the department
+  const keepUsers = await listDepartmentAccessUsers(departmentId)
+  const keepIds = new Set(keepUsers.map((u) => u.id))
+
+  const allUsers = await db.user.findMany({
+    where: { isActive: true },
+    select: { id: true },
+  })
+  const nodeIds = await collectSubtreeNodeIds(nodeId)
+  let unsharedFolders = 0
+  let unsharedUsers = 0
+
+  for (const id of nodeIds) {
+    const driveId = await departmentDriveId(id)
+    if (!driveId) continue
+    let anyOk = false
+    for (const u of allUsers) {
+      if (keepIds.has(u.id)) continue
+      try {
+        await unshareDriveTargetFromUser(driveId, u.id)
+        anyOk = true
+        unsharedUsers += 1
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        warnings.push(msg.slice(0, 100))
+      }
+    }
+    if (anyOk) unsharedFolders += 1
+  }
+
+  return { unsharedFolders, unsharedUsers, warnings }
 }

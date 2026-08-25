@@ -21,6 +21,8 @@ import {
   DollarSign, TrendingUp, TrendingDown, FileText, Clock,
   AlertCircle, Search, Plus, Trash2, Pause, Play, Edit3, CreditCard,
   Receipt, FolderOpen, Tag, ChevronDown, ChevronUp, Pencil,
+  FileSpreadsheet, FileType2, FileDown, ExternalLink, RefreshCw,
+  CalendarRange, User as UserIcon,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -48,6 +50,7 @@ import { emitFinanceChanged, useFinanceLiveRefresh } from "@/lib/finance-events"
 import { PageHeader } from "@/components/page-header";
 import { EditExpenseDialog } from "@/components/dashboard/finance/edit-expense-dialog";
 import { ExpenseDetailSheet } from "@/components/dashboard/finance/expense-detail-sheet";
+import { FinanceReportsPanel } from "@/components/dashboard/finance/finance-reports-panel";
 import type { ExpenseDetail } from "@/components/dashboard/finance/expense-detail-sheet";
 import { SubscriptionExpiryBadge } from "@/components/dashboard/finance/subscription-expiry-badge";
 import { SubscriptionExpiryChecker } from "@/components/dashboard/finance/subscription-expiry-checker";
@@ -163,7 +166,7 @@ const SUB_FREQUENCY_COLORS: Record<string, string> = {
 };
 
 const EXPENSE_CATEGORIES_FALLBACK = [...DEFAULT_EXPENSE_CATEGORIES];
-const FINANCE_TABS = new Set(["overview", "subscriptions", "expenses", "category", "project"]);
+const FINANCE_TABS = new Set(["overview", "subscriptions", "expenses", "category", "project", "reports"]);
 
 function isExpenseDetail(obj: unknown): obj is ExpenseDetail {
   return typeof obj === "object" && obj !== null && "id" in obj && "amount" in obj;
@@ -997,6 +1000,9 @@ function FinancePageInner() {
             <TabsTrigger value="expenses" className="data-[state=active]:bg-card data-[state=active]:shadow-sm shrink-0">Expenses</TabsTrigger>
             <TabsTrigger value="category" className="data-[state=active]:bg-card data-[state=active]:shadow-sm shrink-0">By Category</TabsTrigger>
             <TabsTrigger value="project" className="data-[state=active]:bg-card data-[state=active]:shadow-sm shrink-0">By Project</TabsTrigger>
+            <TabsTrigger value="reports" className="data-[state=active]:bg-card data-[state=active]:shadow-sm shrink-0">
+              <FileDown className="h-3.5 w-3.5 mr-1" /> Reports
+            </TabsTrigger>
           </TabsList>
         </div>
 
@@ -1603,6 +1609,11 @@ function FinancePageInner() {
               </>
             )}
           </div>
+        </TabsContent>
+
+        {/* ─── Reports Tab ──── */}
+        <TabsContent value="reports" className="space-y-4">
+          <FinanceReportsPanel />
         </TabsContent>
       </Tabs>
 

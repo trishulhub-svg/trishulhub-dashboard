@@ -249,6 +249,20 @@ export async function POST(req: NextRequest) {
         console.warn("[files/nodes] admin Drive share on create failed", e)
       }
     }
+    // CATEGORY / FOLDER: auto-share the new Drive folder (and future descendants)
+    // with every user who has access to the owning department — roles + user grants
+    // + admins. This is what removes "Request access" for staff.
+    if (kind !== "DEPARTMENT" && driveFolderId) {
+      try {
+        const { shareNodeSubtreeWithDepartmentUsers } = await import("@/lib/file-drive-acl")
+        const res = await shareNodeSubtreeWithDepartmentUsers(id)
+        if (res.warnings.length) {
+          console.warn("[files/nodes] auto-share warnings:", res.warnings.slice(0, 3))
+        }
+      } catch (e) {
+        console.warn("[files/nodes] auto-share on create failed", e)
+      }
+    }
 
     const created = (await db.$queryRawUnsafe(
       `SELECT * FROM "FileNode" WHERE "id" = ? LIMIT 1`,
@@ -391,6 +405,26 @@ export async function PATCH(req: NextRequest) {
         id
       )
 
+      // Move across departments → re-propagate Drive ACLs automatically:
+      // share the subtree with the new department's users, unshare from users
+      // who no longer have access (unless they still hold a NODE_USER grant).
+      try {
+        const {
+          shareNodeSubtreeWithDepartmentUsers,
+          unshareNodeSubtreeFromUsers,
+        } = await import("@/lib/file-drive-acl")
+        const shared = await shareNodeSubtreeWithDepartmentUsers(id)
+        const unshared = await unshareNodeSubtreeFromUsers(id)
+        if (shared.warnings.length || unshared.warnings.length) {
+          console.warn(
+            "[files/nodes] move ACL warnings:",
+            [...shared.warnings, ...unshared.warnings].slice(0, 3)
+          )
+        }
+      } catch (e) {
+        console.warn("[files/nodes] move ACL sync failed", e)
+      }
+
       if (node.driveFolderId && nextName !== node.name) {
         try {
           await renameDriveFile(node.driveFolderId, nextName)
@@ -513,6 +547,18 @@ export async function DELETE(req: NextRequest) {
       session.user.id,
       ...nodeIds
     )
+
+    // Unshare the deleted Drive folders (and descendant files) from users who no
+    // longer have access — deleted content lands in Review (admins only).
+    try {
+      const { unshareNodeSubtreeFromUsers } = await import("@/lib/file-drive-acl")
+      const res = await unshareNodeSubtreeFromUsers(id)
+      if (res.warnings.length) {
+        console.warn("[files/nodes] unshare warnings:", res.warnings.slice(0, 3))
+      }
+    } catch (e) {
+      console.warn("[files/nodes] unshare on delete failed", e)
+    }
 
     void logAudit({
       userId: session.user.id,

@@ -143,9 +143,13 @@ export default function FilesPage() {
   const [createOpen, setCreateOpen] = usePersistedOpen("files-create-open", false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const [shareOpen, setShareOpen] = useState(false);
-  const [shareFile, setShareFile] = useState<FileItem | null>(null);
-  const [teamUsers, setTeamUsers] = useState<TeamUser[]>([]);
+const [shareOpen, setShareOpen] = useState(false);
+const [shareFile, setShareFile] = useState<FileItem | null>(null);
+const [folderShareOpen, setFolderShareOpen] = useState(false);
+const [folderShareNode, setFolderShareNode] = useState<FileNode | null>(null);
+const [folderGrants, setFolderGrants] = useState<Array<Record<string, unknown>>>([]);
+const [folderShareUserId, setFolderShareUserId] = useState("");
+const [teamUsers, setTeamUsers] = useState<TeamUser[]>([]);
   const [shareUserId, setShareUserId] = useState("");
   const [shareGrants, setShareGrants] = useState<
     Array<{ id: string; userId: string | null; name: string | null; email: string | null }>
@@ -622,6 +626,94 @@ export default function FilesPage() {
     }
     toast.success("File access removed");
     setShareGrants((prev) => prev.filter((g) => g.id !== removeId));
+  };
+
+  const openFolderShare = async (node: FileNode) => {
+    setFolderShareNode(node);
+    setFolderShareUserId("");
+    setFolderShareOpen(true);
+    try {
+      const [usersRes, grantsRes] = await Promise.all([
+        fetch("/api/team?type=users", { credentials: "include" }),
+        fetch(`/api/files/access?nodeId=${encodeURIComponent(node.id)}`, { credentials: "include" }),
+      ]);
+      if (usersRes.ok) {
+        const u = await usersRes.json();
+        const arr = Array.isArray(u) ? u : u?.data || [];
+        setTeamUsers(
+          arr
+            .filter((x: TeamUser) => x?.id && x?.email)
+            .map((x: TeamUser) => ({ id: x.id, name: x.name || x.email, email: x.email }))
+        );
+      }
+      if (grantsRes.ok) {
+        const g = await grantsRes.json();
+        setFolderGrants(Array.isArray(g.grants) ? g.grants : []);
+      } else {
+        setFolderGrants([]);
+      }
+    } catch {
+      toast.error("Could not load folder sharing");
+    }
+  };
+
+  const grantFolderAccess = async () => {
+    if (!folderShareNode || !folderShareUserId) return;
+    setSharing(true);
+    try {
+      const res = await fetch("/api/files/access", {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "NODE_USER",
+          nodeId: folderShareNode.id,
+          userId: folderShareUserId,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data.error || "Share failed");
+        return;
+      }
+      if (data.driveShare && data.driveShare.ok) {
+        toast.success("Folder access granted — user can open this folder and everything inside");
+      } else {
+        toast.success("Folder access granted in Trishulhub");
+        if (data.warning) toast.warning(String(data.warning));
+      }
+      setFolderShareUserId("");
+      const grantsRes = await fetch(
+        `/api/files/access?nodeId=${encodeURIComponent(folderShareNode.id)}`,
+        { credentials: "include" }
+      );
+      if (grantsRes.ok) {
+        const g = await grantsRes.json();
+        setFolderGrants(Array.isArray(g.grants) ? g.grants : []);
+      }
+    } finally {
+      setSharing(false);
+    }
+  };
+
+  const removeFolderGrant = async (removeId: string) => {
+    if (!folderShareNode) return;
+    const res = await fetch("/api/files/access", {
+      method: "PUT",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "NODE_USER",
+        nodeId: folderShareNode.id,
+        removeId,
+      }),
+    });
+    if (!res.ok) {
+      toast.error("Could not remove access");
+      return;
+    }
+    toast.success("Folder access removed");
+    setFolderGrants((prev) => prev.filter((g) => g.id !== removeId));
   };
 
   const moveDest = movePath.length ? movePath[movePath.length - 1] : null;
@@ -1199,6 +1291,11 @@ export default function FilesPage() {
                                   <ExternalLink className="h-3.5 w-3.5 mr-2" /> Open in Drive
                                 </DropdownMenuItem>
                               ) : null}
+                              {canReview && (
+                                <DropdownMenuItem onClick={() => void openFolderShare(n)}>
+                                  <Share2 className="h-3.5 w-3.5 mr-2" /> Share
+                                </DropdownMenuItem>
+                              )}
                               {n.kind !== "DEPARTMENT" && (
                                 <DropdownMenuItem onClick={() => openMove({ type: "node", node: n })}>
                                   <FolderInput className="h-3.5 w-3.5 mr-2" /> Move to…
@@ -1494,6 +1591,74 @@ export default function FilesPage() {
                 Close
               </Button>
               <Button disabled={!shareUserId || sharing} onClick={() => void grantFileAccess()}>
+                {sharing ? "Saving…" : "Grant access"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Folder share dialog — grants access to the whole folder (and subtree) */}
+        <Dialog open={folderShareOpen} onOpenChange={setFolderShareOpen}>
+          <DialogContent className="sm:max-w-[480px]">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Share2 className="h-4 w-4" />
+                Share folder
+              </DialogTitle>
+              <DialogDescription>
+                Grant <strong>{safeText(folderShareNode?.name)}</strong> access to a team member —
+                they can open this folder and everything inside it on Google Drive.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 py-1">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Team member</Label>
+                <Select value={folderShareUserId || undefined} onValueChange={setFolderShareUserId}>
+                  <SelectTrigger className="h-10">
+                    <SelectValue placeholder="Choose user…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {teamUsers.map((u) => (
+                      <SelectItem key={u.id} value={u.id}>
+                        {safeText(u.name)} · {safeText(u.email)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {folderGrants.length > 0 && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Current folder access</Label>
+                  <ul className="space-y-1 max-h-40 overflow-y-auto">
+                    {folderGrants.map((g) => (
+                      <li
+                        key={String(g.id)}
+                        className="flex items-center justify-between gap-2 rounded-md border px-2 py-1.5 text-xs"
+                      >
+                        <span className="truncate">
+                          {g.scope === "NODE_ROLE"
+                            ? `${String(g.role || "").replace(/_/g, " ")} role`
+                            : safeText(g.name || g.email || String(g.userId || ""))}
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-red-600"
+                          onClick={() => void removeFolderGrant(String(g.id))}
+                        >
+                          Remove
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setFolderShareOpen(false)}>
+                Close
+              </Button>
+              <Button disabled={!folderShareUserId || sharing} onClick={() => void grantFolderAccess()}>
                 {sharing ? "Saving…" : "Grant access"}
               </Button>
             </DialogFooter>
