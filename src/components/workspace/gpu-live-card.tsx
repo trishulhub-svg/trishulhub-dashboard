@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React from "react";
 import {
   Cpu,
   Activity,
@@ -13,175 +13,54 @@ import {
   BatteryMedium,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-type GpuResult = {
-  id: string;
-  name: string;
-  url: string;
-  ok: boolean;
-  data: Record<string, unknown> | null;
-  fetchedAt: string;
-};
-
-type GpuStatus = {
-  enabled: GpuResult[];
-  results: GpuResult[];
-  anyLive: boolean;
-};
+import {
+  aggregateGpuResults,
+  clamp,
+  type GpuStatus,
+} from "@/lib/gpu-metrics";
+import { useGpuStatus } from "@/hooks/use-gpu-status";
 
 type GpuLiveCardProps = {
   className?: string;
   style?: React.CSSProperties;
   entered?: boolean;
+  /** Current fetch result (used for the LIVE/OFF liveness label). */
+  status?: GpuStatus | null;
+  /** Last known-good snapshot — keeps data visible during brief outages. */
+  source?: GpuStatus | null;
+  error?: boolean;
 };
 
-const POLL_MS = 3000;
 /** Keep showing a node for this long after it stops responding (smooth fade). */
 const STALE_MS = 20_000;
-
-function num(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string" && value.trim() !== "") {
-    const n = parseFloat(value);
-    if (Number.isFinite(n)) return n;
-  }
-  return null;
-}
-
-function clamp(n: number, min = 0, max = 100) {
-  return Math.min(max, Math.max(min, n));
-}
-
-type NodeMetrics = {
-  cpu: number | null;
-  cpuFreq: number | null;
-  memoryPercent: number | null;
-  memoryUsedGb: number | null;
-  memoryTotalGb: number | null;
-  temperature: number | null;
-  batteryPercent: number | null;
-  batteryState: string | null;
-  uptime: string | null;
-  health: string | null;
-};
-
-/** Normalize either the JSON or HTML monitor format into a common shape. */
-function extractMetrics(data: Record<string, unknown>): NodeMetrics {
-  const get = (...keys: string[]): number | null => {
-    for (const k of keys) {
-      const v = num(data[k]);
-      if (v !== null) return v;
-    }
-    return null;
-  };
-  const nested = (data.gpu ?? data.metrics ?? data.performance ?? data.system ?? {}) as Record<string, unknown>;
-  const getN = (...keys: string[]): number | null => {
-    for (const k of keys) {
-      const v = num(nested[k]);
-      if (v !== null) return v;
-    }
-    return null;
-  };
-  const str = (v: unknown): string | null =>
-    typeof v === "string" && v.trim() ? v.trim() : null;
-  return {
-    cpu:
-      get("cpu_usage", "cpuUsage", "cpu", "cpuLoad", "load") ??
-      getN("cpu", "cpu_usage", "load"),
-    cpuFreq:
-      get("cpu_freq_mhz", "cpuFreqMhz", "frequency_mhz", "clock_mhz") ??
-      getN("frequency_mhz", "clock_mhz", "freq_mhz"),
-    memoryPercent:
-      get("memory_percent", "memoryPercent", "memory", "mem") ??
-      getN("memory_percent", "memory", "mem"),
-    memoryUsedGb:
-      get("memory_used_gb", "memoryUsedGb", "memory_used") ??
-      getN("memory_used_gb", "memory_used"),
-    memoryTotalGb:
-      get("memory_total_gb", "memoryTotalGb", "memory_total") ??
-      getN("memory_total_gb", "memory_total"),
-    temperature:
-      get("gpu_temp", "gpuTemp", "temperature", "temp", "cpu_temp") ??
-      getN("temp", "temperature", "cpu_temp"),
-    batteryPercent:
-      get("battery_percent", "batteryPercent", "battery") ??
-      getN("battery_percent", "battery"),
-    batteryState:
-      str(data.battery_state ?? data.batteryState) ??
-      str(nested.battery_state ?? nested.batteryState),
-    uptime: str(data.uptime ?? nested.uptime),
-    health: str(data.health ?? nested.health ?? data.status),
-  };
-}
 
 export const GpuLiveCard = React.memo(function GpuLiveCard({
   className,
   style,
   entered,
+  status: statusProp,
+  source: sourceProp,
+  error: errorProp,
 }: GpuLiveCardProps) {
-  const [status, setStatus] = useState<GpuStatus | null>(null);
-  const [error, setError] = useState(false);
-  const lastGoodRef = useRef<GpuStatus | null>(null);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const fetchStatus = useCallback(async () => {
-    try {
-      const res = await fetch("/api/gpu/status", { credentials: "include", cache: "no-store" });
-      if (!res.ok) return;
-      const data = (await res.json()) as GpuStatus;
-      // Keep the last known-good snapshot so intermittent tunnel outages don't
-      // flash the card OFF — only drop it after repeated failures.
-      if (data.anyLive === true || !lastGoodRef.current) {
-        lastGoodRef.current = data;
-      }
-      setStatus(data);
-      setError(false);
-    } catch {
-      setError(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    // Polling effect: fetch once, then every 3s while mounted
-    void fetchStatus();
-    timerRef.current = setInterval(() => void fetchStatus(), POLL_MS);
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [fetchStatus]);
+  // Standalone fallback: when no controlled snapshot is passed, poll directly.
+  const internal = useGpuStatus(statusProp === undefined && sourceProp === undefined);
+  const status = statusProp !== undefined ? statusProp : internal.status;
+  const dataSource = sourceProp !== undefined ? sourceProp : internal.source;
+  const error = errorProp !== undefined ? errorProp : internal.error;
 
   // Smoothly drop nodes that stopped responding (keep them for STALE_MS).
-  const now = Date.now();
-  const source = status?.anyLive === true ? status : lastGoodRef.current;
-  const liveResults = (source?.results || [])
-    .filter((r) => r.ok)
-    .map((r) => ({ ...r, stale: now - new Date(r.fetchedAt).getTime() > STALE_MS }))
-    .filter((r) => !r.stale);
+  const { nodes: liveResults, agg: totals } = aggregateGpuResults(
+    dataSource?.results || [],
+    STALE_MS
+  );
   const anyLive = liveResults.length > 0;
   // Track whether we are currently live vs waiting (for the OFF label).
   const isCurrentlyLive = status?.anyLive === true;
-
-  // ── Aggregated totals across all live nodes ──
-  const metrics = liveResults.map((r) => extractMetrics(r.data || {}));
-  const totalMemoryUsed = metrics.reduce(
-    (s, m) => s + (m.memoryUsedGb ?? 0),
-    0
-  );
-  const totalMemory = metrics.reduce((s, m) => s + (m.memoryTotalGb ?? 0), 0);
-  const avgCpu =
-    metrics.filter((m) => m.cpu !== null).length > 0
-      ? metrics.reduce((s, m) => s + (m.cpu ?? 0), 0) /
-        metrics.filter((m) => m.cpu !== null).length
-      : null;
-  const avgBattery =
-    metrics.filter((m) => m.batteryPercent !== null).length > 0
-      ? metrics.reduce((s, m) => s + (m.batteryPercent ?? 0), 0) /
-        metrics.filter((m) => m.batteryPercent !== null).length
-      : null;
-  const maxTemp =
-    metrics.filter((m) => m.temperature !== null).length > 0
-      ? Math.max(...metrics.filter((m) => m.temperature !== null).map((m) => m.temperature as number))
-      : null;
+  const avgCpu = totals.avgCpu;
+  const totalMemoryUsed = totals.totalMemoryUsedGb;
+  const totalMemory = totals.totalMemoryGb;
+  const avgBattery = totals.avgBattery;
+  const maxTemp = totals.maxTemp;
 
   return (
     <div
@@ -218,9 +97,9 @@ export const GpuLiveCard = React.memo(function GpuLiveCard({
 
       {error && <p className="ws-gpu-empty">Could not reach the monitor. Retrying…</p>}
 
-      {!error && !isCurrentlyLive && (
+      {!error && !anyLive && (
         <p className="ws-gpu-empty">
-          {source?.enabled?.length
+          {status?.enabled?.length
             ? "Connected nodes are not emitting data right now. Start a GPU process or toggle a URL on in System → GPU."
             : "No GPU sources enabled. Add a URL in System → GPU to see live performance here."}
         </p>
@@ -281,7 +160,7 @@ export const GpuLiveCard = React.memo(function GpuLiveCard({
           {/* Per-node breakdown */}
           <div className="ws-gpu-grid">
             {liveResults.map((r) => {
-              const m = extractMetrics(r.data || {});
+              const m = r.metrics;
               return (
                 <div key={r.id} className="ws-gpu-node">
                   <div className="ws-gpu-node-head">

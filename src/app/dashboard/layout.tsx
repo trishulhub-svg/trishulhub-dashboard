@@ -733,6 +733,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       const target = e.target as HTMLElement | null;
       if (!target) return;
       if (target.closest("aside.th-sidebar-dock")) return;
+      // Desktop keeps the sidebar open (click-outside would collapse the rail
+      // unintentionally); only the mobile drawer auto-closes on backdrop tap.
+      if (window.matchMedia("(min-width: 768px)").matches) return;
       // Header buttons (menu toggle, notifications, theme, user menu) must
       // stay clickable — collapsing the sidebar reflows the header and the
       // button slides away before the click lands.
@@ -1122,7 +1125,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <Button
           variant="ghost"
           size="icon"
-          className="absolute top-3.5 right-3 z-20 h-9 w-9 rounded-full border bg-background/85 shadow-sm hover:bg-accent/70 active:scale-95 transition-transform"
+          className="absolute top-3.5 right-3 z-20 h-9 w-9 rounded-full border bg-background/85 shadow-sm hover:bg-accent/70 active:scale-95 transition-transform md:hidden"
           onClick={stowCapsule}
           aria-label="Close menu"
           title="Close menu"

@@ -2,6 +2,11 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Terminal } from "lucide-react";
+import {
+  aggregateGpuResults,
+  type GpuAggregate,
+  type GpuStatus,
+} from "@/lib/gpu-metrics";
 
 export type WorkspaceMode = "dark" | "light" | "bluelight";
 export type LineType = "success" | "info" | "warn" | "idle";
@@ -33,24 +38,28 @@ function isTrainingUser(u: LiveUser): boolean {
 
 type AiLine = { prefix: string; msg: string; type: LineType };
 
-/** Codex model / agent flavour — replaces old ZAI/GLM lines */
+/** DeepSeek harness + CPU/GPU monitor flavour — replaces old ZAI/GLM lines */
 const AI_LINES: AiLine[] = [
-  { prefix: "CODEX", msg: "Composer model ready — context window warm", type: "success" },
-  { prefix: "CODEX", msg: "Auto mode planning next edit sequence", type: "info" },
-  { prefix: "SONNET", msg: "Claude Sonnet reasoning pass complete", type: "success" },
-  { prefix: "OPUS", msg: "Claude Opus deep review — architecture check", type: "info" },
-  { prefix: "GPT", msg: "GPT-5.4 patch proposal staged", type: "success" },
-  { prefix: "CODEX", msg: "Codex fast path — 14 files indexed", type: "info" },
-  { prefix: "CODEX", msg: "Agent loop: apply → test → iterate", type: "info" },
+  { prefix: "DEEPSEEK", msg: "DeepSeek v4 Flash harness active — token window warm", type: "success" },
+  { prefix: "HARNESS", msg: "DeepSeek harness planning next edit sequence", type: "info" },
+  { prefix: "DEEPSEEK", msg: "v4 Flash reasoning pass complete — low latency", type: "success" },
+  { prefix: "HARNESS", msg: "Harness controller: deep review — architecture check", type: "info" },
+  { prefix: "DEEPSEEK", msg: "v4 Flash patch proposal staged", type: "success" },
+  { prefix: "HARNESS", msg: "DeepSeek harness fast path — files indexed", type: "info" },
+  { prefix: "HARNESS", msg: "Harness loop: apply → test → iterate", type: "info" },
   { prefix: "DEPLOY", msg: "Next.js build compiled — 0 TypeScript errors", type: "success" },
-  { prefix: "STACK", msg: "Prisma client in sync with schema", type: "success" },
-  { prefix: "COLLAB", msg: "Real-time sync: workspace state healthy", type: "info" },
-  { prefix: "CODEX", msg: "Background agent scanning for dead code", type: "info" },
-  { prefix: "SONNET", msg: "Diff review — no security regressions flagged", type: "success" },
-  { prefix: "STACK", msg: "Memory usage elevated — monitoring", type: "warn" },
-  { prefix: "CODEX", msg: "Auto mode waiting for human confirmation", type: "warn" },
-  { prefix: "WORKSPACE", msg: "System idle — background sync paused", type: "idle" },
-  { prefix: "CODEX", msg: "Models on standby — no active sessions", type: "idle" },
+  { prefix: "GPU", msg: "GPU core engaged — shader pipeline active", type: "success" },
+  { prefix: "CPU", msg: "CPU threads utilising — workload scheduled", type: "info" },
+  { prefix: "GPU", msg: "GPU memory allocated for inference batch", type: "info" },
+  { prefix: "CPU", msg: "CPU frequency boosted — compute burst", type: "success" },
+  { prefix: "GPU", msg: "Tensor cores busy — matrix multiply in flight", type: "info" },
+  { prefix: "CPU", msg: "CPU load elevated — harness monitoring", type: "warn" },
+  { prefix: "GPU", msg: "GPU temperature stable — thermal headroom OK", type: "success" },
+  { prefix: "DEEPSEEK", msg: "v4 Flash context window compacted", type: "info" },
+  { prefix: "HARNESS", msg: "Harness waiting for next instruction", type: "warn" },
+  { prefix: "GPU", msg: "GPU idle — harness paused", type: "idle" },
+  { prefix: "CPU", msg: "CPU idle — background sync paused", type: "idle" },
+  { prefix: "DEEPSEEK", msg: "v4 Flash on standby — no active sessions", type: "idle" },
 ];
 
 const INTENSITY = [
@@ -76,9 +85,47 @@ const TIME_FMT: Intl.DateTimeFormatOptions = {
   hour12: false,
 };
 
-function pickLine(pool: LineType[]) {
-  const filtered = AI_LINES.filter((l) => pool.includes(l.type));
-  return filtered[Math.floor(Math.random() * filtered.length)] ?? AI_LINES[0];
+/** Real CPU/GPU lines derived from the configured monitor URLs (when live). */
+function buildGpuLines(agg: GpuAggregate): AiLine[] {
+  const lines: AiLine[] = [];
+  if (agg.avgCpu !== null) {
+    const pct = Math.round(agg.avgCpu);
+    lines.push({
+      prefix: "CPU",
+      msg: `${pct}% load across ${agg.nodeCount} node${agg.nodeCount === 1 ? "" : "s"} — harness compute active`,
+      type: pct >= 70 ? "warn" : pct >= 25 ? "success" : "info",
+    });
+  }
+  if (agg.totalMemoryGb > 0) {
+    lines.push({
+      prefix: "GPU",
+      msg: `${agg.totalMemoryUsedGb.toFixed(1)} / ${agg.totalMemoryGb.toFixed(1)} GB memory — inference buffers allocated`,
+      type: agg.totalMemoryUsedGb / agg.totalMemoryGb > 0.85 ? "warn" : "info",
+    });
+  }
+  if (agg.maxTemp !== null) {
+    const t = Math.round(agg.maxTemp);
+    lines.push({
+      prefix: "GPU",
+      msg: `Hottest node ${t}°C — thermal headroom ${t >= 70 ? "low" : "OK"}`,
+      type: t >= 70 ? "warn" : "success",
+    });
+  }
+  if (agg.avgBattery !== null) {
+    const b = Math.round(agg.avgBattery);
+    lines.push({
+      prefix: "GPU",
+      msg: `Node battery ${b}% — ${b <= 20 ? "charge recommended" : "power stable"}`,
+      type: b <= 20 ? "warn" : "info",
+    });
+  }
+  return lines;
+}
+
+function pickLine(pool: LineType[], gpu?: GpuAggregate | null) {
+  const dynamic = gpu ? buildGpuLines(gpu) : [];
+  const candidates = [...dynamic, ...AI_LINES].filter((l) => pool.includes(l.type));
+  return candidates[Math.floor(Math.random() * candidates.length)] ?? AI_LINES[0];
 }
 
 function formatTime(isoOrNow?: string) {
@@ -108,14 +155,28 @@ export const LiveIntensity = React.memo(function LiveIntensity({
   mode,
   entered,
   onActivityLine,
+  gpuStatus,
 }: {
   liveUsers: LiveUser[];
   mode: WorkspaceMode;
   entered: boolean;
   onActivityLine?: (prefix: string, type: LineType) => void;
+  /** Live snapshot of the configured GPU/monitor URLs (Trishul Cloud Process). */
+  gpuStatus?: GpuStatus | null;
 }) {
   const count = liveUsers.length;
   const cfg = INTENSITY[Math.min(4, count)];
+  // Single shared poll comes from the workspace page; aggregate it here so the
+  // feed shows real CPU/GPU numbers when a configured URL is emitting data.
+  // Computed during render (not memoized) so stale nodes fade out on their own
+  // as `now` advances on each re-render while the feed keeps streaming.
+  const gpuAgg = gpuStatus?.anyLive === true ? aggregateGpuResults(gpuStatus.results || []) : null;
+  const gpuSnapshot = gpuAgg && gpuAgg.agg.nodeCount > 0 ? gpuAgg.agg : null;
+  const gpuLive = gpuSnapshot !== null;
+  // Latest snapshot for the scheduling loop without restarting its timers.
+  const gpuSnapshotRef = useRef<GpuAggregate | null>(gpuSnapshot);
+  gpuSnapshotRef.current = gpuSnapshot;
+  const active = entered && (liveUsers.length > 0 || gpuLive);
   const [aiLogs, setAiLogs] = useState<AiLine[]>([]);
   const [tick, setTick] = useState(0);
   const logsRef = useRef<HTMLDivElement>(null);
@@ -128,24 +189,27 @@ export const LiveIntensity = React.memo(function LiveIntensity({
   }, [onActivityLine]);
 
   // Reset the feed when the live state changes (adjusted during render).
-  const [resetState, setResetState] = useState({ entered, count: liveUsers.length });
-  if (resetState.entered !== entered || resetState.count !== liveUsers.length) {
-    setResetState({ entered, count: liveUsers.length });
-    if (!entered || liveUsers.length === 0) {
+  const [resetState, setResetState] = useState({ active, count: liveUsers.length });
+  if (resetState.active !== active || resetState.count !== liveUsers.length) {
+    setResetState({ active, count: liveUsers.length });
+    if (!active) {
       setAiLogs([]);
     } else {
       const intensity = INTENSITY[Math.min(4, liveUsers.length)];
       setAiLogs(
-        Array.from({ length: Math.min(2, intensity.maxVisible) }, () => pickLine(intensity.pool))
+        Array.from(
+          { length: Math.min(2, intensity.maxVisible) },
+          () => pickLine(intensity.pool, gpuSnapshotRef.current)
+        )
       );
     }
   }
 
   useEffect(() => {
-    if (liveUsers.length === 0) return;
+    if (!active) return;
     const id = setInterval(() => setTick((t) => t + 1), 30_000);
     return () => clearInterval(id);
-  }, [liveUsers.length]);
+  }, [active]);
 
   const autoModeUsers = useMemo(
     () => liveUsers.filter((u) => elapsedFor(u) >= AUTO_MODE_AFTER_SEC),
@@ -155,13 +219,13 @@ export const LiveIntensity = React.memo(function LiveIntensity({
   useEffect(() => {
     timersRef.current.forEach(clearTimeout);
     timersRef.current = [];
-    if (!entered || liveUsers.length === 0) return;
+    if (!active) return;
     const intensity = INTENSITY[Math.min(4, liveUsers.length)];
 
     const schedule = () => {
       const delay = intensity.min + Math.random() * (intensity.max - intensity.min);
       const tid = setTimeout(() => {
-        const line = pickLine(intensity.pool);
+        const line = pickLine(intensity.pool, gpuSnapshotRef.current);
         setAiLogs((prev) => {
           const next = [...prev, line];
           return next.length > intensity.maxVisible ? next.slice(-intensity.maxVisible) : next;
@@ -177,9 +241,9 @@ export const LiveIntensity = React.memo(function LiveIntensity({
       timersRef.current.forEach(clearTimeout);
       timersRef.current = [];
     };
-  }, [entered, liveUsers.length]);
+  }, [active, liveUsers.length]);
 
-  // Only the AI log pane scrolls — user + CODEX agent rows stay pinned at top.
+  // Only the AI log pane scrolls — user + harness rows stay pinned at top.
   useEffect(() => {
     const el = logsRef.current;
     if (!el) return;
@@ -199,7 +263,7 @@ export const LiveIntensity = React.memo(function LiveIntensity({
         </div>
       </div>
       <div className="ws-feed-body">
-        {liveUsers.length === 0 ? (
+        {!active ? (
           <div className="ws-feed-line ws-feed-line--empty">
             <span className={`ws-feed-msg ws-feed-msg--${mode} ws-feed-msg--idle`}>
               No one is currently working
@@ -207,41 +271,56 @@ export const LiveIntensity = React.memo(function LiveIntensity({
           </div>
         ) : (
           <>
-            <div className="ws-feed-pinned">
-              {liveUsers.map((u, i) => (
-                <div key={`${u.userId}-${i}`} className="ws-feed-line ws-feed-line--enter">
-                  <span className={`ws-feed-time ws-feed-time--${mode}`}>{formatTime(u.clockInAt)}</span>
-                  <span className="ws-feed-prefix ws-feed-prefix--info">{u.name}</span>
-                  <span className="ws-live-user-dot" aria-hidden title="Clocked in" />
-                  <span className={`ws-feed-msg ws-feed-msg--${mode}`}>
-                    {isTrainingUser(u)
-                      ? `in training — ${workLabel(u)} (${formatElapsedHm(elapsedFor(u))})`
-                      : `working on ${workLabel(u)} (${formatElapsedHm(elapsedFor(u))})`}
-                  </span>
-                </div>
-              ))}
-              {autoModeUsers.map((u) =>
-                isTrainingUser(u) ? (
-                  <div key={`train-${u.userId}`} className="ws-feed-line ws-feed-line--enter">
-                    <span className={`ws-feed-time ws-feed-time--${mode}`}>{formatTime()}</span>
-                    <span className="ws-feed-prefix ws-feed-prefix--success">TRAINING</span>
-                    <span className="ws-live-user-dot" aria-hidden />
+            {liveUsers.length > 0 && (
+              <div className="ws-feed-pinned">
+                {liveUsers.map((u, i) => (
+                  <div key={`${u.userId}-${i}`} className="ws-feed-line ws-feed-line--enter">
+                    <span className={`ws-feed-time ws-feed-time--${mode}`}>{formatTime(u.clockInAt)}</span>
+                    <span className="ws-feed-prefix ws-feed-prefix--info">{u.name}</span>
+                    <span className="ws-live-user-dot" aria-hidden title="Clocked in" />
                     <span className={`ws-feed-msg ws-feed-msg--${mode}`}>
-                      {workLabel(u)} — session active for {u.name}
+                      {isTrainingUser(u)
+                        ? `in training — ${workLabel(u)} (${formatElapsedHm(elapsedFor(u))})`
+                        : `working on ${workLabel(u)} (${formatElapsedHm(elapsedFor(u))})`}
                     </span>
                   </div>
-                ) : (
-                  <div key={`auto-${u.userId}`} className="ws-feed-line ws-feed-line--enter">
-                    <span className={`ws-feed-time ws-feed-time--${mode}`}>{formatTime()}</span>
-                    <span className="ws-feed-prefix ws-feed-prefix--success">CODEX</span>
-                    <span className="ws-live-user-dot" aria-hidden />
-                    <span className={`ws-feed-msg ws-feed-msg--${mode}`}>
-                      Auto mode running for {u.name} — agent loop active
-                    </span>
-                  </div>
-                )
-              )}
-            </div>
+                ))}
+                {autoModeUsers.map((u) =>
+                  isTrainingUser(u) ? (
+                    <div key={`train-${u.userId}`} className="ws-feed-line ws-feed-line--enter">
+                      <span className={`ws-feed-time ws-feed-time--${mode}`}>{formatTime()}</span>
+                      <span className="ws-feed-prefix ws-feed-prefix--success">TRAINING</span>
+                      <span className="ws-live-user-dot" aria-hidden />
+                      <span className={`ws-feed-msg ws-feed-msg--${mode}`}>
+                        {workLabel(u)} — session active for {u.name}
+                      </span>
+                    </div>
+                  ) : (
+                    <div key={`auto-${u.userId}`} className="ws-feed-line ws-feed-line--enter">
+                      <span className={`ws-feed-time ws-feed-time--${mode}`}>{formatTime()}</span>
+                      <span className="ws-feed-prefix ws-feed-prefix--success">DEEPSEEK HARNESS</span>
+                      <span className="ws-live-user-dot" aria-hidden />
+                      <span className={`ws-feed-msg ws-feed-msg--${mode}`}>
+                        Auto mode running for {u.name} — DeepSeek v4 Flash harness loop active
+                      </span>
+                    </div>
+                  )
+                )}
+              </div>
+            )}
+            {gpuLive && (
+              <div className="ws-feed-gpu-summary">
+                <span className="ws-feed-prefix ws-feed-prefix--success">GPU LIVE</span>
+                <span className={`ws-feed-msg ws-feed-msg--${mode}`}>
+                  {gpuSnapshot!.nodeCount} node{gpuSnapshot!.nodeCount === 1 ? "" : "s"} streaming ·{" "}
+                  {gpuSnapshot!.avgCpu !== null ? `${Math.round(gpuSnapshot!.avgCpu)}% CPU` : "CPU —"}
+                  {gpuSnapshot!.totalMemoryGb > 0
+                    ? ` · ${gpuSnapshot!.totalMemoryUsedGb.toFixed(1)}/${gpuSnapshot!.totalMemoryGb.toFixed(1)} GB`
+                    : ""}
+                  {gpuSnapshot!.maxTemp !== null ? ` · ${Math.round(gpuSnapshot!.maxTemp)}°C` : ""}
+                </span>
+              </div>
+            )}
             <div ref={logsRef} className="ws-feed-logs">
               {aiLogs.map((line, i) => (
                 <div key={`ai-${i}-${line.prefix}`} className="ws-feed-line ws-feed-line--enter">

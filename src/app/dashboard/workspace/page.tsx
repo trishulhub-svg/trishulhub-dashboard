@@ -21,6 +21,7 @@ import { LiveIntensity, type LineType, type LiveUser } from "@/components/worksp
 import { GpuLiveCard } from "@/components/workspace/gpu-live-card";
 import { DeepSeekPricingBadge } from "@/components/workspace/deepseek-pricing-badge";
 import { useDeepSeekPricing } from "@/hooks/use-deepseek-pricing";
+import { useGpuStatus } from "@/hooks/use-gpu-status";
 import { openCodexApp, openResearchGpt, openQwenWorkspace } from "@/lib/open-external-app";
 
 /* ═══════════════════════════════════════════════════════════════
@@ -111,6 +112,11 @@ export default function TrishulWorkspacePage() {
   const [mounted, setMounted] = useState(false);
   // DeepSeek Peak/Off-Peak — Beijing-derived, local display only.
   const deepSeekState = useDeepSeekPricing();
+  // Single shared poll for the Trishul Cloud Process monitor — feeds both the
+  // GPU card and the Live Operations feed (one request, Vercel Hobby-friendly).
+  // `source` keeps the last known-good snapshot so brief tunnel outages fade
+  // smoothly instead of flashing the cards OFF.
+  const { status: gpuStatus, source: gpuSource } = useGpuStatus();
 
   // Guard: ensure layout session is available before rendering
   if (status === "loading") {
@@ -543,12 +549,15 @@ export default function TrishulWorkspacePage() {
               liveUsers={liveUsers}
               mode={mode}
               entered={entered}
+              gpuStatus={gpuSource}
             />
 
             {/* ─── TRISHUL CLOUD PROCESS — GPU & performance live monitor ─── */}
             <GpuLiveCard
               entered={entered}
               style={{ transitionDelay: "0.385s" }}
+              status={gpuStatus}
+              source={gpuSource}
             />
 
             {/* ─── LONG HORIZON CARD ─── */}
@@ -797,7 +806,6 @@ export default function TrishulWorkspacePage() {
           min-height: 100dvh;
           overflow-x: hidden;
           touch-action: pan-y;
-          margin: -0.75rem;
           background: var(--ws-bg);
           font-family: var(--font-plus-jakarta), ui-sans-serif, system-ui, sans-serif;
           color: var(--ws-text);
@@ -828,10 +836,10 @@ export default function TrishulWorkspacePage() {
           --ws-accent-pink-dim: rgba(103,232,249,0.14);
         }
         @media (min-width: 480px) {
-          .ws-root { margin: -1.25rem; }
+          .ws-root { margin: -0.25rem; }
         }
         @media (min-width: 768px) {
-          .ws-root { margin: -2rem; }
+          .ws-root { margin: 0; }
         }
 
         .ws-root--light {
@@ -1580,6 +1588,18 @@ export default function TrishulWorkspacePage() {
           overflow: hidden;
         }
         .ws-feed-pinned { flex-shrink: 0; }
+        .ws-feed-gpu-summary {
+          display: flex;
+          align-items: center;
+          gap: 0.4rem;
+          padding: 0.3rem 1rem;
+          margin: 0.15rem 0;
+          font-size: 0.7rem;
+          border-top: 1px dashed var(--ws-card-border);
+          border-bottom: 1px dashed var(--ws-card-border);
+          background: color-mix(in srgb, var(--ws-accent-green) 6%, transparent);
+          flex-shrink: 0;
+        }
         .ws-feed-logs {
           flex: 1;
           min-height: 0;
