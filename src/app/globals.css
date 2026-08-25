@@ -1965,3 +1965,88 @@ main .bg-card\/80,
 }
 
 /* End of design system */
+
+/* ══════════════════════════════════════════════════════════════
+   DARK-MODE PALETTE MAPPING — legacy utility colors
+   Light-palette classes (bg-*-100, text-*-600, border-gray-200 …)
+   are remapped to dark-friendly tones so every page stays
+   professional in dark mode without touching each usage.
+   ══════════════════════════════════════════════════════════════ */
+.dark {
+  /* Pastel backgrounds → translucent dark tints (per hue) */
+  .bg-red-100, .bg-red-200 { background-color: oklch(0.28 0.07 25 / 0.5) !important; }
+  .bg-orange-100, .bg-orange-200 { background-color: oklch(0.28 0.06 55 / 0.5) !important; }
+  .bg-amber-100, .bg-amber-200 { background-color: oklch(0.29 0.06 80 / 0.5) !important; }
+  .bg-yellow-100, .bg-yellow-200 { background-color: oklch(0.29 0.05 95 / 0.5) !important; }
+  .bg-green-100, .bg-green-200 { background-color: oklch(0.28 0.06 145 / 0.5) !important; }
+  .bg-emerald-100, .bg-emerald-200 { background-color: oklch(0.28 0.06 160 / 0.5) !important; }
+  .bg-teal-100, .bg-teal-200 { background-color: oklch(0.28 0.05 180 / 0.5) !important; }
+  .bg-cyan-100, .bg-cyan-200 { background-color: oklch(0.28 0.05 200 / 0.5) !important; }
+  .bg-sky-100, .bg-sky-200 { background-color: oklch(0.27 0.05 225 / 0.5) !important; }
+  .bg-blue-100, .bg-blue-200 { background-color: oklch(0.27 0.06 250 / 0.5) !important; }
+  .bg-indigo-100, .bg-indigo-200 { background-color: oklch(0.27 0.06 265 / 0.5) !important; }
+  .bg-violet-100, .bg-violet-200 { background-color: oklch(0.27 0.06 285 / 0.5) !important; }
+  .bg-purple-100, .bg-purple-200 { background-color: oklch(0.28 0.06 295 / 0.5) !important; }
+  .bg-pink-100, .bg-pink-200 { background-color: oklch(0.28 0.06 340 / 0.5) !important; }
+  .bg-rose-100, .bg-rose-200 { background-color: oklch(0.28 0.06 10 / 0.5) !important; }
+  .bg-gray-100, .bg-gray-200 { background-color: oklch(0.27 0.01 255 / 0.5) !important; }
+  .bg-slate-100, .bg-slate-200 { background-color: oklch(0.27 0.012 255 / 0.5) !important; }
+  .bg-zinc-100, .bg-zinc-200 { background-color: oklch(0.27 0.008 255 / 0.5) !important; }
+
+  /* Muted chip tints */
+  .bg-green-50 { background-color: oklch(0.24 0.05 145 / 0.4) !important; }
+  .bg-red-50 { background-color: oklch(0.24 0.06 25 / 0.4) !important; }
+  .bg-amber-50 { background-color: oklch(0.25 0.05 80 / 0.4) !important; }
+  .bg-blue-50 { background-color: oklch(0.24 0.05 250 / 0.4) !important; }
+  .bg-gray-50 { background-color: oklch(0.24 0.01 255 / 0.4) !important; }
+
+  /* Text: dark shades → light shades for contrast */
+  .text-red-500 { color: oklch(0.68 0.15 25) !important; }
+  .text-red-600, .text-red-700 { color: oklch(0.74 0.13 25) !important; }
+  .text-red-800, .text-red-900 { color: oklch(0.82 0.1 25) !important; }
+  .text-orange-500 { color: oklch(0.7 0.14 55) !important; }
+  .text-orange-600, .text-orange-700 { color: oklch(0.76 0.12 55) !important; }
+  .text-amber-500 { color: oklch(0.74 0.13 80) !important; }
+  .text-amber-600, .text-amber-700 { color: oklch(0.8 0.11 80) !important; }
+  .text-amber-800, .text-amber-900 { color: oklch(0.86 0.08 80) !important; }
+  .text-yellow-500 { color: oklch(0.78 0.11 95) !important; }
+  .text-yellow-600, .text-yellow-700 { color: oklch(0.84 0.09 95) !important; }
+  .text-green-500 { color: oklch(0.68 0.14 145) !important; }
+  .text-green-600, .text-green-700 { color: oklch(0.74 0.12 145) !important; }
+  .text-green-800, .text-green-900 { color: oklch(0.82 0.09 145) !important; }
+  .text-emerald-500 { color: oklch(0.7 0.13 160) !important; }
+  .text-emerald-600, .text-emerald-700 { color: oklch(0.76 0.11 160) !important; }
+  .text-teal-500 { color: oklch(0.7 0.11 180) !important; }
+  .text-teal-600, .text-teal-700 { color: oklch(0.76 0.09 180) !important; }
+  .text-cyan-500 { color: oklch(0.72 0.11 200) !important; }
+  .text-cyan-600, .text-cyan-700 { color: oklch(0.78 0.09 200) !important; }
+  .text-sky-500 { color: oklch(0.7 0.12 225) !important; }
+  .text-sky-600, .text-sky-700 { color: oklch(0.76 0.1 225) !important; }
+  .text-blue-500 { color: oklch(0.68 0.13 250) !important; }
+  .text-blue-600, .text-blue-700 { color: oklch(0.74 0.11 250) !important; }
+  .text-indigo-500 { color: oklch(0.68 0.14 265) !important; }
+  .text-indigo-600, .text-indigo-700 { color: oklch(0.74 0.12 265) !important; }
+  .text-violet-500 { color: oklch(0.68 0.15 285) !important; }
+  .text-violet-600, .text-violet-700 { color: oklch(0.74 0.13 285) !important; }
+  .text-purple-500 { color: oklch(0.68 0.14 295) !important; }
+  .text-purple-600, .text-purple-700 { color: oklch(0.74 0.12 295) !important; }
+  .text-pink-500 { color: oklch(0.7 0.14 340) !important; }
+  .text-pink-600, .text-pink-700 { color: oklch(0.76 0.12 340) !important; }
+  .text-rose-500 { color: oklch(0.7 0.14 10) !important; }
+  .text-rose-600, .text-rose-700 { color: oklch(0.76 0.12 10) !important; }
+  .text-gray-500 { color: oklch(0.62 0.01 255) !important; }
+  .text-gray-600, .text-gray-700 { color: oklch(0.68 0.012 255) !important; }
+  .text-slate-500 { color: oklch(0.62 0.014 255) !important; }
+  .text-slate-600, .text-slate-700 { color: oklch(0.68 0.016 255) !important; }
+
+  /* Light borders → dark borders */
+  .border-gray-100, .border-gray-200, .border-gray-300 { border-color: oklch(0.32 0.012 255 / 0.8) !important; }
+  .border-slate-100, .border-slate-200, .border-slate-300 { border-color: oklch(0.32 0.014 255 / 0.8) !important; }
+  .border-red-100, .border-red-200 { border-color: oklch(0.36 0.07 25 / 0.6) !important; }
+  .border-green-100, .border-green-200 { border-color: oklch(0.36 0.06 145 / 0.6) !important; }
+  .border-emerald-100, .border-emerald-200 { border-color: oklch(0.36 0.06 160 / 0.6) !important; }
+  .border-amber-100, .border-amber-200 { border-color: oklch(0.37 0.06 80 / 0.6) !important; }
+  .border-blue-100, .border-blue-200 { border-color: oklch(0.35 0.06 250 / 0.6) !important; }
+}
+
+/* End of design system */

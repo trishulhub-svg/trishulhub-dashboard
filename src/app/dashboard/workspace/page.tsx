@@ -1434,19 +1434,19 @@ export default function TrishulWorkspacePage() {
           margin-bottom: 0.6rem;
         }
         .ws-hero-title--dark {
-          color: transparent;
-          background: linear-gradient(135deg, #e2e8f0 0%, #94a3b8 50%, #e2e8f0 100%);
-          -webkit-background-clip: text; background-clip: text;
+          color: var(--ws-text);
+          background: none;
+          -webkit-background-clip: initial; background-clip: initial;
         }
         .ws-hero-title--light {
-          color: transparent;
-          background: linear-gradient(135deg, #0f172a 0%, #475569 50%, #0f172a 100%);
-          -webkit-background-clip: text; background-clip: text;
+          color: var(--ws-text);
+          background: none;
+          -webkit-background-clip: initial; background-clip: initial;
         }
         .ws-hero-title--bluelight {
-          color: transparent;
-          background: linear-gradient(135deg, #2a241c 0%, #5c5346 50%, #2a241c 100%);
-          -webkit-background-clip: text; background-clip: text;
+          color: var(--ws-text);
+          background: none;
+          -webkit-background-clip: initial; background-clip: initial;
         }
 
         .ws-tagline {
