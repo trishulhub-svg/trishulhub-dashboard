@@ -114,7 +114,10 @@ export async function getEnabledGpuUrls(): Promise<GpuMonitorUrl[]> {
  * Fetch a single GPU endpoint with a short timeout. Returns parsed JSON or null.
  * The URL is user-configured (Super Admin) — we only ever GET it.
  */
-export async function fetchGpuUrl(url: string, timeoutMs = 3000): Promise<Record<string, unknown> | null> {
+export async function fetchGpuUrl(
+  url: string,
+  timeoutMs = 3000
+): Promise<Record<string, unknown> | null> {
   try {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeoutMs)
@@ -131,7 +134,9 @@ export async function fetchGpuUrl(url: string, timeoutMs = 3000): Promise<Record
         const json = JSON.parse(text) as unknown
         if (json && typeof json === "object") return json as Record<string, unknown>
       } catch {
-        return null
+        // Not JSON — try the TrishulHub Monitor HTML format (server-rendered
+        // page refreshed every ~2s with CPU / memory / battery values).
+        return parseMonitorHtml(text)
       }
       return null
     } finally {
@@ -140,6 +145,103 @@ export async function fetchGpuUrl(url: string, timeoutMs = 3000): Promise<Record
   } catch {
     return null
   }
+}
+
+/**
+ * Parse the TrishulHub Monitor HTML page (the format served by the GPU tunnels
+ * the user configures). Extracts CPU load, CPU frequency, memory used/total,
+ * battery, health and uptime so the workspace can render live visuals.
+ *
+ * The HTML uses stable labels like:
+ *   <div class="label">CPU load</div> <div class="value">6%</div>
+ *   <div class="label">Memory</div>  <div class="value">55%</div> <div class="hint">4 / 7.33 GB</div>
+ *   <div class="label">Battery</div> <div class="value">94%</div> <div class="hint">Discharging</div>
+ *   <div class="label">System health</div> <div class="health">HEALTHY</div>
+ */
+export function parseMonitorHtml(html: string): Record<string, unknown> | null {
+  if (!html || html.length < 50) return null
+  const out: Record<string, unknown> = {
+    _source: "html",
+    health: null,
+    cpuLoad: null,
+    cpuFreqMhz: null,
+    memoryPercent: null,
+    memoryUsedGb: null,
+    memoryTotalGb: null,
+    batteryPercent: null,
+    batteryState: null,
+    uptime: null,
+    cpuName: null,
+  }
+
+  const labelValue = (label: string): string | null => {
+    // <div class="label">LABEL</div> ... <div class="value">VALUE</div>
+    const re = new RegExp(
+      `<div class="label">\\s*${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*</div>\\s*<div class="value">\\s*([^<]+?)\\s*</div>`,
+      "i"
+    )
+    const m = html.match(re)
+    return m ? m[1].trim() : null
+  }
+  const labelHint = (label: string): string | null => {
+    const re = new RegExp(
+      `<div class="label">\\s*${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*</div>\\s*<div class="value">\\s*[^<]*?\\s*</div>\\s*<div class="hint">\\s*([^<]+?)\\s*</div>`,
+      "i"
+    )
+    const m = html.match(re)
+    return m ? m[1].trim() : null
+  }
+
+  const healthMatch = html.match(/<div class="health">\s*([^<]+?)\s*<\/div>/i)
+  out.health = healthMatch ? healthMatch[1].trim() : null
+
+  const cpuVal = labelValue("CPU load")
+  if (cpuVal) {
+    const pct = parseFloat(cpuVal)
+    if (Number.isFinite(pct)) out.cpuLoad = pct
+  }
+  const cpuHint = labelHint("CPU load")
+  if (cpuHint) {
+    const freq = parseFloat(cpuHint)
+    if (Number.isFinite(freq)) out.cpuFreqMhz = freq
+  }
+
+  const memVal = labelValue("Memory")
+  if (memVal) {
+    const pct = parseFloat(memVal)
+    if (Number.isFinite(pct)) out.memoryPercent = pct
+  }
+  const memHint = labelHint("Memory")
+  if (memHint) {
+    // "4 / 7.33 GB" or "4.2 / 16 GB"
+    const parts = memHint.split("/")
+    if (parts.length >= 2) {
+      const used = parseFloat(parts[0])
+      const total = parseFloat(parts[1])
+      if (Number.isFinite(used)) out.memoryUsedGb = used
+      if (Number.isFinite(total)) out.memoryTotalGb = total
+    }
+  }
+
+  const batVal = labelValue("Battery")
+  if (batVal) {
+    const pct = parseFloat(batVal)
+    if (Number.isFinite(pct)) out.batteryPercent = pct
+  }
+  const batHint = labelHint("Battery")
+  if (batHint) out.batteryState = batHint
+
+  const uptime = html.match(/<div class="row"><span>Uptime<\/span><span class="pill">\s*([^<]+?)\s*<\/span>/i)
+  if (uptime) out.uptime = uptime[1].trim()
+
+  const cpuName = html.match(/<div class="row"><span>CPU<\/span><span class="pill">\s*([^<]+?)\s*<\/span>/i)
+  if (cpuName) out.cpuName = cpuName[1].trim()
+
+  // Only consider it "live" if we actually found something meaningful.
+  if (out.cpuLoad === null && out.memoryPercent === null && out.batteryPercent === null && !out.health) {
+    return null
+  }
+  return out
 }
 
 /**

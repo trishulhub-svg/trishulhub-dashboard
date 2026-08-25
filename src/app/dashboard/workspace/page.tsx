@@ -111,6 +111,9 @@ export default function TrishulWorkspacePage() {
   const [mounted, setMounted] = useState(false);
   // DeepSeek Peak/Off-Peak — Beijing-derived, local display only.
   const deepSeekState = useDeepSeekPricing();
+  // True while any GPU monitor node is streaming live data — hides the static
+  // "All Systems Operational" card so the live cloud process replaces it.
+  const [gpuLive, setGpuLive] = useState(false);
 
   // Guard: ensure layout session is available before rendering
   if (status === "loading") {
@@ -724,46 +727,49 @@ export default function TrishulWorkspacePage() {
 
             {/* ─── ROW 4: Status bars (right after Live Ops) ─── */}
 
-            {/* STATUS INDICATOR CARD */}
-            <div
-              className={`ws-card ws-status-card ${entered ? "ws-in" : ""}`}
-              style={{ transitionDelay: "0.38s" }}
-            >
-              <div className="ws-status-row">
-                <div className={`ws-status-dot ws-status-dot--${mode}`} />
-                <span className={`ws-status-text ws-status-text--${mode}`}>
-                  All Systems Operational
-                </span>
+            {/* STATUS INDICATOR CARD — hidden while the live GPU monitor streams */}
+            {!gpuLive && (
+              <div
+                className={`ws-card ws-status-card ${entered ? "ws-in" : ""}`}
+                style={{ transitionDelay: "0.38s" }}
+              >
+                <div className="ws-status-row">
+                  <div className={`ws-status-dot ws-status-dot--${mode}`} />
+                  <span className={`ws-status-text ws-status-text--${mode}`}>
+                    All Systems Operational
+                  </span>
+                </div>
+                <div ref={statusBarsRef} className="ws-status-bars" style={{ height: barStep * 3 }}>
+                  <div className="ws-status-bar-item" style={{ top: `${barPositions.ai}px` }}>
+                    <span className={`ws-bar-label ws-bar-label--${mode}`}>AI</span>
+                    <div className={`ws-bar-track ws-bar-track--${mode}`}>
+                      <div className="ws-bar-fill ws-bar-fill--cyan" style={{ width: `${barValues.ai}%` }} />
+                    </div>
+                    <span className={`ws-bar-pct ws-bar-pct--cyan`}>{barValues.ai}%</span>
+                  </div>
+                  <div className="ws-status-bar-item" style={{ top: `${barPositions.sync}px` }}>
+                    <span className={`ws-bar-label ws-bar-label--${mode}`}>Sync</span>
+                    <div className={`ws-bar-track ws-bar-track--${mode}`}>
+                      <div className="ws-bar-fill ws-bar-fill--purple" style={{ width: `${barValues.sync}%` }} />
+                    </div>
+                    <span className={`ws-bar-pct ws-bar-pct--purple`}>{barValues.sync}%</span>
+                  </div>
+                  <div className="ws-status-bar-item" style={{ top: `${barPositions.api}px` }}>
+                    <span className={`ws-bar-label ws-bar-label--${mode}`}>API</span>
+                    <div className={`ws-bar-track ws-bar-track--${mode}`}>
+                      <div className="ws-bar-fill ws-bar-fill--pink" style={{ width: `${barValues.api}%` }} />
+                    </div>
+                    <span className={`ws-bar-pct ws-bar-pct--pink`}>{barValues.api}%</span>
+                  </div>
+                </div>
               </div>
-              <div ref={statusBarsRef} className="ws-status-bars" style={{ height: barStep * 3 }}>
-                <div className="ws-status-bar-item" style={{ top: `${barPositions.ai}px` }}>
-                  <span className={`ws-bar-label ws-bar-label--${mode}`}>AI</span>
-                  <div className={`ws-bar-track ws-bar-track--${mode}`}>
-                    <div className="ws-bar-fill ws-bar-fill--cyan" style={{ width: `${barValues.ai}%` }} />
-                  </div>
-                  <span className={`ws-bar-pct ws-bar-pct--cyan`}>{barValues.ai}%</span>
-                </div>
-                <div className="ws-status-bar-item" style={{ top: `${barPositions.sync}px` }}>
-                  <span className={`ws-bar-label ws-bar-label--${mode}`}>Sync</span>
-                  <div className={`ws-bar-track ws-bar-track--${mode}`}>
-                    <div className="ws-bar-fill ws-bar-fill--purple" style={{ width: `${barValues.sync}%` }} />
-                  </div>
-                  <span className={`ws-bar-pct ws-bar-pct--purple`}>{barValues.sync}%</span>
-                </div>
-                <div className="ws-status-bar-item" style={{ top: `${barPositions.api}px` }}>
-                  <span className={`ws-bar-label ws-bar-label--${mode}`}>API</span>
-                  <div className={`ws-bar-track ws-bar-track--${mode}`}>
-                    <div className="ws-bar-fill ws-bar-fill--pink" style={{ width: `${barValues.api}%` }} />
-                  </div>
-                  <span className={`ws-bar-pct ws-bar-pct--pink`}>{barValues.api}%</span>
-                </div>
-              </div>
-            </div>
+            )}
 
             {/* ─── TRISHUL CLOUD PROCESS — GPU & performance live monitor ─── */}
             <GpuLiveCard
               entered={entered}
               style={{ transitionDelay: "0.385s" }}
+              onLiveChange={(live) => setGpuLive(live)}
             />
 
             {/* ─── LONG HORIZON CARD ─── */}
@@ -2725,6 +2731,43 @@ export default function TrishulWorkspacePage() {
           font-size: 0.6rem;
           color: var(--ws-text-dim);
           text-align: center;
+        }
+        .ws-gpu-totals {
+          display: flex;
+          flex-direction: column;
+          gap: 0.5rem;
+          border: 1px solid color-mix(in srgb, var(--ws-card-border) 55%, transparent);
+          background: color-mix(in srgb, var(--ws-card-bg-mid) 35%, transparent);
+          border-radius: 0.7rem;
+          padding: 0.7rem 0.8rem;
+        }
+        .ws-gpu-total {
+          display: flex;
+          flex-direction: column;
+          gap: 0.25rem;
+        }
+        .ws-gpu-total-head {
+          display: flex;
+          align-items: center;
+          gap: 0.35rem;
+          font-size: 0.62rem;
+          font-weight: 600;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          color: var(--ws-text-dim);
+        }
+        .ws-gpu-total-val {
+          margin-left: auto;
+          color: var(--ws-text-muted);
+          font-variant-numeric: tabular-nums;
+          letter-spacing: 0;
+          text-transform: none;
+        }
+        .ws-gpu-total-chips {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.4rem;
+          padding-top: 0.15rem;
         }
       `}</style>
     </>

@@ -1,7 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Cpu, Activity, Thermometer, MemoryStick, Gauge, Radio, CircleSlash, Zap } from "lucide-react";
+import {
+  Cpu,
+  Activity,
+  Thermometer,
+  MemoryStick,
+  Gauge,
+  Radio,
+  CircleSlash,
+  Zap,
+  BatteryMedium,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type GpuResult = {
@@ -23,9 +33,14 @@ type GpuLiveCardProps = {
   className?: string;
   style?: React.CSSProperties;
   entered?: boolean;
+  /** Called when the live/off state changes — lets the page hide the
+   *  "All Systems Operational" card while nodes are streaming. */
+  onLiveChange?: (live: boolean) => void;
 };
 
 const POLL_MS = 3000;
+/** Keep showing a node for this long after it stops responding (smooth fade). */
+const STALE_MS = 10_000;
 
 function num(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -40,8 +55,21 @@ function clamp(n: number, min = 0, max = 100) {
   return Math.min(max, Math.max(min, n));
 }
 
-/** Extract common GPU/performance fields from arbitrary JSON. */
-function extractMetrics(data: Record<string, unknown>) {
+type NodeMetrics = {
+  cpu: number | null;
+  cpuFreq: number | null;
+  memoryPercent: number | null;
+  memoryUsedGb: number | null;
+  memoryTotalGb: number | null;
+  temperature: number | null;
+  batteryPercent: number | null;
+  batteryState: string | null;
+  uptime: string | null;
+  health: string | null;
+};
+
+/** Normalize either the JSON or HTML monitor format into a common shape. */
+function extractMetrics(data: Record<string, unknown>): NodeMetrics {
   const get = (...keys: string[]): number | null => {
     for (const k of keys) {
       const v = num(data[k]);
@@ -49,7 +77,6 @@ function extractMetrics(data: Record<string, unknown>) {
     }
     return null;
   };
-  // Nested objects (gpu: {usage: 45}, metrics: {gpu_usage: 45})
   const nested = (data.gpu ?? data.metrics ?? data.performance ?? data.system ?? {}) as Record<string, unknown>;
   const getN = (...keys: string[]): number | null => {
     for (const k of keys) {
@@ -58,22 +85,43 @@ function extractMetrics(data: Record<string, unknown>) {
     }
     return null;
   };
+  const str = (v: unknown): string | null =>
+    typeof v === "string" && v.trim() ? v.trim() : null;
   return {
-    gpuUsage: get("gpu_usage", "gpuUsage", "usage", "load", "utilization") ?? getN("usage", "load", "utilization", "gpu"),
-    temperature: get("gpu_temp", "gpuTemp", "temperature", "temp") ?? getN("temp", "temperature"),
-    memory: get("gpu_memory", "gpuMemory", "memory", "vram") ?? getN("memory", "vram"),
-    memoryTotal: get("gpu_memory_total", "gpuMemoryTotal", "memory_total", "vram_total") ?? getN("memory_total", "vram_total"),
-    fps: get("fps", "frame_rate", "frameRate") ?? getN("fps", "frame_rate"),
-    cpu: get("cpu_usage", "cpuUsage", "cpu") ?? getN("cpu", "cpu_usage"),
-    power: get("power", "power_w", "powerW") ?? getN("power"),
-    status: String(data.status ?? nested.status ?? data.state ?? "ok").toLowerCase(),
+    cpu:
+      get("cpu_usage", "cpuUsage", "cpu", "cpuLoad", "load") ??
+      getN("cpu", "cpu_usage", "load"),
+    cpuFreq:
+      get("cpu_freq_mhz", "cpuFreqMhz", "frequency_mhz", "clock_mhz") ??
+      getN("frequency_mhz", "clock_mhz", "freq_mhz"),
+    memoryPercent:
+      get("memory_percent", "memoryPercent", "memory", "mem") ??
+      getN("memory_percent", "memory", "mem"),
+    memoryUsedGb:
+      get("memory_used_gb", "memoryUsedGb", "memory_used") ??
+      getN("memory_used_gb", "memory_used"),
+    memoryTotalGb:
+      get("memory_total_gb", "memoryTotalGb", "memory_total") ??
+      getN("memory_total_gb", "memory_total"),
+    temperature:
+      get("gpu_temp", "gpuTemp", "temperature", "temp", "cpu_temp") ??
+      getN("temp", "temperature", "cpu_temp"),
+    batteryPercent:
+      get("battery_percent", "batteryPercent", "battery") ??
+      getN("battery_percent", "battery"),
+    batteryState:
+      str(data.battery_state ?? data.batteryState) ??
+      str(nested.battery_state ?? nested.batteryState),
+    uptime: str(data.uptime ?? nested.uptime),
+    health: str(data.health ?? nested.health ?? data.status),
   };
 }
 
-export function GpuLiveCard({ className, style, entered }: GpuLiveCardProps) {
+export function GpuLiveCard({ className, style, entered, onLiveChange }: GpuLiveCardProps) {
   const [status, setStatus] = useState<GpuStatus | null>(null);
   const [error, setError] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const liveRef = useRef(false);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -82,10 +130,15 @@ export function GpuLiveCard({ className, style, entered }: GpuLiveCardProps) {
       const data = (await res.json()) as GpuStatus;
       setStatus(data);
       setError(false);
+      const live = data.anyLive === true;
+      if (live !== liveRef.current) {
+        liveRef.current = live;
+        onLiveChange?.(live);
+      }
     } catch {
       setError(true);
     }
-  }, []);
+  }, [onLiveChange]);
 
   useEffect(() => {
     // Polling effect: fetch once, then every 3s while mounted
@@ -97,17 +150,41 @@ export function GpuLiveCard({ className, style, entered }: GpuLiveCardProps) {
     };
   }, [fetchStatus]);
 
-  const anyLive = status?.anyLive === true;
-  const liveResults = (status?.results || []).filter((r) => r.ok);
+  // Smoothly drop nodes that stopped responding (keep them for STALE_MS).
+  const now = Date.now();
+  const liveResults = (status?.results || [])
+    .filter((r) => r.ok)
+    .map((r) => ({ ...r, stale: now - new Date(r.fetchedAt).getTime() > STALE_MS }))
+    .filter((r) => !r.stale);
+  const anyLive = liveResults.length > 0;
+
+  // ── Aggregated totals across all live nodes ──
+  const metrics = liveResults.map((r) => extractMetrics(r.data || {}));
+  const totalMemoryUsed = metrics.reduce(
+    (s, m) => s + (m.memoryUsedGb ?? 0),
+    0
+  );
+  const totalMemory = metrics.reduce((s, m) => s + (m.memoryTotalGb ?? 0), 0);
+  const avgCpu =
+    metrics.filter((m) => m.cpu !== null).length > 0
+      ? metrics.reduce((s, m) => s + (m.cpu ?? 0), 0) /
+        metrics.filter((m) => m.cpu !== null).length
+      : null;
+  const avgBattery =
+    metrics.filter((m) => m.batteryPercent !== null).length > 0
+      ? metrics.reduce((s, m) => s + (m.batteryPercent ?? 0), 0) /
+        metrics.filter((m) => m.batteryPercent !== null).length
+      : null;
+  const maxTemp =
+    metrics.filter((m) => m.temperature !== null).length > 0
+      ? Math.max(...metrics.filter((m) => m.temperature !== null).map((m) => m.temperature as number))
+      : null;
 
   return (
     <div
-      className={cn(
-        "ws-card ws-gpu-card",
-        entered && "ws-in",
-        className
-      )}
+      className={cn("ws-card ws-gpu-card", entered && "ws-in", className)}
       style={style}
+      data-gpu-live={anyLive ? "true" : "false"}
     >
       <div className="ws-gpu-header">
         <div className="flex items-center gap-2 min-w-0">
@@ -136,9 +213,7 @@ export function GpuLiveCard({ className, style, entered }: GpuLiveCardProps) {
         )}
       </div>
 
-      {error && (
-        <p className="ws-gpu-empty">Could not reach the monitor. Retrying…</p>
-      )}
+      {error && <p className="ws-gpu-empty">Could not reach the monitor. Retrying…</p>}
 
       {!error && !anyLive && (
         <p className="ws-gpu-empty">
@@ -149,99 +224,146 @@ export function GpuLiveCard({ className, style, entered }: GpuLiveCardProps) {
       )}
 
       {!error && anyLive && (
-        <div className="ws-gpu-grid">
-          {liveResults.map((r) => {
-            const m = extractMetrics(r.data || {});
-            const usage = m.gpuUsage;
-            const temp = m.temperature;
-            const mem = m.memory;
-            const memTotal = m.memoryTotal;
-            const fps = m.fps;
-            const cpu = m.cpu;
-            const power = m.power;
-            const isLive = m.status !== "down" && m.status !== "offline" && m.status !== "stopped";
-            return (
-              <div key={r.id} className="ws-gpu-node">
-                <div className="ws-gpu-node-head">
-                  <span className="ws-gpu-node-name">{r.name || "GPU Node"}</span>
-                  {isLive ? (
-                    <span className="ws-gpu-node-dot ws-gpu-node-dot--on" />
-                  ) : (
-                    <span className="ws-gpu-node-dot ws-gpu-node-dot--off" />
-                  )}
+        <>
+          {/* Combined totals — e.g. "4 GB of 8 GB" across all nodes */}
+          <div className="ws-gpu-totals">
+            {avgCpu !== null && (
+              <div className="ws-gpu-total">
+                <div className="ws-gpu-total-head">
+                  <Gauge size={13} />
+                  <span>Combined CPU</span>
+                  <span className="ws-gpu-total-val">{Math.round(avgCpu)}%</span>
                 </div>
-
-                {usage !== null && (
-                  <div className="ws-gpu-metric">
-                    <div className="ws-gpu-metric-head">
-                      <Gauge size={12} />
-                      <span>GPU</span>
-                      <span className="ws-gpu-metric-val">{Math.round(usage)}%</span>
-                    </div>
-                    <div className="ws-gpu-track">
-                      <div
-                        className="ws-gpu-fill ws-gpu-fill--cyan"
-                        style={{ width: `${clamp(usage)}%` }}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {cpu !== null && (
-                  <div className="ws-gpu-metric">
-                    <div className="ws-gpu-metric-head">
-                      <Cpu size={12} />
-                      <span>CPU</span>
-                      <span className="ws-gpu-metric-val">{Math.round(cpu)}%</span>
-                    </div>
-                    <div className="ws-gpu-track">
-                      <div
-                        className="ws-gpu-fill ws-gpu-fill--purple"
-                        style={{ width: `${clamp(cpu)}%` }}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                <div className="ws-gpu-node-stats">
-                  {temp !== null && (
-                    <div className="ws-gpu-stat" title="Temperature">
-                      <Thermometer size={12} />
-                      <span>{Math.round(temp)}°C</span>
-                    </div>
-                  )}
-                  {mem !== null && (
-                    <div className="ws-gpu-stat" title="Memory">
-                      <MemoryStick size={12} />
-                      <span>
-                        {memTotal && memTotal > 0
-                          ? `${Math.round(mem)}/${Math.round(memTotal)}GB`
-                          : `${Math.round(mem)}GB`}
-                      </span>
-                    </div>
-                  )}
-                  {fps !== null && (
-                    <div className="ws-gpu-stat" title="Frames per second">
-                      <Zap size={12} />
-                      <span>{Math.round(fps)} FPS</span>
-                    </div>
-                  )}
-                  {power !== null && (
-                    <div className="ws-gpu-stat" title="Power draw">
-                      <Gauge size={12} />
-                      <span>{Math.round(power)}W</span>
-                    </div>
-                  )}
+                <div className="ws-gpu-track">
+                  <div
+                    className="ws-gpu-fill ws-gpu-fill--cyan"
+                    style={{ width: `${clamp(avgCpu)}%` }}
+                  />
                 </div>
               </div>
-            );
-          })}
-        </div>
+            )}
+            {totalMemory > 0 && (
+              <div className="ws-gpu-total">
+                <div className="ws-gpu-total-head">
+                  <MemoryStick size={13} />
+                  <span>Combined Memory</span>
+                  <span className="ws-gpu-total-val">
+                    {totalMemoryUsed.toFixed(1)} / {totalMemory.toFixed(1)} GB
+                  </span>
+                </div>
+                <div className="ws-gpu-track">
+                  <div
+                    className="ws-gpu-fill ws-gpu-fill--purple"
+                    style={{ width: `${clamp((totalMemoryUsed / totalMemory) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            )}
+            <div className="ws-gpu-total-chips">
+              {avgBattery !== null && (
+                <div className="ws-gpu-stat" title="Average battery">
+                  <BatteryMedium size={12} />
+                  <span>{Math.round(avgBattery)}%</span>
+                </div>
+              )}
+              {maxTemp !== null && (
+                <div className="ws-gpu-stat" title="Hottest node">
+                  <Thermometer size={12} />
+                  <span>{Math.round(maxTemp)}°C</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Per-node breakdown */}
+          <div className="ws-gpu-grid">
+            {liveResults.map((r) => {
+              const m = extractMetrics(r.data || {});
+              return (
+                <div key={r.id} className="ws-gpu-node">
+                  <div className="ws-gpu-node-head">
+                    <span className="ws-gpu-node-name">{r.name || "GPU Node"}</span>
+                    <span className="ws-gpu-node-dot ws-gpu-node-dot--on" />
+                  </div>
+
+                  {m.cpu !== null && (
+                    <div className="ws-gpu-metric">
+                      <div className="ws-gpu-metric-head">
+                        <Gauge size={12} />
+                        <span>CPU</span>
+                        <span className="ws-gpu-metric-val">{Math.round(m.cpu)}%</span>
+                      </div>
+                      <div className="ws-gpu-track">
+                        <div
+                          className="ws-gpu-fill ws-gpu-fill--cyan"
+                          style={{ width: `${clamp(m.cpu)}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {m.memoryPercent !== null && (
+                    <div className="ws-gpu-metric">
+                      <div className="ws-gpu-metric-head">
+                        <MemoryStick size={12} />
+                        <span>Memory</span>
+                        <span className="ws-gpu-metric-val">
+                          {m.memoryPercent != null ? `${Math.round(m.memoryPercent)}%` : "—"}
+                        </span>
+                      </div>
+                      <div className="ws-gpu-track">
+                        <div
+                          className="ws-gpu-fill ws-gpu-fill--purple"
+                          style={{ width: `${clamp(m.memoryPercent)}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="ws-gpu-node-stats">
+                    {m.memoryUsedGb !== null && m.memoryTotalGb !== null && (
+                      <div className="ws-gpu-stat" title="Memory used of total">
+                        <MemoryStick size={12} />
+                        <span>
+                          {m.memoryUsedGb.toFixed(1)}/{m.memoryTotalGb.toFixed(1)} GB
+                        </span>
+                      </div>
+                    )}
+                    {m.cpuFreq !== null && (
+                      <div className="ws-gpu-stat" title="CPU frequency">
+                        <Zap size={12} />
+                        <span>{Math.round(m.cpuFreq)} MHz</span>
+                      </div>
+                    )}
+                    {m.temperature !== null && (
+                      <div className="ws-gpu-stat" title="Temperature">
+                        <Thermometer size={12} />
+                        <span>{Math.round(m.temperature)}°C</span>
+                      </div>
+                    )}
+                    {m.batteryPercent !== null && (
+                      <div className="ws-gpu-stat" title="Battery">
+                        <BatteryMedium size={12} />
+                        <span>{Math.round(m.batteryPercent)}%</span>
+                      </div>
+                    )}
+                    {m.uptime && (
+                      <div className="ws-gpu-stat" title="Uptime">
+                        <Activity size={12} />
+                        <span>{m.uptime}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
 
       <div className="ws-gpu-footer">
         {anyLive
-          ? `Updated every 3s · ${new Date(status?.results?.[0]?.fetchedAt || Date.now()).toLocaleTimeString()}`
+          ? `Updated every 3s · ${new Date(liveResults[0].fetchedAt).toLocaleTimeString()}`
           : "Configured in System → GPU"}
       </div>
     </div>
