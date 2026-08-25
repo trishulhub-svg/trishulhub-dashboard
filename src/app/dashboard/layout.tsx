@@ -9,6 +9,7 @@ import {
   Users,
   FolderKanban,
   DollarSign,
+  CreditCard,
   Key,
   Shield,
   Settings,
@@ -152,6 +153,7 @@ const navGroups: NavGroup[] = [
         icon: DollarSign,
         roles: FINANCE,
         children: [
+          { title: "Subscriptions", href: "/dashboard/finance/subscriptions", icon: CreditCard, roles: FINANCE },
           { title: "Invoices", href: "/dashboard/finance/invoices", icon: Receipt, roles: FINANCE },
           { title: "Expenses", href: "/dashboard/finance/expenses", icon: Wallet, roles: FINANCE },
           { title: "P & L", href: "/dashboard/finance/pnl", icon: BarChart3, roles: FINANCE },

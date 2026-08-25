@@ -290,11 +290,8 @@ body::before {
   box-shadow: var(--elevation-2);
 }
 @media (hover: hover) and (pointer: fine) {
-  .liquid-glass-card:hover,
-  .th-surface:hover,
-  [data-slot="card"]:hover {
-    transform: translateY(-1px);
-  }
+  /* No transform on card hover — a moving card breaks portaled dropdowns
+     (Select/DropdownMenu poppers reposition → visible flicker loop). */
 }
 
 /* ══════════════════════════════════════════════════════════════

@@ -6,7 +6,7 @@ import { useTheme } from "next-themes";
 import {
   Settings, User, Bell, Palette, Shield, Moon, Sun, Monitor,
   Loader2, CheckCircle2, Mail, AlertCircle,
-  Eye, EyeOff, Upload, Camera, Trash2,
+  Eye, EyeOff, Upload, Camera, Trash2, Cpu,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/dialog";
 import { PageHeader } from "@/components/page-header";
 import { SettingsSection } from "@/components/dashboard/settings-section";
+import { GpuMonitorSettings } from "@/components/dashboard/gpu-monitor-settings";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
@@ -1004,6 +1005,17 @@ export default function SettingsPage() {
         
         </div>
       </SettingsSection>
+
+      {/* GPU Monitor — Super Admin only */}
+      {userRole === "SUPER_ADMIN" && (
+        <SettingsSection
+          icon={<Cpu className="h-5 w-5" />}
+          title="GPU Monitor"
+          description="Trishul Cloud Process — live GPU & performance endpoints"
+        >
+          <GpuMonitorSettings />
+        </SettingsSection>
+      )}
 
       {/* System Information */}
       <SettingsSection

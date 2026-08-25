@@ -483,6 +483,43 @@ function TimeTrackingPageInner() {
     };
   }, [activeEntry]);
 
+  // Reliability: sync the active entry with the server periodically and on tab
+  // focus, so a session ended from another device (or by an admin) is reflected
+  // here without a manual refresh.
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    const syncActive = async () => {
+      try {
+        const res = await fetch("/api/time-tracking/active-me", { credentials: "include" });
+        if (!res.ok) return;
+        const data = await res.json().catch(() => null);
+        if (!data || typeof data !== "object") return;
+        const isActive = (data as { active?: boolean }).active === true;
+        if (!isActive) {
+          // Session ended elsewhere — clear the local timer state.
+          setActiveEntry((prev) => {
+            if (!prev) return prev;
+            setElapsed(0);
+            return null;
+          });
+        }
+      } catch {
+        /* silent — keep current state */
+      }
+    };
+    const onFocus = () => {
+      if (document.visibilityState === "visible") void syncActive();
+    };
+    void syncActive();
+    const interval = setInterval(() => void syncActive(), 60_000);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user?.id]);
+
   // Admin running-session elapsed (ms)
   const updateActiveElapsedMap = useCallback(() => {
     const map: Record<string, number> = {};

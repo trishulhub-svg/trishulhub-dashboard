@@ -142,7 +142,7 @@ export async function POST(req: NextRequest) {
       userRole: session.user.role,
       department: "BUSINESS",
       page: "finance",
-      action: "REPORT",
+      action: "EXPORT",
       entityType: "FinanceReport",
       entityId: saved.fileItemId,
       description: `Generated ${formatRaw.toUpperCase()} finance report ${data.period.from} → ${data.period.to}${

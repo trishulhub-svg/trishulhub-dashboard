@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { LiveIntensity, type LineType, type LiveUser } from "@/components/workspace/live-intensity";
+import { GpuLiveCard } from "@/components/workspace/gpu-live-card";
 import { openCodexApp, openResearchGpt, openQwenWorkspace } from "@/lib/open-external-app";
 
 /* ═══════════════════════════════════════════════════════════════
@@ -752,6 +753,12 @@ export default function TrishulWorkspacePage() {
                 </div>
               </div>
             </div>
+
+            {/* ─── TRISHUL CLOUD PROCESS — GPU & performance live monitor ─── */}
+            <GpuLiveCard
+              entered={entered}
+              style={{ transitionDelay: "0.385s" }}
+            />
 
             {/* ─── LONG HORIZON CARD ─── */}
             <div
@@ -2528,6 +2535,190 @@ export default function TrishulWorkspacePage() {
         .ws-footer-text {
           font-size: 0.65rem;
           color: var(--ws-text-dim);
+        }
+
+        /* ── Trishul Cloud Process — GPU & performance live monitor ── */
+        .ws-gpu-card {
+          padding: 1rem 1.1rem;
+          grid-column: 1 / -1;
+          display: flex;
+          flex-direction: column;
+          gap: 0.6rem;
+        }
+        @media (min-width: 768px) {
+          .ws-gpu-card { grid-column: span 2; }
+        }
+        .ws-gpu-header {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 0.5rem;
+        }
+        .ws-gpu-icon {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 2.1rem;
+          height: 2.1rem;
+          border-radius: 0.6rem;
+          flex-shrink: 0;
+          background: color-mix(in srgb, var(--ws-card-border) 55%, transparent);
+          color: var(--ws-text-muted);
+          border: 1px solid color-mix(in srgb, var(--ws-card-border) 70%, transparent);
+        }
+        .ws-gpu-icon--live {
+          background: rgba(6,182,212,0.14);
+          color: var(--ws-accent-cyan);
+          border-color: rgba(6,182,212,0.35);
+        }
+        .ws-gpu-title {
+          font-size: 0.82rem;
+          font-weight: 600;
+          color: var(--ws-text);
+          letter-spacing: -0.01em;
+        }
+        .ws-gpu-sub {
+          font-size: 0.68rem;
+          color: var(--ws-text-dim);
+          margin-top: 0.1rem;
+        }
+        .ws-gpu-live-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.25rem;
+          font-size: 0.55rem;
+          font-weight: 700;
+          letter-spacing: 0.1em;
+          color: #34d399;
+          background: rgba(16,185,129,0.12);
+          border: 1px solid rgba(16,185,129,0.3);
+          border-radius: 100px;
+          padding: 0.2rem 0.55rem;
+          flex-shrink: 0;
+          animation: ws-pulse 2s ease-in-out infinite;
+        }
+        .ws-gpu-off-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.25rem;
+          font-size: 0.55rem;
+          font-weight: 700;
+          letter-spacing: 0.1em;
+          color: var(--ws-text-dim);
+          background: color-mix(in srgb, var(--ws-card-border) 40%, transparent);
+          border: 1px solid color-mix(in srgb, var(--ws-card-border) 60%, transparent);
+          border-radius: 100px;
+          padding: 0.2rem 0.55rem;
+          flex-shrink: 0;
+        }
+        .ws-gpu-empty {
+          font-size: 0.7rem;
+          color: var(--ws-text-dim);
+          text-align: center;
+          padding: 0.75rem 0.5rem;
+          line-height: 1.5;
+          border: 1px dashed color-mix(in srgb, var(--ws-card-border) 55%, transparent);
+          border-radius: 0.6rem;
+        }
+        .ws-gpu-grid {
+          display: grid;
+          grid-template-columns: 1fr;
+          gap: 0.6rem;
+        }
+        @media (min-width: 640px) {
+          .ws-gpu-grid { grid-template-columns: repeat(3, 1fr); }
+        }
+        .ws-gpu-node {
+          border: 1px solid color-mix(in srgb, var(--ws-card-border) 60%, transparent);
+          background: color-mix(in srgb, var(--ws-card-bg-mid) 45%, transparent);
+          border-radius: 0.7rem;
+          padding: 0.7rem 0.8rem;
+          display: flex;
+          flex-direction: column;
+          gap: 0.45rem;
+        }
+        .ws-gpu-node-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.4rem;
+        }
+        .ws-gpu-node-name {
+          font-size: 0.68rem;
+          font-weight: 600;
+          color: var(--ws-text);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .ws-gpu-node-dot {
+          width: 6px; height: 6px;
+          border-radius: 50%;
+          flex-shrink: 0;
+        }
+        .ws-gpu-node-dot--on {
+          background: #22c55e;
+          box-shadow: 0 0 6px rgba(34,197,94,0.5);
+          animation: ws-pulse 2s ease-in-out infinite;
+        }
+        .ws-gpu-node-dot--off {
+          background: #ef4444;
+          box-shadow: 0 0 6px rgba(239,68,68,0.4);
+        }
+        .ws-gpu-metric {
+          display: flex;
+          flex-direction: column;
+          gap: 0.25rem;
+        }
+        .ws-gpu-metric-head {
+          display: flex;
+          align-items: center;
+          gap: 0.3rem;
+          font-size: 0.6rem;
+          font-weight: 600;
+          letter-spacing: 0.05em;
+          text-transform: uppercase;
+          color: var(--ws-text-dim);
+        }
+        .ws-gpu-metric-val {
+          margin-left: auto;
+          color: var(--ws-text-muted);
+          font-variant-numeric: tabular-nums;
+        }
+        .ws-gpu-track {
+          height: 5px;
+          border-radius: 100px;
+          background: color-mix(in srgb, var(--ws-card-border) 55%, transparent);
+          overflow: hidden;
+        }
+        .ws-gpu-fill {
+          height: 100%;
+          border-radius: 100px;
+          transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .ws-gpu-fill--cyan { background: var(--ws-accent-cyan); }
+        .ws-gpu-fill--purple { background: var(--ws-accent-purple); }
+        .ws-gpu-node-stats {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.4rem;
+          padding-top: 0.1rem;
+        }
+        .ws-gpu-stat {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.25rem;
+          font-size: 0.62rem;
+          color: var(--ws-text-muted);
+          background: color-mix(in srgb, var(--ws-card-border) 35%, transparent);
+          border-radius: 100px;
+          padding: 0.2rem 0.5rem;
+          font-variant-numeric: tabular-nums;
+        }
+        .ws-gpu-footer {
+          font-size: 0.6rem;
+          color: var(--ws-text-dim);
+          text-align: center;
         }
       `}</style>
     </>

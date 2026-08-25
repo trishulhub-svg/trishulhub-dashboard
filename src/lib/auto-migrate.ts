@@ -1303,6 +1303,21 @@ async function doEnsureAllTables(): Promise<void> {
         console.warn(`[auto-migrate] AuditLog_createdAt_idx: ${getErrMsg(err)}`)
       }
     }
+    // One-time audit noise cleanup (removed Task module + NOTIFY spam):
+    // keeps the trail focused on meaningful actions. Safe to re-run (idempotent).
+    try {
+      const deleted = await db.$executeRawUnsafe(
+        `DELETE FROM "AuditLog"
+         WHERE (action = 'READ' AND page = 'tasks')
+            OR (action IN ('NOTIFY') AND page = 'training')
+            OR (action = 'READ' AND page = 'tasks' AND entityId IS NULL)`
+      )
+      if (Number(deleted) > 0) {
+        console.log(`[auto-migrate] Audit noise cleanup removed ${deleted} entries`)
+      }
+    } catch (err: unknown) {
+      console.warn(`[auto-migrate] Audit noise cleanup: ${getErrMsg(err)}`)
+    }
     try {
       await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AuditLog_department_page_idx" ON "AuditLog"("department", "page")`)
     } catch (err: unknown) {

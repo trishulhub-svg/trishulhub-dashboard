@@ -946,7 +946,7 @@ function FinancePageInner() {
           <Button size="sm" onClick={() => setActiveTab("reports")}>
             <FileDown className="h-4 w-4 mr-1" /> Generate Report
           </Button>
-          <Button size="sm" variant="outline" onClick={() => setActiveTab("subscriptions")}>
+          <Button size="sm" variant="outline" onClick={() => router.push("/dashboard/finance/subscriptions")}>
             <CreditCard className="h-4 w-4 mr-1" /> Subscriptions
           </Button>
           <Button size="sm" variant="outline" onClick={() => router.push("/dashboard/finance/pnl")}>
@@ -999,14 +999,33 @@ function FinancePageInner() {
         <div className="overflow-x-auto -mx-1 px-1 scrollbar-none">
           <TabsList className="inline-flex h-auto w-max min-w-full sm:min-w-0 gap-0.5 bg-muted p-1 rounded-lg">
             <TabsTrigger value="overview" className="data-[state=active]:bg-card data-[state=active]:shadow-sm shrink-0">Overview</TabsTrigger>
-            <TabsTrigger value="subscriptions" className="data-[state=active]:bg-card data-[state=active]:shadow-sm shrink-0">Subscriptions</TabsTrigger>
-            <TabsTrigger value="expenses" className="data-[state=active]:bg-card data-[state=active]:shadow-sm shrink-0">Expenses</TabsTrigger>
-            <TabsTrigger value="category" className="data-[state=active]:bg-card data-[state=active]:shadow-sm shrink-0">By Category</TabsTrigger>
-            <TabsTrigger value="project" className="data-[state=active]:bg-card data-[state=active]:shadow-sm shrink-0">By Project</TabsTrigger>
             <TabsTrigger value="reports" className="data-[state=active]:bg-card data-[state=active]:shadow-sm shrink-0">
               <FileDown className="h-3.5 w-3.5 mr-1" /> Reports
             </TabsTrigger>
           </TabsList>
+        </div>
+
+        {/* Finance module quick-nav — dedicated pages for each area */}
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {[
+            { href: "/dashboard/finance/invoices", icon: FileText, title: "Invoices", desc: "Create, send & track" },
+            { href: "/dashboard/finance/subscriptions", icon: CreditCard, title: "Subscriptions", desc: "Recurring costs" },
+            { href: "/dashboard/finance/expenses", icon: Receipt, title: "Expenses", desc: "Records & breakdowns" },
+            { href: "/dashboard/finance/pnl", icon: TrendingUp, title: "P & L", desc: "Profit & loss view" },
+          ].map((m) => (
+            <button
+              key={m.href}
+              type="button"
+              onClick={() => router.push(m.href)}
+              className="flex items-center gap-2.5 rounded-lg border border-border bg-card px-3 py-2.5 text-left transition-colors hover:bg-muted/40"
+            >
+              <m.icon className="h-4 w-4 shrink-0 text-primary" />
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-medium">{m.title}</span>
+                <span className="block truncate text-[11px] text-muted-foreground">{m.desc}</span>
+              </span>
+            </button>
+          ))}
         </div>
 
         {/* ─── Overview Tab ──── */}
