@@ -1000,32 +1000,27 @@ export default function TrishulWorkspacePage() {
           overflow-x: hidden;
           touch-action: pan-y;
           margin: -0.75rem;
-          background:
-            radial-gradient(ellipse 90% 55% at 12% -5%, rgba(6,182,212,0.16), transparent 55%),
-            radial-gradient(ellipse 70% 45% at 92% 8%, rgba(34,211,238,0.10), transparent 50%),
-            radial-gradient(ellipse 60% 40% at 70% 95%, rgba(14,116,144,0.12), transparent 55%),
-            radial-gradient(ellipse 50% 35% at 20% 80%, rgba(8,47,73,0.35), transparent 60%),
-            var(--ws-bg);
+          background: var(--ws-bg);
           font-family: var(--font-plus-jakarta), ui-sans-serif, system-ui, sans-serif;
           color: var(--ws-text);
           --ws-ease: cubic-bezier(0.16, 1, 0.3, 1);
-          --ws-glass-blur: 28px;
-          --ws-glass-sat: 1.45;
-          --ws-glass-bright: 1.06;
-          --ws-bg: #07080c;
-          --ws-text: #fafafa;
-          --ws-text-muted: rgba(255,255,255,0.52);
-          --ws-text-dim: rgba(255,255,255,0.28);
-          --ws-card-bg: rgba(255,255,255,0.045);
-          --ws-card-bg-mid: rgba(14, 20, 28, 0.42);
-          --ws-card-border: rgba(255,255,255,0.14);
-          --ws-card-hover: rgba(255,255,255,0.07);
-          --ws-card-border-hover: rgba(125, 211, 252, 0.38);
-          --ws-specular: rgba(255,255,255,0.34);
-          --ws-rim-dark: rgba(0,0,0,0.35);
-          --ws-glass-tint: rgba(6,182,212,0.07);
-          --ws-shadow-outer: 0 18px 50px rgba(0,0,0,0.45), 0 4px 14px rgba(0,0,0,0.28);
-          --ws-shadow-outer-hover: 0 24px 60px rgba(0,0,0,0.5), 0 8px 22px rgba(6,182,212,0.12);
+          --ws-glass-blur: 0px;
+          --ws-glass-sat: 1;
+          --ws-glass-bright: 1;
+          --ws-bg: oklch(0.16 0.012 255);
+          --ws-text: oklch(0.95 0.005 240);
+          --ws-text-muted: oklch(0.7 0.012 240);
+          --ws-text-dim: oklch(0.55 0.01 240);
+          --ws-card-bg: oklch(0.2 0.012 255);
+          --ws-card-bg-mid: oklch(0.2 0.012 255);
+          --ws-card-border: oklch(0.3 0.012 255);
+          --ws-card-hover: oklch(0.24 0.012 255);
+          --ws-card-border-hover: oklch(0.72 0.09 170);
+          --ws-specular: transparent;
+          --ws-rim-dark: transparent;
+          --ws-glass-tint: transparent;
+          --ws-shadow-outer: 0 1px 2px rgba(0,0,0,0.2), 0 4px 12px rgba(0,0,0,0.18);
+          --ws-shadow-outer-hover: 0 2px 6px rgba(0,0,0,0.25), 0 12px 24px rgba(0,0,0,0.22);
           --ws-accent-cyan: #06b6d4;
           --ws-accent-purple: #22d3ee;
           --ws-accent-pink: #67e8f9;
@@ -1042,54 +1037,45 @@ export default function TrishulWorkspacePage() {
         }
 
         .ws-root--light {
-          background:
-            radial-gradient(ellipse 90% 55% at 10% -8%, rgba(6,182,212,0.14), transparent 55%),
-            radial-gradient(ellipse 65% 40% at 95% 5%, rgba(56,189,248,0.10), transparent 50%),
-            radial-gradient(ellipse 55% 35% at 60% 100%, rgba(14,116,144,0.08), transparent 55%),
-            var(--ws-bg);
-          --ws-bg: #eef3f8;
-          --ws-text: #0a0a0a;
-          --ws-text-muted: rgba(0,0,0,0.52);
-          --ws-text-dim: rgba(0,0,0,0.28);
-          --ws-card-bg: rgba(255,255,255,0.68);
-          --ws-card-bg-mid: rgba(255,255,255,0.52);
-          --ws-card-border: rgba(255,255,255,0.72);
-          --ws-card-hover: rgba(255,255,255,0.72);
-          --ws-card-border-hover: rgba(8,145,178,0.35);
-          --ws-specular: rgba(255,255,255,0.85);
-          --ws-rim-dark: rgba(15,23,42,0.10);
-          --ws-glass-tint: rgba(6,182,212,0.06);
-          --ws-glass-blur: 32px;
-          --ws-glass-sat: 1.55;
-          --ws-glass-bright: 1.08;
-          --ws-shadow-outer: 0 16px 40px rgba(15,23,42,0.10), 0 4px 12px rgba(15,23,42,0.06);
-          --ws-shadow-outer-hover: 0 22px 50px rgba(15,23,42,0.12), 0 8px 20px rgba(8,145,178,0.10);
+          background: var(--ws-bg);
+          --ws-bg: oklch(0.975 0.004 220);
+          --ws-text: oklch(0.21 0.02 255);
+          --ws-text-muted: oklch(0.52 0.02 255);
+          --ws-text-dim: oklch(0.65 0.015 255);
+          --ws-card-bg: oklch(1 0 0);
+          --ws-card-bg-mid: oklch(1 0 0);
+          --ws-card-border: oklch(0.9 0.008 220);
+          --ws-card-hover: oklch(0.955 0.006 220);
+          --ws-card-border-hover: oklch(0.48 0.11 170);
+          --ws-specular: transparent;
+          --ws-rim-dark: transparent;
+          --ws-glass-tint: transparent;
+          --ws-glass-blur: 0px;
+          --ws-glass-sat: 1;
+          --ws-glass-bright: 1;
+          --ws-shadow-outer: 0 1px 2px rgba(15,23,42,0.05), 0 4px 12px rgba(15,23,42,0.06);
+          --ws-shadow-outer-hover: 0 2px 6px rgba(15,23,42,0.07), 0 12px 24px rgba(15,23,42,0.08);
           --ws-accent-green: #16a34a;
         }
         .ws-root--bluelight {
-          /* Warm paper ambient + teal optical glass tint */
-          background:
-            radial-gradient(ellipse 90% 55% at 12% -6%, rgba(14,116,144,0.12), transparent 55%),
-            radial-gradient(ellipse 60% 40% at 90% 10%, rgba(245,158,11,0.08), transparent 50%),
-            radial-gradient(ellipse 55% 35% at 50% 100%, rgba(8,145,178,0.08), transparent 55%),
-            var(--ws-bg);
-          --ws-bg: #f3eee4;
-          --ws-text: #2a241c;
-          --ws-text-muted: rgba(42,36,28,0.52);
-          --ws-text-dim: rgba(42,36,28,0.30);
-          --ws-card-bg: rgba(255,250,242,0.62);
-          --ws-card-bg-mid: rgba(255,248,238,0.50);
-          --ws-card-border: rgba(255,252,246,0.65);
-          --ws-card-hover: rgba(255,252,246,0.62);
-          --ws-card-border-hover: rgba(14,116,144,0.32);
-          --ws-specular: rgba(255,255,255,0.72);
-          --ws-rim-dark: rgba(42,36,28,0.12);
-          --ws-glass-tint: rgba(14,116,144,0.07);
-          --ws-glass-blur: 30px;
-          --ws-glass-sat: 1.4;
-          --ws-glass-bright: 1.05;
-          --ws-shadow-outer: 0 16px 40px rgba(42,36,28,0.10), 0 4px 12px rgba(42,36,28,0.06);
-          --ws-shadow-outer-hover: 0 22px 50px rgba(42,36,28,0.12), 0 8px 20px rgba(14,116,144,0.10);
+          background: var(--ws-bg);
+          --ws-bg: oklch(0.97 0.01 85);
+          --ws-text: oklch(0.29 0.02 60);
+          --ws-text-muted: oklch(0.5 0.015 65);
+          --ws-text-dim: oklch(0.62 0.012 65);
+          --ws-card-bg: oklch(0.995 0.006 85);
+          --ws-card-bg-mid: oklch(0.995 0.006 85);
+          --ws-card-border: oklch(0.88 0.012 80);
+          --ws-card-hover: oklch(0.95 0.01 82);
+          --ws-card-border-hover: oklch(0.46 0.08 160);
+          --ws-specular: transparent;
+          --ws-rim-dark: transparent;
+          --ws-glass-tint: transparent;
+          --ws-glass-blur: 0px;
+          --ws-glass-sat: 1;
+          --ws-glass-bright: 1;
+          --ws-shadow-outer: 0 1px 2px rgba(42,36,28,0.05), 0 4px 12px rgba(42,36,28,0.06);
+          --ws-shadow-outer-hover: 0 2px 6px rgba(42,36,28,0.07), 0 12px 24px rgba(42,36,28,0.08);
           --ws-accent-cyan: #0e7490;
           --ws-accent-purple: #0891b2;
           --ws-accent-pink: #06b6d4;
@@ -1250,16 +1236,11 @@ export default function TrishulWorkspacePage() {
           color: var(--ws-text-muted);
           max-width: 220px;
           overflow: hidden;
-          background:
-            linear-gradient(160deg, var(--ws-specular) 0%, transparent 38%),
-            var(--ws-card-bg-mid);
-          border: 1px solid color-mix(in srgb, var(--ws-card-border) 80%, transparent);
-          backdrop-filter: blur(18px) saturate(1.35);
-          -webkit-backdrop-filter: blur(18px) saturate(1.35);
-          box-shadow:
-            inset 0 1px 0 rgba(255,255,255,0.28),
-            inset 0 -1px 0 var(--ws-rim-dark),
-            0 4px 14px rgba(0,0,0,0.12);
+          background: var(--ws-card-bg-mid);
+          border: 1px solid var(--ws-card-border);
+          backdrop-filter: none;
+          -webkit-backdrop-filter: none;
+          box-shadow: none;
         }
         .ws-header-badge span {
           overflow: hidden;
@@ -1292,11 +1273,11 @@ export default function TrishulWorkspacePage() {
           letter-spacing: 0.02em;
           padding: 0.28rem 0.65rem;
           border-radius: 999px;
-          background: color-mix(in srgb, var(--ws-card-bg-mid) 70%, transparent);
-          border: 1px solid color-mix(in srgb, var(--ws-card-border) 55%, transparent);
-          box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ws-specular) 28%, transparent);
-          backdrop-filter: blur(12px) saturate(1.25);
-          -webkit-backdrop-filter: blur(12px) saturate(1.25);
+          background: var(--ws-card-bg-mid);
+          border: 1px solid var(--ws-card-border);
+          box-shadow: none;
+          backdrop-filter: none;
+          -webkit-backdrop-filter: none;
         }
         .ws-time {
           font-size: 0.75rem; font-weight: 500;
@@ -1305,11 +1286,11 @@ export default function TrishulWorkspacePage() {
           letter-spacing: 0.02em;
           padding: 0.28rem 0.65rem;
           border-radius: 999px;
-          background: color-mix(in srgb, var(--ws-card-bg-mid) 70%, transparent);
-          border: 1px solid color-mix(in srgb, var(--ws-card-border) 55%, transparent);
-          box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ws-specular) 28%, transparent);
-          backdrop-filter: blur(12px) saturate(1.25);
-          -webkit-backdrop-filter: blur(12px) saturate(1.25);
+          background: var(--ws-card-bg-mid);
+          border: 1px solid var(--ws-card-border);
+          box-shadow: none;
+          backdrop-filter: none;
+          -webkit-backdrop-filter: none;
         }
 
         /* ═══════════════════════════════════════
@@ -1337,25 +1318,16 @@ export default function TrishulWorkspacePage() {
         .ws-card {
           position: relative;
           isolation: isolate;
-          border-radius: 22px;
+          border-radius: 0.75rem;
           overflow: hidden;
           opacity: 0;
           transform: translateY(16px);
           color: inherit;
-          background:
-            linear-gradient(155deg, color-mix(in srgb, var(--ws-specular) 42%, transparent) 0%, transparent 34%),
-            linear-gradient(335deg, var(--ws-glass-tint), transparent 45%),
-            linear-gradient(180deg, var(--ws-card-bg) 0%, var(--ws-card-bg-mid) 100%);
-          border: 1px solid color-mix(in srgb, var(--ws-card-border) 85%, transparent);
-          backdrop-filter: blur(var(--ws-glass-blur)) saturate(var(--ws-glass-sat)) brightness(var(--ws-glass-bright));
-          -webkit-backdrop-filter: blur(var(--ws-glass-blur)) saturate(var(--ws-glass-sat)) brightness(var(--ws-glass-bright));
-          box-shadow:
-            inset 0 1px 0 color-mix(in srgb, var(--ws-specular) 70%, transparent),
-            inset 1px 0 0 color-mix(in srgb, var(--ws-specular) 28%, transparent),
-            inset 0 -1px 0 color-mix(in srgb, var(--ws-rim-dark) 55%, transparent),
-            inset -1px 0 0 color-mix(in srgb, var(--ws-rim-dark) 25%, transparent),
-            inset 0 0 0 1px rgba(255,255,255,0.04),
-            var(--ws-shadow-outer);
+          background: var(--ws-card-bg);
+          border: 1px solid var(--ws-card-border);
+          backdrop-filter: none;
+          -webkit-backdrop-filter: none;
+          box-shadow: var(--ws-shadow-outer);
           transition:
             opacity 0.6s var(--ws-ease),
             transform 0.55s var(--ws-ease),
@@ -1365,66 +1337,20 @@ export default function TrishulWorkspacePage() {
             filter 0.45s var(--ws-ease);
         }
         .ws-card::before {
-          content: "";
-          position: absolute;
-          inset: 0;
-          border-radius: inherit;
-          pointer-events: none;
-          z-index: 1;
-          background:
-            linear-gradient(
-              125deg,
-              color-mix(in srgb, var(--ws-specular) 55%, transparent) 0%,
-              color-mix(in srgb, var(--ws-specular) 12%, transparent) 16%,
-              transparent 38%
-            ),
-            radial-gradient(
-              520px circle at var(--glow-x, 30%) var(--glow-y, 20%),
-              color-mix(in srgb, var(--ws-specular) 18%, transparent),
-              transparent 42%
-            );
-          opacity: 0.7;
-          mix-blend-mode: soft-light;
-          transition: opacity 0.45s var(--ws-ease);
+          content: none;
         }
         .ws-card::after {
-          content: "";
-          position: absolute;
-          inset: 0;
-          border-radius: inherit;
-          pointer-events: none;
-          z-index: 1;
-          box-shadow:
-            inset 0 0 40px rgba(255,255,255,0.03),
-            inset 0 -28px 40px rgba(0,0,0,0.12);
-          background:
-            linear-gradient(
-              180deg,
-              transparent 55%,
-              color-mix(in srgb, var(--ws-rim-dark) 18%, transparent) 100%
-            );
-          opacity: 0.85;
+          content: none;
         }
         .ws-card.ws-in:hover {
           border-color: var(--ws-card-border-hover);
           transform: translateY(-2px);
-          box-shadow:
-            inset 0 1px 0 color-mix(in srgb, var(--ws-specular) 85%, transparent),
-            inset 1px 0 0 color-mix(in srgb, var(--ws-specular) 35%, transparent),
-            inset 0 -1px 0 color-mix(in srgb, var(--ws-rim-dark) 45%, transparent),
-            inset -1px 0 0 color-mix(in srgb, var(--ws-rim-dark) 20%, transparent),
-            inset 0 0 0 1px rgba(255,255,255,0.06),
-            var(--ws-shadow-outer-hover);
+          box-shadow: var(--ws-shadow-outer-hover);
         }
         .ws-card.ws-in:hover::before { opacity: 0.92; }
         .ws-card:focus-within {
           outline: none;
-          box-shadow:
-            inset 0 1px 0 color-mix(in srgb, var(--ws-specular) 70%, transparent),
-            inset 1px 0 0 color-mix(in srgb, var(--ws-specular) 28%, transparent),
-            inset 0 -1px 0 color-mix(in srgb, var(--ws-rim-dark) 55%, transparent),
-            0 0 0 2px color-mix(in srgb, var(--ws-accent-cyan) 45%, transparent),
-            var(--ws-shadow-outer);
+          box-shadow: 0 0 0 2px color-mix(in srgb, var(--ws-accent-cyan) 45%, transparent), var(--ws-shadow-outer);
         }
         .ws-hero-content,
         .ws-stat-card > *,
@@ -1454,36 +1380,17 @@ export default function TrishulWorkspacePage() {
           padding: 1.5rem 1.25rem 1.25rem;
           display: flex; align-items: flex-start; justify-content: space-between;
           min-height: 160px;
-          border-radius: 28px;
-          --ws-glass-blur: 36px;
-          --ws-glass-sat: 1.55;
-          background:
-            linear-gradient(150deg, color-mix(in srgb, var(--ws-specular) 55%, transparent) 0%, transparent 32%),
-            linear-gradient(210deg, color-mix(in srgb, var(--ws-accent-cyan) 16%, transparent), transparent 42%),
-            linear-gradient(180deg, var(--ws-card-bg) 0%, var(--ws-card-bg-mid) 100%);
-          box-shadow:
-            inset 0 1.5px 0 color-mix(in srgb, var(--ws-specular) 80%, transparent),
-            inset 1px 0 0 color-mix(in srgb, var(--ws-specular) 32%, transparent),
-            inset 0 -2px 0 color-mix(in srgb, var(--ws-rim-dark) 50%, transparent),
-            inset 0 0 60px rgba(6,182,212,0.04),
-            0 28px 70px rgba(0,0,0,0.42),
-            0 8px 24px rgba(0,0,0,0.28);
+          border-radius: 0.875rem;
+          --ws-glass-blur: 0px;
+          --ws-glass-sat: 1;
+          background: var(--ws-card-bg);
+          box-shadow: var(--ws-shadow-outer-hover);
         }
         .ws-root--light .ws-hero-card {
-          box-shadow:
-            inset 0 1.5px 0 rgba(255,255,255,0.9),
-            inset 1px 0 0 rgba(255,255,255,0.45),
-            inset 0 -2px 0 rgba(15,23,42,0.06),
-            0 28px 60px rgba(15,23,42,0.12),
-            0 8px 20px rgba(8,145,178,0.08);
+          box-shadow: var(--ws-shadow-outer-hover);
         }
         .ws-root--bluelight .ws-hero-card {
-          box-shadow:
-            inset 0 1.5px 0 rgba(255,255,255,0.78),
-            inset 1px 0 0 rgba(255,255,255,0.4),
-            inset 0 -2px 0 rgba(42,36,28,0.08),
-            0 28px 60px rgba(42,36,28,0.12),
-            0 8px 20px rgba(14,116,144,0.08);
+          box-shadow: var(--ws-shadow-outer-hover);
         }
         .ws-hero-card.ws-in:hover {
           transform: translateY(-3px);
@@ -1579,45 +1486,33 @@ export default function TrishulWorkspacePage() {
         .ws-btn-clockout {
           display: inline-flex; align-items: center; gap: 0.45rem;
           padding: 0.55rem 1.15rem;
-          border-radius: 999px;
+          border-radius: 0.5rem;
           font-family: inherit;
           font-size: 0.78rem; font-weight: 600;
           letter-spacing: 0.06em; text-transform: uppercase;
           cursor: pointer;
           position: relative;
           isolation: isolate;
-          backdrop-filter: blur(16px) saturate(1.35);
-          -webkit-backdrop-filter: blur(16px) saturate(1.35);
+          backdrop-filter: none;
+          -webkit-backdrop-filter: none;
           transition: transform 0.35s var(--ws-ease), box-shadow 0.35s var(--ws-ease), background 0.35s var(--ws-ease), border-color 0.35s var(--ws-ease);
         }
         .ws-btn-clockout--dark {
-          background:
-            linear-gradient(160deg, rgba(255,255,255,0.16), transparent 40%),
-            rgba(239, 68, 68, 0.16);
-          color: #fca5a5;
-          border: 1px solid rgba(248, 113, 113, 0.42);
-          box-shadow:
-            inset 0 1px 0 rgba(255,255,255,0.22),
-            inset 0 -1px 0 rgba(127,29,29,0.25),
-            0 8px 20px rgba(239,68,68,0.12);
+          background: var(--destructive);
+          color: var(--destructive-foreground);
+          border: 1px solid var(--destructive);
+          box-shadow: 0 1px 2px color-mix(in oklch, var(--destructive) 24%, transparent);
         }
         .ws-btn-clockout--light,
         .ws-btn-clockout--bluelight {
-          background:
-            linear-gradient(160deg, rgba(255,255,255,0.55), transparent 42%),
-            rgba(220, 38, 38, 0.10);
-          color: #dc2626;
-          border: 1px solid rgba(220, 38, 38, 0.30);
-          box-shadow:
-            inset 0 1px 0 rgba(255,255,255,0.7),
-            inset 0 -1px 0 rgba(127,29,29,0.08),
-            0 8px 18px rgba(220,38,38,0.08);
+          background: var(--destructive);
+          color: var(--destructive-foreground);
+          border: 1px solid var(--destructive);
+          box-shadow: 0 1px 2px color-mix(in oklch, var(--destructive) 24%, transparent);
         }
         .ws-btn-clockout:hover {
           transform: translateY(-2px);
-          box-shadow:
-            inset 0 1px 0 rgba(255,255,255,0.28),
-            0 12px 28px rgba(239,68,68,0.18);
+          box-shadow: 0 2px 6px color-mix(in oklch, var(--destructive) 30%, transparent);
         }
         .ws-btn-clockout:active {
           transform: translateY(1px) scale(0.985);
@@ -1637,75 +1532,51 @@ export default function TrishulWorkspacePage() {
         .ws-btn-primary {
           display: inline-flex; align-items: center; gap: 0.5rem;
           padding: 0.62rem 1.3rem;
-          border-radius: 999px;
+          border-radius: 0.5rem;
           font-family: inherit;
           font-size: 0.8rem; font-weight: 600;
           letter-spacing: 0.08em; text-transform: uppercase;
           cursor: pointer;
           position: relative;
           isolation: isolate;
-          backdrop-filter: blur(18px) saturate(1.4);
-          -webkit-backdrop-filter: blur(18px) saturate(1.4);
+          backdrop-filter: none;
+          -webkit-backdrop-filter: none;
           transition: transform 0.4s var(--ws-ease), box-shadow 0.4s var(--ws-ease), background 0.35s var(--ws-ease), border-color 0.35s var(--ws-ease);
         }
         .ws-btn-primary--dark {
-          background:
-            linear-gradient(155deg, rgba(255,255,255,0.22), transparent 42%),
-            color-mix(in oklch, var(--primary) 22%, transparent);
-          color: var(--primary);
-          border: 1px solid color-mix(in oklch, var(--primary) 36%, transparent);
-          box-shadow:
-            inset 0 1px 0 rgba(255,255,255,0.28),
-            inset 0 -1px 0 rgba(0,0,0,0.2),
-            0 10px 24px color-mix(in oklch, var(--primary) 14%, transparent);
+          background: var(--primary);
+          color: var(--primary-foreground);
+          border: 1px solid var(--primary);
+          box-shadow: 0 1px 2px color-mix(in oklch, var(--primary) 24%, transparent);
         }
         .ws-btn-primary--dark:hover {
-          background:
-            linear-gradient(155deg, rgba(255,255,255,0.28), transparent 42%),
-            color-mix(in oklch, var(--primary) 32%, transparent);
-          border-color: color-mix(in oklch, var(--primary) 52%, transparent);
-          box-shadow:
-            inset 0 1px 0 rgba(255,255,255,0.35),
-            0 14px 30px color-mix(in oklch, var(--primary) 18%, transparent);
+          background: color-mix(in oklch, var(--primary) 90%, black);
+          border-color: var(--primary);
+          box-shadow: 0 2px 6px color-mix(in oklch, var(--primary) 28%, transparent);
           transform: translateY(-2px);
         }
         .ws-btn-primary--light {
-          background:
-            linear-gradient(155deg, rgba(255,255,255,0.75), transparent 45%),
-            color-mix(in oklch, var(--primary) 14%, transparent);
-          color: var(--primary);
-          border: 1px solid color-mix(in oklch, var(--primary) 30%, transparent);
-          box-shadow:
-            inset 0 1px 0 rgba(255,255,255,0.85),
-            inset 0 -1px 0 rgba(15,23,42,0.06),
-            0 10px 22px color-mix(in oklch, var(--primary) 10%, transparent);
+          background: var(--primary);
+          color: var(--primary-foreground);
+          border: 1px solid var(--primary);
+          box-shadow: 0 1px 2px color-mix(in oklch, var(--primary) 24%, transparent);
         }
         .ws-btn-primary--light:hover {
-          background:
-            linear-gradient(155deg, rgba(255,255,255,0.9), transparent 45%),
-            color-mix(in oklch, var(--primary) 22%, transparent);
-          border-color: color-mix(in oklch, var(--primary) 45%, transparent);
+          background: color-mix(in oklch, var(--primary) 90%, black);
+          border-color: var(--primary);
+          box-shadow: 0 2px 6px color-mix(in oklch, var(--primary) 28%, transparent);
           transform: translateY(-2px);
         }
         .ws-btn-primary--bluelight {
-          background:
-            linear-gradient(155deg, rgba(255,255,255,0.65), transparent 45%),
-            color-mix(in oklch, var(--primary) 16%, transparent);
-          color: var(--primary);
-          border: 1px solid color-mix(in oklch, var(--primary) 32%, transparent);
-          box-shadow:
-            inset 0 1px 0 rgba(255,255,255,0.7),
-            inset 0 -1px 0 rgba(42,36,28,0.08),
-            0 10px 22px color-mix(in oklch, var(--primary) 12%, transparent);
+          background: var(--primary);
+          color: var(--primary-foreground);
+          border: 1px solid var(--primary);
+          box-shadow: 0 1px 2px color-mix(in oklch, var(--primary) 24%, transparent);
         }
         .ws-btn-primary--bluelight:hover {
-          background:
-            linear-gradient(155deg, rgba(255,255,255,0.8), transparent 45%),
-            color-mix(in oklch, var(--primary) 24%, transparent);
-          border-color: color-mix(in oklch, var(--primary) 48%, transparent);
-          box-shadow:
-            inset 0 1px 0 rgba(255,255,255,0.75),
-            0 14px 28px color-mix(in oklch, var(--primary) 14%, transparent);
+          background: color-mix(in oklch, var(--primary) 90%, black);
+          border-color: var(--primary);
+          box-shadow: 0 2px 6px color-mix(in oklch, var(--primary) 28%, transparent);
           transform: translateY(-2px);
         }
         .ws-btn-clockin {
@@ -1744,8 +1615,8 @@ export default function TrishulWorkspacePage() {
           background:
             linear-gradient(160deg, color-mix(in srgb, var(--ws-specular) 35%, transparent), transparent 45%),
             color-mix(in srgb, var(--ws-card-bg) 55%, transparent);
-          backdrop-filter: blur(14px) saturate(1.3);
-          -webkit-backdrop-filter: blur(14px) saturate(1.3);
+          backdrop-filter: none;
+          -webkit-backdrop-filter: none;
           font-family: inherit;
           font-size: 0.8rem; font-weight: 500;
           cursor: pointer;
@@ -1812,8 +1683,8 @@ export default function TrishulWorkspacePage() {
             inset 0 1px 0 color-mix(in srgb, var(--ws-specular) 50%, transparent),
             inset 0 -1px 0 color-mix(in srgb, var(--ws-rim-dark) 25%, transparent),
             0 4px 12px rgba(0,0,0,0.08);
-          backdrop-filter: blur(10px) saturate(1.25);
-          -webkit-backdrop-filter: blur(10px) saturate(1.25);
+          backdrop-filter: none;
+          -webkit-backdrop-filter: none;
         }
         .ws-stat-card:hover .ws-stat-icon-wrap {
           transform: translateY(-1px) scale(1.04);
@@ -2357,8 +2228,8 @@ export default function TrishulWorkspacePage() {
           box-shadow:
             inset 0 1px 0 color-mix(in srgb, var(--ws-specular) 45%, transparent),
             0 6px 14px rgba(0,0,0,0.08);
-          backdrop-filter: blur(10px) saturate(1.25);
-          -webkit-backdrop-filter: blur(10px) saturate(1.25);
+          backdrop-filter: none;
+          -webkit-backdrop-filter: none;
         }
         .ws-start-icon-box--dark {
           background: var(--ws-accent-cyan-dim);
@@ -2403,8 +2274,8 @@ export default function TrishulWorkspacePage() {
           letter-spacing: 0.04em;
           transition: transform 0.4s var(--ws-ease), box-shadow 0.4s var(--ws-ease);
           box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ws-specular) 35%, transparent);
-          backdrop-filter: blur(10px) saturate(1.2);
-          -webkit-backdrop-filter: blur(10px) saturate(1.2);
+          backdrop-filter: none;
+          -webkit-backdrop-filter: none;
         }
         .ws-start-badge--dark {
           background: rgba(6,182,212,0.08);
@@ -2452,8 +2323,8 @@ export default function TrishulWorkspacePage() {
           box-shadow:
             inset 0 1px 0 color-mix(in srgb, var(--ws-specular) 45%, transparent),
             0 6px 14px rgba(0,0,0,0.08);
-          backdrop-filter: blur(10px) saturate(1.25);
-          -webkit-backdrop-filter: blur(10px) saturate(1.25);
+          backdrop-filter: none;
+          -webkit-backdrop-filter: none;
         }
         .ws-cred-icon-box--dark {
           background: var(--ws-accent-purple-dim);

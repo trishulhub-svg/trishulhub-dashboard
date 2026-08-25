@@ -35,8 +35,8 @@ export default function ProjectDetailLoading() {
             className="relative overflow-hidden rounded-xl"
             style={staggerDelay(3 + i)}
           >
-            {/* Glassmorphism card skeleton */}
-            <div className="rounded-xl border border-gray-200/80 dark:border-gray-700/50 bg-gradient-to-b from-white/80 to-white/50 dark:from-gray-900/60 dark:to-gray-900/30 p-4 space-y-3">
+            {/* Card skeleton */}
+            <div className="rounded-xl border border-border bg-card p-4 space-y-3">
               {/* Column header */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -49,7 +49,7 @@ export default function ProjectDetailLoading() {
               <div className="border-t border-gray-200/50 dark:border-gray-700/40" />
               {/* Fake task cards */}
               {[0, 1].map((j) => (
-                <div key={j} className="relative overflow-hidden rounded-lg p-3 bg-white/60 dark:bg-white/[0.04]">
+                <div key={j} className="relative overflow-hidden rounded-lg p-3 bg-muted/40">
                   <div className="space-y-2">
                     <Skeleton className="h-3.5 w-full rounded" />
                     <Skeleton className="h-3 w-3/4 rounded" />

@@ -280,7 +280,7 @@ function DroppableKanbanColumn({ col, leads, onLeadClick, activeId, isDimmed }: 
       ref={setNodeRef}
       className={cn(
         "flex-shrink-0 w-[260px] sm:w-[280px] rounded-xl border transition-all duration-300 snap-start relative overflow-hidden flex flex-col",
-        "bg-gradient-to-b from-white/80 to-white/50 dark:from-gray-900/60 dark:to-gray-900/30 backdrop-blur-xl",
+        "bg-card",
         "border-gray-200/80 dark:border-gray-700/50",
         "hover:border-gray-300 dark:hover:border-gray-600",
         col.glowColor,

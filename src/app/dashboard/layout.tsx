@@ -1104,7 +1104,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       )}
       <aside
         className={cn(
-          "th-nav-glass th-sidebar-shell th-sidebar-dock relative z-40 rounded-[32px] md:mr-1",
+          "th-nav-glass th-sidebar-shell th-sidebar-dock relative z-40 rounded-xl md:my-2 md:ml-2 md:mr-2",
           navOpen ? "th-sidebar-dock--open" : "th-sidebar-dock--stowed"
         )}
         aria-hidden={!navOpen}
@@ -1225,7 +1225,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </Button>
               </SheetTrigger>
               <SheetContent formGuard={false} className="th-notif-sheet w-full sm:max-w-md p-0 gap-0 overflow-hidden flex flex-col">
-                <SheetHeader className="p-4 pb-3 border-b pr-10 shrink-0 [border-color:var(--lg-edge)]">
+                <SheetHeader className="p-4 pb-3 border-b pr-10 shrink-0 border-border">
                   <div className="flex items-center justify-between">
                     <SheetTitle className="text-sm font-semibold">Notifications</SheetTitle>
                     {unreadCount > 0 && (
