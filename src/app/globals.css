@@ -1138,7 +1138,10 @@ legend {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   box-shadow: none;
-  overflow: hidden;
+  /* Keep the frame but let wide tables scroll horizontally — the shadcn
+     Table component already ships overflow-x-auto; overflow:hidden here was
+     clipping trailing columns (e.g. delete actions) with no way to scroll. */
+  overflow-x: auto;
 }
 [data-slot="table-header"] {
   background: color-mix(in oklch, var(--muted) 55%, transparent);

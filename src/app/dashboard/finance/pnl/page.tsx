@@ -5,11 +5,29 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { ArrowLeft, ChevronLeft, ChevronRight, LineChart } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowUpDown,
+  ChevronLeft,
+  ChevronRight,
+  FileSpreadsheet,
+  FileText,
+  FileType2,
+  LineChart,
+  Loader2,
+  Save,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useFinanceLiveRefresh } from "@/lib/finance-events";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const FILTERS = [
   { key: "profit", label: "Profit", axis: "money" as const },
@@ -51,6 +69,9 @@ export default function PnLPage() {
   const [totals, setTotals] = useState<Record<string, number>>({});
   const [selected, setSelected] = useState<string[]>(["profit", "revenue", "expenses"]);
   const [windowStart, setWindowStart] = useState(0);
+  // Latest period first by default; controller to flip the order.
+  const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
+  const [savingReport, setSavingReport] = useState(false);
   const [loading, setLoading] = useState(true);
   const [note, setNote] = useState("");
   const requestId = useRef(0);
@@ -108,6 +129,59 @@ export default function PnLPage() {
   const windowed = useMemo(() => {
     return graph.slice(windowStart, windowStart + 12);
   }, [graph, windowStart]);
+
+  // Periods for the normal table — newest first by default (controller flips).
+  const periodList = normalMode === "month" ? months : years;
+  const sortedPeriods = useMemo(() => {
+    return [...periodList].sort((a, b) => {
+      const cmp = String(a.key).localeCompare(String(b.key));
+      return sortDir === "desc" ? -cmp : cmp;
+    });
+  }, [periodList, sortDir]);
+
+  /** Export the visible P&L span to a finance report saved straight to Drive. */
+  const saveReportToDrive = useCallback(
+    async (format: "pdf" | "xlsx" | "docx") => {
+      if (periodList.length === 0) {
+        toast.error("No P&L data to export yet");
+        return;
+      }
+      const keys = periodList.map((p) => String(p.key)).sort();
+      const firstKey = keys[0];
+      const lastKey = keys[keys.length - 1];
+      let from: string;
+      let to: string;
+      if (normalMode === "month") {
+        const [ly, lm] = lastKey.split("-").map(Number);
+        const lastDay = new Date(ly, lm, 0).getDate();
+        from = `${firstKey}-01`;
+        to = `${lastKey}-${String(lastDay).padStart(2, "0")}`;
+      } else {
+        from = `${firstKey}-01-01`;
+        to = `${lastKey}-12-31`;
+      }
+      setSavingReport(true);
+      try {
+        const res = await fetch("/api/finance/reports", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ from, to, format }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          toast.success(`P&L saved to Drive → Finance Reports`);
+        } else {
+          toast.error((data as { error?: string })?.error || "Failed to save P&L report");
+        }
+      } catch {
+        toast.error("Failed to save P&L report");
+      } finally {
+        setSavingReport(false);
+      }
+    },
+    [periodList, normalMode]
+  );
 
   const hasMoneySeries = selected.some((k) => MONEY_KEYS.has(k));
   const hasCountSeries = selected.some((k) => COUNT_KEYS.has(k));
@@ -180,20 +254,61 @@ export default function PnLPage() {
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : tab === "normal" ? (
         <div className="space-y-3">
-          <div className="flex gap-1 rounded-lg border p-1 bg-muted/30 w-fit">
-            {(["month", "year"] as const).map((m) => (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex gap-1 rounded-lg border p-1 bg-muted/30 w-fit">
+                {(["month", "year"] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setNormalMode(m)}
+                    className={cn(
+                      "px-3 py-1.5 text-xs font-semibold rounded-md capitalize",
+                      normalMode === m ? "bg-background shadow-sm" : "text-muted-foreground"
+                    )}
+                  >
+                    By {m}
+                  </button>
+                ))}
+              </div>
               <button
-                key={m}
                 type="button"
-                onClick={() => setNormalMode(m)}
-                className={cn(
-                  "px-3 py-1.5 text-xs font-semibold rounded-md capitalize",
-                  normalMode === m ? "bg-background shadow-sm" : "text-muted-foreground"
-                )}
+                onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border bg-background text-muted-foreground hover:bg-muted/50"
+                title="Change period order"
               >
-                By {m}
+                <ArrowUpDown className="h-3 w-3" />
+                {sortDir === "desc" ? "Newest first" : "Oldest first"}
               </button>
-            ))}
+            </div>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="outline" disabled={savingReport || periodList.length === 0}>
+                  {savingReport ? (
+                    <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                  ) : (
+                    <Save className="h-3.5 w-3.5 mr-1" />
+                  )}
+                  Save to Drive
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuItem onClick={() => void saveReportToDrive("pdf")} disabled={savingReport}>
+                  <FileText className="h-3.5 w-3.5 mr-2" /> PDF
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => void saveReportToDrive("xlsx")} disabled={savingReport}>
+                  <FileSpreadsheet className="h-3.5 w-3.5 mr-2" /> Excel (XLSX)
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => void saveReportToDrive("docx")} disabled={savingReport}>
+                  <FileType2 className="h-3.5 w-3.5 mr-2" /> Word (DOCX)
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <p className="px-2 py-1 text-[10px] text-muted-foreground leading-snug">
+                  Saved under Finance Reports → period folder, and appears in Files + Finance → Reports.
+                </p>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
           <div className="rounded-xl border overflow-x-auto">
             <table className="w-full text-sm">
@@ -207,7 +322,7 @@ export default function PnLPage() {
                 </tr>
               </thead>
               <tbody>
-                {(normalMode === "month" ? months : years).map((m) => {
+                {sortedPeriods.map((m) => {
                   const profit = Number(m.profitGBP || 0);
                   return (
                     <tr key={String(m.key)} className="border-t border-border/50">
@@ -226,7 +341,7 @@ export default function PnLPage() {
                     </tr>
                   );
                 })}
-                {!(normalMode === "month" ? months : years).length && (
+                {!sortedPeriods.length && (
                   <tr>
                     <td colSpan={5} className="px-3 py-8 text-center text-muted-foreground">
                       No finance data yet.

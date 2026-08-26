@@ -412,7 +412,7 @@ export default function SubscriptionsPage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <Table>
+              <Table className="min-w-[860px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Service</TableHead>

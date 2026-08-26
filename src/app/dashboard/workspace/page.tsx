@@ -1035,6 +1035,14 @@ export default function TrishulWorkspacePage() {
 
         .ws-header-left { display: flex; align-items: center; gap: 0.5rem; }
         .ws-header-right { display: flex; align-items: center; gap: 0.6rem; }
+        @media (max-width: 480px) {
+          .ws-header-right {
+            flex-wrap: wrap;
+            justify-content: flex-start;
+            width: 100%;
+          }
+          .ws-header-badge { max-width: 100%; }
+        }
 
         .ws-header-badge {
           display: flex; align-items: center; gap: 0.4rem;
@@ -1188,6 +1196,8 @@ export default function TrishulWorkspacePage() {
           grid-column: 1 / -1;
           padding: 1.5rem 1.25rem 1.25rem;
           display: flex; align-items: flex-start; justify-content: space-between;
+          flex-wrap: wrap;
+          gap: 1rem;
           min-height: 160px;
           border-radius: 0.875rem;
           --ws-glass-blur: 0px;
@@ -1557,6 +1567,8 @@ export default function TrishulWorkspacePage() {
           font-size: 0.72rem; font-weight: 600;
           letter-spacing: 0.08em; text-transform: uppercase;
           color: var(--ws-text-dim);
+          border-left: 2px solid var(--ws-accent-cyan);
+          padding-left: 0.5rem;
         }
 
         .ws-feed-live-badge {
@@ -1591,9 +1603,24 @@ export default function TrishulWorkspacePage() {
           overflow: hidden;
         }
         .ws-feed-pinned { flex-shrink: 0; }
+        /* Pinned user/agent rows as subtle chips so they read separately from
+           the scrolling log lines (cleaner hierarchy, no visual crowding). */
+        .ws-feed-pinned .ws-feed-line {
+          margin: 0.1rem 0.5rem;
+          border-radius: 8px;
+          background: color-mix(in srgb, var(--ws-card-border) 16%, transparent);
+          border: 1px solid color-mix(in srgb, var(--ws-card-border) 28%, transparent);
+        }
+        @media (min-width: 768px) {
+          .ws-feed-pinned .ws-feed-line {
+            margin-left: 0.75rem;
+            margin-right: 0.75rem;
+          }
+        }
         .ws-feed-gpu-summary {
           display: flex;
           align-items: center;
+          flex-wrap: wrap;
           gap: 0.4rem;
           padding: 0.3rem 1rem;
           margin: 0.15rem 0;
@@ -1602,6 +1629,19 @@ export default function TrishulWorkspacePage() {
           border-bottom: 1px dashed var(--ws-card-border);
           background: color-mix(in srgb, var(--ws-accent-green) 6%, transparent);
           flex-shrink: 0;
+        }
+        .ws-feed-gpu-summary .ws-feed-msg { flex: 1 1 10rem; }
+
+        /* Phones: keep the feed compact and wrap-safe so nothing overlaps. */
+        @media (max-width: 767px) {
+          .ws-feed-body { max-height: 200px; }
+          .ws-feed-line { padding: 0.22rem 0.7rem; font-size: 0.68rem; }
+          .ws-feed-prefix {
+            white-space: normal;
+            overflow-wrap: anywhere;
+            max-width: 9.5rem;
+          }
+          .ws-feed-gpu-summary { padding: 0.25rem 0.7rem; font-size: 0.66rem; }
         }
         .ws-feed-logs {
           flex: 1;
