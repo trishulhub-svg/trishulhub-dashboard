@@ -6,13 +6,7 @@ import { db } from "@/lib/db"
 import { updateSubscriptionSchema, validateRequest } from "@/lib/validations"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
-
-// TODO: Extract DEFAULT_EXCHANGE_RATES to shared constants (duplicated from subscriptions/route.ts)
-const DEFAULT_EXCHANGE_RATES: Record<string, number> = {
-  INR: 1,
-  USD: 83.5,
-  GBP: 105.5,
-}
+import { DEFAULT_EXCHANGE_RATES } from "@/lib/currency"
 
 // PATCH /api/subscriptions/[id] - Update subscription
 export async function PATCH(

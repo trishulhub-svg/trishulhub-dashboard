@@ -11,9 +11,9 @@ import {
   Shield,
   Globe,
   Terminal,
-  Rocket,
   Activity,
   Clock,
+  Cloud,
   StopCircle,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -525,20 +525,24 @@ export default function TrishulWorkspacePage() {
               </div>
             </div>
 
-            {/* STAT CARD — Status */}
+            {/* STAT CARD — Cloud (live monitor status, replaces All Systems Go) */}
             <div
               className={`ws-card ws-stat-card ${entered ? "ws-in" : ""}`}
               style={{ transitionDelay: "0.3s" }}
             >
               <div className="ws-stat-icon-wrap ws-stat-icon-wrap--pink">
-                <Rocket size={18} />
+                <Cloud size={18} />
               </div>
               <div className="ws-stat-body">
                 <span className={`ws-stat-label ws-stat-label--${mode}`}>
-                  Status
+                  Cloud
                 </span>
                 <span className={`ws-stat-value ws-stat-value--${mode}`}>
-                  All Systems Go
+                  {gpuStatus?.anyLive === true
+                    ? "Cloud Active"
+                    : Array.isArray(gpuStatus?.enabled) && gpuStatus.enabled.length > 0
+                      ? "Cloud Stopped"
+                      : "Cloud Off"}
                 </span>
               </div>
             </div>

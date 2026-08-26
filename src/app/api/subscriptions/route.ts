@@ -7,13 +7,7 @@ import { Prisma } from "@prisma/client"
 import { createSubscriptionSchema, validateRequest } from "@/lib/validations"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
-
-// TODO: Store exchange rates in DB — these fallbacks become stale
-const DEFAULT_EXCHANGE_RATES: Record<string, number> = {
-  INR: 1,
-  USD: 83.5,
-  GBP: 105.5,
-}
+import { DEFAULT_EXCHANGE_RATES } from "@/lib/currency"
 
 function getMonthlyINR(amount: number, exchangeRate: number, frequency: string): number {
   const inrAmount = amount * exchangeRate

@@ -42,8 +42,8 @@ import { formatCurrency } from "@/lib/format";
 import { SubscriptionExpiryBadge } from "@/components/dashboard/finance/subscription-expiry-badge";
 import { SubscriptionExpiryChecker } from "@/components/dashboard/finance/subscription-expiry-checker";
 import { CATEGORY_BADGE_COLORS } from "@/lib/format";
+import { DEFAULT_EXCHANGE_RATES } from "@/lib/currency";
 
-const DEFAULT_EXCHANGE_RATES: Record<string, number> = { INR: 1, USD: 83.5, GBP: 105.5 };
 const SUB_FREQUENCY_COLORS: Record<string, string> = {
   MONTHLY: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
   YEARLY: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",

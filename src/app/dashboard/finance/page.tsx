@@ -13,6 +13,7 @@ const OverviewCharts = dynamic(() => import("./overview-charts"), { ssr: false }
 import { handleFetchError } from "@/lib/fetch-utils";
 import { deepSanitize, safeText, safeNumber } from "@/lib/utils";
 import { formatCurrency, formatDate, CATEGORY_BADGE_COLORS, CURRENCY_SYMBOLS } from "@/lib/format";
+import { DEFAULT_EXCHANGE_RATES } from "@/lib/currency";
 import {
   DEFAULT_EXPENSE_CATEGORIES,
   formatExpenseCategoryLabel,
@@ -136,9 +137,6 @@ const MAX_EXPENSE_FETCH = 10000;
 // the API's default (50) so admins see a meaningful slice; lower than MAX_EXPENSE_FETCH
 // to avoid overloading the table DOM. The total count + amount come from the stats API.
 const EXPENSE_TABLE_LIMIT = 500;
-
-// Fallback exchange rates to INR (used when live rates unavailable)
-const DEFAULT_EXCHANGE_RATES: Record<string, number> = { INR: 1, USD: 83.5, GBP: 105.5 };
 
 const CATEGORY_COLORS: Record<string, string> = {
   HOSTING: "border-l-primary bg-primary/5",
