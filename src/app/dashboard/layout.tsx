@@ -818,19 +818,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [userId, applyPendingCounts]);
 
-  const fetchUnreadCount = useCallback(async () => {
-    if (!userId) return;
-    try {
-      const res = await fetch("/api/notifications?countOnly=true", { credentials: "include" });
-      if (res.ok) {
-        const data = await res.json();
-        setUnreadBadge(typeof data.unreadCount === "number" ? data.unreadCount : 0);
-      }
-    } catch (err) {
-      console.error("Failed to fetch unread count:", err);
-    }
-  }, [userId]);
-
   const fetchNotifications = useCallback(async (force = false) => {
     if (!userId) return;
     // Skip refetch if list was loaded in the last 20s (smooth panel open)
@@ -849,18 +836,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       console.error("Failed to fetch notifications:", err);
     }
   }, [userId, notifications.length]);
-
-  const fetchPendingCounts = useCallback(async () => {
-    try {
-      const res = await fetch("/api/approvals/pending-counts", { credentials: "include" });
-      if (res.ok) {
-        const data = await res.json();
-        applyPendingCounts(data as Record<string, unknown>);
-      }
-    } catch (err) {
-      console.error("Failed to fetch pending counts:", err);
-    }
-  }, [applyPendingCounts]);
 
   // Fetch the current user's avatar (used in sidebar + user dropdown)
   const fetchUserAvatar = useCallback(async () => {
@@ -894,22 +869,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [status, userRole, pathname, pageAccessMode, pageAccessPages, router]);
 
-  // PERF: One shell bootstrap on mount; light polls keep badge fresh. Full list loads when panel opens.
+  // PERF: One shell bootstrap on mount + one light poll to keep badge/counts
+  // fresh. /api/bootstrap/shell already returns unread + pending counts, so a
+  // single request replaces the previous two-endpoint poll (same data, fewer
+  // round-trips). Full notification list still loads when the panel opens.
   useEffect(() => {
     if (session) {
       const timer = setTimeout(() => {
         fetchShellBootstrap();
       }, 200);
       const interval = setInterval(() => {
-        fetchUnreadCount();
-        fetchPendingCounts();
+        fetchShellBootstrap();
       }, 120_000);
       return () => {
         clearTimeout(timer);
         clearInterval(interval);
       };
     }
-  }, [session, fetchShellBootstrap, fetchUnreadCount, fetchPendingCounts]);
+  }, [session, fetchShellBootstrap]);
 
   // Refresh avatar only after leaving settings
   const prevPathRef = React.useRef(pathname);
