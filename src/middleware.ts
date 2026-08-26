@@ -110,6 +110,9 @@ export async function middleware(request: NextRequest) {
       "/dashboard/files/settings",
     ]
 
+    // GPU monitor configuration — SUPER_ADMIN / ADMIN only
+    const adminOnlyRoutes = ["/dashboard/system/gpu"]
+
     // Finance — SUPER_ADMIN / ADMIN only (HR excluded)
     const financeOnlyRoutes = ["/dashboard/finance"]
 
@@ -134,12 +137,17 @@ export async function middleware(request: NextRequest) {
     ]
 
     const isSuperAdmin = role === "SUPER_ADMIN"
+    const isAdmin = role === "SUPER_ADMIN" || role === "ADMIN"
     const isFinanceAdmin = role === "SUPER_ADMIN" || role === "ADMIN"
     const isAdminOrHr = role === "SUPER_ADMIN" || role === "ADMIN" || role === "HR"
     const isAdminOrPm =
       role === "SUPER_ADMIN" || role === "ADMIN" || role === "HR" || role === "PROJECT_MANAGER"
 
     if (!isSuperAdmin && superAdminOnlyRoutes.some((route) => pathname.startsWith(route))) {
+      return addSecurityHeaders(request, NextResponse.redirect(new URL("/dashboard", request.url)))
+    }
+
+    if (!isAdmin && adminOnlyRoutes.some((route) => pathname.startsWith(route))) {
       return addSecurityHeaders(request, NextResponse.redirect(new URL("/dashboard", request.url)))
     }
 

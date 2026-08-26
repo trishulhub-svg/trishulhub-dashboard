@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { isSuperAdmin } from "@/lib/rbac"
+import { canManageGpuMonitor } from "@/lib/rbac"
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 import { logAudit, getIpAddress, getUserAgent } from "@/lib/audit-log"
 import {
@@ -13,13 +13,13 @@ import {
 } from "@/lib/gpu-monitor"
 
 /**
- * GET /api/system/gpu — GPU monitor config (Super Admin only).
+ * GET /api/system/gpu — GPU monitor config (Admin/Super Admin only).
  */
 export async function GET() {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (!isSuperAdmin(session.user.role)) {
+    if (!canManageGpuMonitor(session.user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
     const config = await getGpuMonitorConfig()
@@ -37,7 +37,7 @@ export async function PUT(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (!isSuperAdmin(session.user.role)) {
+    if (!canManageGpuMonitor(session.user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
     const rl = rateLimit(`gpu-config-${session.user.id}`, RATE_LIMITS.crmWrite.limit, RATE_LIMITS.crmWrite.windowMs)

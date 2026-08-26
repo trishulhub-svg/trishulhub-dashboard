@@ -258,7 +258,7 @@ export function GpuMonitorSettings() {
         </Button>
       </div>
       <p className="text-[11px] text-muted-foreground">
-        The URL should return JSON (e.g. GPU usage, temperature, memory, FPS). Only Super Admins
+        The URL should return JSON (e.g. GPU usage, temperature, memory, FPS). Admins and Super Admins
         can configure this; all staff can see the live view on the Workspace page.
       </p>
     </div>

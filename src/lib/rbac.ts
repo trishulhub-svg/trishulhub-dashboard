@@ -20,6 +20,11 @@ export function canAccessFinance(role: string): boolean {
   return role === "SUPER_ADMIN" || role === "ADMIN"
 }
 
+/** GPU monitor configuration — Admin and Super Admin only. */
+export function canManageGpuMonitor(role: string): boolean {
+  return role === "SUPER_ADMIN" || role === "ADMIN"
+}
+
 /** API Keys vault — Super Admin only. */
 export function canManageApiKeys(role: string): boolean {
   return role === "SUPER_ADMIN"
