@@ -128,6 +128,22 @@ function pickLine(pool: LineType[], gpu?: GpuAggregate | null) {
   return candidates[Math.floor(Math.random() * candidates.length)] ?? AI_LINES[0];
 }
 
+/**
+ * Map live CPU/memory/temperature into an intensity bucket (0-4 → the
+ * INTENSITY array). Used when a configured URL is emitting data so the badge
+ * reflects real compute usage instead of the number of active users.
+ */
+function gpuLevelIndex(agg: GpuAggregate): number {
+  const cpu = agg.avgCpu ?? 0;
+  const memPct =
+    agg.totalMemoryGb > 0 ? (agg.totalMemoryUsedGb / agg.totalMemoryGb) * 100 : 0;
+  const temp = agg.maxTemp ?? 0;
+  if (cpu >= 80 || memPct >= 90 || temp >= 75) return 4; // MAX OPS
+  if (cpu >= 50 || memPct >= 70 || temp >= 60) return 3; // HIGH
+  if (cpu >= 25 || memPct >= 40) return 2; // MEDIUM
+  return 1; // LOW
+}
+
 function formatTime(isoOrNow?: string) {
   try {
     return new Date(isoOrNow ?? Date.now()).toLocaleTimeString("en-US", TIME_FMT);
@@ -165,7 +181,6 @@ export const LiveIntensity = React.memo(function LiveIntensity({
   gpuStatus?: GpuStatus | null;
 }) {
   const count = liveUsers.length;
-  const cfg = INTENSITY[Math.min(4, count)];
   // Single shared poll comes from the workspace page; aggregate it here so the
   // feed shows real CPU/GPU numbers when a configured URL is emitting data.
   // Computed during render (not memoized) so stale nodes fade out on their own
@@ -176,6 +191,15 @@ export const LiveIntensity = React.memo(function LiveIntensity({
   // Latest snapshot for the scheduling loop without restarting its timers.
   const gpuSnapshotRef = useRef<GpuAggregate | null>(gpuSnapshot);
   gpuSnapshotRef.current = gpuSnapshot;
+  // Intensity: driven by real CPU/GPU usage when a URL is live, otherwise by
+  // the number of active users.
+  const gpuLevel = gpuLive && gpuSnapshot ? gpuLevelIndex(gpuSnapshot) : null;
+  const levelIndex = gpuLevel !== null ? gpuLevel : Math.min(4, count);
+  const cfg = INTENSITY[levelIndex];
+  // Current config for the recursive schedule loop (updates as GPU data
+  // changes without restarting timers).
+  const cfgRef = useRef(cfg);
+  cfgRef.current = cfg;
   const active = entered && (liveUsers.length > 0 || gpuLive);
   const [aiLogs, setAiLogs] = useState<AiLine[]>([]);
   const [tick, setTick] = useState(0);
@@ -195,7 +219,7 @@ export const LiveIntensity = React.memo(function LiveIntensity({
     if (!active) {
       setAiLogs([]);
     } else {
-      const intensity = INTENSITY[Math.min(4, liveUsers.length)];
+      const intensity = INTENSITY[levelIndex];
       setAiLogs(
         Array.from(
           { length: Math.min(2, intensity.maxVisible) },
@@ -220,15 +244,15 @@ export const LiveIntensity = React.memo(function LiveIntensity({
     timersRef.current.forEach(clearTimeout);
     timersRef.current = [];
     if (!active) return;
-    const intensity = INTENSITY[Math.min(4, liveUsers.length)];
 
     const schedule = () => {
-      const delay = intensity.min + Math.random() * (intensity.max - intensity.min);
+      const cur = cfgRef.current;
+      const delay = cur.min + Math.random() * (cur.max - cur.min);
       const tid = setTimeout(() => {
-        const line = pickLine(intensity.pool, gpuSnapshotRef.current);
+        const line = pickLine(cur.pool, gpuSnapshotRef.current);
         setAiLogs((prev) => {
           const next = [...prev, line];
-          return next.length > intensity.maxVisible ? next.slice(-intensity.maxVisible) : next;
+          return next.length > cur.maxVisible ? next.slice(-cur.maxVisible) : next;
         });
         onLineRef.current?.(line.prefix, line.type);
         schedule();
@@ -257,7 +281,10 @@ export const LiveIntensity = React.memo(function LiveIntensity({
           <Terminal size={14} className={`ws-feed-icon ws-feed-icon--${mode}`} />
           <h3 className={`ws-feed-heading ws-feed-heading--${mode}`}>Live Operations</h3>
         </div>
-        <div className="ws-feed-live-badge" title={`${count} active ${count === 1 ? "user" : "users"}`}>
+        <div
+          className="ws-feed-live-badge"
+          title={`${cfg.label} — based on ${gpuLive ? "live CPU/GPU usage from configured URLs" : "active users"}`}
+        >
           <span className="ws-feed-live-dot" style={{ animationDuration: `${cfg.pulseMs}ms` }} />
           <span>{cfg.label}</span>
         </div>
