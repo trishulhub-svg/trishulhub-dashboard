@@ -112,7 +112,12 @@ export function useNavShell(userId?: string) {
   const persistMode = useCallback(
     (open: boolean) => {
       try {
-        localStorage.setItem(storageKey(MODE_KEY, userId), open ? "open" : "capsule")
+        const value = open ? "open" : "capsule"
+        localStorage.setItem(storageKey(MODE_KEY, userId), value)
+        // Mirror to the unscoped key so the very first paint after a refresh
+        // restores the user's rail/capsule state instantly — no open-then-
+        // collapse flash that makes the menu feel like it "misbehaves".
+        localStorage.setItem(MODE_KEY, value)
       } catch {
         /* ignore */
       }

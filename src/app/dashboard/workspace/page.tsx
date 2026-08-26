@@ -802,8 +802,11 @@ export default function TrishulWorkspacePage() {
            ═══════════════════════════════════════ */
         .ws-root {
           position: relative;
-          min-height: 100vh;
-          min-height: 100dvh;
+          /* Fill the scrollable page area exactly — no forced scrollbar on
+             short windows (the old 100dvh added ~7rem of always-scroll). */
+          min-height: 100%;
+          display: flex;
+          flex-direction: column;
           overflow-x: hidden;
           touch-action: pan-y;
           background: var(--ws-bg);
@@ -994,8 +997,8 @@ export default function TrishulWorkspacePage() {
         .ws-layout {
           position: relative; z-index: 10;
           display: flex; flex-direction: column;
-          min-height: 100vh;
-          min-height: 100dvh;
+          flex: 1 0 auto;
+          min-height: 0;
           padding: 1rem 1rem 0.75rem;
           max-width: 1200px;
           margin: 0 auto;
