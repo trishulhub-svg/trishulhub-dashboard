@@ -92,6 +92,7 @@ import {
 } from "@/lib/nav-pages";
 import { useFavoritePages } from "@/hooks/use-favorite-pages";
 import { ClockedInHeaderDot } from "@/components/clocked-in-header-dot";
+import { CloudStatusHeaderDot } from "@/components/cloud-status-header-dot";
 import { haptic, hapticScroll } from "@/lib/haptics";
 import { LiquidNavRail, liquidNavItemClass, liquidNavKey } from "@/components/liquid-nav-rail";
 import { NavCapsule } from "@/components/nav-capsule";
@@ -1164,8 +1165,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </h2>
           </div>
 
-          <div className="flex items-center justify-center shrink-0 px-1">
+          <div className="flex items-center justify-center shrink-0 px-1 gap-1.5">
             <ClockedInHeaderDot />
+            <CloudStatusHeaderDot />
           </div>
 
           <div className="flex items-center justify-end gap-0.5 sm:gap-2 min-w-0">
