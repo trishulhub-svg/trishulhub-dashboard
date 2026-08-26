@@ -65,6 +65,9 @@ vi.mock("@/lib/audit-log", () => ({
 }))
 vi.mock("@/lib/auto-migrate", () => ({
   ensureTable: vi.fn().mockResolvedValue(true),
+  ensureCriticalSchema: vi.fn().mockResolvedValue(undefined),
+  ensureAllTables: vi.fn().mockResolvedValue(undefined),
+  runAutoMigrations: vi.fn().mockResolvedValue(undefined),
 }))
 vi.mock("@prisma/client", () => ({
   Prisma: {
@@ -231,7 +234,7 @@ describe("PM availability access — mutation routes BLOCK PROJECT_MANAGER", () 
 
   it("POST /api/availability still allows ADMIN", async () => {
     sessionMock.mockResolvedValue(makeSession("ADMIN"))
-    dbMock.user.findUnique.mockResolvedValue({ id: "u1" })
+    dbMock.user.findUnique.mockResolvedValue({ id: "u1", isActive: true })
     dbMock.availability.findMany.mockResolvedValue([])
     dbMock.availability.create.mockResolvedValue({
       id: "a1", userId: "u1", dayOfWeek: 1, startTime: "09:00", endTime: "17:00",
@@ -246,7 +249,7 @@ describe("PM availability access — mutation routes BLOCK PROJECT_MANAGER", () 
 
   it("POST /api/availability still allows SUPER_ADMIN", async () => {
     sessionMock.mockResolvedValue(makeSession("SUPER_ADMIN"))
-    dbMock.user.findUnique.mockResolvedValue({ id: "u1" })
+    dbMock.user.findUnique.mockResolvedValue({ id: "u1", isActive: true })
     dbMock.availability.findMany.mockResolvedValue([])
     dbMock.availability.create.mockResolvedValue({
       id: "a1", userId: "u1", dayOfWeek: 1, startTime: "09:00", endTime: "17:00",
