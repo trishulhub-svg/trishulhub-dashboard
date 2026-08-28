@@ -1,7 +1,7 @@
 /**
  * Shared GPU / performance metric helpers.
  *
- * Used by the Trishul Cloud Process live card and the Live Operations feed so
+ * Used by the Cloud Systems Telemetry card and the Live Operations feed so
  * both render the same numbers from the same source (a single poll of
  * /api/gpu/status on the workspace page).
  */
@@ -17,6 +17,22 @@ export type NodeMetrics = {
   batteryState: string | null;
   uptime: string | null;
   health: string | null;
+  healthMessage: string | null;
+  cpuName: string | null;
+  network: string | null;
+  cpuMaxFreq: number | null;
+  cpuPerformancePercent: number | null;
+  cpuFrequencyPercent: number | null;
+  cpuFrequencyReductionPercent: number | null;
+  cpuPerformanceLimitPercent: number | null;
+  performanceState: string | null;
+  telemetrySource: string | null;
+  codexRunning: boolean | null;
+  codexRamMb: number | null;
+  nodeRunning: boolean | null;
+  nodeRamMb: number | null;
+  cloudflareRunning: boolean | null;
+  cloudflareRamMb: number | null;
 };
 
 export type GpuResult = {
@@ -76,6 +92,8 @@ export function extractMetrics(data: Record<string, unknown>): NodeMetrics {
   };
   const str = (v: unknown): string | null =>
     typeof v === "string" && v.trim() ? v.trim() : null;
+  const bool = (v: unknown): boolean | null =>
+    typeof v === "boolean" ? v : null;
   return {
     cpu:
       get("cpu_usage", "cpuUsage", "cpu", "cpuLoad", "load") ??
@@ -103,6 +121,40 @@ export function extractMetrics(data: Record<string, unknown>): NodeMetrics {
       str(nested.battery_state ?? nested.batteryState),
     uptime: str(data.uptime ?? nested.uptime),
     health: str(data.health ?? nested.health ?? data.status),
+    healthMessage: str(data.healthMessage ?? nested.healthMessage),
+    cpuName: str(data.cpuName ?? nested.cpuName),
+    network: str(data.network ?? nested.network),
+    cpuMaxFreq:
+      get("cpu_max_mhz", "cpuMaxMhz", "max_clock_mhz") ??
+      getN("cpu_max_mhz", "max_clock_mhz"),
+    cpuPerformancePercent:
+      get("cpu_performance_percent", "cpuPerformancePercent", "performance_percent") ??
+      getN("cpu_performance_percent", "performance_percent"),
+    cpuFrequencyPercent:
+      get("cpu_frequency_percent", "cpuFrequencyPercent", "frequency_percent") ??
+      getN("cpu_frequency_percent", "frequency_percent"),
+    cpuFrequencyReductionPercent:
+      get(
+        "cpu_frequency_reduction_percent",
+        "cpuFrequencyReductionPercent",
+        "frequency_reduction_percent"
+      ) ?? getN("cpu_frequency_reduction_percent", "frequency_reduction_percent"),
+    cpuPerformanceLimitPercent:
+      get(
+        "cpu_performance_limit_percent",
+        "cpuPerformanceLimitPercent",
+        "performance_limit_percent"
+      ) ?? getN("cpu_performance_limit_percent", "performance_limit_percent"),
+    performanceState: str(data.performanceState ?? nested.performanceState),
+    telemetrySource: str(data.telemetrySource ?? nested.telemetrySource),
+    codexRunning: bool(data.codexRunning ?? nested.codexRunning),
+    codexRamMb: get("codexRamMb", "codex_ram_mb") ?? getN("codexRamMb", "codex_ram_mb"),
+    nodeRunning: bool(data.nodeRunning ?? nested.nodeRunning),
+    nodeRamMb: get("nodeRamMb", "node_ram_mb") ?? getN("nodeRamMb", "node_ram_mb"),
+    cloudflareRunning: bool(data.cloudflareRunning ?? nested.cloudflareRunning),
+    cloudflareRamMb:
+      get("cloudflareRamMb", "cloudflare_ram_mb") ??
+      getN("cloudflareRamMb", "cloudflare_ram_mb"),
   };
 }
 

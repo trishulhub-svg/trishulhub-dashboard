@@ -11,6 +11,10 @@ import {
   CircleSlash,
   Zap,
   BatteryMedium,
+  Wifi,
+  Server,
+  Bot,
+  Network,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -61,6 +65,7 @@ export const GpuLiveCard = React.memo(function GpuLiveCard({
   const totalMemory = totals.totalMemoryGb;
   const avgBattery = totals.avgBattery;
   const maxTemp = totals.maxTemp;
+  const firstNode = liveResults[0]?.metrics;
 
   return (
     <div
@@ -74,13 +79,13 @@ export const GpuLiveCard = React.memo(function GpuLiveCard({
             {anyLive ? <Activity size={18} /> : <Cpu size={18} />}
           </div>
           <div className="min-w-0">
-            <h3 className="ws-gpu-title">Trishul Cloud Process</h3>
+            <h3 className="ws-gpu-title">Cloud Systems Telemetry</h3>
             <p className="ws-gpu-sub">
               {anyLive
-                ? `${liveResults.length} node${liveResults.length === 1 ? "" : "s"} streaming live`
+                ? `${liveResults.length} connected machine${liveResults.length === 1 ? "" : "s"} · system and AI runtime health`
                 : status?.enabled?.length
                   ? "Nodes configured — waiting for data"
-                  : "GPU monitor idle"}
+                  : "Telemetry monitor idle"}
             </p>
           </div>
         </div>
@@ -107,13 +112,18 @@ export const GpuLiveCard = React.memo(function GpuLiveCard({
 
       {!error && anyLive && (
         <div className="ws-gpu-body">
-          {/* Combined totals — e.g. "4 GB of 8 GB" across all nodes */}
-          <div className="ws-gpu-totals">
+          <div className="ws-gpu-overview">
+            <div className="ws-gpu-overview-head">
+              <span className="ws-gpu-overview-title">Fleet overview</span>
+              <span className="ws-gpu-overview-count">
+                {liveResults.length} online
+              </span>
+            </div>
             {avgCpu !== null && (
               <div className="ws-gpu-total">
                 <div className="ws-gpu-total-head">
                   <Gauge size={13} />
-                  <span>Combined CPU</span>
+                  <span>Average CPU load</span>
                   <span className="ws-gpu-total-val">{Math.round(avgCpu)}%</span>
                 </div>
                 <div className="ws-gpu-track">
@@ -128,7 +138,7 @@ export const GpuLiveCard = React.memo(function GpuLiveCard({
               <div className="ws-gpu-total">
                 <div className="ws-gpu-total-head">
                   <MemoryStick size={13} />
-                  <span>Combined Memory</span>
+                  <span>Total memory use</span>
                   <span className="ws-gpu-total-val">
                     {totalMemoryUsed.toFixed(1)} / {totalMemory.toFixed(1)} GB
                   </span>
@@ -142,6 +152,10 @@ export const GpuLiveCard = React.memo(function GpuLiveCard({
               </div>
             )}
             <div className="ws-gpu-total-chips">
+              <div className="ws-gpu-stat" title="Connected machines">
+                <Server size={12} />
+                <span>{liveResults.length} online</span>
+              </div>
               {avgBattery !== null && (
                 <div className="ws-gpu-stat" title="Average battery">
                   <BatteryMedium size={12} />
@@ -154,88 +168,177 @@ export const GpuLiveCard = React.memo(function GpuLiveCard({
                   <span>{Math.round(maxTemp)}°C</span>
                 </div>
               )}
+              {firstNode?.network && (
+                <div className="ws-gpu-stat" title="Network">
+                  <Wifi size={12} />
+                  <span>{firstNode.network}</span>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Per-node breakdown */}
           <div className="ws-gpu-grid">
             {liveResults.map((r) => {
               const m = r.metrics;
               return (
                 <div key={r.id} className="ws-gpu-node">
                   <div className="ws-gpu-node-head">
-                    <span className="ws-gpu-node-name">{r.name || "GPU Node"}</span>
-                    <span className="ws-gpu-node-dot ws-gpu-node-dot--on" />
+                    <div className="min-w-0">
+                      <span className="ws-gpu-node-name">{r.name || "Cloud machine"}</span>
+                      {m.cpuName && <span className="ws-gpu-node-model">{m.cpuName}</span>}
+                    </div>
+                    <span className="ws-gpu-node-online">
+                      <span className="ws-gpu-node-dot ws-gpu-node-dot--on" />
+                      Online
+                    </span>
                   </div>
 
-                  {m.cpu !== null && (
-                    <div className="ws-gpu-metric">
-                      <div className="ws-gpu-metric-head">
-                        <Gauge size={12} />
-                        <span>CPU</span>
-                        <span className="ws-gpu-metric-val">{Math.round(m.cpu)}%</span>
-                      </div>
-                      <div className="ws-gpu-track">
-                        <div
-                          className="ws-gpu-fill ws-gpu-fill--cyan"
-                          style={{ width: `${clamp(m.cpu)}%` }}
-                        />
+                  <div className="ws-gpu-node-panels">
+                    <div className="ws-gpu-node-panel">
+                      <span className="ws-gpu-node-panel-title">Processor</span>
+                      {m.cpu !== null && (
+                        <div className="ws-gpu-metric">
+                          <div className="ws-gpu-metric-head">
+                            <Gauge size={12} />
+                            <span>Load</span>
+                            <span className="ws-gpu-metric-val">{Math.round(m.cpu)}%</span>
+                          </div>
+                          <div className="ws-gpu-track">
+                            <div
+                              className="ws-gpu-fill ws-gpu-fill--cyan"
+                              style={{ width: `${clamp(m.cpu)}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                      {m.cpuPerformancePercent !== null && (
+                        <div className="ws-gpu-metric">
+                          <div className="ws-gpu-metric-head">
+                            <Zap size={12} />
+                            <span>Performance</span>
+                            <span className="ws-gpu-metric-val">
+                              {Math.round(m.cpuPerformancePercent)}%
+                            </span>
+                          </div>
+                          <div className="ws-gpu-track">
+                            <div
+                              className="ws-gpu-fill ws-gpu-fill--green"
+                              style={{ width: `${clamp(m.cpuPerformancePercent)}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                      <div className="ws-gpu-node-stats">
+                        {m.cpuFreq !== null && (
+                          <div className="ws-gpu-stat" title="Current CPU frequency">
+                            <Zap size={12} />
+                            <span>{Math.round(m.cpuFreq)} MHz</span>
+                          </div>
+                        )}
+                        {m.cpuMaxFreq !== null && (
+                          <div className="ws-gpu-stat" title="Maximum CPU frequency">
+                            <Gauge size={12} />
+                            <span>Max {Math.round(m.cpuMaxFreq)} MHz</span>
+                          </div>
+                        )}
+                        {m.performanceState && (
+                          <div className="ws-gpu-stat" title="Performance state">
+                            <Activity size={12} />
+                            <span>{m.performanceState}</span>
+                          </div>
+                        )}
                       </div>
                     </div>
-                  )}
 
-                  {m.memoryPercent !== null && (
-                    <div className="ws-gpu-metric">
-                      <div className="ws-gpu-metric-head">
-                        <MemoryStick size={12} />
-                        <span>Memory</span>
-                        <span className="ws-gpu-metric-val">
-                          {m.memoryPercent != null ? `${Math.round(m.memoryPercent)}%` : "—"}
-                        </span>
-                      </div>
-                      <div className="ws-gpu-track">
-                        <div
-                          className="ws-gpu-fill ws-gpu-fill--purple"
-                          style={{ width: `${clamp(m.memoryPercent)}%` }}
-                        />
+                    <div className="ws-gpu-node-panel">
+                      <span className="ws-gpu-node-panel-title">Memory & system</span>
+                      {m.memoryPercent !== null && (
+                        <div className="ws-gpu-metric">
+                          <div className="ws-gpu-metric-head">
+                            <MemoryStick size={12} />
+                            <span>Memory</span>
+                            <span className="ws-gpu-metric-val">
+                              {Math.round(m.memoryPercent)}%
+                            </span>
+                          </div>
+                          <div className="ws-gpu-track">
+                            <div
+                              className="ws-gpu-fill ws-gpu-fill--purple"
+                              style={{ width: `${clamp(m.memoryPercent)}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                      <div className="ws-gpu-node-stats">
+                        {m.memoryUsedGb !== null && m.memoryTotalGb !== null && (
+                          <div className="ws-gpu-stat" title="Memory used of total">
+                            <MemoryStick size={12} />
+                            <span>
+                              {m.memoryUsedGb.toFixed(1)}/{m.memoryTotalGb.toFixed(1)} GB
+                            </span>
+                          </div>
+                        )}
+                        {m.batteryPercent !== null && (
+                          <div className="ws-gpu-stat" title={m.batteryState || "Battery"}>
+                            <BatteryMedium size={12} />
+                            <span>{Math.round(m.batteryPercent)}%</span>
+                          </div>
+                        )}
+                        {m.temperature !== null && (
+                          <div className="ws-gpu-stat" title="Temperature">
+                            <Thermometer size={12} />
+                            <span>{Math.round(m.temperature)}°C</span>
+                          </div>
+                        )}
+                        {m.uptime && (
+                          <div className="ws-gpu-stat" title="Uptime">
+                            <Activity size={12} />
+                            <span>{m.uptime}</span>
+                          </div>
+                        )}
+                        {m.network && (
+                          <div className="ws-gpu-stat" title="Network">
+                            <Network size={12} />
+                            <span>{m.network}</span>
+                          </div>
+                        )}
                       </div>
                     </div>
-                  )}
-
-                  <div className="ws-gpu-node-stats">
-                    {m.memoryUsedGb !== null && m.memoryTotalGb !== null && (
-                      <div className="ws-gpu-stat" title="Memory used of total">
-                        <MemoryStick size={12} />
-                        <span>
-                          {m.memoryUsedGb.toFixed(1)}/{m.memoryTotalGb.toFixed(1)} GB
-                        </span>
-                      </div>
-                    )}
-                    {m.cpuFreq !== null && (
-                      <div className="ws-gpu-stat" title="CPU frequency">
-                        <Zap size={12} />
-                        <span>{Math.round(m.cpuFreq)} MHz</span>
-                      </div>
-                    )}
-                    {m.temperature !== null && (
-                      <div className="ws-gpu-stat" title="Temperature">
-                        <Thermometer size={12} />
-                        <span>{Math.round(m.temperature)}°C</span>
-                      </div>
-                    )}
-                    {m.batteryPercent !== null && (
-                      <div className="ws-gpu-stat" title="Battery">
-                        <BatteryMedium size={12} />
-                        <span>{Math.round(m.batteryPercent)}%</span>
-                      </div>
-                    )}
-                    {m.uptime && (
-                      <div className="ws-gpu-stat" title="Uptime">
-                        <Activity size={12} />
-                        <span>{m.uptime}</span>
-                      </div>
-                    )}
                   </div>
+
+                  <div className="ws-gpu-runtime">
+                    <span className="ws-gpu-node-panel-title">AI runtime</span>
+                    <div className="ws-gpu-runtime-grid">
+                      {m.codexRunning !== null && (
+                        <div className={cn("ws-gpu-process", m.codexRunning && "ws-gpu-process--on")}>
+                          <Bot size={13} />
+                          <span>Codex</span>
+                          <strong>{m.codexRamMb !== null ? `${Math.round(m.codexRamMb)} MB` : m.codexRunning ? "Active" : "Off"}</strong>
+                        </div>
+                      )}
+                      {m.nodeRunning !== null && (
+                        <div className={cn("ws-gpu-process", m.nodeRunning && "ws-gpu-process--on")}>
+                          <Server size={13} />
+                          <span>Node</span>
+                          <strong>{m.nodeRamMb !== null ? `${Math.round(m.nodeRamMb)} MB` : m.nodeRunning ? "Active" : "Off"}</strong>
+                        </div>
+                      )}
+                      {m.cloudflareRunning !== null && (
+                        <div className={cn("ws-gpu-process", m.cloudflareRunning && "ws-gpu-process--on")}>
+                          <Radio size={13} />
+                          <span>Tunnel</span>
+                          <strong>{m.cloudflareRamMb !== null ? `${Math.round(m.cloudflareRamMb)} MB` : m.cloudflareRunning ? "Active" : "Off"}</strong>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {(m.health || m.healthMessage || m.telemetrySource) && (
+                    <div className="ws-gpu-node-foot">
+                      <span>{m.health || "SYSTEM ONLINE"}</span>
+                      <span>{m.healthMessage || m.telemetrySource}</span>
+                    </div>
+                  )}
                 </div>
               );
             })}

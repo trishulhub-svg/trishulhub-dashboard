@@ -78,3 +78,6 @@ trishulhub-dash-repo/
 trishulhub-dashboard/
 trishulhub-repo/core
 core
+
+# Graphify graph output
+graphify-out/

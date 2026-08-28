@@ -38,15 +38,19 @@ function isTrainingUser(u: LiveUser): boolean {
 
 type AiLine = { prefix: string; msg: string; type: LineType };
 
-/** DeepSeek harness + CPU/GPU monitor flavour — replaces old ZAI/GLM lines */
+/** Mixed AI runtime feed + real system telemetry. */
 const AI_LINES: AiLine[] = [
   { prefix: "DEEPSEEK", msg: "DeepSeek v4 Flash harness active — token window warm", type: "success" },
   { prefix: "HARNESS", msg: "DeepSeek harness planning next edit sequence", type: "info" },
   { prefix: "DEEPSEEK", msg: "v4 Flash reasoning pass complete — low latency", type: "success" },
-  { prefix: "HARNESS", msg: "Harness controller: deep review — architecture check", type: "info" },
   { prefix: "DEEPSEEK", msg: "v4 Flash patch proposal staged", type: "success" },
-  { prefix: "HARNESS", msg: "DeepSeek harness fast path — files indexed", type: "info" },
-  { prefix: "HARNESS", msg: "Harness loop: apply → test → iterate", type: "info" },
+  { prefix: "CODEX SOL", msg: "Codex Sol reviewing architecture and cross-file impact", type: "info" },
+  { prefix: "CODEX SOL", msg: "Sol reasoning pass complete — implementation path verified", type: "success" },
+  { prefix: "CODEX LUNA", msg: "Codex Luna scanning UI state and interaction flow", type: "info" },
+  { prefix: "CODEX LUNA", msg: "Luna interface pass complete — responsive checks staged", type: "success" },
+  { prefix: "CODEX TERRA", msg: "Codex Terra validating repository and deployment state", type: "info" },
+  { prefix: "CODEX TERRA", msg: "Terra verification complete — release path clear", type: "success" },
+  { prefix: "HARNESS", msg: "Multi-model loop: plan → implement → review → verify", type: "info" },
   { prefix: "DEPLOY", msg: "Next.js build compiled — 0 TypeScript errors", type: "success" },
   { prefix: "GPU", msg: "GPU core engaged — shader pipeline active", type: "success" },
   { prefix: "CPU", msg: "CPU threads utilising — workload scheduled", type: "info" },
@@ -55,7 +59,9 @@ const AI_LINES: AiLine[] = [
   { prefix: "GPU", msg: "Tensor cores busy — matrix multiply in flight", type: "info" },
   { prefix: "CPU", msg: "CPU load elevated — harness monitoring", type: "warn" },
   { prefix: "GPU", msg: "GPU temperature stable — thermal headroom OK", type: "success" },
-  { prefix: "DEEPSEEK", msg: "v4 Flash context window compacted", type: "info" },
+  { prefix: "CODEX SOL", msg: "Sol context compacted — architecture state retained", type: "info" },
+  { prefix: "CODEX LUNA", msg: "Luna waiting for the next interface task", type: "idle" },
+  { prefix: "CODEX TERRA", msg: "Terra workspace synced — repository idle", type: "idle" },
   { prefix: "HARNESS", msg: "Harness waiting for next instruction", type: "warn" },
   { prefix: "GPU", msg: "GPU idle — harness paused", type: "idle" },
   { prefix: "CPU", msg: "CPU idle — background sync paused", type: "idle" },
@@ -126,6 +132,12 @@ function pickLine(pool: LineType[], gpu?: GpuAggregate | null) {
   const dynamic = gpu ? buildGpuLines(gpu) : [];
   const candidates = [...dynamic, ...AI_LINES].filter((l) => pool.includes(l.type));
   return candidates[Math.floor(Math.random() * candidates.length)] ?? AI_LINES[0];
+}
+
+function initialLines(pool: LineType[]): AiLine[] {
+  return ["DEEPSEEK", "CODEX SOL"]
+    .map((prefix) => AI_LINES.find((line) => line.prefix === prefix && pool.includes(line.type)))
+    .filter((line): line is AiLine => Boolean(line));
 }
 
 /**
@@ -220,12 +232,7 @@ export const LiveIntensity = React.memo(function LiveIntensity({
       setAiLogs([]);
     } else {
       const intensity = INTENSITY[levelIndex];
-      setAiLogs(
-        Array.from(
-          { length: Math.min(2, intensity.maxVisible) },
-          () => pickLine(intensity.pool, gpuSnapshotRef.current)
-        )
-      );
+      setAiLogs(initialLines(intensity.pool).slice(0, intensity.maxVisible));
     }
   }
 
@@ -325,10 +332,10 @@ export const LiveIntensity = React.memo(function LiveIntensity({
                   ) : (
                     <div key={`auto-${u.userId}`} className="ws-feed-line ws-feed-line--enter">
                       <span className={`ws-feed-time ws-feed-time--${mode}`}>{formatTime()}</span>
-                      <span className="ws-feed-prefix ws-feed-prefix--success">DEEPSEEK HARNESS</span>
+                      <span className="ws-feed-prefix ws-feed-prefix--success">AI HARNESS</span>
                       <span className="ws-live-user-dot" aria-hidden />
                       <span className={`ws-feed-msg ws-feed-msg--${mode}`}>
-                        Auto mode running for {u.name} — DeepSeek v4 Flash harness loop active
+                        Auto mode running for {u.name} — DeepSeek and Codex model loop active
                       </span>
                     </div>
                   )

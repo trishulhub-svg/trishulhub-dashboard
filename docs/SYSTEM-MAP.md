@@ -54,7 +54,7 @@
 ## 5. Business Modules (end-to-end)
 
 ### Workspace (`/dashboard/workspace`)
-Live AI ops feed (DeepSeek v4 Flash harness + real CPU/GPU lines), Trishul Cloud Process GPU monitor (up to 3 URLs in System→GPU, 3s poll, shared `useGpuStatus` + `gpu-metrics`), DeepSeek peak/off-peak badge (Asia/Shanghai canonical), clock-in hero, long-horizon projects, ambient visuals. Header cloud indicator (Cloud Active/Stopped/Off) + popup monitor on every page.
+Live AI ops feed (DeepSeek v4 Flash plus Codex Sol/Luna/Terra activity lines and real system telemetry), Cloud Systems Telemetry monitor (up to 3 URLs in System→GPU, 3s poll, shared `useGpuStatus` + `gpu-metrics`; CPU performance, memory, battery, network, uptime, and Codex/Node/Tunnel runtime details), DeepSeek peak/off-peak badge (Asia/Shanghai canonical), clock-in hero, long-horizon projects, ambient visuals. Header cloud indicator (Cloud Active/Stopped/Off) + popup monitor on every page.
 
 ### Finance (`/dashboard/finance` + sub-pages)
 Hub (overview + reports tabs + quick-nav), **Subscriptions** (recurring costs, INR conversion, expiry checker), **Expenses**, **Invoices** (create/send/track, PDF, payments), **P&L** (month/year, newest-first + order controller, Save-to-Drive PDF/XLSX/DOCX). Reports pipeline `src/lib/finance-report.ts` auto-saves to Drive under **Finance Reports → YYYY-MM** + Files. Currency helpers: `src/lib/currency.ts` (exchange fallbacks), `money.ts` (server), `format.ts` (display).

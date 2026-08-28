@@ -1,5 +1,5 @@
 /**
- * Trishul Cloud Process — GPU / performance live monitor.
+ * Cloud Systems Telemetry — machine and AI runtime monitor.
  *
  * Super Admins configure up to 3 URLs (e.g. a Cloudflare tunnel exposing GPU
  * metrics) in System → GPU. Each URL has an on/off toggle. When enabled, the
@@ -172,8 +172,25 @@ export function parseMonitorHtml(html: string): Record<string, unknown> | null {
     batteryState: null,
     uptime: null,
     cpuName: null,
+    healthMessage: null,
+    network: null,
+    cpuMaxMhz: null,
+    cpuPerformancePercent: null,
+    cpuFrequencyPercent: null,
+    cpuFrequencyReductionPercent: null,
+    cpuPerformanceLimitPercent: null,
+    performanceState: null,
+    telemetrySource: null,
+    codexRunning: null,
+    codexRamMb: null,
+    nodeRunning: null,
+    nodeRamMb: null,
+    cloudflareRunning: null,
+    cloudflareRamMb: null,
   }
 
+  const cleanText = (value: string): string =>
+    value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()
   const labelValue = (label: string): string | null => {
     // <div class="label">LABEL</div> ... <div class="value">VALUE</div>
     const re = new RegExp(
@@ -194,6 +211,27 @@ export function parseMonitorHtml(html: string): Record<string, unknown> | null {
 
   const healthMatch = html.match(/<div class="health">\s*([^<]+?)\s*<\/div>/i)
   out.health = healthMatch ? healthMatch[1].trim() : null
+  const healthMessage = html.match(
+    /<div class="label">\s*System health\s*<\/div>\s*<div class="health">[\s\S]*?<\/div>\s*<div class="hint">\s*([^<]+?)\s*<\/div>/i
+  )
+  out.healthMessage = healthMessage ? healthMessage[1].trim() : null
+
+  const rowPill = (label: string): string | null => {
+    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    const re = new RegExp(
+      `<div class="row"><span>(?:<[^>]+>)*\\s*${escaped}\\s*(?:<\\/[^>]+>)*<\\/span><span class="pill">\\s*([^<]+?)\\s*<\\/span><\\/div>`,
+      "i"
+    )
+    const match = html.match(re)
+    return match ? cleanText(match[1]) : null
+  }
+
+  const pillNumber = (label: string): number | null => {
+    const value = rowPill(label)
+    if (!value) return null
+    const parsed = parseFloat(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
 
   const cpuVal = labelValue("CPU load")
   if (cpuVal) {
@@ -236,6 +274,43 @@ export function parseMonitorHtml(html: string): Record<string, unknown> | null {
 
   const cpuName = html.match(/<div class="row"><span>CPU<\/span><span class="pill">\s*([^<]+?)\s*<\/span>/i)
   if (cpuName) out.cpuName = cpuName[1].trim()
+  out.network = rowPill("Network")
+  out.performanceState = rowPill("Performance state")
+  out.cpuPerformancePercent = pillNumber("Processor performance")
+  out.cpuMaxMhz = pillNumber("Reported maximum clock")
+  out.cpuFrequencyPercent = pillNumber("Frequency level")
+  out.cpuFrequencyReductionPercent = pillNumber("Frequency reduction")
+  out.cpuPerformanceLimitPercent = pillNumber("Performance limit")
+
+  const telemetrySource = html.match(
+    /<div class="source">\s*Telemetry source:\s*([^<]+?)\s*<\/div>/i
+  )
+  out.telemetrySource = telemetrySource ? telemetrySource[1].trim() : null
+
+  const processMetrics = (name: string) => {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    const re = new RegExp(
+      `<div class="row"><span><i class="dot([^"]*)"><\\/i>\\s*${escaped}\\s*<\\/span><span class="pill">\\s*([^<]+?)\\s*<\\/span><\\/div>`,
+      "i"
+    )
+    const match = html.match(re)
+    if (!match) return { running: null, ramMb: null }
+    const ramMb = parseFloat(match[2])
+    return {
+      running: /\bon\b/i.test(match[1]),
+      ramMb: Number.isFinite(ramMb) ? ramMb : null,
+    }
+  }
+
+  const codex = processMetrics("Codex")
+  out.codexRunning = codex.running
+  out.codexRamMb = codex.ramMb
+  const node = processMetrics("Node")
+  out.nodeRunning = node.running
+  out.nodeRamMb = node.ramMb
+  const cloudflare = processMetrics("Cloudflare Tunnel")
+  out.cloudflareRunning = cloudflare.running
+  out.cloudflareRamMb = cloudflare.ramMb
 
   // Only consider it "live" if we actually found something meaningful.
   if (out.cpuLoad === null && out.memoryPercent === null && out.batteryPercent === null && !out.health) {

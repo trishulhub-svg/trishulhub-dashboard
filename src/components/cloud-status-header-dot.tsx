@@ -34,7 +34,7 @@ type CloudStatus = {
 const POLL_MS = 12_000;
 
 /**
- * Global header indicator for the Trishul Cloud Process (GPU/monitor URLs).
+ * Global header indicator for Cloud Systems Telemetry (monitor URLs).
  * - Green blinking dot + "Cloud Active" when at least one configured URL is
  *   emitting live data.
  * - Amber/red + "Cloud Stopped" / "Cloud Off" when nothing is running.
@@ -164,7 +164,7 @@ export function CloudStatusHeaderDot() {
           <DialogHeader className="px-4 sm:px-5 pt-4 pb-2 border-b shrink-0">
             <DialogTitle className="flex items-center gap-2 text-sm">
               <Cpu className="h-4 w-4 text-cyan-600" />
-              Trishul Cloud Process
+              Cloud Systems Telemetry
             </DialogTitle>
           </DialogHeader>
           <div className="p-4 sm:p-5 overflow-y-auto">
@@ -194,10 +194,10 @@ function CloudMonitorPanel() {
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">
           {anyLive
-            ? `${agg.nodeCount} node${agg.nodeCount === 1 ? "" : "s"} streaming live`
+            ? `${agg.nodeCount} connected machine${agg.nodeCount === 1 ? "" : "s"} streaming live`
             : enabledCount > 0
               ? "Nodes configured — waiting for data"
-              : "GPU monitor idle"}
+              : "Telemetry monitor idle"}
         </p>
         {anyLive ? (
           <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold tracking-wider text-emerald-600 dark:text-emerald-400">
@@ -227,7 +227,7 @@ function CloudMonitorPanel() {
             {agg.avgCpu !== null && (
               <Stat
                 icon={<Gauge className="h-3 w-3" />}
-                label="Combined CPU"
+                label="Average CPU"
                 value={`${Math.round(agg.avgCpu)}%`}
                 bar={<Bar value={agg.avgCpu} className="bg-cyan-500" />}
               />
@@ -267,7 +267,7 @@ function CloudMonitorPanel() {
               return (
                 <div key={n.id} className="rounded-lg border p-2.5">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="min-w-0 truncate text-xs font-semibold">{n.name || "GPU Node"}</p>
+                    <p className="min-w-0 truncate text-xs font-semibold">{n.name || "Cloud machine"}</p>
                     <span className="flex shrink-0 items-center gap-1.5">
                       <span className="text-[10px] text-emerald-600 dark:text-emerald-400">
                         {isCurrentlyLive ? "live" : "last data"}
