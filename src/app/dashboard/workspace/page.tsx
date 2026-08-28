@@ -2402,27 +2402,20 @@ export default function TrishulWorkspacePage() {
           display: flex;
           flex-direction: column;
           gap: 0.6rem;
+          min-width: 0;
         }
-        @media (min-width: 768px) {
-          .ws-gpu-card { grid-column: 1 / -1; }
-          .ws-gpu-body {
-            display: grid;
-            grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
-            gap: 0.75rem;
-            align-items: start;
-          }
-          .ws-gpu-overview { height: 100%; }
-        }
-        @media (min-width: 1400px) {
-          .ws-gpu-body {
-            grid-template-columns: minmax(0, 1.6fr) minmax(0, 3.4fr);
-          }
+        .ws-gpu-body {
+          min-width: 0;
         }
         .ws-gpu-header {
           display: flex;
           align-items: flex-start;
           justify-content: space-between;
           gap: 0.5rem;
+          flex-wrap: wrap;
+        }
+        .ws-gpu-header > div {
+          flex: 1 1 13rem;
         }
         .ws-gpu-icon {
           display: flex;
@@ -2493,10 +2486,12 @@ export default function TrishulWorkspacePage() {
         .ws-gpu-grid {
           display: grid;
           grid-template-columns: 1fr;
-          gap: 0.6rem;
+          gap: 0.7rem;
         }
-        @media (min-width: 640px) {
-          .ws-gpu-grid { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+        @media (min-width: 1100px) {
+          .ws-gpu-grid {
+            grid-template-columns: repeat(auto-fit, minmax(min(25rem, 100%), 1fr));
+          }
         }
         .ws-gpu-node {
           border: 1px solid color-mix(in srgb, var(--ws-card-border) 60%, transparent);
@@ -2512,6 +2507,10 @@ export default function TrishulWorkspacePage() {
           align-items: center;
           justify-content: space-between;
           gap: 0.4rem;
+          flex-wrap: wrap;
+        }
+        .ws-gpu-node-head > div {
+          flex: 1 1 12rem;
         }
         .ws-gpu-node-name {
           display: block;
@@ -2606,40 +2605,25 @@ export default function TrishulWorkspacePage() {
           border-radius: 100px;
           padding: 0.2rem 0.5rem;
           font-variant-numeric: tabular-nums;
+          min-width: 0;
+          max-width: 100%;
+        }
+        .ws-gpu-stat span {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
         .ws-gpu-footer {
           font-size: 0.6rem;
           color: var(--ws-text-dim);
           text-align: center;
         }
-        .ws-gpu-overview {
-          display: flex;
-          flex-direction: column;
-          gap: 0.5rem;
-          border: 1px solid color-mix(in srgb, var(--ws-card-border) 55%, transparent);
-          background: color-mix(in srgb, var(--ws-card-bg-mid) 35%, transparent);
-          border-radius: 0.7rem;
-          padding: 0.7rem 0.8rem;
-        }
-        .ws-gpu-overview-head {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 0.5rem;
-          padding-bottom: 0.2rem;
-        }
-        .ws-gpu-overview-title,
         .ws-gpu-node-panel-title {
           font-size: 0.58rem;
           font-weight: 700;
           letter-spacing: 0.08em;
           text-transform: uppercase;
           color: var(--ws-text-dim);
-        }
-        .ws-gpu-overview-count {
-          font-size: 0.56rem;
-          font-weight: 700;
-          color: #34d399;
         }
         .ws-gpu-node-panels {
           display: grid;
@@ -2687,6 +2671,9 @@ export default function TrishulWorkspacePage() {
           font-weight: 500;
           color: var(--ws-text-muted);
           font-variant-numeric: tabular-nums;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
         .ws-gpu-process--on {
           color: #34d399;
@@ -2716,33 +2703,24 @@ export default function TrishulWorkspacePage() {
           .ws-gpu-node-panels,
           .ws-gpu-runtime-grid { grid-template-columns: 1fr; }
         }
-        .ws-gpu-total {
-          display: flex;
-          flex-direction: column;
-          gap: 0.25rem;
-        }
-        .ws-gpu-total-head {
-          display: flex;
-          align-items: center;
-          gap: 0.35rem;
-          font-size: 0.62rem;
-          font-weight: 600;
-          letter-spacing: 0.06em;
-          text-transform: uppercase;
-          color: var(--ws-text-dim);
-        }
-        .ws-gpu-total-val {
-          margin-left: auto;
-          color: var(--ws-text-muted);
-          font-variant-numeric: tabular-nums;
-          letter-spacing: 0;
-          text-transform: none;
-        }
-        .ws-gpu-total-chips {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 0.4rem;
-          padding-top: 0.15rem;
+        @media (max-width: 420px) {
+          .ws-gpu-card {
+            padding: 0.85rem;
+          }
+          .ws-gpu-node {
+            padding: 0.65rem;
+          }
+          .ws-gpu-node-foot {
+            align-items: flex-start;
+            flex-direction: column;
+            gap: 0.2rem;
+          }
+          .ws-gpu-node-foot span:last-child {
+            overflow: visible;
+            text-overflow: clip;
+            white-space: normal;
+            text-align: left;
+          }
         }
       `}</style>
     </>

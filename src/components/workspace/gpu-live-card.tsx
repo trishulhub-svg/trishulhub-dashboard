@@ -11,7 +11,6 @@ import {
   CircleSlash,
   Zap,
   BatteryMedium,
-  Wifi,
   Server,
   Bot,
   Network,
@@ -53,20 +52,13 @@ export const GpuLiveCard = React.memo(function GpuLiveCard({
   const error = errorProp !== undefined ? errorProp : internal.error;
 
   // Smoothly drop nodes that stopped responding (keep them for STALE_MS).
-  const { nodes: liveResults, agg: totals } = aggregateGpuResults(
+  const { nodes: liveResults } = aggregateGpuResults(
     dataSource?.results || [],
     STALE_MS
   );
   const anyLive = liveResults.length > 0;
   // Track whether we are currently live vs waiting (for the OFF label).
   const isCurrentlyLive = status?.anyLive === true;
-  const avgCpu = totals.avgCpu;
-  const totalMemoryUsed = totals.totalMemoryUsedGb;
-  const totalMemory = totals.totalMemoryGb;
-  const avgBattery = totals.avgBattery;
-  const maxTemp = totals.maxTemp;
-  const firstNode = liveResults[0]?.metrics;
-
   return (
     <div
       className={cn("ws-card ws-gpu-card", entered && "ws-in", className)}
@@ -82,7 +74,7 @@ export const GpuLiveCard = React.memo(function GpuLiveCard({
             <h3 className="ws-gpu-title">Cloud Systems Telemetry</h3>
             <p className="ws-gpu-sub">
               {anyLive
-                ? `${liveResults.length} connected machine${liveResults.length === 1 ? "" : "s"} · system and AI runtime health`
+                ? `${liveResults.length} configured PC${liveResults.length === 1 ? "" : "s"} online · system and AI runtime health`
                 : status?.enabled?.length
                   ? "Nodes configured — waiting for data"
                   : "Telemetry monitor idle"}
@@ -112,71 +104,6 @@ export const GpuLiveCard = React.memo(function GpuLiveCard({
 
       {!error && anyLive && (
         <div className="ws-gpu-body">
-          <div className="ws-gpu-overview">
-            <div className="ws-gpu-overview-head">
-              <span className="ws-gpu-overview-title">Fleet overview</span>
-              <span className="ws-gpu-overview-count">
-                {liveResults.length} online
-              </span>
-            </div>
-            {avgCpu !== null && (
-              <div className="ws-gpu-total">
-                <div className="ws-gpu-total-head">
-                  <Gauge size={13} />
-                  <span>Average CPU load</span>
-                  <span className="ws-gpu-total-val">{Math.round(avgCpu)}%</span>
-                </div>
-                <div className="ws-gpu-track">
-                  <div
-                    className="ws-gpu-fill ws-gpu-fill--cyan"
-                    style={{ width: `${clamp(avgCpu)}%` }}
-                  />
-                </div>
-              </div>
-            )}
-            {totalMemory > 0 && (
-              <div className="ws-gpu-total">
-                <div className="ws-gpu-total-head">
-                  <MemoryStick size={13} />
-                  <span>Total memory use</span>
-                  <span className="ws-gpu-total-val">
-                    {totalMemoryUsed.toFixed(1)} / {totalMemory.toFixed(1)} GB
-                  </span>
-                </div>
-                <div className="ws-gpu-track">
-                  <div
-                    className="ws-gpu-fill ws-gpu-fill--purple"
-                    style={{ width: `${clamp((totalMemoryUsed / totalMemory) * 100)}%` }}
-                  />
-                </div>
-              </div>
-            )}
-            <div className="ws-gpu-total-chips">
-              <div className="ws-gpu-stat" title="Connected machines">
-                <Server size={12} />
-                <span>{liveResults.length} online</span>
-              </div>
-              {avgBattery !== null && (
-                <div className="ws-gpu-stat" title="Average battery">
-                  <BatteryMedium size={12} />
-                  <span>{Math.round(avgBattery)}%</span>
-                </div>
-              )}
-              {maxTemp !== null && (
-                <div className="ws-gpu-stat" title="Hottest node">
-                  <Thermometer size={12} />
-                  <span>{Math.round(maxTemp)}°C</span>
-                </div>
-              )}
-              {firstNode?.network && (
-                <div className="ws-gpu-stat" title="Network">
-                  <Wifi size={12} />
-                  <span>{firstNode.network}</span>
-                </div>
-              )}
-            </div>
-          </div>
-
           <div className="ws-gpu-grid">
             {liveResults.map((r) => {
               const m = r.metrics;
