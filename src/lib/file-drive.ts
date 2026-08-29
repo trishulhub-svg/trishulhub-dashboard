@@ -4,7 +4,7 @@
  * Preferred auth: service account + domain-wide delegation as info@trishulhub.in
  */
 
-import { google, drive_v3 } from "googleapis"
+import { google, drive_v3, sheets_v4 } from "googleapis"
 import { db } from "@/lib/db"
 import { encrypt, decrypt, isEncryptionConfigured } from "@/lib/encryption"
 
@@ -288,6 +288,12 @@ async function getAuthClient() {
 export async function getDriveClient(): Promise<drive_v3.Drive> {
   const auth = await getAuthClient()
   return google.drive({ version: "v3", auth })
+}
+
+/** Sheets API client sharing the same Drive credentials (drive scope covers spreadsheets). */
+export async function getSheetsClient(): Promise<sheets_v4.Sheets> {
+  const auth = await getAuthClient()
+  return google.sheets({ version: "v4", auth })
 }
 
 const DRIVE_FLAGS = {

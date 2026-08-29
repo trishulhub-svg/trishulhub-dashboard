@@ -11,12 +11,13 @@ import {
   renderFinanceXlsx,
   renderFinanceDocx,
   saveFinanceReportToDrive,
+  saveFinanceSheetToDrive,
   financeMonthKey,
   FINANCE_REPORT_MIME,
   type FinanceReportFormat,
 } from "@/lib/finance-report"
 
-const VALID_FORMATS: FinanceReportFormat[] = ["pdf", "xlsx", "docx"]
+const VALID_FORMATS: FinanceReportFormat[] = ["pdf", "xlsx", "docx", "sheets"]
 
 /**
  * GET /api/finance/reports
@@ -31,7 +32,7 @@ export async function GET(req: NextRequest) {
     }
 
     const rows = (await db.$queryRawUnsafe(
-      `SELECT f.id, f.name, f."webViewLink", f."sizeBytes", f."createdAt",
+      `SELECT f.id, f.name, f."mimeType", f."webViewLink", f."sizeBytes", f."createdAt",
               n.name AS folderName
        FROM "FileItem" f
        INNER JOIN "FileNode" n ON n."id" = f."nodeId"
@@ -43,6 +44,7 @@ export async function GET(req: NextRequest) {
     )) as Array<{
       id: string
       name: string
+      mimeType: string | null
       webViewLink: string | null
       sizeBytes: number
       createdAt: string
@@ -53,6 +55,7 @@ export async function GET(req: NextRequest) {
       reports: rows.map((r) => ({
         id: r.id,
         name: r.name,
+        mimeType: r.mimeType,
         url: r.webViewLink,
         size: r.sizeBytes,
         createdAt: r.createdAt,
@@ -117,7 +120,9 @@ export async function POST(req: NextRequest) {
         ? await renderFinancePdf(data)
         : formatRaw === "xlsx"
           ? await renderFinanceXlsx(data)
-          : await renderFinanceDocx(data)
+          : formatRaw === "sheets"
+            ? null
+            : await renderFinanceDocx(data)
 
     const monthKey = financeMonthKey(from)
     const dateLabel = `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, "0")}-${String(
@@ -126,15 +131,25 @@ export async function POST(req: NextRequest) {
       to.getDate()
     ).padStart(2, "0")}`
     const employeeTag = userIdRaw ? `_${data.filterUser?.replace(/\s+/g, "_") || "employee"}` : ""
-    const fileName = `Finance_Report_${dateLabel}${employeeTag}.${formatRaw}`
+    const fileName = `Finance_Report_${dateLabel}${employeeTag}${
+      formatRaw === "sheets" ? "" : `.${formatRaw}`
+    }`
 
-    const saved = await saveFinanceReportToDrive({
-      fileName,
-      mimeType: FINANCE_REPORT_MIME[formatRaw],
-      buffer,
-      monthKey,
-      generatedBy: session.user.id,
-    })
+    const saved =
+      formatRaw === "sheets"
+        ? await saveFinanceSheetToDrive({
+            fileName,
+            monthKey,
+            generatedBy: session.user.id,
+            data,
+          })
+        : await saveFinanceReportToDrive({
+            fileName,
+            mimeType: FINANCE_REPORT_MIME[formatRaw],
+            buffer: buffer!,
+            monthKey,
+            generatedBy: session.user.id,
+          })
 
     void logAudit({
       userId: session.user.id,

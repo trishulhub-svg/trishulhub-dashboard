@@ -16,6 +16,7 @@ import {
   LineChart,
   Loader2,
   Save,
+  Sheet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -142,7 +143,7 @@ export default function PnLPage() {
 
   /** Export the visible P&L span to a finance report saved straight to Drive. */
   const saveReportToDrive = useCallback(
-    async (format: "pdf" | "xlsx" | "docx") => {
+    async (format: "pdf" | "xlsx" | "docx" | "sheets") => {
       if (periodList.length === 0) {
         toast.error("No P&L data to export yet");
         return;
@@ -304,9 +305,13 @@ export default function PnLPage() {
                 <DropdownMenuItem onClick={() => void saveReportToDrive("docx")} disabled={savingReport}>
                   <FileType2 className="h-3.5 w-3.5 mr-2" /> Word (DOCX)
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => void saveReportToDrive("sheets")} disabled={savingReport}>
+                  <Sheet className="h-3.5 w-3.5 mr-2" /> Google Sheets
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <p className="px-2 py-1 text-[10px] text-muted-foreground leading-snug">
-                  Saved under Finance Reports → period folder, and appears in Files + Finance → Reports.
+                  Saved under Finance Reports → period folder as a native Google Sheet, and
+                  appears in Files + Finance → Reports.
                 </p>
               </DropdownMenuContent>
             </DropdownMenu>

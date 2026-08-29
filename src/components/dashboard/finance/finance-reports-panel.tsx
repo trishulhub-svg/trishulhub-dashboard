@@ -11,6 +11,7 @@ import {
   FileSpreadsheet,
   FileType2,
   FileText,
+  Sheet,
   Loader2,
   FolderOpen,
 } from "lucide-react";
@@ -32,6 +33,7 @@ import { safeText, safeNumber } from "@/lib/utils";
 type ReportRow = {
   id: string;
   name: string;
+  mimeType?: string | null;
   url: string | null;
   size: number;
   createdAt: string;
@@ -44,6 +46,7 @@ const FORMATS = [
   { value: "pdf", label: "PDF", icon: FileType2 },
   { value: "xlsx", label: "Excel (XLSX)", icon: FileSpreadsheet },
   { value: "docx", label: "Word (DOCX)", icon: FileText },
+  { value: "sheets", label: "Google Sheets", icon: Sheet },
 ] as const;
 
 export function FinanceReportsPanel() {
@@ -128,7 +131,9 @@ export function FinanceReportsPanel() {
       toast.success(
         data.report?.reused
           ? "Report already exists — opened the saved copy"
-          : `${format.toUpperCase()} report generated & saved to Drive/Files`
+          : format === "sheets"
+            ? "Google Sheet generated & saved to your Drive"
+            : `${format.toUpperCase()} report generated & saved to Drive/Files`
       );
       void loadReports();
       if (data.report?.folderUrl) {
@@ -146,7 +151,10 @@ export function FinanceReportsPanel() {
     }
   };
 
-  const formatIcon = (name: string) => {
+  const formatIcon = (r: ReportRow) => {
+    if (r.mimeType === "application/vnd.google-apps.spreadsheet")
+      return <Sheet className="h-4 w-4 text-emerald-600" />;
+    const name = r.name || "";
     if (name.endsWith(".xlsx")) return <FileSpreadsheet className="h-4 w-4 text-emerald-600" />;
     if (name.endsWith(".docx")) return <FileText className="h-4 w-4 text-sky-600" />;
     return <FileType2 className="h-4 w-4 text-red-600" />;
@@ -162,8 +170,10 @@ export function FinanceReportsPanel() {
           </div>
           <p className="text-xs text-muted-foreground">
             Choose a date range (and optionally a team member) to generate a full finance
-            report. It is automatically saved to <strong>Finance Reports → YYYY-MM</strong> in
-            your Drive and the Files module — no duplicates.
+            report as PDF, Excel, Word or a native Google Sheet (all transactions with full
+            details, organized in tabs). It is automatically saved to{" "}
+            <strong>Finance Reports → YYYY-MM</strong> in your Drive and the Files module — no
+            duplicates.
           </p>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <div className="space-y-1.5">
@@ -262,13 +272,15 @@ export function FinanceReportsPanel() {
               {reports.map((r) => (
                 <li key={r.id} className="flex items-center gap-3 py-2.5">
                   <span className="h-9 w-9 shrink-0 rounded-lg bg-muted flex items-center justify-center">
-                    {formatIcon(r.name)}
+                    {formatIcon(r)}
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{safeText(r.name)}</p>
                     <p className="text-[11px] text-muted-foreground">
                       {safeText(r.folder)} · {new Date(r.createdAt).toLocaleDateString()} ·{" "}
-                      {(safeNumber(r.size) / 1024).toFixed(0)} KB
+                      {r.mimeType === "application/vnd.google-apps.spreadsheet"
+                        ? "Google Sheet"
+                        : `${(safeNumber(r.size) / 1024).toFixed(0)} KB`}
                     </p>
                   </div>
                   {r.url && (

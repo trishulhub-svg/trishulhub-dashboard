@@ -9,6 +9,7 @@
  */
 
 import { db } from "@/lib/db"
+import type { sheets_v4 } from "googleapis"
 import { formatMoney } from "@/lib/money"
 import { formatDisplayDate } from "@/lib/format"
 import {
@@ -16,9 +17,11 @@ import {
   ensureRootAndReview,
   uploadDriveFile,
   getDriveFileLink,
+  createGoogleNativeFile,
+  getSheetsClient,
 } from "@/lib/file-drive"
 
-export type FinanceReportFormat = "pdf" | "xlsx" | "docx"
+export type FinanceReportFormat = "pdf" | "xlsx" | "docx" | "sheets"
 
 export type FinanceReportOptions = {
   from: Date
@@ -67,7 +70,10 @@ export async function loadFinanceReportData(
     await Promise.all([
       db.invoice.findMany({
         where: { createdAt: { gte: from, lte: endOfDay } },
-        include: { client: { select: { id: true, name: true } } },
+        include: {
+          client: { select: { id: true, name: true } },
+          project: { select: { id: true, name: true } },
+        },
         orderBy: { createdAt: "asc" },
       }),
       db.payment.findMany({
@@ -178,18 +184,39 @@ export async function loadFinanceReportData(
       totalSubscriptionsMonthly,
       netProfit,
     },
-    invoices: invoices.map((i) => ({
-      number: i.invoiceNumber,
-      client: i.client?.name || "Unknown",
-      date: formatDisplayDate(i.createdAt),
-      status: i.status,
-      total: Number(i.total) || 0,
-    })),
+    invoices: invoices.map((i) => {
+      let itemCount = 0
+      try {
+        const items = JSON.parse(i.items || "[]")
+        itemCount = Array.isArray(items) ? items.length : 0
+      } catch {
+        /* not JSON — treat as no line items */
+      }
+      return {
+        number: i.invoiceNumber,
+        client: i.client?.name || "Unknown",
+        date: formatDisplayDate(i.createdAt),
+        status: i.status,
+        currency: i.currency || "GBP",
+        subtotal: Number(i.subtotal) || 0,
+        tax: Number(i.tax) || 0,
+        gst: Number(i.gst) || 0,
+        total: Number(i.total) || 0,
+        dueDate: i.dueDate ? formatDisplayDate(i.dueDate) : null,
+        paidAt: i.paidAt ? formatDisplayDate(i.paidAt) : null,
+        paymentMethod: i.paymentMethod || null,
+        paymentStatus: i.paymentStatus || null,
+        itemCount,
+        project: i.project?.name || null,
+        notes: i.notes || null,
+      }
+    }),
     payments: payments.map((p) => ({
       invoice: p.invoice?.invoiceNumber || "—",
       date: formatDisplayDate(p.paidAt),
       amount: Number(p.amount) || 0,
       method: p.method || "—",
+      note: p.note || null,
     })),
     expenses: expenses.map((e) => ({
       date: formatDisplayDate(e.date),
@@ -197,16 +224,21 @@ export async function loadFinanceReportData(
       description: e.description,
       project: e.project?.name || null,
       employee: e.employee?.name || null,
+      paymentRef: e.paymentRef || null,
+      receiptUrl: e.receiptUrl || null,
       amount: Number(e.amount) || 0,
       currency: e.currency || "GBP",
     })),
     subscriptions: subscriptions.map((s) => ({
       service: s.service,
+      category: s.category || null,
       amount: Number(s.amount) || 0,
       currency: s.currency || "GBP",
       frequency: s.frequency,
       status: s.status,
       startDate: formatDisplayDate(s.startDate),
+      endDate: s.endDate ? formatDisplayDate(s.endDate) : null,
+      notes: s.notes || null,
     })),
     earnings: earnings.map((e) => ({
       employee: e.employee?.name || "—",
@@ -736,6 +768,291 @@ export async function saveFinanceReportToDrive(opts: {
   }
 }
 
+// ── Native Google Sheets ──
+
+export const GOOGLE_SHEETS_MIME = "application/vnd.google-apps.spreadsheet"
+
+type FinanceSheetTab = {
+  title: string
+  headers: string[]
+  rows: unknown[][]
+}
+
+/** Build the tab layout for a native Google Sheet with full transaction detail. */
+export function buildFinanceSheetTabs(data: FinanceReportData): FinanceSheetTab[] {
+  const s = data.summary
+  const tabs: FinanceSheetTab[] = [
+    {
+      title: "Summary",
+      headers: ["Metric", "Value"],
+      rows: [
+        ["Total invoiced", s.totalInvoiced],
+        ["Total paid", s.totalPaid],
+        ["Outstanding", s.totalOutstanding],
+        ["Total expenses", s.totalExpenses],
+        ["Subscriptions / month", s.totalSubscriptionsMonthly],
+        ["Net profit (paid − expenses)", s.netProfit],
+        [],
+        ["Period", `${data.period.from} → ${data.period.to}`],
+        ["Employee filter", data.filterUser || "All employees"],
+        ["Generated", `${data.generatedAt} by ${data.generatedBy}`],
+      ],
+    },
+    {
+      title: "Invoices",
+      headers: [
+        "Invoice No.",
+        "Client",
+        "Date",
+        "Status",
+        "Currency",
+        "Subtotal",
+        "Tax",
+        "GST",
+        "Total",
+        "Due Date",
+        "Paid Date",
+        "Payment Method",
+        "Payment Status",
+        "Items",
+        "Project",
+        "Notes",
+      ],
+      rows: data.invoices.map((r) => [
+        r.number,
+        r.client,
+        r.date,
+        r.status,
+        r.currency,
+        r.subtotal,
+        r.tax,
+        r.gst,
+        r.total,
+        r.dueDate,
+        r.paidAt,
+        r.paymentMethod,
+        r.paymentStatus,
+        r.itemCount,
+        r.project,
+        r.notes,
+      ]),
+    },
+    {
+      title: "Payments",
+      headers: ["Invoice", "Date", "Method", "Amount", "Note"],
+      rows: data.payments.map((r) => [r.invoice, r.date, r.method, r.amount, r.note]),
+    },
+    {
+      title: "Expenses",
+      headers: [
+        "Date",
+        "Category",
+        "Description",
+        "Project",
+        "Employee",
+        "Payment Ref",
+        "Receipt URL",
+        "Amount",
+        "Currency",
+      ],
+      rows: data.expenses.map((r) => [
+        r.date,
+        r.category,
+        r.description,
+        r.project,
+        r.employee,
+        r.paymentRef,
+        r.receiptUrl,
+        r.amount,
+        r.currency,
+      ]),
+    },
+    {
+      title: "Subscriptions",
+      headers: [
+        "Service",
+        "Category",
+        "Amount",
+        "Currency",
+        "Frequency",
+        "Status",
+        "Start Date",
+        "End Date",
+        "Notes",
+      ],
+      rows: data.subscriptions.map((r) => [
+        r.service,
+        r.category,
+        r.amount,
+        r.currency,
+        r.frequency,
+        r.status,
+        r.startDate,
+        r.endDate,
+        r.notes,
+      ]),
+    },
+  ]
+
+  if (data.earnings.length) {
+    tabs.push({
+      title: "Earnings",
+      headers: ["Employee", "Date", "Amount", "Currency"],
+      rows: data.earnings.map((r) => [r.employee, r.date, r.amount, r.currency]),
+    })
+  }
+
+  if (data.clients.length) {
+    tabs.push({
+      title: "Clients",
+      headers: ["Client", "Invoiced", "Paid"],
+      rows: data.clients.map((c) => [c.name, c.invoiced, c.paid]),
+    })
+  }
+
+  return tabs
+}
+
+/**
+ * Create the sheet tabs, write all values and format header rows in a native
+ * Google Sheet. Tabs are created first (Summary first), the default empty sheet
+ * is removed, then values are written and headers bolded + frozen.
+ */
+export async function populateFinanceSheet(
+  spreadsheetId: string,
+  tabs: FinanceSheetTab[]
+): Promise<void> {
+  const sheets = await getSheetsClient()
+
+  const addRequests: sheets_v4.Schema$Request[] = tabs.map((t, i) => ({
+    addSheet: {
+      properties: {
+        title: t.title,
+        index: i,
+        gridProperties: { frozenRowCount: 1 },
+      },
+    },
+  }))
+  addRequests.push({ deleteSheet: { sheetId: 0 } })
+
+  const created = await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: { requests: addRequests },
+  })
+  const sheetIds = (created.data.replies || [])
+    .slice(0, tabs.length)
+    .map((r, i) => {
+      const sid = r.addSheet?.properties?.sheetId
+      if (typeof sid !== "number") {
+        throw new Error(`Sheets API did not return an id for tab "${tabs[i].title}"`)
+      }
+      return sid
+    })
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      valueInputOption: "USER_ENTERED",
+      data: tabs.map((t) => ({
+        range: `'${t.title}'!A1`,
+        values: [t.headers, ...t.rows],
+      })),
+    },
+  })
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: tabs.map((t, i): sheets_v4.Schema$Request => ({
+        updateCells: {
+          range: {
+            sheetId: sheetIds[i],
+            startRowIndex: 0,
+            endRowIndex: 1,
+            startColumnIndex: 0,
+            endColumnIndex: t.headers.length,
+          },
+          rows: [
+            {
+              values: t.headers.map(() => ({
+                userEnteredFormat: { textFormat: { bold: true } },
+              })),
+            },
+          ],
+          fields: "userEnteredFormat.textFormat.bold",
+        },
+      })),
+    },
+  })
+}
+
+/**
+ * Create a native Google Sheet for the period, populate it with all finance
+ * data and save it under Finance Reports → YYYY-MM in the Files tree + Drive.
+ * Reuses an existing sheet with the same name so nothing is duplicated.
+ */
+export async function saveFinanceSheetToDrive(opts: {
+  fileName: string
+  monthKey: string
+  generatedBy: string
+  data: FinanceReportData
+}): Promise<{
+  fileItemId: string
+  spreadsheetId: string
+  webViewLink: string | null
+  folderUrl: string
+  reused: boolean
+}> {
+  const { monthNodeId, monthDriveId } = await ensureFinanceReportFolder(opts.monthKey)
+
+  const existing = (await db.$queryRawUnsafe(
+    `SELECT "id","driveFileId","webViewLink" FROM "FileItem"
+     WHERE "nodeId" = ? AND "name" = ? AND "deletedAt" IS NULL LIMIT 1`,
+    monthNodeId,
+    opts.fileName
+  )) as Array<{ id: string; driveFileId: string | null; webViewLink: string | null }>
+  if (existing[0]) {
+    const driveLink =
+      existing[0].webViewLink || getDriveFileLink(existing[0].driveFileId || existing[0].id)
+    return {
+      fileItemId: existing[0].id,
+      spreadsheetId: existing[0].driveFileId || existing[0].id,
+      webViewLink: driveLink,
+      folderUrl: `https://drive.google.com/drive/folders/${monthDriveId}`,
+      reused: true,
+    }
+  }
+
+  const created = await createGoogleNativeFile({
+    name: opts.fileName,
+    type: "sheet",
+    parentId: monthDriveId,
+  })
+  await populateFinanceSheet(created.id, buildFinanceSheetTabs(opts.data))
+
+  const fileItemId = newId("fi")
+  await db.$executeRawUnsafe(
+    `INSERT INTO "FileItem" ("id","nodeId","name","mimeType","sizeBytes","driveFileId","webViewLink","createdById","createdAt","updatedAt")
+     VALUES (?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`,
+    fileItemId,
+    monthNodeId,
+    opts.fileName,
+    GOOGLE_SHEETS_MIME,
+    0,
+    created.id,
+    created.webViewLink || null,
+    opts.generatedBy
+  )
+
+  return {
+    fileItemId,
+    spreadsheetId: created.id,
+    webViewLink: created.webViewLink || getDriveFileLink(created.id),
+    folderUrl: `https://drive.google.com/drive/folders/${monthDriveId}`,
+    reused: false,
+  }
+}
+
 /** Month folder key e.g. "2026-08". */
 export function financeMonthKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`
@@ -745,4 +1062,5 @@ export const FINANCE_REPORT_MIME: Record<FinanceReportFormat, string> = {
   pdf: "application/pdf",
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  sheets: GOOGLE_SHEETS_MIME,
 }
