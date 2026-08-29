@@ -28,6 +28,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { FinanceReportsPanel } from "@/components/dashboard/finance/finance-reports-panel";
 
 const FILTERS = [
   { key: "profit", label: "Profit", axis: "money" as const },
@@ -415,6 +416,9 @@ export default function PnLPage() {
           </div>
         </div>
       )}
+
+      {/* ━━ Finance Reports (auto-save to Drive) ━━ */}
+      <FinanceReportsPanel />
     </div>
   );
 }

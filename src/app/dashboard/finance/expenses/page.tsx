@@ -39,6 +39,7 @@ import {
 } from "@/lib/expense-categories";
 import { EditExpenseDialog } from "@/components/dashboard/finance/edit-expense-dialog";
 import type { ExpenseDetail } from "@/components/dashboard/finance/expense-detail-sheet";
+import { FinanceReportsPanel } from "@/components/dashboard/finance/finance-reports-panel";
 
 // Safety limit for client-side expense aggregation
 const MAX_EXPENSE_FETCH = 500;
@@ -804,6 +805,9 @@ export default function ExpensesPage() {
           ))}
         </div>
       )}
+
+      {/* ━━ Finance Reports (auto-save to Drive) ━━ */}
+      <FinanceReportsPanel />
 
       {/* ━━ Expense Preview Dialog ━━ */}
       <Dialog open={!!previewExpense} onOpenChange={(open) => { if (!open) setPreviewExpense(null); }}>
