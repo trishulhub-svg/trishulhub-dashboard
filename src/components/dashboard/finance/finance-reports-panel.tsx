@@ -43,10 +43,10 @@ type ReportRow = {
 type TeamUser = { id: string; name: string; email: string };
 
 const FORMATS = [
+  { value: "sheets", label: "Google Sheets", icon: Sheet },
   { value: "pdf", label: "PDF", icon: FileType2 },
   { value: "xlsx", label: "Excel (XLSX)", icon: FileSpreadsheet },
   { value: "docx", label: "Word (DOCX)", icon: FileText },
-  { value: "sheets", label: "Google Sheets", icon: Sheet },
 ] as const;
 
 export function FinanceReportsPanel() {
@@ -62,7 +62,7 @@ export function FinanceReportsPanel() {
   const [from, setFrom] = useState(defaultDates.from);
   const [to, setTo] = useState(defaultDates.to);
   const [userId, setUserId] = useState("");
-  const [format, setFormat] = useState<string>("pdf");
+  const [format, setFormat] = useState<string>("sheets");
   const [teamUsers, setTeamUsers] = useState<TeamUser[]>([]);
   const [generating, setGenerating] = useState(false);
   const [reports, setReports] = useState<ReportRow[]>([]);
@@ -190,7 +190,7 @@ export function FinanceReportsPanel() {
                 <SelectTrigger className="h-9">
                   <SelectValue placeholder="All employees" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent portal position="popper">
                   <SelectItem value="all">All employees</SelectItem>
                   {teamUsers.map((u) => (
                     <SelectItem key={u.id} value={u.id}>
@@ -204,9 +204,9 @@ export function FinanceReportsPanel() {
               <Label className="text-xs">Format</Label>
               <Select value={format} onValueChange={setFormat}>
                 <SelectTrigger className="h-9">
-                  <SelectValue placeholder="PDF" />
+                  <SelectValue placeholder="Google Sheets" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent portal position="popper">
                   {FORMATS.map((f) => (
                     <SelectItem key={f.value} value={f.value}>
                       <span className="flex items-center gap-2">
