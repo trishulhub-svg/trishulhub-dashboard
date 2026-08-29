@@ -7,7 +7,7 @@ import { handleFetchError } from "@/lib/fetch-utils";
 import {
   Plus, Trash2, AlertCircle, Search, DollarSign, Receipt,
   Tag, FolderOpen, User, Hash, Calendar, Pencil, Eye, CreditCard,
-  TrendingUp, X, Check, Loader2,
+  TrendingUp, X, Check, Loader2, ChevronDown, FileSpreadsheet,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import {
-  Dialog, DialogContent, DialogDescription, DialogHeader,
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader,
   DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
 import {
@@ -480,21 +480,24 @@ export default function ExpensesPage() {
                 <Plus className="h-4 w-4 mr-1" /> Add Expense
               </Button>
             </DialogTrigger>
-          <DialogContent className="sm:max-w-lg max-h-[92dvh] flex flex-col p-0 gap-0" formGuardKey="expense-add">
-            <DialogHeader className="px-5 pt-5 pb-2 shrink-0">
+          <DialogContent
+            className="max-h-[calc(100dvh-1rem)] overflow-hidden p-0 sm:max-w-xl flex flex-col gap-0"
+            formGuardKey="expense-add"
+          >
+            <DialogHeader className="shrink-0 border-b border-border/60 px-5 py-4 pr-12">
               <DialogTitle>Add Expense</DialogTitle>
               <DialogDescription>
-                Create a new expense record. Assign to a project or employee as needed.
+                Add the transaction details. Project, employee and receipt are optional.
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-4 overflow-y-auto flex-1 min-h-0 px-5 pb-5">
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-4">
               {/* Row 1: Category + Amount */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label className="text-xs font-medium">Category *</Label>
                   <Select value={addForm.category} onValueChange={(v) => setAddForm((f) => ({ ...f, category: v }))}>
                     <SelectTrigger className="rounded-xl"><SelectValue placeholder="Select category" /></SelectTrigger>
-                    <SelectContent>
+                    <SelectContent portal position="popper">
                       {categoryNames.map((cat) => (
                         <SelectItem key={cat} value={cat}>{formatExpenseCategoryLabel(cat)}</SelectItem>
                       ))}
@@ -540,7 +543,7 @@ export default function ExpensesPage() {
                   <Label className="text-xs font-medium">Project</Label>
                   <Select value={addForm.projectId} onValueChange={(v) => setAddForm((f) => ({ ...f, projectId: v }))}>
                     <SelectTrigger className="rounded-xl"><SelectValue placeholder="No project" /></SelectTrigger>
-                    <SelectContent>
+                    <SelectContent portal position="popper">
                       <SelectItem value="NONE">No Project</SelectItem>
                       {projects.map((p) => (
                         <SelectItem key={p.id} value={p.id}>{safeText(p.name)}</SelectItem>
@@ -556,7 +559,7 @@ export default function ExpensesPage() {
                   <Label className="text-xs font-medium">Employee</Label>
                   <Select value={addForm.employeeId} onValueChange={(v) => setAddForm((f) => ({ ...f, employeeId: v }))}>
                     <SelectTrigger className="rounded-xl"><SelectValue placeholder="Unassigned" /></SelectTrigger>
-                    <SelectContent>
+                    <SelectContent portal position="popper">
                       <SelectItem value="NONE">None</SelectItem>
                       {employees.map((emp) => (
                         <SelectItem key={emp.id} value={emp.id}>{safeText(emp.name)}</SelectItem>
@@ -586,22 +589,40 @@ export default function ExpensesPage() {
                 />
               </div>
 
-              <Separator />
-
-              {/* Actions */}
-              <div className="flex gap-2 justify-end">
-                <Button type="button" variant="outline" onClick={() => setAddOpen(false)} className="rounded-xl">
-                  Cancel
-                </Button>
-                <Button type="button" onClick={handleAddExpense} className="rounded-xl">
-                  <Plus className="h-4 w-4 mr-1" /> Add Expense
-                </Button>
-              </div>
             </div>
+            <DialogFooter className="shrink-0 border-t border-border/60 bg-background/95 px-5 py-3 backdrop-blur">
+              <Button type="button" variant="outline" onClick={() => setAddOpen(false)} className="rounded-xl">
+                Cancel
+              </Button>
+              <Button type="button" onClick={handleAddExpense} className="rounded-xl">
+                <Plus className="h-4 w-4 mr-1" /> Add Expense
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
         </div>
       </PageHeader>
+
+      <details className="group overflow-hidden rounded-xl border border-border/60 bg-card/60 shadow-sm">
+        <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10">
+            <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold">Generate finance report</span>
+            <span className="block truncate text-xs text-muted-foreground">
+              Select a date range and save a detailed report to Google Drive
+            </span>
+          </span>
+          <Badge variant="secondary" className="hidden shrink-0 text-[10px] sm:inline-flex">
+            Drive synced
+          </Badge>
+          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="border-t border-border/60 bg-muted/10 p-3 sm:p-4">
+          <FinanceReportsPanel />
+        </div>
+      </details>
 
       <CollapsibleStatStrip
         title="Expense summary"
@@ -805,9 +826,6 @@ export default function ExpensesPage() {
           ))}
         </div>
       )}
-
-      {/* ━━ Finance Reports (auto-save to Drive) ━━ */}
-      <FinanceReportsPanel />
 
       {/* ━━ Expense Preview Dialog ━━ */}
       <Dialog open={!!previewExpense} onOpenChange={(open) => { if (!open) setPreviewExpense(null); }}>
