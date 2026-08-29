@@ -8,7 +8,6 @@ import {
   ExternalLink,
   RefreshCw,
   User as UserIcon,
-  FileSpreadsheet,
   FileType2,
   FileText,
   Sheet,
@@ -45,8 +44,7 @@ type TeamUser = { id: string; name: string; email: string };
 const FORMATS = [
   { value: "sheets", label: "Google Sheets", icon: Sheet },
   { value: "pdf", label: "PDF", icon: FileType2 },
-  { value: "xlsx", label: "Excel (XLSX)", icon: FileSpreadsheet },
-  { value: "docx", label: "Word (DOCX)", icon: FileText },
+  { value: "docx", label: "Google Docs", icon: FileText },
 ] as const;
 
 export function FinanceReportsPanel() {
@@ -133,7 +131,9 @@ export function FinanceReportsPanel() {
           ? "Report already exists — opened the saved copy"
           : format === "sheets"
             ? "Google Sheet generated & saved to your Drive"
-            : `${format.toUpperCase()} report generated & saved to Drive/Files`
+            : format === "docx"
+              ? "Google Docs-compatible report generated & saved to your Drive"
+              : "PDF report generated & saved to Drive/Files"
       );
       void loadReports();
       if (data.report?.folderUrl) {
@@ -155,14 +155,13 @@ export function FinanceReportsPanel() {
     if (r.mimeType === "application/vnd.google-apps.spreadsheet")
       return <Sheet className="h-4 w-4 text-emerald-600" />;
     const name = r.name || "";
-    if (name.endsWith(".xlsx")) return <FileSpreadsheet className="h-4 w-4 text-emerald-600" />;
     if (name.endsWith(".docx")) return <FileText className="h-4 w-4 text-sky-600" />;
     return <FileType2 className="h-4 w-4 text-red-600" />;
   };
 
   return (
     <div className="space-y-4">
-      <Card>
+      <Card className="border-border/60 shadow-none">
         <CardContent className="p-4 sm:p-5 space-y-4">
           <div className="flex items-center gap-2">
             <CalendarRange className="h-4 w-4 text-primary" />
@@ -170,12 +169,11 @@ export function FinanceReportsPanel() {
           </div>
           <p className="text-xs text-muted-foreground">
             Choose a date range (and optionally a team member) to generate a full finance
-            report as PDF, Excel, Word or a native Google Sheet (all transactions with full
-            details, organized in tabs). It is automatically saved to{" "}
+            report as a PDF, native Google Sheet or Google Doc. It is automatically saved to{" "}
             <strong>Finance Reports → YYYY-MM</strong> in your Drive and the Files module — no
             duplicates.
           </p>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1.2fr)_auto]">
             <div className="space-y-1.5">
               <Label className="text-xs">From</Label>
               <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="h-9" />
@@ -190,7 +188,7 @@ export function FinanceReportsPanel() {
                 <SelectTrigger className="h-9">
                   <SelectValue placeholder="All employees" />
                 </SelectTrigger>
-                <SelectContent portal position="popper">
+                <SelectContent portal position="popper" className="max-h-[min(18rem,var(--radix-select-content-available-height))]">
                   <SelectItem value="all">All employees</SelectItem>
                   {teamUsers.map((u) => (
                     <SelectItem key={u.id} value={u.id}>
@@ -206,7 +204,7 @@ export function FinanceReportsPanel() {
                 <SelectTrigger className="h-9">
                   <SelectValue placeholder="Google Sheets" />
                 </SelectTrigger>
-                <SelectContent portal position="popper">
+                <SelectContent portal position="popper" className="max-h-[min(18rem,var(--radix-select-content-available-height))]">
                   {FORMATS.map((f) => (
                     <SelectItem key={f.value} value={f.value}>
                       <span className="flex items-center gap-2">
@@ -218,7 +216,7 @@ export function FinanceReportsPanel() {
               </Select>
             </div>
             <div className="flex items-end">
-              <Button onClick={() => void generate()} disabled={generating || !from || !to} className="h-9 w-full">
+              <Button onClick={() => void generate()} disabled={generating || !from || !to} className="h-9 w-full xl:w-auto">
                 {generating ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-1 animate-spin" /> Generating…

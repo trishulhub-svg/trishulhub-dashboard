@@ -10,6 +10,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -187,8 +188,8 @@ export function EditExpenseDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[92dvh] flex flex-col p-0 gap-0" formGuardKey={`edit-${recordKind}-${expense?.id || "new"}`}>
-        <DialogHeader className="px-5 pt-5 pb-2 shrink-0">
+      <DialogContent className="max-h-[calc(100dvh-1rem)] overflow-hidden p-0 sm:max-w-xl flex flex-col gap-0" formGuardKey={`edit-${recordKind}-${expense?.id || "new"}`}>
+        <DialogHeader className="shrink-0 border-b border-border/60 px-5 py-4 pr-12">
           <DialogTitle>{recordKind === "subscription" ? "Edit Subscription" : "Edit Expense"}</DialogTitle>
           <DialogDescription>
             {recordKind === "subscription"
@@ -196,7 +197,7 @@ export function EditExpenseDialog({
               : "Update this expense record. Fields marked with * are required."}
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-3 overflow-y-auto flex-1 min-h-0 px-5 pb-5">
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-5 py-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label className="text-xs">Category *</Label>
@@ -209,7 +210,7 @@ export function EditExpenseDialog({
                 <SelectTrigger>
                   <SelectValue placeholder="Select" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent portal position="popper" className="max-h-[min(18rem,var(--radix-select-content-available-height))]">
                   {categoryOptions.map((cat) => (
                     <SelectItem key={cat} value={cat}>
                       {formatExpenseCategoryLabel(cat)}
@@ -266,7 +267,7 @@ export function EditExpenseDialog({
                 <SelectTrigger>
                   <SelectValue placeholder="None" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent portal position="popper" className="max-h-[min(18rem,var(--radix-select-content-available-height))]">
                   <SelectItem value="NONE">None</SelectItem>
                   {projects.map((p) => (
                     <SelectItem key={p.id} value={p.id}>
@@ -290,7 +291,7 @@ export function EditExpenseDialog({
                 <SelectTrigger>
                   <SelectValue placeholder="None" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent portal position="popper" className="max-h-[min(18rem,var(--radix-select-content-available-height))]">
                   <SelectItem value="NONE">None</SelectItem>
                   {employees.map((emp) => (
                     <SelectItem key={emp.id} value={emp.id}>
@@ -323,7 +324,8 @@ export function EditExpenseDialog({
             />
           </div>
 
-          <div className="flex gap-2 justify-end pt-2">
+        </div>
+        <DialogFooter className="shrink-0 border-t border-border/60 bg-background/95 px-5 py-3 backdrop-blur">
             <Button
               type="button"
               variant="outline"
@@ -336,8 +338,7 @@ export function EditExpenseDialog({
               {saving && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
               Update Expense
             </Button>
-          </div>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

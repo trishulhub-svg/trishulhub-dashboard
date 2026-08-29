@@ -7,7 +7,7 @@ import { handleFetchError } from "@/lib/fetch-utils";
 import {
   Plus, Trash2, AlertCircle, Search, DollarSign, Receipt,
   Tag, FolderOpen, User, Hash, Calendar, Pencil, Eye, CreditCard,
-  TrendingUp, X, Check, Loader2, ChevronDown, FileSpreadsheet,
+  TrendingUp, X, Check, Loader2,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -39,7 +39,7 @@ import {
 } from "@/lib/expense-categories";
 import { EditExpenseDialog } from "@/components/dashboard/finance/edit-expense-dialog";
 import type { ExpenseDetail } from "@/components/dashboard/finance/expense-detail-sheet";
-import { FinanceReportsPanel } from "@/components/dashboard/finance/finance-reports-panel";
+import { FinanceReportSection } from "@/components/dashboard/finance/finance-report-section";
 
 // Safety limit for client-side expense aggregation
 const MAX_EXPENSE_FETCH = 500;
@@ -603,26 +603,7 @@ export default function ExpensesPage() {
         </div>
       </PageHeader>
 
-      <details className="group overflow-hidden rounded-xl border border-border/60 bg-card/60 shadow-sm">
-        <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10">
-            <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-sm font-semibold">Generate finance report</span>
-            <span className="block truncate text-xs text-muted-foreground">
-              Select a date range and save a detailed report to Google Drive
-            </span>
-          </span>
-          <Badge variant="secondary" className="hidden shrink-0 text-[10px] sm:inline-flex">
-            Drive synced
-          </Badge>
-          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
-        </summary>
-        <div className="border-t border-border/60 bg-muted/10 p-3 sm:p-4">
-          <FinanceReportsPanel />
-        </div>
-      </details>
+      <FinanceReportSection />
 
       <CollapsibleStatStrip
         title="Expense summary"
@@ -700,7 +681,7 @@ export default function ExpensesPage() {
               <SelectTrigger className="w-full sm:w-52 h-9 text-sm rounded-lg">
                 <SelectValue placeholder="Filter by category" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent portal position="popper" className="max-h-[min(18rem,var(--radix-select-content-available-height))]">
                 <SelectItem value="ALL">All Categories</SelectItem>
                 {categoryNames.map((cat) => (
                   <SelectItem key={cat} value={cat}>{formatExpenseCategoryLabel(cat)}</SelectItem>

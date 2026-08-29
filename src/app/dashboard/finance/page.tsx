@@ -22,8 +22,7 @@ import {
   DollarSign, TrendingUp, TrendingDown, FileText, Clock,
   AlertCircle, Search, Plus, Trash2, Pause, Play, Edit3, CreditCard,
   Receipt, FolderOpen, Tag, ChevronDown, ChevronUp, Pencil,
-  FileSpreadsheet, FileType2, FileDown, ExternalLink, RefreshCw,
-  CalendarRange, User as UserIcon,
+  FileDown,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -51,7 +50,7 @@ import { emitFinanceChanged, useFinanceLiveRefresh } from "@/lib/finance-events"
 import { PageHeader } from "@/components/page-header";
 import { EditExpenseDialog } from "@/components/dashboard/finance/edit-expense-dialog";
 import { ExpenseDetailSheet } from "@/components/dashboard/finance/expense-detail-sheet";
-import { FinanceReportsPanel } from "@/components/dashboard/finance/finance-reports-panel";
+import { FinanceReportSection } from "@/components/dashboard/finance/finance-report-section";
 import type { ExpenseDetail } from "@/components/dashboard/finance/expense-detail-sheet";
 import { SubscriptionExpiryBadge } from "@/components/dashboard/finance/subscription-expiry-badge";
 import { SubscriptionExpiryChecker } from "@/components/dashboard/finance/subscription-expiry-checker";
@@ -941,7 +940,15 @@ function FinancePageInner() {
       {/* Header */}
       <PageHeader title="Finance" description="Revenue, invoices, expenses & subscriptions at a glance">
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" onClick={() => setActiveTab("reports")}>
+          <Button
+            size="sm"
+            onClick={() => {
+              document.getElementById("finance-report-generator")?.scrollIntoView({
+                behavior: "smooth",
+                block: "start",
+              });
+            }}
+          >
             <FileDown className="h-4 w-4 mr-1" /> Generate Report
           </Button>
           <Button size="sm" variant="outline" onClick={() => router.push("/dashboard/finance/subscriptions")}>
@@ -958,6 +965,10 @@ function FinancePageInner() {
           </Button>
         </div>
       </PageHeader>
+
+      <div id="finance-report-generator" className="scroll-mt-4">
+        <FinanceReportSection />
+      </div>
 
       <CollapsibleStatStrip
         title="Finance summary"
@@ -1308,7 +1319,7 @@ function FinancePageInner() {
                   <Label className="text-xs mb-1 block">Category</Label>
                   <Select value={expCategory} onValueChange={setExpCategory}>
                     <SelectTrigger><SelectValue placeholder="All Categories" /></SelectTrigger>
-                    <SelectContent>
+                    <SelectContent portal position="popper" className="max-h-[min(18rem,var(--radix-select-content-available-height))]">
                       <SelectItem value="ALL">All Categories</SelectItem>
                       {expenseCategories.map((cat) => (
                         <SelectItem key={cat} value={cat}>{formatExpenseCategoryLabel(cat)}</SelectItem>
@@ -1633,7 +1644,7 @@ function FinancePageInner() {
 
         {/* ─── Reports Tab ──── */}
         <TabsContent value="reports" className="space-y-4">
-          <FinanceReportsPanel />
+          <FinanceReportSection defaultOpen />
         </TabsContent>
       </Tabs>
 
@@ -1659,12 +1670,12 @@ function FinancePageInner() {
 
       {/* ─── Subscription Dialog ──── */}
       <Dialog open={subDialogOpen} onOpenChange={(open) => { setSubDialogOpen(open); if (!open) setEditingSub(null); }}>
-        <DialogContent className="sm:max-w-lg max-h-[92dvh] flex flex-col p-0 gap-0">
-          <DialogHeader className="px-5 pt-5 pb-2 shrink-0">
+        <DialogContent className="max-h-[calc(100dvh-1rem)] overflow-hidden p-0 sm:max-w-xl flex flex-col gap-0">
+          <DialogHeader className="shrink-0 border-b border-border/60 px-5 py-4 pr-12">
             <DialogTitle>{editingSub ? "Edit Subscription" : "Add Subscription"}</DialogTitle>
             <DialogDescription>{editingSub ? "Update subscription details." : "Add a new recurring subscription."}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-3 overflow-y-auto flex-1 min-h-0 px-5 pb-5">
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-5 py-4">
             <div className="space-y-1">
               <Label className="text-xs">Service Name *</Label>
               <Input
@@ -1692,7 +1703,7 @@ function FinancePageInner() {
                   onValueChange={(v) => setSubForm((f) => ({ ...f, currency: v, exchangeRate: String(getRateForCurrency(v)) }))}
                 >
                   <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
+                  <SelectContent portal position="popper" className="max-h-[min(18rem,var(--radix-select-content-available-height))]">
                     <SelectItem value="INR">INR ₹</SelectItem>
                     <SelectItem value="USD">USD $</SelectItem>
                     <SelectItem value="GBP">GBP £</SelectItem>
@@ -1744,7 +1755,7 @@ function FinancePageInner() {
                 <Label className="text-xs">Status</Label>
                 <Select value={subForm.status} onValueChange={(v) => setSubForm((f) => ({ ...f, status: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
+                  <SelectContent portal position="popper" className="max-h-[min(18rem,var(--radix-select-content-available-height))]">
                     <SelectItem value="ACTIVE">Active</SelectItem>
                     <SelectItem value="STOPPED">Stopped</SelectItem>
                     <SelectItem value="COMPLETED">Completed</SelectItem>
@@ -1755,7 +1766,7 @@ function FinancePageInner() {
                 <Label className="text-xs">Frequency</Label>
                 <Select value={subForm.frequency} onValueChange={(v) => setSubForm((f) => ({ ...f, frequency: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
+                  <SelectContent portal position="popper" className="max-h-[min(18rem,var(--radix-select-content-available-height))]">
                     <SelectItem value="MONTHLY">Monthly</SelectItem>
                     <SelectItem value="YEARLY">Yearly</SelectItem>
                     <SelectItem value="ONE_TIME">One Time</SelectItem>
@@ -1766,7 +1777,7 @@ function FinancePageInner() {
                 <Label className="text-xs">Category</Label>
                 <Select value={subForm.category} onValueChange={(v) => setSubForm((f) => ({ ...f, category: v }))}>
                   <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
-                  <SelectContent>
+                  <SelectContent portal position="popper" className="max-h-[min(18rem,var(--radix-select-content-available-height))]">
                     <SelectItem value="SOFTWARE">Software</SelectItem>
                     <SelectItem value="HOSTING">Hosting</SelectItem>
                     <SelectItem value="DOMAINS">Domains</SelectItem>
@@ -1783,7 +1794,7 @@ function FinancePageInner() {
               <Label className="text-xs">Project</Label>
               <Select value={subForm.projectId} onValueChange={(v) => setSubForm((f) => ({ ...f, projectId: v }))}>
                 <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
-                <SelectContent>
+                <SelectContent portal position="popper" className="max-h-[min(18rem,var(--radix-select-content-available-height))]">
                   <SelectItem value="NONE">None</SelectItem>
                   {projects.map((p) => (
                     <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
@@ -1827,18 +1838,18 @@ function FinancePageInner() {
 
       {/* ─── Expense Add Dialog ──── */}
       <Dialog open={expDialogOpen} onOpenChange={(open) => { setExpDialogOpen(open); if (!open) setExpForm({ category: "", description: "", amount: "", date: "", projectId: "", employeeId: "", paymentRef: "", receiptUrl: "" }); }}>
-        <DialogContent className="sm:max-w-lg max-h-[92dvh] flex flex-col p-0 gap-0">
-          <DialogHeader className="px-5 pt-5 pb-2 shrink-0">
+        <DialogContent className="max-h-[calc(100dvh-1rem)] overflow-hidden p-0 sm:max-w-xl flex flex-col gap-0">
+          <DialogHeader className="shrink-0 border-b border-border/60 px-5 py-4 pr-12">
             <DialogTitle>Add Expense</DialogTitle>
             <DialogDescription>Add a new expense record with optional employee and payment reference.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-3 overflow-y-auto flex-1 min-h-0 px-5 pb-5">
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-5 py-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs">Category *</Label>
                 <Select value={expForm.category} onValueChange={(v) => setExpForm((f) => ({ ...f, category: v }))}>
                   <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
-                  <SelectContent>
+                  <SelectContent portal position="popper" className="max-h-[min(18rem,var(--radix-select-content-available-height))]">
                     {expenseCategories.map((cat) => (
                       <SelectItem key={cat} value={cat}>{formatExpenseCategoryLabel(cat)}</SelectItem>
                     ))}
@@ -1877,7 +1888,7 @@ function FinancePageInner() {
                 <Label className="text-xs">Project</Label>
                 <Select value={expForm.projectId} onValueChange={(v) => setExpForm((f) => ({ ...f, projectId: v }))}>
                   <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
-                  <SelectContent>
+                  <SelectContent portal position="popper" className="max-h-[min(18rem,var(--radix-select-content-available-height))]">
                     <SelectItem value="NONE">None</SelectItem>
                     {projects.map((p) => (
                       <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
@@ -1891,7 +1902,7 @@ function FinancePageInner() {
                 <Label className="text-xs">Employee</Label>
                 <Select value={expForm.employeeId} onValueChange={(v) => setExpForm((f) => ({ ...f, employeeId: v }))}>
                   <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
-                  <SelectContent>
+                  <SelectContent portal position="popper" className="max-h-[min(18rem,var(--radix-select-content-available-height))]">
                     <SelectItem value="NONE">None</SelectItem>
                     {employees.map((emp) => (
                       <SelectItem key={emp.id} value={emp.id}>{emp.name}</SelectItem>

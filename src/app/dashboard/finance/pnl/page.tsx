@@ -10,7 +10,6 @@ import {
   ArrowUpDown,
   ChevronLeft,
   ChevronRight,
-  FileSpreadsheet,
   FileText,
   FileType2,
   LineChart,
@@ -29,7 +28,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { FinanceReportsPanel } from "@/components/dashboard/finance/finance-reports-panel";
+import { FinanceReportSection } from "@/components/dashboard/finance/finance-report-section";
 
 const FILTERS = [
   { key: "profit", label: "Profit", axis: "money" as const },
@@ -143,7 +142,7 @@ export default function PnLPage() {
 
   /** Export the visible P&L span to a finance report saved straight to Drive. */
   const saveReportToDrive = useCallback(
-    async (format: "pdf" | "xlsx" | "docx" | "sheets") => {
+    async (format: "pdf" | "docx" | "sheets") => {
       if (periodList.length === 0) {
         toast.error("No P&L data to export yet");
         return;
@@ -236,6 +235,8 @@ export default function PnLPage() {
         </div>
       </div>
 
+      <FinanceReportSection />
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
         {[
           { label: "Revenue (GBP)", value: totals.revenueGBP },
@@ -299,11 +300,8 @@ export default function PnLPage() {
                 <DropdownMenuItem onClick={() => void saveReportToDrive("pdf")} disabled={savingReport}>
                   <FileText className="h-3.5 w-3.5 mr-2" /> PDF
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => void saveReportToDrive("xlsx")} disabled={savingReport}>
-                  <FileSpreadsheet className="h-3.5 w-3.5 mr-2" /> Excel (XLSX)
-                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => void saveReportToDrive("docx")} disabled={savingReport}>
-                  <FileType2 className="h-3.5 w-3.5 mr-2" /> Word (DOCX)
+                  <FileType2 className="h-3.5 w-3.5 mr-2" /> Google Docs
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => void saveReportToDrive("sheets")} disabled={savingReport}>
                   <Sheet className="h-3.5 w-3.5 mr-2" /> Google Sheets
@@ -422,8 +420,6 @@ export default function PnLPage() {
         </div>
       )}
 
-      {/* ━━ Finance Reports (auto-save to Drive) ━━ */}
-      <FinanceReportsPanel />
     </div>
   );
 }

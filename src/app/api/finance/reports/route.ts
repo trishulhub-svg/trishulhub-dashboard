@@ -17,7 +17,7 @@ import {
   type FinanceReportFormat,
 } from "@/lib/finance-report"
 
-const VALID_FORMATS: FinanceReportFormat[] = ["pdf", "xlsx", "docx", "sheets"]
+const VALID_FORMATS: FinanceReportFormat[] = ["pdf", "docx", "sheets"]
 
 /**
  * GET /api/finance/reports
@@ -70,7 +70,8 @@ export async function GET(req: NextRequest) {
 
 /**
  * POST /api/finance/reports
- * Generate a finance report for a date range (+ optional employee) as PDF/XLSX/DOCX
+ * Generate a finance report for a date range (+ optional employee) as PDF,
+ * Google Sheets or a Google Docs-compatible DOCX
  * and auto-save it to Google Drive + the Files module (Finance Reports → YYYY-MM).
  */
 export async function POST(req: NextRequest) {
@@ -101,7 +102,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "From date must be before To date" }, { status: 400 })
     }
     if (!VALID_FORMATS.includes(formatRaw)) {
-      return NextResponse.json({ error: "Invalid format. Choose pdf, xlsx or docx" }, { status: 400 })
+      return NextResponse.json(
+        { error: "Invalid format. Choose PDF, Google Sheets or Google Docs" },
+        { status: 400 }
+      )
     }
     if (userIdRaw && !/^[a-zA-Z0-9_-]{1,100}$/.test(userIdRaw)) {
       return NextResponse.json({ error: "Invalid userId format" }, { status: 400 })

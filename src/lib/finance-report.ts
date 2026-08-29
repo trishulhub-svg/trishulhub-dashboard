@@ -651,14 +651,16 @@ export async function ensureFinanceReportFolder(
       departmentDriveId,
       "system"
     )
-    // Auto-share with admins so the folder is visible on their Drive
+  }
+
+  // Keep Drive access repaired for existing and newly created Finance Reports
+  // departments, so both SUPER_ADMIN and ADMIN users can open generated files.
     try {
       const { shareNewDepartmentWithAdmins } = await import("@/lib/file-drive-acl")
       await shareNewDepartmentWithAdmins(departmentNodeId)
     } catch (e) {
       console.warn("[finance-report] admin Drive share failed", e)
     }
-  }
 
   // Monthly category folder under Finance Reports
   let month = (

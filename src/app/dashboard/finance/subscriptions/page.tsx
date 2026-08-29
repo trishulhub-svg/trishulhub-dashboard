@@ -28,7 +28,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -41,6 +41,7 @@ import { deepSanitize, safeText, safeNumber } from "@/lib/utils";
 import { formatCurrency } from "@/lib/format";
 import { SubscriptionExpiryBadge } from "@/components/dashboard/finance/subscription-expiry-badge";
 import { SubscriptionExpiryChecker } from "@/components/dashboard/finance/subscription-expiry-checker";
+import { FinanceReportSection } from "@/components/dashboard/finance/finance-report-section";
 import { CATEGORY_BADGE_COLORS } from "@/lib/format";
 import { DEFAULT_EXCHANGE_RATES } from "@/lib/currency";
 
@@ -349,6 +350,8 @@ export default function SubscriptionsPage() {
         </div>
       </PageHeader>
 
+      <FinanceReportSection />
+
       {/* Filters */}
       <Card>
         <CardContent className="p-4">
@@ -516,12 +519,12 @@ export default function SubscriptionsPage() {
 
       {/* Add / Edit Dialog */}
       <Dialog open={subDialogOpen} onOpenChange={(open) => { setSubDialogOpen(open); if (!open) setEditingSub(null); }}>
-        <DialogContent className="sm:max-w-lg max-h-[92dvh] flex flex-col p-0 gap-0">
-          <DialogHeader className="px-5 pt-5 pb-2 shrink-0">
+        <DialogContent className="max-h-[calc(100dvh-1rem)] overflow-hidden p-0 sm:max-w-xl flex flex-col gap-0">
+          <DialogHeader className="shrink-0 border-b border-border/60 px-5 py-4 pr-12">
             <DialogTitle>{editingSub ? "Edit Subscription" : "Add Subscription"}</DialogTitle>
             <DialogDescription>Track a recurring or one-time service cost.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-3 overflow-y-auto flex-1 min-h-0 px-5 pb-5">
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-5 py-4">
             <div className="space-y-1">
               <Label className="text-xs">Service Name *</Label>
               <Input
@@ -540,7 +543,7 @@ export default function SubscriptionsPage() {
                 <Label className="text-xs">Currency</Label>
                 <Select value={subForm.currency} onValueChange={(v) => setSubForm((f) => ({ ...f, currency: v, exchangeRate: String(getRateForCurrency(v)) }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
+                  <SelectContent portal position="popper" className="max-h-[min(18rem,var(--radix-select-content-available-height))]">
                     <SelectItem value="INR">INR ₹</SelectItem>
                     <SelectItem value="USD">USD $</SelectItem>
                     <SelectItem value="GBP">GBP £</SelectItem>
@@ -582,7 +585,7 @@ export default function SubscriptionsPage() {
                 <Label className="text-xs">Status</Label>
                 <Select value={subForm.status} onValueChange={(v) => setSubForm((f) => ({ ...f, status: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
+                  <SelectContent portal position="popper" className="max-h-[min(18rem,var(--radix-select-content-available-height))]">
                     <SelectItem value="ACTIVE">Active</SelectItem>
                     <SelectItem value="STOPPED">Stopped</SelectItem>
                     <SelectItem value="COMPLETED">Completed</SelectItem>
@@ -593,7 +596,7 @@ export default function SubscriptionsPage() {
                 <Label className="text-xs">Frequency</Label>
                 <Select value={subForm.frequency} onValueChange={(v) => setSubForm((f) => ({ ...f, frequency: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
+                  <SelectContent portal position="popper" className="max-h-[min(18rem,var(--radix-select-content-available-height))]">
                     <SelectItem value="MONTHLY">Monthly</SelectItem>
                     <SelectItem value="YEARLY">Yearly</SelectItem>
                     <SelectItem value="ONE_TIME">One Time</SelectItem>
@@ -604,7 +607,7 @@ export default function SubscriptionsPage() {
                 <Label className="text-xs">Category</Label>
                 <Select value={subForm.category} onValueChange={(v) => setSubForm((f) => ({ ...f, category: v }))}>
                   <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
-                  <SelectContent>
+                  <SelectContent portal position="popper" className="max-h-[min(18rem,var(--radix-select-content-available-height))]">
                     <SelectItem value="SOFTWARE">Software</SelectItem>
                     <SelectItem value="HOSTING">Hosting</SelectItem>
                     <SelectItem value="DOMAINS">Domains</SelectItem>
@@ -621,7 +624,7 @@ export default function SubscriptionsPage() {
               <Label className="text-xs">Project</Label>
               <Select value={subForm.projectId} onValueChange={(v) => setSubForm((f) => ({ ...f, projectId: v }))}>
                 <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
-                <SelectContent>
+                <SelectContent portal position="popper" className="max-h-[min(18rem,var(--radix-select-content-available-height))]">
                   <SelectItem value="NONE">None</SelectItem>
                   {projects.map((p) => (
                     <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
@@ -643,11 +646,11 @@ export default function SubscriptionsPage() {
               <Label className="text-xs">Notes</Label>
               <Input value={subForm.notes} onChange={(e) => setSubForm((f) => ({ ...f, notes: e.target.value }))} placeholder="Optional notes" />
             </div>
-            <div className="flex gap-2 justify-end pt-2">
+          </div>
+          <DialogFooter className="shrink-0 border-t border-border/60 bg-background/95 px-5 py-3 backdrop-blur">
               <Button type="button" variant="outline" onClick={() => { setSubDialogOpen(false); setEditingSub(null); }}>Cancel</Button>
               <Button type="button" onClick={() => void handleSaveSubscription()}>{editingSub ? "Update" : "Add"} Subscription</Button>
-            </div>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

@@ -33,6 +33,7 @@ import {
 import { cn, safeText, safeNumber } from "@/lib/utils";
 import { formatDate } from "@/lib/format";
 import { SearchableCombobox } from "@/components/searchable-combobox";
+import { FinanceReportSection } from "@/components/dashboard/finance/finance-report-section";
 
 // ━━ Configurable Constants ━━
 const COMPANY_NAME = process.env.NEXT_PUBLIC_COMPANY_NAME || "TrishulHub";
@@ -920,7 +921,7 @@ function InvoicesPageInner() {
           </DialogTrigger>
           <DialogContent
             formGuardKey="invoice-create"
-            className="flex max-h-[85vh] max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl"
+            className="flex max-h-[calc(100dvh-1rem)] max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl"
             onPointerDownOutside={(e) => {
               const t = e.target as HTMLElement | null
               if (t?.closest?.('[data-slot="popover-content"]')) e.preventDefault()
@@ -934,13 +935,13 @@ function InvoicesPageInner() {
               if (t?.closest?.('[data-slot="popover-content"]')) e.preventDefault()
             }}
           >
-            <DialogHeader className="shrink-0 px-6 pt-6 pb-2">
+            <DialogHeader className="shrink-0 border-b border-border/60 px-6 py-4 pr-12">
               <DialogTitle>Create Invoice</DialogTitle>
               <DialogDescription>
                 Create a new invoice for a client.
               </DialogDescription>
             </DialogHeader>
-            <form onSubmit={handleCreateInvoice} className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-6 pb-6">
+            <form onSubmit={handleCreateInvoice} className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-6 py-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label className="text-xs">Client *</Label>
@@ -1052,6 +1053,8 @@ function InvoicesPageInner() {
         </Dialog>
       </PageHeader>
 
+      <FinanceReportSection />
+
       <CollapsibleStatStrip
         title="Invoice summary"
         storageKey="finance-invoices-stats-open"
@@ -1105,7 +1108,7 @@ function InvoicesPageInner() {
             <SelectTrigger className="w-full sm:w-44 h-9 text-sm rounded-lg">
               <SelectValue placeholder="Filter by status" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent portal position="popper" className="max-h-[min(18rem,var(--radix-select-content-available-height))]">
               <SelectItem value="ALL">All Statuses</SelectItem>
               <SelectItem value="DRAFT">Draft</SelectItem>
               <SelectItem value="SENT">Sent</SelectItem>
@@ -1775,7 +1778,7 @@ function InvoicesPageInner() {
                 <SelectTrigger className="h-9">
                   <SelectValue placeholder="Select method" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent portal position="popper" className="max-h-[min(18rem,var(--radix-select-content-available-height))]">
                   <SelectItem value="NONE">None</SelectItem>
                   {PAYMENT_METHODS.filter((m) => m.value).map((m) => (
                     <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
