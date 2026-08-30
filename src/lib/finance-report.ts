@@ -17,7 +17,7 @@ import {
   ensureRootAndReview,
   uploadDriveFile,
   getDriveFileLink,
-  createGoogleNativeFile,
+  importGoogleWorkspaceFile,
   getSheetsClient,
 } from "@/lib/file-drive"
 
@@ -1025,12 +1025,17 @@ export async function saveFinanceSheetToDrive(opts: {
     }
   }
 
-  const created = await createGoogleNativeFile({
+  // Import the generated workbook as a native Google Sheet via Drive API.
+  // This works with the existing Drive connection even when Sheets API is
+  // disabled in the connected Google Cloud project.
+  const workbook = await renderFinanceXlsx(opts.data)
+  const created = await importGoogleWorkspaceFile({
     name: opts.fileName,
-    type: "sheet",
+    sourceMimeType: FINANCE_REPORT_MIME.xlsx,
+    targetMimeType: GOOGLE_SHEETS_MIME,
     parentId: monthDriveId,
+    body: workbook,
   })
-  await populateFinanceSheet(created.id, buildFinanceSheetTabs(opts.data))
 
   const fileItemId = newId("fi")
   await db.$executeRawUnsafe(

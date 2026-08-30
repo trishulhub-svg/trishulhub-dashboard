@@ -697,6 +697,51 @@ export async function uploadDriveFile(opts: {
   }
 }
 
+/**
+ * Import an Office file as a native Google Workspace file through Drive.
+ * This conversion uses the already-enabled Drive API and does not call the
+ * separate Sheets or Docs APIs.
+ */
+export async function importGoogleWorkspaceFile(opts: {
+  name: string
+  sourceMimeType: string
+  targetMimeType:
+    | "application/vnd.google-apps.spreadsheet"
+    | "application/vnd.google-apps.document"
+  parentId: string
+  body: Buffer
+}): Promise<{ id: string; webViewLink?: string | null; parents?: string[] }> {
+  const drive = await getDriveClient()
+  const parentMeta = await getDriveFileMeta(opts.parentId)
+  if (!parentMeta) {
+    throw new Error(
+      "Upload folder is missing in Google Drive. Open the folder again in Trishulhub (or run Repair Drive folders) then retry."
+    )
+  }
+
+  const { Readable } = await import("stream")
+  const created = await drive.files.create({
+    requestBody: {
+      name: opts.name,
+      mimeType: opts.targetMimeType,
+      parents: [opts.parentId],
+    },
+    media: {
+      mimeType: opts.sourceMimeType,
+      body: Readable.from(opts.body),
+    },
+    fields: "id,webViewLink,parents",
+    supportsAllDrives: true,
+  })
+  if (!created.data.id) throw new Error("Google Workspace import failed")
+
+  return {
+    id: created.data.id,
+    webViewLink: created.data.webViewLink || getDriveFileLink(created.data.id),
+    parents: created.data.parents || [opts.parentId],
+  }
+}
+
 /** Create a native Google Doc / Sheet / Slide in a Drive folder (no upload bytes). */
 export const GOOGLE_NATIVE_MIME: Record<"doc" | "sheet" | "slide", string> = {
   doc: "application/vnd.google-apps.document",

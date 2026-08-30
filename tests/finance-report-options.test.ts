@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildFinanceSheetTabs, type FinanceReportData } from "@/lib/finance-report";
+import {
+  buildFinanceSheetTabs,
+  renderFinanceXlsx,
+  type FinanceReportData,
+} from "@/lib/finance-report";
 
 const reportData: FinanceReportData = {
   period: { from: "2026-08-01", to: "2026-08-29" },
@@ -36,5 +40,13 @@ describe("finance report exports", () => {
     ]);
     expect(tabs.find((tab) => tab.title === "Expenses")?.headers).toContain("Receipt URL");
     expect(tabs.find((tab) => tab.title === "Invoices")?.headers).toContain("Payment Status");
+  });
+
+  it("creates an importable workbook without calling the Google Sheets API", async () => {
+    const workbook = await renderFinanceXlsx(reportData);
+
+    expect(Buffer.isBuffer(workbook)).toBe(true);
+    expect(workbook.byteLength).toBeGreaterThan(1000);
+    expect(workbook.subarray(0, 2).toString()).toBe("PK");
   });
 });
