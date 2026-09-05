@@ -224,8 +224,8 @@ export default function ExpensesPage() {
     frequency: "MONTHLY",
   });
 
-  const resetAddForm = () => {
-    setAddKind("expense");
+  const resetAddForm = (kind: "expense" | "subscription" = "expense") => {
+    setAddKind(kind);
     setAddForm({ category: "", description: "", amount: "", date: "", projectId: "", employeeId: "", paymentRef: "", receiptUrl: "", frequency: "MONTHLY" });
   };
 
@@ -524,7 +524,10 @@ export default function ExpensesPage() {
           </Button>
           <Dialog
             open={addOpen}
-            onOpenChange={(open) => { setAddOpen(open); if (!open) resetAddForm(); }}
+            onOpenChange={(open) => {
+              setAddOpen(open);
+              if (!open) resetAddForm();
+            }}
           >
             <DialogTrigger asChild>
               <Button size="sm">
@@ -555,7 +558,7 @@ export default function ExpensesPage() {
                   <button
                     key={k.id}
                     type="button"
-                    onClick={() => setAddKind(k.id)}
+                    onClick={() => resetAddForm(k.id)}
                     className={cn(
                       "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
                       addKind === k.id ? "bg-background shadow-sm" : "text-muted-foreground"
@@ -571,7 +574,7 @@ export default function ExpensesPage() {
                   <Label className="text-xs font-medium">Category *</Label>
                   <Select value={addForm.category} onValueChange={(v) => setAddForm((f) => ({ ...f, category: v }))}>
                     <SelectTrigger className="rounded-xl"><SelectValue placeholder="Select category" /></SelectTrigger>
-                    <SelectContent portal position="popper">
+                    <SelectContent portal position="popper" className="max-h-[min(18rem,var(--radix-select-content-available-height))]">
                       {categoryNames
                         .filter(
                           (cat) => addKind !== "subscription" || SUBSCRIPTION_CATEGORY_KEYS.has(cat)
@@ -629,7 +632,7 @@ export default function ExpensesPage() {
                   <Label className="text-xs font-medium">Project</Label>
                   <Select value={addForm.projectId} onValueChange={(v) => setAddForm((f) => ({ ...f, projectId: v }))}>
                     <SelectTrigger className="rounded-xl"><SelectValue placeholder="No project" /></SelectTrigger>
-                    <SelectContent portal position="popper">
+                    <SelectContent portal position="popper" className="max-h-[min(18rem,var(--radix-select-content-available-height))]">
                       <SelectItem value="NONE">No Project</SelectItem>
                       {projects.map((p) => (
                         <SelectItem key={p.id} value={p.id}>{safeText(p.name)}</SelectItem>
@@ -650,7 +653,7 @@ export default function ExpensesPage() {
                         onValueChange={(v) => setAddForm((f) => ({ ...f, frequency: v }))}
                       >
                         <SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger>
-                        <SelectContent portal position="popper">
+                        <SelectContent portal position="popper" className="max-h-[min(18rem,var(--radix-select-content-available-height))]">
                           <SelectItem value="MONTHLY">Monthly</SelectItem>
                           <SelectItem value="YEARLY">Yearly</SelectItem>
                           <SelectItem value="ONE_TIME">One time</SelectItem>
@@ -676,7 +679,7 @@ export default function ExpensesPage() {
                       <Label className="text-xs font-medium">Employee</Label>
                       <Select value={addForm.employeeId} onValueChange={(v) => setAddForm((f) => ({ ...f, employeeId: v }))}>
                         <SelectTrigger className="rounded-xl"><SelectValue placeholder="Unassigned" /></SelectTrigger>
-                        <SelectContent portal position="popper">
+                        <SelectContent portal position="popper" className="max-h-[min(18rem,var(--radix-select-content-available-height))]">
                           <SelectItem value="NONE">None</SelectItem>
                           {employees.map((emp) => (
                             <SelectItem key={emp.id} value={emp.id}>{safeText(emp.name)}</SelectItem>
@@ -759,7 +762,10 @@ export default function ExpensesPage() {
       />
 
       {/* ━━ Section: Direct · Subscriptions · Salaries ━━ */}
-      <div className="flex gap-1 rounded-xl border border-border/50 p-1 bg-muted/30 w-fit">
+      <div
+        className="grid w-full grid-cols-3 gap-1 rounded-xl border border-border/50 bg-muted/30 p-1 sm:flex sm:w-fit"
+        aria-label="Expense sections"
+      >
         {(
           [
             { id: "direct" as const, label: "Direct" },
@@ -776,7 +782,7 @@ export default function ExpensesPage() {
               setAddKind(s.id === "subscriptions" ? "subscription" : "expense");
             }}
             className={cn(
-              "px-4 py-1.5 text-xs font-semibold rounded-lg transition-colors",
+              "min-w-0 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors sm:px-4",
               section === s.id ? "bg-background shadow-sm" : "text-muted-foreground"
             )}
           >

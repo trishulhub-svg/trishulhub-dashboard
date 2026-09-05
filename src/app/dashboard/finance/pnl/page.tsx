@@ -10,45 +10,27 @@ import {
   ArrowUpDown,
   ChevronLeft,
   ChevronRight,
-  FileText,
-  FileType2,
-  LineChart,
-  Loader2,
-  Save,
-  Sheet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useFinanceLiveRefresh } from "@/lib/finance-events";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { PageHeader } from "@/components/page-header";
+import { CollapsibleStatStrip } from "@/components/collapsible-stat-strip";
 import { FinanceReportSection } from "@/components/dashboard/finance/finance-report-section";
 
 const FILTERS = [
-  { key: "profit", label: "Profit", axis: "money" as const },
-  { key: "loss", label: "Loss", axis: "money" as const },
-  { key: "revenue", label: "Revenue", axis: "money" as const },
-  { key: "expenses", label: "Expenses", axis: "money" as const },
+  { key: "profit", label: "Recorded result", axis: "money" as const },
+  { key: "loss", label: "Negative result", axis: "money" as const },
+  { key: "revenue", label: "Recorded revenue", axis: "money" as const },
+  { key: "expenses", label: "Recorded costs", axis: "money" as const },
   { key: "salary", label: "Salary", axis: "money" as const },
-  { key: "performance", label: "Employee performance", axis: "money" as const },
-  { key: "projects", label: "Projects", axis: "count" as const },
-  { key: "clients", label: "Clients", axis: "count" as const },
-  { key: "crm", label: "CRM", axis: "count" as const },
-  { key: "time", label: "Time tracking", axis: "count" as const },
-  { key: "audit", label: "Audit", axis: "count" as const },
 ] as const;
 
 type Tab = "normal" | "graph";
 type NormalMode = "month" | "year";
 
-const MONEY_KEYS = new Set(["profit", "loss", "revenue", "expenses", "salary", "performance"]);
-const COUNT_KEYS = new Set(["projects", "clients", "crm", "time", "audit"]);
+const MONEY_KEYS = new Set(["profit", "loss", "revenue", "expenses", "salary"]);
 
 const PnLChart = dynamic(() => import("./pnl-chart"), {
   ssr: false,
@@ -72,7 +54,6 @@ export default function PnLPage() {
   const [windowStart, setWindowStart] = useState(0);
   // Latest period first by default; controller to flip the order.
   const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
-  const [savingReport, setSavingReport] = useState(false);
   const [loading, setLoading] = useState(true);
   const [note, setNote] = useState("");
   const requestId = useRef(0);
@@ -140,52 +121,7 @@ export default function PnLPage() {
     });
   }, [periodList, sortDir]);
 
-  /** Export the visible P&L span to a finance report saved straight to Drive. */
-  const saveReportToDrive = useCallback(
-    async (format: "pdf" | "docx" | "sheets") => {
-      if (periodList.length === 0) {
-        toast.error("No P&L data to export yet");
-        return;
-      }
-      const keys = periodList.map((p) => String(p.key)).sort();
-      const firstKey = keys[0];
-      const lastKey = keys[keys.length - 1];
-      let from: string;
-      let to: string;
-      if (normalMode === "month") {
-        const [ly, lm] = lastKey.split("-").map(Number);
-        const lastDay = new Date(ly, lm, 0).getDate();
-        from = `${firstKey}-01`;
-        to = `${lastKey}-${String(lastDay).padStart(2, "0")}`;
-      } else {
-        from = `${firstKey}-01-01`;
-        to = `${lastKey}-12-31`;
-      }
-      setSavingReport(true);
-      try {
-        const res = await fetch("/api/finance/reports", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ from, to, format }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok) {
-          toast.success(`P&L saved to Drive → Finance Reports`);
-        } else {
-          toast.error((data as { error?: string })?.error || "Failed to save P&L report");
-        }
-      } catch {
-        toast.error("Failed to save P&L report");
-      } finally {
-        setSavingReport(false);
-      }
-    },
-    [periodList, normalMode]
-  );
-
   const hasMoneySeries = selected.some((k) => MONEY_KEYS.has(k));
-  const hasCountSeries = selected.some((k) => COUNT_KEYS.has(k));
 
   const toggle = (key: string) => {
     setSelected((prev) => {
@@ -202,22 +138,16 @@ export default function PnLPage() {
     `£${new Intl.NumberFormat("en-GB", { maximumFractionDigits: 0 }).format(n || 0)}`;
 
   return (
-    <div className="space-y-4 p-4 md:p-6 max-w-6xl mx-auto">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-start gap-2">
-          <Button variant="ghost" size="icon" asChild>
-            <Link href="/dashboard/finance"><ArrowLeft className="h-4 w-4" /></Link>
-          </Button>
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-              <LineChart className="h-6 w-6 text-emerald-600" />
-              P &amp; L with Personal
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Company profit &amp; loss in GBP · Normal table + journey graph
-            </p>
-          </div>
-        </div>
+    <div className="space-y-4">
+      <PageHeader
+        title="P&L"
+        description="Recorded income and business costs in GBP. This is a management view, not an accounting ledger."
+      >
+        <Button variant="outline" size="sm" asChild>
+          <Link href="/dashboard/finance">
+            <ArrowLeft className="mr-1.5 h-4 w-4" /> Finance overview
+          </Link>
+        </Button>
         <div className="flex gap-1 rounded-lg border p-1 bg-muted/30">
           {(["normal", "graph"] as const).map((t) => (
             <button
@@ -233,23 +163,21 @@ export default function PnLPage() {
             </button>
           ))}
         </div>
-      </div>
+      </PageHeader>
 
       <FinanceReportSection />
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        {[
-          { label: "Revenue (GBP)", value: totals.revenueGBP },
-          { label: "Expenses (GBP)", value: totals.expensesGBP },
-          { label: "Salary (GBP)", value: totals.salaryGBP },
-          { label: "Profit (GBP)", value: totals.profitGBP },
-        ].map((c) => (
-          <div key={c.label} className="rounded-xl border bg-background/70 p-3">
-            <p className="text-[11px] text-muted-foreground">{c.label}</p>
-            <p className="text-lg font-bold tabular-nums">{fmt(Number(c.value || 0))}</p>
-          </div>
-        ))}
-      </div>
+      <CollapsibleStatStrip
+        title="P&L summary"
+        storageKey="finance-pnl-stats-open"
+        defaultOpen={false}
+        items={[
+          { key: "revenue", label: "Recorded revenue", value: fmt(Number(totals.revenueGBP || 0)) },
+          { key: "costs", label: "Recorded costs", value: fmt(Number(totals.expensesGBP || 0)) },
+          { key: "salaries", label: "Salaries", value: fmt(Number(totals.salaryGBP || 0)) },
+          { key: "result", label: "Recorded result", value: fmt(Number(totals.profitGBP || 0)) },
+        ]}
+      />
 
       {note && <p className="text-[11px] text-muted-foreground">{note}</p>}
 
@@ -285,44 +213,16 @@ export default function PnLPage() {
               </button>
             </div>
 
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="outline" disabled={savingReport || periodList.length === 0}>
-                  {savingReport ? (
-                    <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-                  ) : (
-                    <Save className="h-3.5 w-3.5 mr-1" />
-                  )}
-                  Save to Drive
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuItem onClick={() => void saveReportToDrive("pdf")} disabled={savingReport}>
-                  <FileText className="h-3.5 w-3.5 mr-2" /> PDF
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => void saveReportToDrive("docx")} disabled={savingReport}>
-                  <FileType2 className="h-3.5 w-3.5 mr-2" /> Google Docs
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => void saveReportToDrive("sheets")} disabled={savingReport}>
-                  <Sheet className="h-3.5 w-3.5 mr-2" /> Google Sheets
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <p className="px-2 py-1 text-[10px] text-muted-foreground leading-snug">
-                  Saved under Finance Reports → period folder as a native Google Sheet, and
-                  appears in Files + Finance → Reports.
-                </p>
-              </DropdownMenuContent>
-            </DropdownMenu>
           </div>
           <div className="rounded-xl border overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
                   <th className="px-3 py-2">{normalMode === "month" ? "Month" : "Year"}</th>
-                  <th className="px-3 py-2">Revenue</th>
-                  <th className="px-3 py-2">Expenses</th>
+                  <th className="px-3 py-2">Recorded revenue</th>
+                  <th className="px-3 py-2">Recorded costs</th>
                   <th className="px-3 py-2">Salary</th>
-                  <th className="px-3 py-2">Profit / Loss</th>
+                  <th className="px-3 py-2">Recorded result</th>
                 </tr>
               </thead>
               <tbody>
@@ -375,12 +275,6 @@ export default function PnLPage() {
               </button>
             ))}
           </div>
-          {hasMoneySeries && hasCountSeries && (
-            <p className="text-[11px] text-muted-foreground">
-              Money (£) uses the left axis · counts use the right axis so lines stay readable.
-            </p>
-          )}
-
           <div className="flex items-center justify-between">
             <Button
               size="sm"
@@ -413,7 +307,6 @@ export default function PnLPage() {
                 data={windowed}
                 selected={selected}
                 hasMoneySeries={hasMoneySeries}
-                hasCountSeries={hasCountSeries}
               />
             )}
           </div>

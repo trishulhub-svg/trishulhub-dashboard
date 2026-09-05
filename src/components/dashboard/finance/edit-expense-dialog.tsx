@@ -220,7 +220,7 @@ export function EditExpenseDialog({
               </Select>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Amount (INR) *</Label>
+              <Label className="text-xs">Amount (GBP) *</Label>
               <Input
                 type="number"
                 step="0.01"

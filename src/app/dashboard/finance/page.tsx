@@ -10,8 +10,6 @@ import {
   ArrowRight,
   Banknote,
   CalendarClock,
-  CheckCircle2,
-  CreditCard,
   FileDown,
   FileText,
   Gauge,
@@ -236,37 +234,31 @@ function FinancePageInner() {
         </Button>
       </PageHeader>
 
-      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+      <div className="grid gap-2 sm:grid-cols-3">
         {[
           {
             href: "/dashboard/finance/invoices",
             icon: FileText,
             title: "Invoices",
-            description: "Create, send and collect",
+            description: "Create, send and collect client billing",
           },
           {
             href: "/dashboard/finance/expenses",
             icon: Receipt,
             title: "Expenses",
-            description: "Track business costs",
-          },
-          {
-            href: "/dashboard/finance/subscriptions",
-            icon: CreditCard,
-            title: "Recurring costs",
-            description: "Tools and renewals",
+            description: "Direct costs, subscriptions and salaries",
           },
           {
             href: "/dashboard/finance/pnl",
             icon: TrendingUp,
-            title: "Cash performance",
-            description: "Monthly and yearly journey",
+            title: "P&L",
+            description: "Recorded revenue, costs and monthly performance",
           },
         ].map((item) => (
           <Link
             key={item.href}
             href={item.href}
-            className="group flex min-w-0 items-center gap-2.5 rounded-lg border bg-card px-3 py-3 transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="group flex min-w-0 items-center gap-2.5 rounded-lg border bg-card px-3 py-3.5 transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <item.icon className="h-4 w-4 shrink-0 text-primary" />
             <span className="min-w-0">
@@ -315,7 +307,7 @@ function FinancePageInner() {
               tone={data.summary.overdue > 0 ? "danger" : "default"}
             />
             <MoneyCard
-              label="Recorded cash result"
+              label="Recorded operating result"
               value={data.summary.recordedResult}
               description="Collected cash minus this month’s recorded costs"
               icon={resultPositive ? TrendingUp : TrendingDown}
