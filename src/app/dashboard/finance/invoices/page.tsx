@@ -233,13 +233,13 @@ function TotalsDisplay({
             checked={!gstEnabled}
             onChange={(e) => onGstEnabledChange(!e.target.checked)}
           />
-          No GST — exclude GST from this invoice
+          No VAT — exclude VAT from this invoice
         </label>
       )}
       {gstEnabled ? (
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <span className="text-muted-foreground">GST</span>
+            <span className="text-muted-foreground">VAT</span>
             <input
               className="w-16 border rounded px-2 py-0.5 text-xs bg-background text-right"
               type="number"
@@ -254,7 +254,7 @@ function TotalsDisplay({
         </div>
       ) : (
         <div className="flex justify-between text-muted-foreground">
-          <span>GST</span>
+          <span>VAT</span>
           <span className="font-medium">Excluded</span>
         </div>
       )}
@@ -306,9 +306,9 @@ function InvoicesPageInner() {
   const [lineItems, setLineItems] = useState<LineItem[]>([
     { description: "Web Development", quantity: 1, rate: 0, amount: 0 },
   ]);
-  // GST optional — default on at 18%; "No GST" sets 0
+  // VAT (UK) optional — default on at 20%; "No VAT" sets 0
   const [gstEnabled, setGstEnabled] = useState(true);
-  const [gstPercent, setGstPercent] = useState<number>(18);
+  const [gstPercent, setGstPercent] = useState<number>(20);
   const [paymentMethod, setPaymentMethod] = useState<string>("");
   const [paymentStatus, setPaymentStatus] = useState<string>("UNPAID");
   const [invoiceNotes, setInvoiceNotes] = useState<string>("");
@@ -316,7 +316,7 @@ function InvoicesPageInner() {
   // ━━ Edit invoice state ━━
   const [editLineItems, setEditLineItems] = useState<LineItem[]>([]);
   const [editGstEnabled, setEditGstEnabled] = useState(true);
-  const [editGstPercent, setEditGstPercent] = useState<number>(18);
+  const [editGstPercent, setEditGstPercent] = useState<number>(20);
   const [editPaymentMethod, setEditPaymentMethod] = useState<string>("");
   const [editPaymentStatus, setEditPaymentStatus] = useState<string>("UNPAID");
   const [editNotes, setEditNotes] = useState<string>("");
@@ -425,7 +425,7 @@ function InvoicesPageInner() {
       { description: "Web Development", quantity: 1, rate: 0, amount: 0 },
     ]);
     setGstEnabled(true);
-    setGstPercent(18);
+    setGstPercent(20);
     setPaymentMethod("");
     setPaymentStatus("UNPAID");
     setInvoiceNotes("");
@@ -469,7 +469,7 @@ function InvoicesPageInner() {
           : (form.get("projectId") as string) || null,
       items: JSON.stringify(items),
       subtotal,
-      // P7A: This system uses GST as its only tax line. Sending tax: 0 (not
+      // P7A: This system uses VAT as its only tax line. Sending tax: 0 (not
       // gstAmount) prevents the totals from being double-counted — the backend
       // recomputes total = subtotal + tax + gst, and validation requires
       // total === subtotal + tax + gst, so tax MUST be 0 here.
@@ -682,7 +682,7 @@ function InvoicesPageInner() {
         : [{ description: "", quantity: 1, rate: 0, amount: 0 }]
     );
     setEditGstEnabled((inv.gstPercent ?? 0) > 0);
-    setEditGstPercent(inv.gstPercent && inv.gstPercent > 0 ? inv.gstPercent : 18);
+    setEditGstPercent(inv.gstPercent && inv.gstPercent > 0 ? inv.gstPercent : 20);
     setEditPaymentMethod(inv.paymentMethod || "");
     setEditPaymentStatus(inv.paymentStatus || "UNPAID");
     setEditNotes(inv.notes || "");
@@ -744,7 +744,7 @@ function InvoicesPageInner() {
             }))
           ),
           subtotal: editSubtotal,
-          // P7A: This system uses GST as its only tax line. Sending tax: 0 (not
+          // P7A: This system uses VAT as its only tax line. Sending tax: 0 (not
           // gstAmount) prevents the totals from being double-counted — the backend
           // recomputes total = subtotal + tax + gst, and validation requires
           // total === subtotal + tax + gst, so tax MUST be 0 here.
@@ -1516,7 +1516,7 @@ function InvoicesPageInner() {
                     {previewInvoice.gstPercent ? (
                       <div className="flex justify-between">
                         <span>
-                          GST ({safeNumber(previewInvoice.gstPercent)}%)
+                          VAT ({safeNumber(previewInvoice.gstPercent)}%)
                         </span>
                         <span>
                           {formatCurrency(

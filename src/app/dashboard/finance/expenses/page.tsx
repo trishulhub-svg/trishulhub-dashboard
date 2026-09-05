@@ -44,6 +44,9 @@ import { FinanceReportSection } from "@/components/dashboard/finance/finance-rep
 // Safety limit for client-side expense aggregation
 const MAX_EXPENSE_FETCH = 500;
 
+// Subscriptions validate against the standard category list (server enum).
+const SUBSCRIPTION_CATEGORY_KEYS = new Set<string>(DEFAULT_EXPENSE_CATEGORIES as readonly string[]);
+
 type ExpenseCategoryRow = { id: string; name: string };
 
 // ━━ Types ━━
@@ -99,7 +102,7 @@ export default function ExpensesPage() {
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("ALL");
-  const [section, setSection] = useState<"general" | "salaries">("general");
+  const [section, setSection] = useState<"direct" | "subscriptions" | "salaries">("direct");
 
   // Edit expense dialog
   const [editExpenseOpen, setEditExpenseOpen] = useState(false);
@@ -213,17 +216,59 @@ export default function ExpensesPage() {
 
   useFinanceLiveRefresh(fetchData);
 
-  // ━━ Add Expense ━━
+  // ━━ Add Expense / Subscription ━━
+  const [addKind, setAddKind] = useState<"expense" | "subscription">("expense");
   const [addForm, setAddForm] = useState({
     category: "", description: "", amount: "", date: "",
     projectId: "", employeeId: "", paymentRef: "", receiptUrl: "",
+    frequency: "MONTHLY",
   });
 
   const resetAddForm = () => {
-    setAddForm({ category: "", description: "", amount: "", date: "", projectId: "", employeeId: "", paymentRef: "", receiptUrl: "" });
+    setAddKind("expense");
+    setAddForm({ category: "", description: "", amount: "", date: "", projectId: "", employeeId: "", paymentRef: "", receiptUrl: "", frequency: "MONTHLY" });
   };
 
-  const handleAddExpense = async () => {
+  const handleAdd = async () => {
+    if (addKind === "subscription") {
+      if (!addForm.category || !addForm.description || !addForm.amount) {
+        toast.error("Category, service name, and amount are required");
+        return;
+      }
+      const payload = {
+        service: addForm.description.trim(),
+        amount: parseFloat(addForm.amount) || 0,
+        currency: "GBP",
+        frequency: addForm.frequency || "MONTHLY",
+        category: addForm.category,
+        projectId: (addForm.projectId && addForm.projectId !== "NONE") ? addForm.projectId : null,
+        startDate: addForm.date || new Date().toISOString().split("T")[0],
+        notes: addForm.paymentRef?.trim() || null,
+      };
+      try {
+        const res = await fetch("/api/subscriptions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(payload),
+        });
+        if (handleFetchError(res, router)) return;
+        if (res.ok) {
+          toast.success("Subscription added");
+          emitFinanceChanged();
+          setAddOpen(false);
+          resetAddForm();
+          fetchData();
+        } else {
+          const data = await res.json().catch(() => ({}));
+          toast.error(safeText(data.error, "Failed to add subscription"));
+        }
+      } catch {
+        toast.error("Failed to add subscription");
+      }
+      return;
+    }
+
     if (!addForm.category || !addForm.description || !addForm.amount) {
       toast.error("Category, description, and amount are required");
       return;
@@ -367,8 +412,14 @@ export default function ExpensesPage() {
     let result = expenses;
     if (section === "salaries") {
       result = result.filter((e) => String(e.category).toUpperCase() === "SALARY");
+    } else if (section === "subscriptions") {
+      result = result.filter(
+        (e) => e.kind === "subscription" && String(e.category).toUpperCase() !== "SALARY"
+      );
     } else {
-      result = result.filter((e) => String(e.category).toUpperCase() !== "SALARY");
+      result = result.filter(
+        (e) => e.kind !== "subscription" && String(e.category).toUpperCase() !== "SALARY"
+      );
     }
     if (categoryFilter !== "ALL") {
       result = result.filter((e) => e.category === categoryFilter);
@@ -477,7 +528,7 @@ export default function ExpensesPage() {
           >
             <DialogTrigger asChild>
               <Button size="sm">
-                <Plus className="h-4 w-4 mr-1" /> Add Expense
+                <Plus className="h-4 w-4 mr-1" /> Add {addKind === "subscription" ? "Subscription" : "Expense"}
               </Button>
             </DialogTrigger>
           <DialogContent
@@ -485,12 +536,35 @@ export default function ExpensesPage() {
             formGuardKey="expense-add"
           >
             <DialogHeader className="shrink-0 border-b border-border/60 px-5 py-4 pr-12">
-              <DialogTitle>Add Expense</DialogTitle>
+              <DialogTitle>{addKind === "subscription" ? "Add Subscription" : "Add Expense"}</DialogTitle>
               <DialogDescription>
-                Add the transaction details. Project, employee and receipt are optional.
+                {addKind === "subscription"
+                  ? "Add a recurring or one-time service cost in GBP. Category and amount are required."
+                  : "Add the transaction details. Project, employee and receipt are optional."}
               </DialogDescription>
             </DialogHeader>
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-4">
+              {/* Row 0: Kind toggle */}
+              <div className="flex w-fit gap-1 rounded-xl border border-border/50 bg-muted/30 p-1">
+                {(
+                  [
+                    { id: "expense" as const, label: "Direct expense" },
+                    { id: "subscription" as const, label: "Subscription" },
+                  ] as const
+                ).map((k) => (
+                  <button
+                    key={k.id}
+                    type="button"
+                    onClick={() => setAddKind(k.id)}
+                    className={cn(
+                      "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
+                      addKind === k.id ? "bg-background shadow-sm" : "text-muted-foreground"
+                    )}
+                  >
+                    {k.label}
+                  </button>
+                ))}
+              </div>
               {/* Row 1: Category + Amount */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
@@ -498,9 +572,13 @@ export default function ExpensesPage() {
                   <Select value={addForm.category} onValueChange={(v) => setAddForm((f) => ({ ...f, category: v }))}>
                     <SelectTrigger className="rounded-xl"><SelectValue placeholder="Select category" /></SelectTrigger>
                     <SelectContent portal position="popper">
-                      {categoryNames.map((cat) => (
-                        <SelectItem key={cat} value={cat}>{formatExpenseCategoryLabel(cat)}</SelectItem>
-                      ))}
+                      {categoryNames
+                        .filter(
+                          (cat) => addKind !== "subscription" || SUBSCRIPTION_CATEGORY_KEYS.has(cat)
+                        )
+                        .map((cat) => (
+                          <SelectItem key={cat} value={cat}>{formatExpenseCategoryLabel(cat)}</SelectItem>
+                        ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -519,11 +597,17 @@ export default function ExpensesPage() {
 
               {/* Row 2: Description */}
               <div className="space-y-1">
-                <Label className="text-xs font-medium">Description *</Label>
+                <Label className="text-xs font-medium">
+                  {addKind === "subscription" ? "Service name *" : "Description *"}
+                </Label>
                 <Input
                   value={addForm.description}
                   onChange={(e) => setAddForm((f) => ({ ...f, description: e.target.value }))}
-                  placeholder="What was this expense for?"
+                  placeholder={
+                    addKind === "subscription"
+                      ? "e.g. Hosting plan, ChatGPT, domain"
+                      : "What was this expense for?"
+                  }
                   className="rounded-xl"
                 />
               </div>
@@ -531,7 +615,9 @@ export default function ExpensesPage() {
               {/* Row 3: Date + Project */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <Label className="text-xs font-medium">Date</Label>
+                  <Label className="text-xs font-medium">
+                    {addKind === "subscription" ? "Start date" : "Date"}
+                  </Label>
                   <Input
                     type="date"
                     value={addForm.date}
@@ -553,49 +639,82 @@ export default function ExpensesPage() {
                 </div>
               </div>
 
-              {/* Row 4: Employee + Payment Ref */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label className="text-xs font-medium">Employee</Label>
-                  <Select value={addForm.employeeId} onValueChange={(v) => setAddForm((f) => ({ ...f, employeeId: v }))}>
-                    <SelectTrigger className="rounded-xl"><SelectValue placeholder="Unassigned" /></SelectTrigger>
-                    <SelectContent portal position="popper">
-                      <SelectItem value="NONE">None</SelectItem>
-                      {employees.map((emp) => (
-                        <SelectItem key={emp.id} value={emp.id}>{safeText(emp.name)}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs font-medium">Payment Ref</Label>
-                  <Input
-                    value={addForm.paymentRef}
-                    onChange={(e) => setAddForm((f) => ({ ...f, paymentRef: e.target.value }))}
-                    placeholder="Transaction ID / reference"
-                    className="rounded-xl"
-                  />
-                </div>
-              </div>
+              {addKind === "subscription" ? (
+                <>
+                  {/* Row 4 (subscription): Frequency + Notes */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs font-medium">Frequency</Label>
+                      <Select
+                        value={addForm.frequency}
+                        onValueChange={(v) => setAddForm((f) => ({ ...f, frequency: v }))}
+                      >
+                        <SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger>
+                        <SelectContent portal position="popper">
+                          <SelectItem value="MONTHLY">Monthly</SelectItem>
+                          <SelectItem value="YEARLY">Yearly</SelectItem>
+                          <SelectItem value="ONE_TIME">One time</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs font-medium">Notes</Label>
+                      <Input
+                        value={addForm.paymentRef}
+                        onChange={(e) => setAddForm((f) => ({ ...f, paymentRef: e.target.value }))}
+                        placeholder="Notes / payment reference"
+                        className="rounded-xl"
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Row 4 (expense): Employee + Payment Ref */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs font-medium">Employee</Label>
+                      <Select value={addForm.employeeId} onValueChange={(v) => setAddForm((f) => ({ ...f, employeeId: v }))}>
+                        <SelectTrigger className="rounded-xl"><SelectValue placeholder="Unassigned" /></SelectTrigger>
+                        <SelectContent portal position="popper">
+                          <SelectItem value="NONE">None</SelectItem>
+                          {employees.map((emp) => (
+                            <SelectItem key={emp.id} value={emp.id}>{safeText(emp.name)}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs font-medium">Payment Ref</Label>
+                      <Input
+                        value={addForm.paymentRef}
+                        onChange={(e) => setAddForm((f) => ({ ...f, paymentRef: e.target.value }))}
+                        placeholder="Transaction ID / reference"
+                        className="rounded-xl"
+                      />
+                    </div>
+                  </div>
 
-              {/* Row 5: Receipt URL */}
-              <div className="space-y-1">
-                <Label className="text-xs font-medium">Receipt URL</Label>
-                <Input
-                  value={addForm.receiptUrl}
-                  onChange={(e) => setAddForm((f) => ({ ...f, receiptUrl: e.target.value }))}
-                  placeholder="https://..."
-                  className="rounded-xl"
-                />
-              </div>
+                  {/* Row 5 (expense): Receipt URL */}
+                  <div className="space-y-1">
+                    <Label className="text-xs font-medium">Receipt URL</Label>
+                    <Input
+                      value={addForm.receiptUrl}
+                      onChange={(e) => setAddForm((f) => ({ ...f, receiptUrl: e.target.value }))}
+                      placeholder="https://..."
+                      className="rounded-xl"
+                    />
+                  </div>
+                </>
+              )}
 
             </div>
             <DialogFooter className="shrink-0 border-t border-border/60 bg-background/95 px-5 py-3 backdrop-blur">
               <Button type="button" variant="outline" onClick={() => setAddOpen(false)} className="rounded-xl">
                 Cancel
               </Button>
-              <Button type="button" onClick={handleAddExpense} className="rounded-xl">
-                <Plus className="h-4 w-4 mr-1" /> Add Expense
+              <Button type="button" onClick={handleAdd} className="rounded-xl">
+                <Plus className="h-4 w-4 mr-1" /> Add {addKind === "subscription" ? "Subscription" : "Expense"}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -639,11 +758,12 @@ export default function ExpensesPage() {
         ]}
       />
 
-      {/* ━━ Section: General vs Salaries ━━ */}
+      {/* ━━ Section: Direct · Subscriptions · Salaries ━━ */}
       <div className="flex gap-1 rounded-xl border border-border/50 p-1 bg-muted/30 w-fit">
         {(
           [
-            { id: "general" as const, label: "General" },
+            { id: "direct" as const, label: "Direct" },
+            { id: "subscriptions" as const, label: "Subscriptions" },
             { id: "salaries" as const, label: "Salaries" },
           ] as const
         ).map((s) => (
@@ -653,6 +773,7 @@ export default function ExpensesPage() {
             onClick={() => {
               setSection(s.id);
               setCategoryFilter("ALL");
+              setAddKind(s.id === "subscriptions" ? "subscription" : "expense");
             }}
             className={cn(
               "px-4 py-1.5 text-xs font-semibold rounded-lg transition-colors",

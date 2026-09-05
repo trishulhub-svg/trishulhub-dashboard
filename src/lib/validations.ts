@@ -157,7 +157,7 @@ export const createInvoiceSchema = z.object({
     return Math.abs(data.total - sub - tax - gst) < 0.01;
   }
   return true; // total not provided — backend will compute it
-}, { message: "total must equal subtotal + tax + gst" })
+  }, { message: "total must equal subtotal + tax + VAT" })
 
 export const updateInvoiceSchema = z.object({
   id: z.string().min(1),
@@ -188,7 +188,7 @@ export const updateInvoiceSchema = z.object({
     return Math.abs(data.total - sub - tax - gst) < 0.01;
   }
   return true; // total not provided — backend will compute it
-}, { message: "total must equal subtotal + tax + gst" })
+  }, { message: "total must equal subtotal + tax + VAT" })
 
 // ━━ Leads ━━
 export const createLeadSchema = z.object({

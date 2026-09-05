@@ -810,7 +810,7 @@ export function buildFinanceSheetTabs(data: FinanceReportData): FinanceSheetTab[
         "Currency",
         "Subtotal",
         "Tax",
-        "GST",
+        "VAT",
         "Total",
         "Due Date",
         "Paid Date",

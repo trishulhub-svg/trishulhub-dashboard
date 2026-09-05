@@ -405,7 +405,7 @@ export async function sendPasswordResetEmail(
 /**
  * Send an invoice email to a client.
  *
- * Builds an HTML email with the invoice details (line items, subtotal, GST, total,
+ * Builds an HTML email with the invoice details (line items, subtotal, VAT, total,
  * due date, notes) and delivers it via the configured SMTP servers using the
  * standard failover pipeline. The email event is logged to the EmailLog table
  * with type="INVOICE" for audit trail / deliverability tracking.
@@ -498,7 +498,7 @@ export async function sendInvoiceEmail(options: {
             <span>Subtotal</span><span>${esc(fmt(sub))}</span>
           </div>
           ${showTaxRow ? `<div style="display:flex; justify-content:space-between; padding: 6px 0; color: #334155; font-size: 14px;"><span>Tax</span><span>${esc(fmt(tax))}</span></div>` : ""}
-          ${showGstRow ? `<div style="display:flex; justify-content:space-between; padding: 6px 0; color: #334155; font-size: 14px;"><span>GST${gstPct > 0 ? ` (${gstPct}%)` : ""}</span><span>${esc(fmt(gst))}</span></div>` : ""}
+          ${showGstRow ? `<div style="display:flex; justify-content:space-between; padding: 6px 0; color: #334155; font-size: 14px;"><span>VAT${gstPct > 0 ? ` (${gstPct}%)` : ""}</span><span>${esc(fmt(gst))}</span></div>` : ""}
           <div style="display:flex; justify-content:space-between; padding: 14px 0 4px; border-top: 2px solid #0f766e; margin-top: 10px; color: #0f172a; font-size: 20px; font-weight: 700;">
             <span>Total</span><span>${esc(fmt(total))}</span>
           </div>
@@ -519,7 +519,7 @@ export async function sendInvoiceEmail(options: {
     "",
     `Subtotal: ${fmt(sub)}`,
     showTaxRow ? `Tax: ${fmt(tax)}` : null,
-    showGstRow ? `GST${gstPct > 0 ? ` (${gstPct}%)` : ""}: ${fmt(gst)}` : null,
+    showGstRow ? `VAT${gstPct > 0 ? ` (${gstPct}%)` : ""}: ${fmt(gst)}` : null,
     `Total: ${fmt(total)}`,
     "",
     inv.notes ? `Notes: ${inv.notes}` : null,

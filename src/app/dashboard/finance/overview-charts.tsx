@@ -1,124 +1,76 @@
 "use client";
 
 import React, { useMemo } from "react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
-import { safeNumber } from "@/lib/utils";
+import {
+  Bar, CartesianGrid, ComposedChart, Line,
+  ResponsiveContainer, Tooltip, XAxis, YAxis,
+} from "recharts";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatCurrency } from "@/lib/format";
 
-interface OverviewChartsProps {
-  revenueData: { month: string; revenue: number; expenses: number }[];
-  expenseData: { name: string; value: number; color: string }[];
+type TrendPoint = { month: string; invoiced: number; collected: number; costs: number };
+
+function compactMoney(value: number) {
+  return new Intl.NumberFormat("en-GB", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
 }
 
-function resolveCssVar(cssVar: string, fallback: string): string {
-  if (typeof window === "undefined") return fallback;
-  const match = cssVar.match(/var\((--[\w-]+)\)/);
-  if (!match) return cssVar;
-  return getComputedStyle(document.documentElement).getPropertyValue(match[1]).trim() || fallback;
-}
-
-const OverviewCharts = React.memo(function OverviewCharts({ revenueData, expenseData }: OverviewChartsProps) {
-  const theme = useMemo(() => {
+const OverviewCharts = React.memo(function OverviewCharts({ data }: { data: TrendPoint[] }) {
+  const colors = useMemo(() => {
     if (typeof window === "undefined") {
-      return {
-        chart1: "oklch(0.52 0.13 160)",
-        muted: "oklch(0.88 0.012 210)",
-        fg: "oklch(0.48 0.02 250)",
-      };
+      return { invoiced: "#2563eb", collected: "#059669", costs: "#dc2626", grid: "#d1d5db", text: "#64748b" };
     }
-    const styles = getComputedStyle(document.documentElement);
+    const style = getComputedStyle(document.documentElement);
     return {
-      chart1: styles.getPropertyValue("--chart-1").trim() || "oklch(0.52 0.13 160)",
-      muted: styles.getPropertyValue("--border").trim() || "oklch(0.88 0.012 210)",
-      fg: styles.getPropertyValue("--muted-foreground").trim() || "oklch(0.48 0.02 250)",
+      invoiced: style.getPropertyValue("--chart-1").trim() || "#2563eb",
+      collected: style.getPropertyValue("--chart-2").trim() || "#059669",
+      costs: style.getPropertyValue("--chart-5").trim() || "#dc2626",
+      grid: style.getPropertyValue("--border").trim() || "#d1d5db",
+      text: style.getPropertyValue("--muted-foreground").trim() || "#64748b",
     };
   }, []);
 
   return (
-    <div className="grid gap-6 md:grid-cols-2">
-      <Card className="liquid-glass-card border-border">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Revenue Trend</CardTitle>
-          <CardDescription>Last 6 months</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="h-64">
-            {revenueData.length === 0 ? (
-              <div className="h-full flex items-center justify-center">
-                <p className="text-sm text-muted-foreground">No revenue data yet</p>
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={revenueData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={theme.muted} opacity={0.6} />
-                  <XAxis dataKey="month" tick={{ fontSize: 12, fill: theme.fg }} axisLine={{ stroke: theme.muted }} tickLine={false} />
-                  <YAxis tick={{ fontSize: 12, fill: theme.fg }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} axisLine={false} tickLine={false} />
-                  <Tooltip
-                    contentStyle={{
-                      background: "var(--card)",
-                      border: "1px solid var(--border)",
-                      borderRadius: "8px",
-                      color: "var(--foreground)",
-                    }}
-                    formatter={(value: number) => [
-                      `£${safeNumber(value).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`,
-                      "Revenue",
-                    ]}
-                  />
-                  <Bar dataKey="revenue" fill={theme.chart1} radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="liquid-glass-card border-border">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Financial Overview</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="h-64 flex items-center justify-center">
-            {expenseData.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No financial data yet</p>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={expenseData}
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={80}
-                    dataKey="value"
-                    label={({ name, percent }: { name: string; percent: number }) =>
-                      `${name} ${(percent * 100).toFixed(0)}%`
-                    }
-                  >
-                    {expenseData.map((entry, i) => (
-                      <Cell
-                        key={i}
-                        fill={entry.color.startsWith("var(") ? resolveCssVar(entry.color, theme.chart1) : entry.color}
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      background: "var(--card)",
-                      border: "1px solid var(--border)",
-                      borderRadius: "8px",
-                      color: "var(--foreground)",
-                    }}
-                    formatter={(value: number) => [
-                      `£${safeNumber(value).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`,
-                    ]}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">Six-month cash journey</CardTitle>
+        <CardDescription>Compare work billed, cash collected and recorded business costs</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="h-72 w-full" aria-label="Six-month invoiced, collected and costs chart">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={colors.grid} opacity={0.55} />
+              <XAxis dataKey="month" tick={{ fontSize: 12, fill: colors.text }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: colors.text }} tickFormatter={compactMoney}
+                axisLine={false} tickLine={false} width={48} />
+              <Tooltip
+                contentStyle={{
+                  background: "var(--card)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "8px",
+                  color: "var(--foreground)",
+                }}
+                formatter={(value: number, name: string) => [
+                  formatCurrency(Number(value || 0)),
+                  name === "invoiced" ? "Invoiced" : name === "collected" ? "Collected" : "Recorded costs",
+                ]}
+              />
+              <Bar dataKey="invoiced" fill={colors.invoiced} radius={[4, 4, 0, 0]} maxBarSize={28} />
+              <Line dataKey="collected" stroke={colors.collected} strokeWidth={2.5} dot={{ r: 3 }} />
+              <Line dataKey="costs" stroke={colors.costs} strokeWidth={2} strokeDasharray="5 4" dot={{ r: 2.5 }} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="mt-3 flex flex-wrap justify-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: colors.invoiced }} /> Invoiced</span>
+          <span className="flex items-center gap-1.5"><span className="h-0.5 w-4" style={{ background: colors.collected }} /> Collected</span>
+          <span className="flex items-center gap-1.5"><span className="h-0.5 w-4" style={{ background: colors.costs }} /> Recorded costs</span>
+        </div>
+      </CardContent>
+    </Card>
   );
 });
 

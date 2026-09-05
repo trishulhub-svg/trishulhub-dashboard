@@ -129,7 +129,7 @@ export async function POST(req: NextRequest) {
     if (total !== undefined && total < 0) return NextResponse.json({ error: "Total cannot be negative" }, { status: 400 })
     if (tax !== undefined && tax < 0) return NextResponse.json({ error: "Tax cannot be negative" }, { status: 400 })
     if (subtotal !== undefined && subtotal < 0) return NextResponse.json({ error: "Subtotal cannot be negative" }, { status: 400 })
-    if (gst !== undefined && gst < 0) return NextResponse.json({ error: "GST cannot be negative" }, { status: 400 })
+if (gst !== undefined && gst < 0) return NextResponse.json({ error: "VAT cannot be negative" }, { status: 400 })
 
     const safeSub = roundMoney(subtotal ?? 0)
     const safeTax = roundMoney(tax ?? 0)
@@ -236,7 +236,7 @@ export async function PATCH(req: NextRequest) {
     if (data.total !== undefined && data.total < 0) return NextResponse.json({ error: "Total cannot be negative" }, { status: 400 })
     if (data.tax !== undefined && data.tax < 0) return NextResponse.json({ error: "Tax cannot be negative" }, { status: 400 })
     if (data.subtotal !== undefined && data.subtotal < 0) return NextResponse.json({ error: "Subtotal cannot be negative" }, { status: 400 })
-    if (data.gst !== undefined && data.gst < 0) return NextResponse.json({ error: "GST cannot be negative" }, { status: 400 })
+if (data.gst !== undefined && data.gst < 0) return NextResponse.json({ error: "VAT cannot be negative" }, { status: 400 })
 
     // M-FIN-1: Sanitize notes and invoiceNumber for stored XSS
     // Record<string, any> used for dynamic field loop assignment — intentional
